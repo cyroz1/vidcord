@@ -2,6 +2,10 @@
 
 This is a simple Python GUI application for compressing video files under Discord's size limits using FFmpeg and PyQt5. The application allows users to drag and drop video files or open them via a file dialog, and convert them to either a low or high-quality preset for free and Nitro users.
 
+## Download
+
+See [releases](https://github.com/cyroz1/vidcord/releases) for the latest binaries for your system.
+
 ## Features
 
 - Drag and drop video files for easy conversion.
