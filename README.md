@@ -1,13 +1,13 @@
 # vidcord
 
-This is a simple Python GUI application for converting video files using FFmpeg. The application allows users to drag and drop video files or open them via a file dialog, and convert them to either a low or high-quality preset.
+This is a simple Python GUI application for compressing video files under Discord's size limits using FFmpeg. The application allows users to drag and drop video files or open them via a file dialog, and convert them to either a low or high-quality preset for Nitro and non-Nitro users.
 
 ## Features
 
 - Drag and drop video files for easy conversion.
 - Select between two quality options:
-  - Low quality: 25MB target size, 480p resolution.
-  - High quality: 50MB target size, 720p resolution.
+  - Low quality (free users): 25MB target size, 480p resolution.
+  - High quality (Nitro users): 50MB target size, 720p resolution.
 - Copies the path of the converted file to the clipboard.
 
 ## Prerequisites
@@ -16,7 +16,7 @@ This is a simple Python GUI application for converting video files using FFmpeg.
 - FFmpeg
 - PyQt5
 
-## Installation
+## Building
 
 1. **Install FFmpeg**:
    - Download and install FFmpeg from [FFmpeg official website](https://ffmpeg.org/download.html).
