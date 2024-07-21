@@ -18,7 +18,7 @@ def get_file_size(file_path):
 def calculate_bitrate(target_size_mb, duration_sec):
     target_size_kb = target_size_mb * 1024
     target_size_kb *= 8
-    bitrate = (target_size_kb / duration_sec) * 0.2
+    bitrate = target_size_kb / duration_sec
     return int(bitrate)
 
 def get_hardware_encoder():
