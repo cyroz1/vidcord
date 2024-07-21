@@ -13,8 +13,8 @@ def get_video_duration(file_path):
 
 def calculate_bitrate(target_size_mb, duration_sec):
     target_size_kb = target_size_mb * 1024
-    target_size_kb *= 8  # Convert MB to kb (1 byte = 8 bits)
-    bitrate = target_size_kb / duration_sec  # kbps
+    target_size_kb *= 8
+    bitrate = target_size_kb / duration_sec
     return int(bitrate)
 
 class FFmpegGUI(QWidget):
@@ -66,10 +66,10 @@ class FFmpegGUI(QWidget):
     def convertVideo(self, filePath):
         quality = self.qualityComboBox.currentText()
         if "Low" in quality:
-            target_size_mb = 25  # Target file size in MB
+            target_size_mb = 25
             resolution = "480p"
         else:
-            target_size_mb = 50  # Target file size in MB
+            target_size_mb = 50
             resolution = "720p"
             
         duration = get_video_duration(filePath)
@@ -83,7 +83,6 @@ class FFmpegGUI(QWidget):
         subprocess.run(command)
         self.label.setText(f'Conversion complete: {output_file}')
         
-        # Copy the path of the converted file to the clipboard
         self.copyToClipboard(os.path.abspath(output_file))
 
     def copyToClipboard(self, filePath):
