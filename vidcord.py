@@ -11,10 +11,14 @@ def get_video_duration(file_path):
     result = subprocess.run(shlex.split(command), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     return float(result.stdout.strip())
 
+def get_file_size(file_path):
+    """Returns the size of the file in bytes."""
+    return os.path.getsize(file_path)
+
 def calculate_bitrate(target_size_mb, duration_sec):
     target_size_kb = target_size_mb * 1024
     target_size_kb *= 8
-    bitrate = target_size_kb / duration_sec
+    bitrate = (target_size_kb / duration_sec) * 0.2
     return int(bitrate)
 
 def get_hardware_encoder():
@@ -89,10 +93,10 @@ class vidcord(QWidget):
         quality = self.qualityComboBox.currentText()
         if "Low" in quality:
             target_size_mb = 25
-            resolution = "480p"
+            resolution = "854x480"
         else:
             target_size_mb = 50
-            resolution = "720p"
+            resolution = "1280x720"
             
         duration = get_video_duration(filePath)
         target_bitrate = calculate_bitrate(target_size_mb, duration)
@@ -105,18 +109,13 @@ class vidcord(QWidget):
 
         command = [
             'ffmpeg', '-i', filePath, '-c:v', self.encoder, '-b:v', f'{target_bitrate}k', '-maxrate', f'{target_bitrate}k',
-            '-bufsize', f'{2*target_bitrate}k', '-vf', f'scale=-1:{resolution}', output_file
+            '-bufsize', f'{target_bitrate}k', '-vf', f'scale={resolution}', output_file
         ]
+        
         subprocess.run(command)
         self.label.setText(f'Conversion complete: {output_file}')
         
-        self.copyToClipboard(os.path.abspath(output_file))
         self.showInFileExplorer(output_file)
-
-    def copyToClipboard(self, filePath):
-        clipboard = QApplication.clipboard()
-        clipboard.setText(filePath, QClipboard.Clipboard)
-        self.label.setText(f'Conversion complete: {filePath} (copied to clipboard)')
 
     def showInFileExplorer(self, filePath):
         abs_path = os.path.abspath(filePath)
