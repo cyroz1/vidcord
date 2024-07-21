@@ -28,7 +28,7 @@ def get_hardware_encoder():
     elif 'h264_videotoolbox' in encoder_list:
         return 'h264_videotoolbox'
     else:
-        return 'libx264'  # fallback to software encoding
+        return 'libx264'
 
 class vidcord(QWidget):
     def __init__(self, file_path=None):
@@ -50,12 +50,13 @@ class vidcord(QWidget):
         self.qualityComboBox.addItem("High (50MB, 720p)")
         self.layout.addWidget(self.qualityComboBox)
         
-        self.convertButton = QPushButton('Convert', self)
-        self.convertButton.clicked.connect(self.openFileDialog)
-        self.layout.addWidget(self.convertButton)
+        self.openButton = QPushButton('Choose a file to convert', self)
+        self.openButton.clicked.connect(self.openFileDialog)
+        self.layout.addWidget(self.openButton)
         
-        if self.file_path:
-            self.convertVideo(self.file_path)
+        self.convertButton = QPushButton('Convert', self)
+        self.convertButton.clicked.connect(self.convertVideoFromButton)
+        self.layout.addWidget(self.convertButton)
         
         self.setLayout(self.layout)
         self.setWindowTitle('vidcord')
@@ -73,10 +74,17 @@ class vidcord(QWidget):
 
     def openFileDialog(self):
         options = QFileDialog.Options()
-        fileName, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "", "All Files (*);;Video Files (*.mp4 *.avi)", options=options)
+        fileName, _ = QFileDialog.getOpenFileName(self, "Choose a video file to convert", "", "All Files (*);;Video Files (*.mp4 *.avi)", options=options)
         if fileName:
-            self.convertVideo(fileName)
+            self.file_path = fileName
+            self.label.setText(f'Selected file: {fileName}')
             
+    def convertVideoFromButton(self):
+        if self.file_path:
+            self.convertVideo(self.file_path)
+        else:
+            self.label.setText("No file selected for conversion")
+
     def convertVideo(self, filePath):
         quality = self.qualityComboBox.currentText()
         if "Low" in quality:
@@ -89,7 +97,12 @@ class vidcord(QWidget):
         duration = get_video_duration(filePath)
         target_bitrate = calculate_bitrate(target_size_mb, duration)
         
-        output_file = 'vidcord.mp4'
+        options = QFileDialog.Options()
+        output_file, _ = QFileDialog.getSaveFileName(self, "Save Converted Video", "", "MP4 Files (*.mp4);;All Files (*)", options=options)
+        if not output_file:
+            self.label.setText("Conversion cancelled")
+            return
+
         command = [
             'ffmpeg', '-i', filePath, '-c:v', self.encoder, '-b:v', f'{target_bitrate}k', '-maxrate', f'{target_bitrate}k',
             '-bufsize', f'{2*target_bitrate}k', '-vf', f'scale=-1:{resolution}', output_file
@@ -98,11 +111,21 @@ class vidcord(QWidget):
         self.label.setText(f'Conversion complete: {output_file}')
         
         self.copyToClipboard(os.path.abspath(output_file))
+        self.showInFileExplorer(output_file)
 
     def copyToClipboard(self, filePath):
         clipboard = QApplication.clipboard()
         clipboard.setText(filePath, QClipboard.Clipboard)
         self.label.setText(f'Conversion complete: {filePath} (copied to clipboard)')
+
+    def showInFileExplorer(self, filePath):
+        abs_path = os.path.abspath(filePath)
+        if sys.platform == 'win32':
+            subprocess.run(['explorer', '/select,', abs_path])
+        elif sys.platform == 'darwin':
+            subprocess.run(['open', '-R', abs_path])
+        elif sys.platform.startswith('linux'):
+            subprocess.run(['xdg-open', os.path.dirname(abs_path)])
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
