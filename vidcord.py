@@ -11,10 +11,6 @@ def get_video_duration(file_path):
     result = subprocess.run(shlex.split(command), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     return float(result.stdout.strip())
 
-def get_file_size(file_path):
-    """Returns the size of the file in bytes."""
-    return os.path.getsize(file_path)
-
 def calculate_bitrate(target_size_mb, duration_sec):
     target_size_kb = target_size_mb * 1024
     target_size_kb *= 8
