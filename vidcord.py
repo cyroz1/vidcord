@@ -17,11 +17,25 @@ def calculate_bitrate(target_size_mb, duration_sec):
     bitrate = target_size_kb / duration_sec
     return int(bitrate)
 
+def get_hardware_encoder():
+    encoders = subprocess.run(['ffmpeg', '-hide_banner', '-encoders'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    encoder_list = encoders.stdout
+    
+    if 'h264_nvenc' in encoder_list:
+        return 'h264_nvenc'
+    elif 'h264_amf' in encoder_list:
+        return 'h264_amf'
+    elif 'h264_videotoolbox' in encoder_list:
+        return 'h264_videotoolbox'
+    else:
+        return 'libx264'  # fallback to software encoding
+
 class FFmpegGUI(QWidget):
     def __init__(self, file_path=None):
         super().__init__()
 
         self.file_path = file_path
+        self.encoder = get_hardware_encoder()
         self.initUI()
         
     def initUI(self):
@@ -77,7 +91,7 @@ class FFmpegGUI(QWidget):
         
         output_file = 'output.mp4'
         command = [
-            'ffmpeg', '-i', filePath, '-b:v', f'{target_bitrate}k', '-maxrate', f'{target_bitrate}k',
+            'ffmpeg', '-i', filePath, '-c:v', self.encoder, '-b:v', f'{target_bitrate}k', '-maxrate', f'{target_bitrate}k',
             '-bufsize', f'{2*target_bitrate}k', '-vf', f'scale=-1:{resolution}', output_file
         ]
         subprocess.run(command)
