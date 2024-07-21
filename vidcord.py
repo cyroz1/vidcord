@@ -30,7 +30,7 @@ def get_hardware_encoder():
     else:
         return 'libx264'  # fallback to software encoding
 
-class FFmpegGUI(QWidget):
+class vidcord(QWidget):
     def __init__(self, file_path=None):
         super().__init__()
 
@@ -58,7 +58,7 @@ class FFmpegGUI(QWidget):
             self.convertVideo(self.file_path)
         
         self.setLayout(self.layout)
-        self.setWindowTitle('FFmpeg GUI')
+        self.setWindowTitle('vidcord')
         self.show()
     
     def dragEnterEvent(self, event: QDragEnterEvent):
@@ -89,7 +89,7 @@ class FFmpegGUI(QWidget):
         duration = get_video_duration(filePath)
         target_bitrate = calculate_bitrate(target_size_mb, duration)
         
-        output_file = 'output.mp4'
+        output_file = 'vidcord.mp4'
         command = [
             'ffmpeg', '-i', filePath, '-c:v', self.encoder, '-b:v', f'{target_bitrate}k', '-maxrate', f'{target_bitrate}k',
             '-bufsize', f'{2*target_bitrate}k', '-vf', f'scale=-1:{resolution}', output_file
@@ -107,5 +107,5 @@ class FFmpegGUI(QWidget):
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     file_path = sys.argv[1] if len(sys.argv) > 1 else None
-    ex = FFmpegGUI(file_path)
+    ex = vidcord(file_path)
     sys.exit(app.exec_())
