@@ -20,12 +20,10 @@ See [releases](https://github.com/cyroz1/vidcord/releases) for the latest binari
 1. **Install Python**
    - Download and install Python from [Python official website](https://www.python.org/downloads/).
 
-1. **Install FFmpeg**:
-   - Download and install FFmpeg from [FFmpeg official website](https://ffmpeg.org/download.html).
-
 2. **Install Python dependencies**:
    ```sh
    pip install PyQt5
+   pip install ffmpeg-python
    ```
 
 3. **Run the application**:
