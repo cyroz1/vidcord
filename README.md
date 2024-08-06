@@ -8,8 +8,7 @@ See [releases](https://github.com/cyroz1/vidcord/releases) for the latest binari
 
 ## Features
 
-- Drag and drop video files for easy conversion.
-- Right click video files in the File Explorer and select quality (experimental).
+- Drag and drop or browse video files for easy conversion.
 - Select between two quality options:
   - Low quality (free users): 25MB target size, 480p resolution.
   - High quality (Nitro users): 50MB target size, 720p resolution.
