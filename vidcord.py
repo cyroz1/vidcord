@@ -1,6 +1,8 @@
 import sys
 import os
 import argparse
+import subprocess
+import shlex
 import ffmpeg
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox
 from PyQt5.QtCore import Qt, QUrl
@@ -19,22 +21,25 @@ def calculate_bitrate(target_size_mb, duration_sec, audio_bitrate=128):
     target_size_kb = target_size_mb * 1024 * 8  # Convert MB to kilobits
     audio_bitrate_kb = audio_bitrate * duration_sec  # Audio bitrate in kilobits
     video_bitrate = (target_size_kb - audio_bitrate_kb) / duration_sec
-    return int(video_bitrate)
+    return int(video_bitrate * 0.8)
 
 def get_hardware_encoder():
     try:
-        encoders = ffmpeg.probe('-encoders', v='error', show_entries='programs', format='default')
-        encoder_list = encoders['programs']
-        
-        if any(e['name'] == 'h264_nvenc' for e in encoder_list):
+        # Get the list of encoders
+        encoders_output = subprocess.run(
+            shlex.split('ffmpeg -hide_banner -encoders'),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        ).stdout
+
+        if 'h264_nvenc' in encoders_output:
             return 'h264_nvenc'
-        elif any(e['name'] == 'h264_amf' for e in encoder_list):
+        elif 'h264_amf' in encoders_output:
             return 'h264_amf'
-        elif any(e['name'] == 'h264_videotoolbox' for e in encoder_list):
+        elif 'h264_videotoolbox' in encoders_output:
             return 'h264_videotoolbox'
         else:
             return 'libx264'
-    except ffmpeg.Error as e:
+    except Exception as e:
         print(f"Error getting hardware encoders: {e}")
         return 'libx264'
 
