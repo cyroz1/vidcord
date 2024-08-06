@@ -1,6 +1,5 @@
 import sys
 import os
-import argparse
 import subprocess
 import shlex
 import ffmpeg
@@ -44,11 +43,11 @@ def get_hardware_encoder():
         return 'libx264'
 
 class vidcord(QWidget):
-    def __init__(self, file_path=None, quality="low"):
+    def __init__(self):
         super().__init__()
 
-        self.file_path = file_path
-        self.quality = quality
+        self.file_path = None
+        self.quality = "low"  # Default quality
         self.encoder = get_hardware_encoder()
         self.initUI()
         
@@ -63,9 +62,6 @@ class vidcord(QWidget):
         self.qualityComboBox.addItem("Low (25MB, 480p)")
         self.qualityComboBox.addItem("High (50MB, 720p)")
         self.layout.addWidget(self.qualityComboBox)
-        
-        if self.quality == "high":
-            self.qualityComboBox.setCurrentIndex(1)
         
         self.openButton = QPushButton('Choose a file to convert', self)
         self.openButton.clicked.connect(self.openFileDialog)
@@ -138,11 +134,6 @@ class vidcord(QWidget):
             subprocess.run(['xdg-open', os.path.dirname(abs_path)])
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Video converter')
-    parser.add_argument('--quality', type=str, choices=['low', 'high'], default='low')
-    parser.add_argument('file', nargs='?', default=None)
-    args = parser.parse_args()
-    
     app = QApplication(sys.argv)
-    ex = vidcord(args.file, args.quality)
+    ex = vidcord()
     sys.exit(app.exec_())
