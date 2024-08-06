@@ -13,7 +13,7 @@ See [releases](https://github.com/cyroz1/vidcord/releases) for the latest binari
 - Select between two quality options:
   - Low quality (free users): 25MB target size, 480p resolution.
   - High quality (Nitro users): 50MB target size, 720p resolution.
-- Opens converted file in Explorer and copies the path.
+- Highlights converted file in its output path in File Explorer.
 
 ## Building
 
@@ -35,7 +35,7 @@ See [releases](https://github.com/cyroz1/vidcord/releases) for the latest binari
 
 - Either drag and drop a video file into the application window, or click the button to open a file dialog and select a video file.
 - Choose the desired quality (Low or High) from the dropdown menu.
-- The conversion will start automatically, and the converted file path will be highlighted in the Explorer upon completion.
+- The conversion will start automatically, and the converted file path will be highlighted in the File Explorer upon completion.
 
 ## Acknowledgements
 
