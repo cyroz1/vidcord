@@ -4,17 +4,18 @@ import shlex
 import os
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox
 from PyQt5.QtCore import Qt, QUrl
-from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QClipboard
+from PyQt5.QtGui import QDragEnterEvent, QDropEvent
 
 def get_video_duration(file_path):
     command = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "{file_path}"'
     result = subprocess.run(shlex.split(command), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     return float(result.stdout.strip())
 
-def calculate_bitrate(target_size_mb, duration_sec):
-    target_size_kb = target_size_mb * 1024
-    bitrate = target_size_kb / duration_sec
-    return int(bitrate)
+def calculate_bitrate(target_size_mb, duration_sec, audio_bitrate=128):
+    target_size_kb = target_size_mb * 1024 * 8  # Convert MB to kilobits
+    audio_bitrate_kb = audio_bitrate * duration_sec  # Audio bitrate in kilobits
+    video_bitrate = (target_size_kb - audio_bitrate_kb) / duration_sec
+    return int(video_bitrate)
 
 def get_hardware_encoder():
     encoders = subprocess.run(['ffmpeg', '-hide_banner', '-encoders'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -85,33 +86,35 @@ class vidcord(QWidget):
             self.label.setText("No file selected for conversion")
 
     def convertVideo(self, filePath):
-        quality = self.qualityComboBox.currentText()
-        if "Low" in quality:
-            target_size_mb = 25
-            resolution = "854x480"
-        else:
-            target_size_mb = 50
-            resolution = "1280x720"
+        try:
+            quality = self.qualityComboBox.currentText()
+            if "Low" in quality:
+                target_size_mb = 25
+                resolution = "854x480"
+            else:
+                target_size_mb = 50
+                resolution = "1280x720"
+                
+            duration = get_video_duration(filePath)
+            target_bitrate = calculate_bitrate(target_size_mb, duration)
             
-        duration = get_video_duration(filePath)
-        target_bitrate = calculate_bitrate(target_size_mb, duration)
-        
-        options = QFileDialog.Options()
-        output_file, _ = QFileDialog.getSaveFileName(self, "Save Converted Video", "", "MP4 Files (*.mp4);;All Files (*)", options=options)
-        if not output_file:
-            self.label.setText("Conversion cancelled")
-            return
+            options = QFileDialog.Options()
+            output_file, _ = QFileDialog.getSaveFileName(self, "Save Converted Video", "", "MP4 Files (*.mp4);;All Files (*)", options=options)
+            if not output_file:
+                self.label.setText("Conversion cancelled")
+                return
 
-        command = [
-            'ffmpeg', '-i', filePath, '-c:v', self.encoder, '-b:v', f'{target_bitrate}k', '-maxrate', f'{target_bitrate}k',
-            '-bufsize', f'{target_bitrate*2}k', '-vf', f'scale={resolution}', output_file
-        ]
-        
-        subprocess.run(command)
-        self.label.setText(f'Conversion complete: {output_file}')
-        
-        self.showInFileExplorer(output_file)
-
+            command = [
+                'ffmpeg', '-i', filePath, '-c:v', self.encoder, '-b:v', f'{target_bitrate}k', '-maxrate', f'{target_bitrate}k',
+                '-bufsize', f'{target_bitrate*2}k', '-vf', f'scale={resolution}', '-c:a', 'aac', '-b:a', '128k', output_file
+            ]
+            
+            subprocess.run(command, check=True)
+            self.label.setText(f'Conversion complete: {output_file}')
+            self.showInFileExplorer(output_file)
+        except Exception as e:
+            self.label.setText(f"Error during conversion: {str(e)}")
+    
     def showInFileExplorer(self, filePath):
         abs_path = os.path.abspath(filePath)
         if sys.platform == 'win32':
