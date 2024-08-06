@@ -9,11 +9,11 @@ See [releases](https://github.com/cyroz1/vidcord/releases) for the latest binari
 ## Features
 
 - Drag and drop video files for easy conversion.
-- Right click video files in the File Explorer and select vidcord.
+- Right click video files in the File Explorer and select quality (experimental).
 - Select between two quality options:
   - Low quality (free users): 25MB target size, 480p resolution.
   - High quality (Nitro users): 50MB target size, 720p resolution.
-- Copies the path of the converted file to the clipboard.
+- Opens converted file in Explorer and copies the path.
 
 ## Building
 
@@ -37,7 +37,7 @@ See [releases](https://github.com/cyroz1/vidcord/releases) for the latest binari
 
 - Either drag and drop a video file into the application window, or click the button to open a file dialog and select a video file.
 - Choose the desired quality (Low or High) from the dropdown menu.
-- The conversion will start automatically, and the converted file path will be copied to the clipboard upon completion.
+- The conversion will start automatically, and the converted file path will be highlighted in the Explorer upon completion.
 
 ## Acknowledgements
 
