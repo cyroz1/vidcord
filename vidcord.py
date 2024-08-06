@@ -1,16 +1,19 @@
 import sys
-import subprocess
-import shlex
 import os
 import argparse
+import ffmpeg
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox
 from PyQt5.QtCore import Qt, QUrl
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent
 
 def get_video_duration(file_path):
-    command = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "{file_path}"'
-    result = subprocess.run(shlex.split(command), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    return float(result.stdout.strip())
+    try:
+        probe = ffmpeg.probe(file_path, v='error', show_entries='format=duration', format='default')
+        duration = float(probe['format']['duration'])
+        return duration
+    except ffmpeg.Error as e:
+        print(f"Error probing video file: {e}")
+        raise
 
 def calculate_bitrate(target_size_mb, duration_sec, audio_bitrate=128):
     target_size_kb = target_size_mb * 1024 * 8  # Convert MB to kilobits
@@ -19,16 +22,20 @@ def calculate_bitrate(target_size_mb, duration_sec, audio_bitrate=128):
     return int(video_bitrate)
 
 def get_hardware_encoder():
-    encoders = subprocess.run(['ffmpeg', '-hide_banner', '-encoders'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    encoder_list = encoders.stdout
-    
-    if 'h264_nvenc' in encoder_list:
-        return 'h264_nvenc'
-    elif 'h264_amf' in encoder_list:
-        return 'h264_amf'
-    elif 'h264_videotoolbox' in encoder_list:
-        return 'h264_videotoolbox'
-    else:
+    try:
+        encoders = ffmpeg.probe('-encoders', v='error', show_entries='programs', format='default')
+        encoder_list = encoders['programs']
+        
+        if any(e['name'] == 'h264_nvenc' for e in encoder_list):
+            return 'h264_nvenc'
+        elif any(e['name'] == 'h264_amf' for e in encoder_list):
+            return 'h264_amf'
+        elif any(e['name'] == 'h264_videotoolbox' for e in encoder_list):
+            return 'h264_videotoolbox'
+        else:
+            return 'libx264'
+    except ffmpeg.Error as e:
+        print(f"Error getting hardware encoders: {e}")
         return 'libx264'
 
 class vidcord(QWidget):
@@ -109,12 +116,8 @@ class vidcord(QWidget):
                 self.label.setText("Conversion cancelled")
                 return
 
-            command = [
-                'ffmpeg', '-i', filePath, '-c:v', self.encoder, '-b:v', f'{target_bitrate}k', '-maxrate', f'{target_bitrate}k',
-                '-bufsize', f'{target_bitrate*2}k', '-vf', f'scale={resolution}', '-c:a', 'aac', '-b:a', '128k', output_file
-            ]
-            
-            subprocess.run(command, check=True)
+            ffmpeg.input(filePath).output(output_file, vcodec=self.encoder, video_bitrate=f'{target_bitrate}k', 
+                                         vf=f'scale={resolution}', acodec='aac', ab='128k').run()
             self.label.setText(f'Conversion complete: {output_file}')
             self.showInFileExplorer(output_file)
         except Exception as e:
