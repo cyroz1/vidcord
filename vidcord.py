@@ -13,7 +13,6 @@ def get_video_duration(file_path):
 
 def calculate_bitrate(target_size_mb, duration_sec):
     target_size_kb = target_size_mb * 1024
-    target_size_kb *= 8
     bitrate = target_size_kb / duration_sec
     return int(bitrate)
 
@@ -105,7 +104,7 @@ class vidcord(QWidget):
 
         command = [
             'ffmpeg', '-i', filePath, '-c:v', self.encoder, '-b:v', f'{target_bitrate}k', '-maxrate', f'{target_bitrate}k',
-            '-bufsize', f'{target_bitrate}k', '-vf', f'scale={resolution}', output_file
+            '-bufsize', f'{target_bitrate*2}k', '-vf', f'scale={resolution}', output_file
         ]
         
         subprocess.run(command)
