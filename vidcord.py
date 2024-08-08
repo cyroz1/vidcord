@@ -22,24 +22,25 @@ def calculate_bitrate(target_size_mb, duration_sec, audio_bitrate=128):
     video_bitrate = (target_size_kb - audio_bitrate_kb) / duration_sec
     return int(video_bitrate * 0.9)
 
-def get_hardware_encoder():
+def get_available_encoders():
     try:
         encoders_output = subprocess.run(
             shlex.split('ffmpeg -hide_banner -encoders'),
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         ).stdout
 
+        encoders = []
         if 'h264_nvenc' in encoders_output:
-            return 'h264_nvenc'
-        elif 'h264_amf' in encoders_output:
-            return 'h264_amf'
-        elif 'h264_videotoolbox' in encoders_output:
-            return 'h264_videotoolbox'
-        else:
-            return 'libx264'
+            encoders.append('h264_nvenc')
+        if 'h264_amf' in encoders_output:
+            encoders.append('h264_amf')
+        if 'h264_videotoolbox' in encoders_output:
+            encoders.append('h264_videotoolbox')
+        encoders.append('libx264')
+        return encoders
     except Exception as e:
         print(f"Error getting hardware encoders: {e}")
-        return 'libx264'
+        return ['libx264']
 
 class vidcord(QWidget):
     def __init__(self):
@@ -47,7 +48,6 @@ class vidcord(QWidget):
 
         self.file_path = None
         self.quality = "low"
-        self.encoder = get_hardware_encoder()
         self.initUI()
         
     def initUI(self):
@@ -61,6 +61,11 @@ class vidcord(QWidget):
         self.qualityComboBox.addItem("Low (25MB, 480p)")
         self.qualityComboBox.addItem("High (50MB, 720p)")
         self.layout.addWidget(self.qualityComboBox)
+
+        self.encoderComboBox = QComboBox(self)
+        for encoder in get_available_encoders():
+            self.encoderComboBox.addItem(encoder)
+        self.layout.addWidget(self.encoderComboBox)
 
         self.startTimeInput = QLineEdit(self)
         self.startTimeInput.setPlaceholderText("Start time (seconds)")
@@ -132,6 +137,8 @@ class vidcord(QWidget):
 
             clip_duration = end_time - start_time
             target_bitrate = calculate_bitrate(target_size_mb, clip_duration)
+
+            selected_encoder = self.encoderComboBox.currentText()
             
             options = QFileDialog.Options()
             output_file, _ = QFileDialog.getSaveFileName(self, "Save Converted Video", "", "MP4 Files (*.mp4);;All Files (*)", options=options)
@@ -140,7 +147,7 @@ class vidcord(QWidget):
                 return
 
             ffmpeg.input(filePath, ss=start_time, t=clip_duration).output(
-                output_file, vcodec=self.encoder, video_bitrate=f'{target_bitrate}k', 
+                output_file, vcodec=selected_encoder, video_bitrate=f'{target_bitrate}k', 
                 vf=f'scale={resolution}', acodec='aac', ab='128k'
             ).run()
 
