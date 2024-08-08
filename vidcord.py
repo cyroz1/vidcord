@@ -17,14 +17,13 @@ def get_video_duration(file_path):
         raise
 
 def calculate_bitrate(target_size_mb, duration_sec, audio_bitrate=128):
-    target_size_kb = target_size_mb * 1024 * 8  # Convert MB to kilobits
-    audio_bitrate_kb = audio_bitrate * duration_sec  # Audio bitrate in kilobits
+    target_size_kb = target_size_mb * 1024 * 8
+    audio_bitrate_kb = audio_bitrate * duration_sec
     video_bitrate = (target_size_kb - audio_bitrate_kb) / duration_sec
     return int(video_bitrate * 0.8)
 
 def get_hardware_encoder():
     try:
-        # Get the list of encoders
         encoders_output = subprocess.run(
             shlex.split('ffmpeg -hide_banner -encoders'),
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -47,7 +46,7 @@ class vidcord(QWidget):
         super().__init__()
 
         self.file_path = None
-        self.quality = "low"  # Default quality
+        self.quality = "low"
         self.encoder = get_hardware_encoder()
         self.initUI()
         
