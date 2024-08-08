@@ -14,8 +14,8 @@ See [latest release](https://github.com/cyroz1/vidcord/releases/latest) to downl
 - Select between two quality options:
   - Low quality (free users): 25MB target size, 480p resolution.
   - High quality (Nitro users): 50MB target size, 720p resolution.
+- Chose between hardware and software encoders.
 - Set the starting and ending point of the output clip in seconds.
-- Multiple hardware and software encoders to choose from.
 - Highlights converted file in its output path in File Explorer.
 
 ## Building
