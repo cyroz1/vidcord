@@ -8,11 +8,17 @@ See [releases](https://github.com/cyroz1/vidcord/releases) for the latest binari
 
 ## Features
 
-- Drag and drop or browse video files for easy conversion.
+- Drag and drop or browse for video files to import.
 - Select between two quality options:
   - Low quality (free users): 25MB target size, 480p resolution.
   - High quality (Nitro users): 50MB target size, 720p resolution.
+- Set the starting and ending point of the output clip in seconds.
+- Automatically uses available hardware encoding when avaiable, and falls-back to x264 if not.
 - Highlights converted file in its output path in File Explorer.
+
+## To-Do
+
+- Windows context menu integration (WIP).
 
 ## Building
 
@@ -29,12 +35,6 @@ See [releases](https://github.com/cyroz1/vidcord/releases) for the latest binari
    ```sh
    python vidcord.py
    ```
-
-## Usage
-
-- Either drag and drop a video file into the application window, or click the button to open a file dialog and select a video file.
-- Choose the desired quality (Low or High) from the dropdown menu.
-- The conversion will start automatically, and the converted file path will be highlighted in the File Explorer upon completion.
 
 ## Acknowledgements
 
