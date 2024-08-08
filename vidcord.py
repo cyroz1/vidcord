@@ -3,7 +3,7 @@ import os
 import subprocess
 import shlex
 import ffmpeg
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox, QLineEdit
 from PyQt5.QtCore import Qt, QUrl
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent
 
@@ -62,6 +62,15 @@ class vidcord(QWidget):
         self.qualityComboBox.addItem("Low (25MB, 480p)")
         self.qualityComboBox.addItem("High (50MB, 720p)")
         self.layout.addWidget(self.qualityComboBox)
+
+        self.startTimeInput = QLineEdit(self)
+        self.startTimeInput.setPlaceholderText("Start time (seconds)")
+        self.startTimeInput.setText("0")
+        self.layout.addWidget(self.startTimeInput)
+
+        self.endTimeInput = QLineEdit(self)
+        self.endTimeInput.setPlaceholderText("End time (seconds)")
+        self.layout.addWidget(self.endTimeInput)
         
         self.openButton = QPushButton('Choose a file to convert', self)
         self.openButton.clicked.connect(self.openFileDialog)
@@ -83,15 +92,22 @@ class vidcord(QWidget):
         urls = event.mimeData().urls()
         if urls:
             file_path = urls[0].toLocalFile()
-            self.convertVideo(file_path)
+            self.loadVideo(file_path)
 
     def openFileDialog(self):
         options = QFileDialog.Options()
         fileName, _ = QFileDialog.getOpenFileName(self, "Choose a video file to convert", "", "All Files (*);;Video Files (*.mp4 *.avi)", options=options)
         if fileName:
-            self.file_path = fileName
-            self.label.setText(f'Selected file: {fileName}')
-            
+            self.loadVideo(fileName)
+    
+    def loadVideo(self, filePath):
+        self.file_path = filePath
+        self.label.setText(f'Selected file: {filePath}')
+        duration = get_video_duration(filePath)
+        self.startTimeInput.setText("0")
+        self.endTimeInput.setText(str(duration))
+        self.update()
+
     def convertVideoFromButton(self):
         if self.file_path:
             self.convertVideo(self.file_path)
@@ -107,9 +123,16 @@ class vidcord(QWidget):
             else:
                 target_size_mb = 50
                 resolution = "1280x720"
-                
+            
+            start_time = float(self.startTimeInput.text())
+            end_time = float(self.endTimeInput.text())
+
             duration = get_video_duration(filePath)
-            target_bitrate = calculate_bitrate(target_size_mb, duration)
+            if end_time > duration:
+                end_time = duration
+
+            clip_duration = end_time - start_time
+            target_bitrate = calculate_bitrate(target_size_mb, clip_duration)
             
             options = QFileDialog.Options()
             output_file, _ = QFileDialog.getSaveFileName(self, "Save Converted Video", "", "MP4 Files (*.mp4);;All Files (*)", options=options)
@@ -117,8 +140,11 @@ class vidcord(QWidget):
                 self.label.setText("Conversion cancelled")
                 return
 
-            ffmpeg.input(filePath).output(output_file, vcodec=self.encoder, video_bitrate=f'{target_bitrate}k', 
-                                         vf=f'scale={resolution}', acodec='aac', ab='128k').run()
+            ffmpeg.input(filePath, ss=start_time, t=clip_duration).output(
+                output_file, vcodec=self.encoder, video_bitrate=f'{target_bitrate}k', 
+                vf=f'scale={resolution}', acodec='aac', ab='128k'
+            ).run()
+
             self.label.setText(f'Conversion complete: {output_file}')
             self.showInFileExplorer(output_file)
         except Exception as e:
