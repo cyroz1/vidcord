@@ -8,17 +8,15 @@ See [latest release](https://github.com/cyroz1/vidcord/releases/latest) to downl
 
 ## Features
 
-- Drag and drop or browse for video files to import.
+- Two methods to import videos:
+  - Drag and drop or browse for video files to import.
+  - Right click .mp4 files in File Explorer and choose "Compress with vidcord".
 - Select between two quality options:
   - Low quality (free users): 25MB target size, 480p resolution.
   - High quality (Nitro users): 50MB target size, 720p resolution.
 - Set the starting and ending point of the output clip in seconds.
 - Multiple hardware and software encoders to choose from.
 - Highlights converted file in its output path in File Explorer.
-
-## To-Do
-
-- Windows context menu integration (WIP).
 
 ## Building
 
