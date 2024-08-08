@@ -114,6 +114,8 @@ class vidcord(QWidget):
         duration = get_video_duration(filePath)
         self.startTimeInput.setText("0")
         self.endTimeInput.setText(str(duration))
+        self.raise_()
+        self.activateWindow()
         self.update()
 
     def convertVideoFromButton(self):
