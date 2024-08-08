@@ -5,7 +5,7 @@ import shlex
 import ffmpeg
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox, QLineEdit
 from PyQt5.QtCore import Qt, QUrl
-from PyQt5.QtGui import QDragEnterEvent, QDropEvent
+from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon
 
 def get_video_duration(file_path):
     try:
@@ -86,6 +86,7 @@ class vidcord(QWidget):
         
         self.setLayout(self.layout)
         self.setWindowTitle('vidcord')
+        self.setWindowIcon(QIcon('icon.ico'))
         self.show()
     
     def dragEnterEvent(self, event: QDragEnterEvent):
