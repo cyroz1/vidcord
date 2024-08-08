@@ -43,10 +43,10 @@ def get_available_encoders():
         return ['libx264']
 
 class vidcord(QWidget):
-    def __init__(self):
+    def __init__(self, initial_file=None):
         super().__init__()
 
-        self.file_path = None
+        self.file_path = initial_file
         self.quality = "low"
         self.initUI()
         
@@ -88,6 +88,9 @@ class vidcord(QWidget):
         self.setWindowTitle('vidcord')
         self.setWindowIcon(QIcon('icon.ico'))
         self.show()
+        
+        if self.file_path:
+            self.loadVideo(self.file_path)
     
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
@@ -167,6 +170,7 @@ class vidcord(QWidget):
             subprocess.run(['xdg-open', os.path.dirname(abs_path)])
 
 if __name__ == '__main__':
+    initial_file = sys.argv[1] if len(sys.argv) > 1 else None
     app = QApplication(sys.argv)
-    ex = vidcord()
+    ex = vidcord(initial_file)
     sys.exit(app.exec_())
