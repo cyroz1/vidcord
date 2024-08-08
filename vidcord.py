@@ -20,7 +20,7 @@ def calculate_bitrate(target_size_mb, duration_sec, audio_bitrate=128):
     target_size_kb = target_size_mb * 1024 * 8
     audio_bitrate_kb = audio_bitrate * duration_sec
     video_bitrate = (target_size_kb - audio_bitrate_kb) / duration_sec
-    return int(video_bitrate * 0.8)
+    return int(video_bitrate * 0.9)
 
 def get_hardware_encoder():
     try:
