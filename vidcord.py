@@ -154,7 +154,7 @@ class vidcord(QWidget):
 
             ffmpeg.input(filePath, ss=start_time, t=clip_duration).output(
                 output_file, vcodec=selected_encoder, video_bitrate=f'{target_bitrate}k', 
-                vf=f'scale={resolution}', acodec='aac', ab='128k'
+                vf=f'scale={resolution}', acodec='aac', ab='128k', y=None
             ).run()
 
             self.label.setText(f'Conversion complete: {output_file}')
