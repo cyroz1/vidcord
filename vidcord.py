@@ -38,18 +38,8 @@ def get_available_encoders():
             encoders.append('h264_videotoolbox')
         if 'h264_qsv' in encoders_output:
             encoders.append('h264_qsv')
-        if 'hevc_amf' in encoders_output:
-            encoders.append('hevc_amf')
-        if 'hevc_nvenc' in encoders_output:
-            encoders.append('hevc_nvenc')
-        if 'hevc_qsv' in encoders_output:
-            encoders.append('hevc_qsv')
-        if 'av1_nvenc' in encoders_output:
-            encoders.append('av1_nvenc')
-        if 'av1_qsv' in encoders_output:
-            encoders.append('av1_qsv')
-        if 'av1_amf' in encoders_output:
-            encoders.append('av1_amf')
+        if 'h264_vaapi' in encoders_output:
+            encoders.append('h264_vaapi')
         encoders.append('libx264')
         return encoders
     except Exception as e:
