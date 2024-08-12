@@ -1,0 +1,7 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CLASSES_ROOT\SystemFileAssociations\.mp4\shell\vidcord]
+@="Compress with vidcord"
+
+[HKEY_CLASSES_ROOT\SystemFileAssociations\.mp4\shell\vidcord\command]
+@="\"C:\\Program Files\\vidcord\\vidcord.exe\" \"%1\""
