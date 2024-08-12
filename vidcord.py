@@ -51,7 +51,6 @@ class vidcord(QWidget):
         super().__init__()
 
         self.file_path = initial_file
-        self.quality = "low"
         self.initUI()
         
     def initUI(self):
@@ -62,8 +61,10 @@ class vidcord(QWidget):
         self.layout.addWidget(self.label)
         
         self.qualityComboBox = QComboBox(self)
-        self.qualityComboBox.addItem("Low (25MB, 480p)")
-        self.qualityComboBox.addItem("High (50MB, 720p)")
+        self.qualityComboBox.addItem("25MB, 480p")
+        self.qualityComboBox.addItem("50MB, 720p")
+        self.qualityComboBox.addItem("100MB, 1080p")
+        self.qualityComboBox.addItem("500MB, native res")
         self.layout.addWidget(self.qualityComboBox)
 
         self.encoderComboBox = QComboBox(self)
@@ -87,6 +88,11 @@ class vidcord(QWidget):
         self.convertButton = QPushButton('Convert', self)
         self.convertButton.clicked.connect(self.convertVideoFromButton)
         self.layout.addWidget(self.convertButton)
+
+        self.linkLabel = QLabel(self)
+        self.linkLabel.setText('<a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
+        self.linkLabel.setOpenExternalLinks(True)
+        self.layout.addWidget(self.linkLabel)
         
         self.setLayout(self.layout)
         self.setWindowTitle('vidcord')
@@ -131,12 +137,19 @@ class vidcord(QWidget):
     def convertVideo(self, filePath):
         try:
             quality = self.qualityComboBox.currentText()
-            if "Low" in quality:
+            
+            if "25MB, 480p" in quality:
                 target_size_mb = 25
                 resolution = "854x480"
-            else:
+            elif "50MB, 720p" in quality:
                 target_size_mb = 50
                 resolution = "1280x720"
+            elif "100MB, 1080p" in quality:
+                target_size_mb = 100
+                resolution = "1920x1080"
+            else:
+                target_size_mb = 500
+                resolution = None
             
             start_time = float(self.startTimeInput.text())
             end_time = float(self.endTimeInput.text())
@@ -156,10 +169,16 @@ class vidcord(QWidget):
                 self.label.setText("Conversion cancelled")
                 return
 
-            ffmpeg.input(filePath, ss=start_time, t=clip_duration).output(
+            ffmpeg_input = ffmpeg.input(filePath, ss=start_time, t=clip_duration)
+            ffmpeg_output = ffmpeg_input.output(
                 output_file, vcodec=selected_encoder, video_bitrate=f'{target_bitrate}k', 
-                vf=f'scale={resolution}', acodec='aac', ab='128k', y=None
-            ).run()
+                acodec='aac', ab='128k', y=None
+            )
+
+            if resolution:
+                ffmpeg_output = ffmpeg_output.filter('scale', resolution)
+
+            ffmpeg_output.run()
 
             self.label.setText(f'Conversion complete: {output_file}')
             self.showInFileExplorer(output_file)
