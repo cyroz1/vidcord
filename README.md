@@ -1,6 +1,6 @@
 # vidcord
 
-This is a simple Python GUI application for compressing video files under Discord's size limits using FFmpeg and PyQt5. The application allows users to right click videos in the File Explorer, drag and drop video files, or import them via a file dialog. Users can then choose starting and ending times, and compress the imported video with four quality presets for different Nitro and server boost levels.
+This is a simple Python GUI application for compressing video files under Discord's size limits using FFmpeg and PyQt5. The application allows users to either right click videos in the File Explorer, drag and drop video files, or import them via a file dialog. Users can then choose starting and ending times, and compress the imported video with four quality presets for different Nitro and server boost levels.
 
 ## Download
 
