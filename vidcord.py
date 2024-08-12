@@ -74,7 +74,6 @@ class vidcord(QWidget):
 
         self.startTimeInput = QLineEdit(self)
         self.startTimeInput.setPlaceholderText("Start time (seconds)")
-        self.startTimeInput.setText("0")
         self.layout.addWidget(self.startTimeInput)
 
         self.endTimeInput = QLineEdit(self)
@@ -170,13 +169,17 @@ class vidcord(QWidget):
                 return
 
             ffmpeg_input = ffmpeg.input(filePath, ss=start_time, t=clip_duration)
-            ffmpeg_output = ffmpeg_input.output(
-                output_file, vcodec=selected_encoder, video_bitrate=f'{target_bitrate}k', 
-                acodec='aac', ab='128k', y=None
-            )
 
             if resolution:
-                ffmpeg_output = ffmpeg_output.filter('scale', resolution)
+                ffmpeg_output = ffmpeg_input.output(
+                    output_file, vcodec=selected_encoder, video_bitrate=f'{target_bitrate}k',
+                    acodec='aac', ab='128k', vf=f'scale={resolution}', y=None
+                )
+            else:
+                ffmpeg_output = ffmpeg_input.output(
+                    output_file, vcodec=selected_encoder, video_bitrate=f'{target_bitrate}k',
+                    acodec='aac', ab='128k', y=None
+                )
 
             ffmpeg_output.run()
 
