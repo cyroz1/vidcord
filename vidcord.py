@@ -58,7 +58,7 @@ class vidcord(QWidget):
         self.setAcceptDrops(True)
         self.layout = QVBoxLayout()
         
-        self.label = QLabel('Drag a video file here to convert or click to open', self)
+        self.label = QLabel('Drag a video file or choose a file to compress', self)
         self.layout.addWidget(self.label)
         
         self.qualityComboBox = QComboBox(self)
@@ -81,11 +81,11 @@ class vidcord(QWidget):
         self.endTimeInput.setPlaceholderText("End time (seconds)")
         self.layout.addWidget(self.endTimeInput)
         
-        self.openButton = QPushButton('Choose a file to convert', self)
+        self.openButton = QPushButton('Choose a file to compress', self)
         self.openButton.clicked.connect(self.openFileDialog)
         self.layout.addWidget(self.openButton)
         
-        self.convertButton = QPushButton('Convert', self)
+        self.convertButton = QPushButton('Compress', self)
         self.convertButton.clicked.connect(self.convertVideoFromButton)
         self.layout.addWidget(self.convertButton)
 
@@ -124,7 +124,7 @@ class vidcord(QWidget):
 
     def openFileDialog(self):
         options = QFileDialog.Options()
-        fileName, _ = QFileDialog.getOpenFileName(self, "Choose a video file to convert", "", "All Files (*);;Video Files (*.mp4 *.avi)", options=options)
+        fileName, _ = QFileDialog.getOpenFileName(self, "Choose a video file to compress", "", "All Files (*);;Video Files (*.mp4 *.avi)", options=options)
         if fileName:
             self.loadVideo(fileName)
     
@@ -174,7 +174,7 @@ class vidcord(QWidget):
             selected_encoder = self.encoderComboBox.currentText()
             
             options = QFileDialog.Options()
-            output_file, _ = QFileDialog.getSaveFileName(self, "Save Converted Video", "", "MP4 Files (*.mp4);;All Files (*)", options=options)
+            output_file, _ = QFileDialog.getSaveFileName(self, "Save Compressed Video", "", "MP4 Files (*.mp4);;All Files (*)", options=options)
             if not output_file:
                 self.label.setText("Conversion cancelled")
                 return
@@ -185,7 +185,7 @@ class vidcord(QWidget):
                 "-vf", f'scale={resolution}' if resolution else "scale=-1:-1", output_file, "-y"
             ]
 
-            process = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True)
+            process = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
             start_time = time.time()
             encoding_started = False
             while process.poll() is None:
@@ -209,6 +209,8 @@ class vidcord(QWidget):
             self.progressBar.setValue(100)
             self.label.setText(f'Conversion complete: {output_file}')
             self.showInFileExplorer(output_file)
+            self.raise_()
+            self.activateWindow()
         except Exception as e:
             self.label.setText(f"Error during conversion: {str(e)}")
             self.progressBar.setValue(0)
