@@ -28,7 +28,7 @@ See [latest release](https://github.com/cyroz1/vidcord/releases/latest) to downl
 ![Main program window](screenshots/main%20window.png)
 ### File compressed
 
-![File imported](screenshots/file%20compressed.png)
+![File imported](screenshots/compressed.png)
 ### Output file example
 
 ![Output file example](screenshots/output%20file%20example.png)
