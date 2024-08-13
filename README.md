@@ -34,7 +34,7 @@ See [latest release](https://github.com/cyroz1/vidcord/releases/latest) to downl
 ![Output file example](screenshots/output%20file%20example.png)
 ### Context menu integration
 
-![Context menu integration](screenshots/context%20menu.png)
+![Context menu integration](screenshots/context.png)
 
 ## Building
 
