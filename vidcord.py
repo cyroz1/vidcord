@@ -106,7 +106,7 @@ class vidcord(QWidget):
         
         self.setLayout(self.layout)
         self.setWindowTitle('vidcord')
-        self.setWindowIcon(QIcon('icon.ico'))
+        self.setWindowIcon(QIcon('_internal/icon.ico'))
         self.show()
         
         if self.file_path:
