@@ -18,6 +18,7 @@ See [latest release](https://github.com/cyroz1/vidcord/releases/latest) to downl
   - 500MB, native res (Nitro)
 - Chose between common hardware and software encoders.
 - Set the starting and ending point of the output clip in seconds.
+- Progress bar and ETA are displayed during encoding.
 - Highlights converted file in its output path in File Explorer.
 
 ## Screenshots
