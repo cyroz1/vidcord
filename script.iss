@@ -53,9 +53,9 @@ Source: "C:\Users\cyroz\Downloads\vidcord\dist\vidcord\*"; DestDir: "{app}"; Fla
 ;Registry data from file context.reg
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord"; Flags: uninsdeletekeyifempty
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord"; ValueType: string; ValueName: ""; ValueData: "Compress with vidcord"; Flags: uninsdeletevalue
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: "\""C:\Program Files\vidcord\_internal\icon.ico\"""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: C:\Program Files\vidcord\_internal\icon.ico; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord\command"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: "\""C:\Program Files\vidcord\vidcord.exe\"" \""%1\"""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: "C:\Program Files\vidcord\vidcord.exe" "%1"; Flags: uninsdeletevalue
 ;End of registry data from file context.reg
 
 [Icons]
