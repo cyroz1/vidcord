@@ -3,7 +3,7 @@ import os
 import subprocess
 import shlex
 import ffmpeg
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox, QLineEdit
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox, QLineEdit, QProgressBar
 from PyQt5.QtCore import Qt, QUrl
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon
 
@@ -88,6 +88,11 @@ class vidcord(QWidget):
         self.convertButton.clicked.connect(self.convertVideoFromButton)
         self.layout.addWidget(self.convertButton)
 
+        self.progressBar = QProgressBar(self)
+        self.progressBar.setRange(0, 100)
+        self.progressBar.setValue(0)
+        self.layout.addWidget(self.progressBar)
+
         self.linkLabel = QLabel(self)
         self.linkLabel.setText('<a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
         self.linkLabel.setOpenExternalLinks(True)
@@ -168,25 +173,31 @@ class vidcord(QWidget):
                 self.label.setText("Conversion cancelled")
                 return
 
-            ffmpeg_input = ffmpeg.input(filePath, ss=start_time, t=clip_duration)
+            cmd = [
+                "ffmpeg", "-i", filePath, "-ss", str(start_time), "-t", str(clip_duration),
+                "-c:v", selected_encoder, "-b:v", f'{target_bitrate}k', "-c:a", 'aac', "-b:a", '128k',
+                "-vf", f'scale={resolution}' if resolution else "scale=-1:-1", output_file
+            ]
 
-            if resolution:
-                ffmpeg_output = ffmpeg_input.output(
-                    output_file, vcodec=selected_encoder, video_bitrate=f'{target_bitrate}k',
-                    acodec='aac', ab='128k', vf=f'scale={resolution}', y=None
-                )
-            else:
-                ffmpeg_output = ffmpeg_input.output(
-                    output_file, vcodec=selected_encoder, video_bitrate=f'{target_bitrate}k',
-                    acodec='aac', ab='128k', y=None
-                )
+            process = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True)
+            while process.poll() is None:
+                line = process.stderr.readline()
+                if line:
+                    if "time=" in line:
+                        time_str = line.split("time=")[1].split(" ")[0]
+                        time_parts = time_str.split(":")
+                        total_seconds = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + float(time_parts[2])
+                        percent = min((total_seconds / clip_duration) * 100, 100)
+                        self.progressBar.setValue(int(percent))
+                QApplication.processEvents()
 
-            ffmpeg_output.run()
+            process.wait()
 
             self.label.setText(f'Conversion complete: {output_file}')
             self.showInFileExplorer(output_file)
         except Exception as e:
             self.label.setText(f"Error during conversion: {str(e)}")
+            self.progressBar.setValue(0)
     
     def showInFileExplorer(self, filePath):
         abs_path = os.path.abspath(filePath)
