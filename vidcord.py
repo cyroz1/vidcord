@@ -6,6 +6,7 @@ import ffmpeg
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox, QLineEdit, QProgressBar
 from PyQt5.QtCore import Qt, QUrl
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon
+import time
 
 def get_video_duration(file_path):
     try:
@@ -88,10 +89,15 @@ class vidcord(QWidget):
         self.convertButton.clicked.connect(self.convertVideoFromButton)
         self.layout.addWidget(self.convertButton)
 
+        self.progressLayout = QVBoxLayout()
         self.progressBar = QProgressBar(self)
         self.progressBar.setRange(0, 100)
-        self.progressBar.setValue(0)
-        self.layout.addWidget(self.progressBar)
+        self.progressLayout.addWidget(self.progressBar)
+
+        self.etaLabel = QLabel(self)
+        self.progressLayout.addWidget(self.etaLabel)
+
+        self.layout.addLayout(self.progressLayout)
 
         self.linkLabel = QLabel(self)
         self.linkLabel.setText('<a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
@@ -180,25 +186,39 @@ class vidcord(QWidget):
             ]
 
             process = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True)
+            start_time = time.time()
+            encoding_started = False
             while process.poll() is None:
                 line = process.stderr.readline()
                 if line:
                     if "time=" in line:
+                        if not encoding_started:
+                            self.etaLabel.show()
+                            encoding_started = True
                         time_str = line.split("time=")[1].split(" ")[0]
                         time_parts = time_str.split(":")
-                        total_seconds = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + float(time_parts[2])
-                        percent = min((total_seconds / clip_duration) * 100, 100)
+                        current_time_sec = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + float(time_parts[2])
+                        percent = min((current_time_sec / clip_duration) * 100, 100)
+                        elapsed_time = time.time() - start_time
+                        eta = (elapsed_time / (current_time_sec / clip_duration)) - elapsed_time
                         self.progressBar.setValue(int(percent))
+                        self.etaLabel.setText(self.format_time(eta))
                 QApplication.processEvents()
 
             process.wait()
-
             self.label.setText(f'Conversion complete: {output_file}')
             self.showInFileExplorer(output_file)
         except Exception as e:
             self.label.setText(f"Error during conversion: {str(e)}")
             self.progressBar.setValue(0)
-    
+            self.etaLabel.setText("")
+
+    def format_time(self, seconds):
+        if seconds < 0:
+            return "Calculating..."
+        mins, secs = divmod(int(seconds), 60)
+        return f"{mins}m {secs}s"
+
     def showInFileExplorer(self, filePath):
         abs_path = os.path.abspath(filePath)
         if sys.platform == 'win32':
