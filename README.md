@@ -54,5 +54,7 @@ See [latest release](https://github.com/cyroz1/vidcord/releases/latest) to downl
 
 ## Acknowledgements
 
-- Thanks to the [FFmpeg](https://ffmpeg.org/) team for their powerful media processing tools.
-- PyQt5 for providing the GUI framework.
+- [FFmpeg](https://ffmpeg.org/)
+- [PyQt5](https://pypi.org/project/PyQt5/)
+- [PyInstaller](https://www.pyinstaller.org/)
+- [Inno Setup](https://jrsoftware.org/isinfo.php)
