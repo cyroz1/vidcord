@@ -182,7 +182,7 @@ class vidcord(QWidget):
             cmd = [
                 "ffmpeg", "-i", filePath, "-ss", str(start_time), "-t", str(clip_duration),
                 "-c:v", selected_encoder, "-b:v", f'{target_bitrate}k', "-c:a", 'aac', "-b:a", '128k',
-                "-vf", f'scale={resolution}' if resolution else "scale=-1:-1", output_file
+                "-vf", f'scale={resolution}' if resolution else "scale=-1:-1", output_file, "-y"
             ]
 
             process = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True)
@@ -206,6 +206,7 @@ class vidcord(QWidget):
                 QApplication.processEvents()
 
             process.wait()
+            self.progressBar.setValue(100)
             self.label.setText(f'Conversion complete: {output_file}')
             self.showInFileExplorer(output_file)
         except Exception as e:
