@@ -2,7 +2,7 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "vidcord"
-#define MyAppVersion "3.8"
+#define MyAppVersion "3.9"
 #define MyAppPublisher "cyroz"
 #define MyAppURL "https://github.com/cyroz1/vidcord"
 #define MyAppExeName "vidcord.exe"
@@ -10,7 +10,7 @@
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
 ; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
-AppId={{7D30906B-3504-4B77-893F-633F0305533C}
+AppId={{ECF6EF9A-4851-4443-BC21-B89AA2A3B13C}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 ;AppVerName={#MyAppName} {#MyAppVersion}
@@ -32,7 +32,7 @@ DisableProgramGroupPage=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only.)
 ;PrivilegesRequired=lowest
 OutputDir=C:\Users\cyroz\Downloads
-OutputBaseFilename=vidcord_v3.8_x64
+OutputBaseFilename=vidcord_v3.9_x64
 SetupIconFile=C:\Users\cyroz\Downloads\vidcord\icon.ico
 Compression=lzma
 SolidCompression=yes
@@ -53,9 +53,9 @@ Source: "C:\Users\cyroz\Downloads\vidcord\dist\vidcord\_internal\*"; DestDir: "{
 ;Registry data from file context.reg
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord"; Flags: uninsdeletekeyifempty
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord"; ValueType: string; ValueName: ""; ValueData: "Compress with vidcord"; Flags: uninsdeletevalue
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: """C:\Program Files\vidcord\_internal\icon.ico\"""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: "C:\Program Files\vidcord\_internal\icon.ico"; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord\command"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: """C:\Program Files\vidcord\vidcord.exe"" ""%1"""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: "\""C:\Program Files\vidcord\_internal\context.bat\"" \""%1\"""; Flags: uninsdeletevalue
 ;End of registry data from file context.reg
 
 [Icons]
