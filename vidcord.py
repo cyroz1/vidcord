@@ -232,6 +232,7 @@ class vidcord(QWidget):
             subprocess.run(['xdg-open', os.path.dirname(abs_path)])
 
 if __name__ == '__main__':
+    os.environ['PATH'] = './_internal' + os.environ['PATH']
     initial_file = sys.argv[1] if len(sys.argv) > 1 else None
     app = QApplication(sys.argv)
     ex = vidcord(initial_file)
