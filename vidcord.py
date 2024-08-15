@@ -3,18 +3,28 @@ import os
 import subprocess
 import shlex
 import ffmpeg
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox, QLineEdit, QProgressBar
-from PyQt5.QtCore import Qt, QUrl
-from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox, QLineEdit, QProgressBar, QSlider, QHBoxLayout
+from PyQt5.QtCore import Qt, QUrl, QTimer
+from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QImage
 import time
+import cv2
 
 def get_video_duration(file_path):
     try:
         probe = ffmpeg.probe(file_path, v='error', show_entries='format=duration', format='default')
-        duration = float(probe['format']['duration'])
+        duration_str = probe['format']['duration']
+        if duration_str == 'N/A':
+            raise ValueError("Duration is not available for this video.")
+        duration = float(duration_str)
         return duration
     except ffmpeg.Error as e:
         print(f"Error probing video file: {e}")
+        raise
+    except ValueError as e:
+        print(f"Error: {e}")
+        raise
+    except Exception as e:
+        print(f"Unexpected error: {e}")
         raise
 
 def calculate_bitrate(target_size_mb, duration_sec, audio_bitrate=128):
@@ -53,14 +63,14 @@ class vidcord(QWidget):
 
         self.file_path = initial_file
         self.initUI()
-        
+
     def initUI(self):
         self.setAcceptDrops(True)
         self.layout = QVBoxLayout()
-        
+
         self.label = QLabel('Drag a video file or choose a file to compress', self)
         self.layout.addWidget(self.label)
-        
+
         self.qualityComboBox = QComboBox(self)
         self.qualityComboBox.addItem("25MB, 480p")
         self.qualityComboBox.addItem("50MB, 720p")
@@ -73,18 +83,35 @@ class vidcord(QWidget):
             self.encoderComboBox.addItem(encoder)
         self.layout.addWidget(self.encoderComboBox)
 
-        self.startTimeInput = QLineEdit(self)
-        self.startTimeInput.setPlaceholderText("Start time (seconds)")
-        self.layout.addWidget(self.startTimeInput)
+        self.startTimeSlider = QSlider(Qt.Horizontal, self)
+        self.startTimeSlider.setMinimum(0)
+        self.startTimeSlider.setMaximum(1000)
+        self.startTimeSlider.setValue(0)
+        self.layout.addWidget(self.startTimeSlider)
 
-        self.endTimeInput = QLineEdit(self)
-        self.endTimeInput.setPlaceholderText("End time (seconds)")
-        self.layout.addWidget(self.endTimeInput)
-        
+        self.endTimeSlider = QSlider(Qt.Horizontal, self)
+        self.endTimeSlider.setMinimum(0)
+        self.endTimeSlider.setMaximum(1000)
+        self.endTimeSlider.setValue(1000)
+        self.layout.addWidget(self.endTimeSlider)
+
+        self.startLabel = QLabel('Start: 0.0s', self)
+        self.endLabel = QLabel('End: 0.0s', self)
+        self.layout.addWidget(self.startLabel)
+        self.layout.addWidget(self.endLabel)
+
+        self.videoPreview = QLabel(self)
+        self.videoPreview.setFixedHeight(200)
+        self.layout.addWidget(self.videoPreview)
+
         self.openButton = QPushButton('Choose a file to compress', self)
         self.openButton.clicked.connect(self.openFileDialog)
         self.layout.addWidget(self.openButton)
-        
+
+        self.previewButton = QPushButton('Preview Selected Portion', self)
+        self.previewButton.clicked.connect(self.previewSelectedPortion)
+        self.layout.addWidget(self.previewButton)
+
         self.convertButton = QPushButton('Compress', self)
         self.convertButton.clicked.connect(self.convertVideoFromButton)
         self.layout.addWidget(self.convertButton)
@@ -103,19 +130,28 @@ class vidcord(QWidget):
         self.linkLabel.setText('<a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
         self.linkLabel.setOpenExternalLinks(True)
         self.layout.addWidget(self.linkLabel)
-        
+
         self.setLayout(self.layout)
         self.setWindowTitle('vidcord')
         self.setWindowIcon(QIcon('_internal/icon.ico'))
         self.show()
-        
+
         if self.file_path:
             self.loadVideo(self.file_path)
-    
+
+        self.startTimeSlider.valueChanged.connect(self.updateStartTime)
+        self.endTimeSlider.valueChanged.connect(self.updateEndTime)
+
+    def convertVideoFromButton(self):
+        if self.file_path:
+            self.convertVideo(self.file_path)
+        else:
+            self.label.setText("No file selected for conversion")
+
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-    
+
     def dropEvent(self, event: QDropEvent):
         urls = event.mimeData().urls()
         if urls:
@@ -127,27 +163,90 @@ class vidcord(QWidget):
         fileName, _ = QFileDialog.getOpenFileName(self, "Choose a video file to compress", "", "All Files (*);;Video Files (*.mp4 *.avi)", options=options)
         if fileName:
             self.loadVideo(fileName)
-    
+
     def loadVideo(self, filePath):
         self.file_path = filePath
         self.label.setText(f'Selected file: {filePath}')
-        duration = get_video_duration(filePath)
-        self.startTimeInput.setText("0")
-        self.endTimeInput.setText(str(duration))
-        self.raise_()
-        self.activateWindow()
-        self.update()
+        try:
+            self.duration = get_video_duration(filePath) * 10
+            self.startTimeSlider.setMaximum(int(self.duration))
+            self.endTimeSlider.setMaximum(int(self.duration))
+            self.endTimeSlider.setValue(int(self.duration))
+            self.updatePreview(0)
+            self.updateStartTime()
+            self.updateEndTime()
+        except ValueError:
+            self.label.setText("Could not retrieve video duration. Please select another file.")
+            self.startTimeSlider.setEnabled(False)
+            self.endTimeSlider.setEnabled(False)
 
-    def convertVideoFromButton(self):
-        if self.file_path:
-            self.convertVideo(self.file_path)
-        else:
-            self.label.setText("No file selected for conversion")
+    def updateStartTime(self):
+        start_time = self.startTimeSlider.value() / 10.0
+        self.startLabel.setText(f'Start: {start_time:.1f}s')
+        self.updatePreview(start_time)
+
+    def updateEndTime(self):
+        end_time = self.endTimeSlider.value() / 10.0
+        self.endLabel.setText(f'End: {end_time:.1f}s')
+        self.updatePreview(end_time)
+
+    def updatePreview(self, time_sec):
+        if not self.file_path:
+            return
+
+        cap = cv2.VideoCapture(self.file_path)
+        cap.set(cv2.CAP_PROP_POS_MSEC, time_sec * 1000)
+        ret, frame = cap.read()
+        if ret:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = frame.shape
+            bytes_per_line = ch * w
+            qt_image = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(qt_image)
+            self.videoPreview.setPixmap(pixmap.scaled(self.videoPreview.size(), Qt.KeepAspectRatio))
+        cap.release()
+
+    def previewSelectedPortion(self):
+        if not self.file_path:
+            self.label.setText("No video file loaded.")
+            return
+
+        start_time = self.startTimeSlider.value() / 10.0
+        end_time = self.endTimeSlider.value() / 10.0
+
+        cap = cv2.VideoCapture(self.file_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+
+        cap.set(cv2.CAP_PROP_POS_MSEC, start_time * 1000)
+
+        window_name = 'Preview'
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(window_name, 640, 360)
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            current_time = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+
+            if current_time >= end_time:
+                self.updatePreview(end_time)
+                break
+
+            frame = cv2.resize(frame, (640, 360))
+            cv2.imshow(window_name, frame)
+
+            if cv2.waitKey(int(1000 / fps)) & 0xFF == ord('q'):
+                break
+
+        cap.release()
+        cv2.destroyAllWindows()
 
     def convertVideo(self, filePath):
         try:
             quality = self.qualityComboBox.currentText()
-            
+
             if "25MB, 480p" in quality:
                 target_size_mb = 25
                 resolution = "854x480"
@@ -160,19 +259,22 @@ class vidcord(QWidget):
             else:
                 target_size_mb = 500
                 resolution = None
-            
-            start_time = float(self.startTimeInput.text())
-            end_time = float(self.endTimeInput.text())
+
+            start_time = self.startTimeSlider.value() / 10.0
+            end_time = self.endTimeSlider.value() / 10.0
 
             duration = get_video_duration(filePath)
             if end_time > duration:
                 end_time = duration
 
             clip_duration = end_time - start_time
+            if clip_duration <= 0:
+                raise ValueError("Clip duration must be greater than zero.")
+
             target_bitrate = calculate_bitrate(target_size_mb, clip_duration)
 
             selected_encoder = self.encoderComboBox.currentText()
-            
+
             options = QFileDialog.Options()
             output_file, _ = QFileDialog.getSaveFileName(self, "Save Compressed Video", "", "MP4 Files (*.mp4);;All Files (*)", options=options)
             if not output_file:
