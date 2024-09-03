@@ -8,14 +8,18 @@ from PyQt5.QtCore import Qt, QUrl, QTimer
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QImage
 import time
 import cv2
+import platform
 
 def get_video_duration(file_path):
     try:
         probe = ffmpeg.probe(file_path, v='error', show_entries='format=duration', format='default')
         duration_str = probe['format']['duration']
-        if duration_str == 'N/A':
+        if not duration_str or duration_str == 'N/A':
             raise ValueError("Duration is not available for this video.")
-        duration = float(duration_str)
+        try:
+            duration = float(duration_str)
+        except ValueError:
+            raise ValueError("Invalid duration value.")
         return duration
     except ffmpeg.Error as e:
         print(f"Error probing video file: {e}")
@@ -39,7 +43,6 @@ def get_available_encoders():
             shlex.split('ffmpeg -hide_banner -encoders'),
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         ).stdout
-
         encoders = []
         if 'h264_nvenc' in encoders_output:
             encoders.append('h264_nvenc')
@@ -60,17 +63,14 @@ def get_available_encoders():
 class vidcord(QWidget):
     def __init__(self, initial_file=None):
         super().__init__()
-
         self.file_path = initial_file
         self.initUI()
 
     def initUI(self):
         self.setAcceptDrops(True)
         self.layout = QVBoxLayout()
-
         self.label = QLabel('Drag a video file or choose a file to compress', self)
         self.layout.addWidget(self.label)
-
         self.qualityComboBox = QComboBox(self)
         self.qualityComboBox.addItem("10MB, 480p")
         self.qualityComboBox.addItem("25MB, 480p")
@@ -78,68 +78,53 @@ class vidcord(QWidget):
         self.qualityComboBox.addItem("100MB, 1080p")
         self.qualityComboBox.addItem("500MB, native res")
         self.layout.addWidget(self.qualityComboBox)
-
         self.encoderComboBox = QComboBox(self)
         for encoder in get_available_encoders():
             self.encoderComboBox.addItem(encoder)
         self.layout.addWidget(self.encoderComboBox)
-
         self.startTimeSlider = QSlider(Qt.Horizontal, self)
         self.startTimeSlider.setMinimum(0)
         self.startTimeSlider.setMaximum(1000)
         self.startTimeSlider.setValue(0)
         self.layout.addWidget(self.startTimeSlider)
-
         self.endTimeSlider = QSlider(Qt.Horizontal, self)
         self.endTimeSlider.setMinimum(0)
         self.endTimeSlider.setMaximum(1000)
         self.endTimeSlider.setValue(1000)
         self.layout.addWidget(self.endTimeSlider)
-
         self.startLabel = QLabel('Start: 0.0s', self)
         self.endLabel = QLabel('End: 0.0s', self)
         self.layout.addWidget(self.startLabel)
         self.layout.addWidget(self.endLabel)
-
         self.videoPreview = QLabel(self)
         self.videoPreview.setFixedHeight(200)
         self.layout.addWidget(self.videoPreview)
-
         self.openButton = QPushButton('Choose a file to compress', self)
         self.openButton.clicked.connect(self.openFileDialog)
         self.layout.addWidget(self.openButton)
-
         self.previewButton = QPushButton('Preview Selected Portion', self)
         self.previewButton.clicked.connect(self.previewSelectedPortion)
         self.layout.addWidget(self.previewButton)
-
         self.convertButton = QPushButton('Compress', self)
         self.convertButton.clicked.connect(self.convertVideoFromButton)
         self.layout.addWidget(self.convertButton)
-
         self.progressLayout = QVBoxLayout()
         self.progressBar = QProgressBar(self)
         self.progressBar.setRange(0, 100)
         self.progressLayout.addWidget(self.progressBar)
-
         self.etaLabel = QLabel(self)
         self.progressLayout.addWidget(self.etaLabel)
-
         self.layout.addLayout(self.progressLayout)
-
         self.linkLabel = QLabel(self)
         self.linkLabel.setText('<a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
         self.linkLabel.setOpenExternalLinks(True)
         self.layout.addWidget(self.linkLabel)
-
         self.setLayout(self.layout)
         self.setWindowTitle('vidcord')
         self.setWindowIcon(QIcon('_internal/icon.ico'))
         self.show()
-
         if self.file_path:
             self.loadVideo(self.file_path)
-
         self.startTimeSlider.valueChanged.connect(self.updateStartTime)
         self.endTimeSlider.valueChanged.connect(self.updateEndTime)
 
@@ -194,7 +179,6 @@ class vidcord(QWidget):
     def updatePreview(self, time_sec):
         if not self.file_path:
             return
-
         cap = cv2.VideoCapture(self.file_path)
         cap.set(cv2.CAP_PROP_POS_MSEC, time_sec * 1000)
         ret, frame = cap.read()
@@ -211,24 +195,18 @@ class vidcord(QWidget):
         if not self.file_path:
             self.label.setText("No video file loaded.")
             return
-
         start_time = self.startTimeSlider.value() / 10.0
         end_time = self.endTimeSlider.value() / 10.0
-
         cap = cv2.VideoCapture(self.file_path)
         fps = cap.get(cv2.CAP_PROP_FPS)
-
         cap.set(cv2.CAP_PROP_POS_MSEC, start_time * 1000)
-
         window_name = 'Preview'
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(window_name, 640, 360)
-
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 break
-
             current_time = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
 
             if current_time >= end_time:
@@ -237,10 +215,8 @@ class vidcord(QWidget):
 
             frame = cv2.resize(frame, (640, 360))
             cv2.imshow(window_name, frame)
-
             if cv2.waitKey(int(1000 / fps)) & 0xFF == ord('q'):
                 break
-
         cap.release()
         cv2.destroyAllWindows()
 
@@ -291,7 +267,12 @@ class vidcord(QWidget):
                 "-vf", f'scale={resolution}' if resolution else "scale=-1:-1", output_file, "-y"
             ]
 
-            process = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            if platform.system() == 'Windows':
+                creationflags = subprocess.CREATE_NO_WINDOW
+            else:
+                creationflags = 0
+
+            process = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True, creationflags=creationflags)
             start_time = time.time()
             encoding_started = False
             while process.poll() is None:
