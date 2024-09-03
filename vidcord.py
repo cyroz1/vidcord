@@ -72,6 +72,7 @@ class vidcord(QWidget):
         self.layout.addWidget(self.label)
 
         self.qualityComboBox = QComboBox(self)
+        self.qualityComboBox.addItem("10MB, 480p")
         self.qualityComboBox.addItem("25MB, 480p")
         self.qualityComboBox.addItem("50MB, 720p")
         self.qualityComboBox.addItem("100MB, 1080p")
@@ -247,7 +248,10 @@ class vidcord(QWidget):
         try:
             quality = self.qualityComboBox.currentText()
 
-            if "25MB, 480p" in quality:
+            if "10MB, 480p" in quality:
+                target_size_mb = 10
+                resolution = "854x480"
+            elif "25MB, 480p" in quality:
                 target_size_mb = 25
                 resolution = "854x480"
             elif "50MB, 720p" in quality:
@@ -337,5 +341,7 @@ if __name__ == '__main__':
     os.environ['PATH'] = './_internal' + os.environ['PATH']
     initial_file = sys.argv[1] if len(sys.argv) > 1 else None
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon('_internal/icon.ico'))
     ex = vidcord(initial_file)
+    ex.setWindowIcon(QIcon('_internal/icon.ico'))
     sys.exit(app.exec_())
