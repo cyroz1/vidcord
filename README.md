@@ -41,7 +41,6 @@ See [latest release](https://github.com/cyroz1/vidcord/releases/latest) to downl
 1. **Install Python**
    - Download and install [Python](https://www.python.org/downloads/).
    - Download and install [FFmpeg](https://www.ffmpeg.org/download.html).
-     - Place ffmpeg and ffprobe binaries in project directory.
 
 2. **Install Python dependencies**:
    ```sh
