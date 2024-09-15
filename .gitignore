@@ -2,6 +2,8 @@
 setup.py
 ffmpeg.exe
 ffprobe.exe
+ffmpeg
+ffprobe
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
