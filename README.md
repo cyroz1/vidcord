@@ -16,10 +16,10 @@ See [latest release](https://github.com/cyroz1/vidcord/releases/latest) to downl
   - 25MB, 480p (Free users)
   - 50MB, 720p (Nitro Basic or Level 2 Boost)
   - 100MB, 1080p (Level 3 Boost)
-  - 500MB, native res (Nitro)
-- Chose between common hardware and software encoders.
+  - 500MB, Native (Nitro)
+- GPU hardware encoder is automatically selected if available.
+- Software encoding availble in case of issues.
 - Adjust the start and end points of the video with sliders and a live preview.
-- Preview the selected portion of the video.
 - Progress bar and ETA are displayed during encoding.
 - Highlights compressed file in its output path in File Explorer.
 

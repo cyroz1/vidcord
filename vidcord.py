@@ -145,9 +145,6 @@ class vidcord(QWidget):
         self.openButton = QPushButton('Choose a file to compress', self)
         self.openButton.clicked.connect(self.openFileDialog)
         self.layout.addWidget(self.openButton)
-        self.previewButton = QPushButton('Preview selected portion', self)
-        self.previewButton.clicked.connect(self.previewSelectedPortion)
-        self.layout.addWidget(self.previewButton)
         self.convertButton = QPushButton('Compress', self)
         self.convertButton.clicked.connect(self.convertVideoFromButton)
         self.layout.addWidget(self.convertButton)
@@ -222,46 +219,14 @@ class vidcord(QWidget):
     def updatePreview(self, time_sec):
         if not self.file_path:
             return
-        cap = cv2.VideoCapture(self.file_path)
-        cap.set(cv2.CAP_PROP_POS_MSEC, time_sec * 1000)
-        ret, frame = cap.read()
-        if ret:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            h, w, ch = frame.shape
-            bytes_per_line = ch * w
-            qt_image = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
-            pixmap = QPixmap.fromImage(qt_image)
+        try:
+            output_image = "_preview_frame.jpg"
+            ffmpeg.input(self.file_path, ss=time_sec).output(output_image, vframes=1, loglevel="error").run(overwrite_output=True)
+            pixmap = QPixmap(output_image)
             self.videoPreview.setPixmap(pixmap.scaled(self.videoPreview.size(), Qt.KeepAspectRatio))
-        cap.release()
-
-    def previewSelectedPortion(self):
-        if not self.file_path:
-            self.label.setText("No video file loaded.")
-            return
-        start_time = self.startTimeSlider.value() / 10.0
-        end_time = self.endTimeSlider.value() / 10.0
-        cap = cv2.VideoCapture(self.file_path)
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        cap.set(cv2.CAP_PROP_POS_MSEC, start_time * 1000)
-        window_name = 'Preview'
-        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(window_name, 640, 360)
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            current_time = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
-
-            if current_time >= end_time:
-                self.updatePreview(end_time)
-                break
-
-            frame = cv2.resize(frame, (640, 360))
-            cv2.imshow(window_name, frame)
-            if cv2.waitKey(int(1000 / fps)) & 0xFF == ord('q'):
-                break
-        cap.release()
-        cv2.destroyAllWindows()
+            os.remove(output_image)
+        except Exception as e:
+            self.label.setText(f"Error updating preview: {e}")
 
     def convertVideo(self, filePath):
         try:
