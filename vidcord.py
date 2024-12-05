@@ -11,6 +11,36 @@ import cv2
 import platform
 import math
 
+def detect_gpu():
+    gpu_info = {
+        "NVIDIA": False,
+        "AMD": False,
+        "Intel": False,
+        "Apple": False
+    }
+
+    try:
+        if platform.system() == "Windows":
+            output = subprocess.check_output("wmic path win32_VideoController get name", shell=True, text=True)
+        elif platform.system() == "Darwin":
+            output = subprocess.check_output("system_profiler SPDisplaysDataType | grep Chipset", shell=True, text=True)
+        else:
+            output = subprocess.check_output("lspci | grep VGA", shell=True, text=True)
+
+        output = output.lower()
+        if "nvidia" in output:
+            gpu_info["NVIDIA"] = True
+        if "amd" in output or "radeon" in output:
+            gpu_info["AMD"] = True
+        if "intel" in output:
+            gpu_info["Intel"] = True
+        if "apple" in output:
+            gpu_info["Apple"] = True
+    except subprocess.CalledProcessError as e:
+        print("Error detecting GPU:", e)
+
+    return gpu_info
+
 def get_video_duration(file_path):
     try:
         probe = ffmpeg.probe(file_path, v='error', show_entries='format=duration', format='default')
@@ -44,7 +74,6 @@ def get_available_encoders():
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
     ).stdout
 
-    # Map encoder names to user-friendly labels
     encoder_labels = {
         'libx264': 'CPU (libx264)',
         'h264_nvenc': 'NVIDIA (h264_nvenc)',
@@ -53,12 +82,22 @@ def get_available_encoders():
         'h264_qsv': 'Intel (h264_qsv)',
     }
 
-    available_encoders = []
-    for encoder in encoder_labels.keys():
-        if encoder == 'libx264' or encoder in encoders_output:
-            available_encoders.append((encoder, encoder_labels[encoder]))
+    gpu_info = detect_gpu()
 
-    return available_encoders
+    available_encoders = []
+    prioritized_encoders = []
+
+    for encoder, label in encoder_labels.items():
+        if encoder == 'libx264' or encoder in encoders_output:
+            if (encoder == 'h264_nvenc' and gpu_info["NVIDIA"]) or \
+               (encoder == 'h264_amf' and gpu_info["AMD"]) or \
+               (encoder == 'h264_qsv' and gpu_info["Intel"]) or \
+               (encoder == 'h264_videotoolbox' and gpu_info["Apple"]):
+                prioritized_encoders.append((encoder, label))
+            elif encoder == 'libx264':
+                available_encoders.append((encoder, label))
+
+    return prioritized_encoders + available_encoders
 
 class vidcord(QWidget):
     def __init__(self, initial_file=None):
@@ -80,9 +119,11 @@ class vidcord(QWidget):
         self.layout.addWidget(self.qualityComboBox)
         self.encoderComboBox = QComboBox(self)
         available_encoders = get_available_encoders()
-        self.encoder_mapping = {label: encoder for encoder, label in available_encoders}  # Map labels to encoder names
+        self.encoder_mapping = {label: encoder for encoder, label in available_encoders}
         for _, label in available_encoders:
             self.encoderComboBox.addItem(label)
+        if available_encoders:
+            self.encoderComboBox.setCurrentIndex(0)
         self.layout.addWidget(self.encoderComboBox)
         self.startTimeSlider = QSlider(Qt.Horizontal, self)
         self.startTimeSlider.setMinimum(0)
