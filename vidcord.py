@@ -3,11 +3,10 @@ import os
 import subprocess
 import shlex
 import ffmpeg
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox, QLineEdit, QProgressBar, QSlider, QHBoxLayout
-from PyQt5.QtCore import Qt, QUrl, QTimer
-from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QImage
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox, QProgressBar, QSlider
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap
 import time
-import cv2
 import platform
 import math
 
