@@ -9,6 +9,7 @@ from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QImage
 import time
 import cv2
 import platform
+import math
 
 def get_video_duration(file_path):
     try:
@@ -38,27 +39,26 @@ def calculate_bitrate(target_size_mb, duration_sec, audio_bitrate=128):
     return int(video_bitrate * 0.85)
 
 def get_available_encoders():
-    try:
-        encoders_output = subprocess.run(
-            shlex.split('ffmpeg -hide_banner -encoders'),
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-        ).stdout
-        encoders = []
-        if 'h264_nvenc' in encoders_output:
-            encoders.append('h264_nvenc')
-        if 'h264_amf' in encoders_output:
-            encoders.append('h264_amf')
-        if 'h264_videotoolbox' in encoders_output:
-            encoders.append('h264_videotoolbox')
-        if 'h264_qsv' in encoders_output:
-            encoders.append('h264_qsv')
-        if 'h264_vaapi' in encoders_output:
-            encoders.append('h264_vaapi')
-        encoders.append('libx264')
-        return encoders
-    except Exception as e:
-        print(f"Error getting hardware encoders: {e}")
-        return ['libx264']
+    encoders_output = subprocess.run(
+        shlex.split('ffmpeg -hide_banner -encoders'),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    ).stdout
+
+    # Map encoder names to user-friendly labels
+    encoder_labels = {
+        'libx264': 'CPU (libx264)',
+        'h264_nvenc': 'NVIDIA (h264_nvenc)',
+        'h264_amf': 'AMD (h264_amf)',
+        'h264_videotoolbox': 'Apple Silicon (h264_videotoolbox)',
+        'h264_qsv': 'Intel (h264_qsv)',
+    }
+
+    available_encoders = []
+    for encoder in encoder_labels.keys():
+        if encoder == 'libx264' or encoder in encoders_output:
+            available_encoders.append((encoder, encoder_labels[encoder]))
+
+    return available_encoders
 
 class vidcord(QWidget):
     def __init__(self, initial_file=None):
@@ -79,8 +79,10 @@ class vidcord(QWidget):
         self.qualityComboBox.addItem("500MB, native res")
         self.layout.addWidget(self.qualityComboBox)
         self.encoderComboBox = QComboBox(self)
-        for encoder in get_available_encoders():
-            self.encoderComboBox.addItem(encoder)
+        available_encoders = get_available_encoders()
+        self.encoder_mapping = {label: encoder for encoder, label in available_encoders}  # Map labels to encoder names
+        for _, label in available_encoders:
+            self.encoderComboBox.addItem(label)
         self.layout.addWidget(self.encoderComboBox)
         self.startTimeSlider = QSlider(Qt.Horizontal, self)
         self.startTimeSlider.setMinimum(0)
@@ -102,7 +104,7 @@ class vidcord(QWidget):
         self.openButton = QPushButton('Choose a file to compress', self)
         self.openButton.clicked.connect(self.openFileDialog)
         self.layout.addWidget(self.openButton)
-        self.previewButton = QPushButton('Preview Selected Portion', self)
+        self.previewButton = QPushButton('Preview selected portion', self)
         self.previewButton.clicked.connect(self.previewSelectedPortion)
         self.layout.addWidget(self.previewButton)
         self.convertButton = QPushButton('Compress', self)
@@ -116,7 +118,7 @@ class vidcord(QWidget):
         self.progressLayout.addWidget(self.etaLabel)
         self.layout.addLayout(self.progressLayout)
         self.linkLabel = QLabel(self)
-        self.linkLabel.setText('<a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
+        self.linkLabel.setText('v4.2 | <a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
         self.linkLabel.setOpenExternalLinks(True)
         self.layout.addWidget(self.linkLabel)
         self.setLayout(self.layout)
@@ -226,19 +228,19 @@ class vidcord(QWidget):
 
             if "10MB, 480p" in quality:
                 target_size_mb = 10
-                resolution = "854x480"
+                target_height = 480
             elif "25MB, 480p" in quality:
                 target_size_mb = 25
-                resolution = "854x480"
+                target_height = 480
             elif "50MB, 720p" in quality:
                 target_size_mb = 50
-                resolution = "1280x720"
+                target_height = 720
             elif "100MB, 1080p" in quality:
                 target_size_mb = 100
-                resolution = "1920x1080"
+                target_height = 1080
             else:
                 target_size_mb = 500
-                resolution = None
+                target_height = None
 
             start_time = self.startTimeSlider.value() / 10.0
             end_time = self.endTimeSlider.value() / 10.0
@@ -253,7 +255,8 @@ class vidcord(QWidget):
 
             target_bitrate = calculate_bitrate(target_size_mb, clip_duration)
 
-            selected_encoder = self.encoderComboBox.currentText()
+            selected_encoder_label = self.encoderComboBox.currentText()
+            selected_encoder = self.encoder_mapping[selected_encoder_label]
 
             options = QFileDialog.Options()
             output_file, _ = QFileDialog.getSaveFileName(self, "Save Compressed Video", "", "MP4 Files (*.mp4);;All Files (*)", options=options)
@@ -261,10 +264,18 @@ class vidcord(QWidget):
                 self.label.setText("Conversion cancelled")
                 return
 
+            original_width, original_height = self.get_video_resolution(filePath)
+
+            if target_height:
+                target_width = math.ceil((original_width / original_height) * target_height)
+                resolution_filter = f"scale={target_width}:{target_height}"
+            else:
+                resolution_filter = "scale=-1:-1"
+
             cmd = [
                 "ffmpeg", "-i", filePath, "-ss", str(start_time), "-t", str(clip_duration),
                 "-c:v", selected_encoder, "-b:v", f'{target_bitrate}k', "-c:a", 'aac', "-b:a", '128k',
-                "-vf", f'scale={resolution}' if resolution else "scale=-1:-1", output_file, "-y"
+                "-vf", resolution_filter, output_file, "-y"
             ]
 
             if platform.system() == 'Windows':
@@ -302,6 +313,12 @@ class vidcord(QWidget):
             self.label.setText(f"Error during conversion: {str(e)}")
             self.progressBar.setValue(0)
             self.etaLabel.setText("")
+
+    def get_video_resolution(self, filePath):
+        cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", filePath]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
+        width, height = map(int, result.stdout.strip().split(","))
+        return width, height
 
     def format_time(self, seconds):
         if seconds < 0:
