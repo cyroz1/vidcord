@@ -32,7 +32,7 @@ DisableProgramGroupPage=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only.)
 ;PrivilegesRequired=lowest
 OutputDir=C:\Users\cyroz\Downloads
-OutputBaseFilename=vidcord_v4.1_x64
+OutputBaseFilename=vidcord_v4.2_x64
 SetupIconFile=C:\Users\cyroz\Downloads\vidcord\icon.ico
 Compression=lzma
 SolidCompression=yes
