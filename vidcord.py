@@ -10,35 +10,6 @@ import time
 import platform
 import math
 
-def detect_gpu():
-    gpu_info = {
-        "NVIDIA": False,
-        "AMD": False,
-        "Intel": False,
-        "Apple": False
-    }
-
-    try:
-        if platform.system() == "Windows":
-            output = subprocess.check_output("wmic path win32_VideoController get name", shell=True, text=True)
-        elif platform.system() == "Darwin":
-            output = subprocess.check_output("system_profiler SPDisplaysDataType | grep Chipset", shell=True, text=True)
-        else:
-            output = subprocess.check_output("lspci | grep VGA", shell=True, text=True)
-
-        output = output.lower()
-        if "nvidia" in output:
-            gpu_info["NVIDIA"] = True
-        if "amd" in output or "radeon" in output:
-            gpu_info["AMD"] = True
-        if "intel" in output:
-            gpu_info["Intel"] = True
-        if "apple" in output:
-            gpu_info["Apple"] = True
-    except subprocess.CalledProcessError as e:
-        print("Error detecting GPU:", e)
-
-    return gpu_info
 
 def get_video_duration(file_path):
     try:
@@ -81,22 +52,14 @@ def get_available_encoders():
         'h264_qsv': 'Intel (h264_qsv)',
     }
 
-    gpu_info = detect_gpu()
 
     available_encoders = []
-    prioritized_encoders = []
 
-    for encoder, label in encoder_labels.items():
+    for encoder in encoder_labels.keys():
         if encoder == 'libx264' or encoder in encoders_output:
-            if (encoder == 'h264_nvenc' and gpu_info["NVIDIA"]) or \
-               (encoder == 'h264_amf' and gpu_info["AMD"]) or \
-               (encoder == 'h264_qsv' and gpu_info["Intel"]) or \
-               (encoder == 'h264_videotoolbox' and gpu_info["Apple"]):
-                prioritized_encoders.append((encoder, label))
-            elif encoder == 'libx264':
-                available_encoders.append((encoder, label))
+            available_encoders.append((encoder, encoder_labels[encoder]))
 
-    return prioritized_encoders + available_encoders
+    return available_encoders
 
 class vidcord(QWidget):
     def __init__(self, initial_file=None):
