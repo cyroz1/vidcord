@@ -203,7 +203,9 @@ class vidcord(QWidget):
                 self.videoPreview.setPixmap(pixmap.scaled(self.videoPreview.size(), Qt.KeepAspectRatio))
         except Exception as e:
             print(f"Error updating preview: {e}")
-
+        finally:
+            if os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
 
     def convertVideo(self, filePath):
         try:
