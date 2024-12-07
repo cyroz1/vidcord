@@ -183,17 +183,27 @@ class vidcord(QWidget):
         if not self.file_path:
             return
 
-        cap = cv2.VideoCapture(self.file_path)
-        cap.set(cv2.CAP_PROP_POS_MSEC, time_sec * 1000)
-        ret, frame = cap.read()
-        if ret:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            h, w, ch = frame.shape
-            bytes_per_line = ch * w
-            qt_image = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
-            pixmap = QPixmap.fromImage(qt_image)
-            self.videoPreview.setPixmap(pixmap.scaled(self.videoPreview.size(), Qt.KeepAspectRatio))
-        cap.release()
+        try:
+            temp_image_path = os.path.join(os.getcwd(), 'preview_frame.jpg')
+            
+            ffmpeg_command = [
+                "ffmpeg", "-y", "-ss", str(time_sec), "-i", self.file_path,
+                "-frames:v", "1", "-q:v", "2", temp_image_path
+            ]
+
+            if platform.system() == 'Windows':
+                creationflags = subprocess.CREATE_NO_WINDOW
+            else:
+                creationflags = 0
+
+            subprocess.run(ffmpeg_command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, creationflags=creationflags)
+
+            pixmap = QPixmap(temp_image_path)
+            if not pixmap.isNull():
+                self.videoPreview.setPixmap(pixmap.scaled(self.videoPreview.size(), Qt.KeepAspectRatio))
+        except Exception as e:
+            print(f"Error updating preview: {e}")
+
 
     def convertVideo(self, filePath):
         try:
