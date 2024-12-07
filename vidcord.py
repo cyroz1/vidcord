@@ -193,7 +193,12 @@ class vidcord(QWidget):
                 "-frames:v", "1", "-q:v", "2", temp_image_path
             ]
 
-            subprocess.run(ffmpeg_command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            if platform.system() == 'Windows':
+                creationflags = subprocess.CREATE_NO_WINDOW
+            else:
+                creationflags = 0
+
+            subprocess.run(ffmpeg_command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, creationflags=creationflags)
 
             pixmap = QPixmap(temp_image_path)
             if not pixmap.isNull():
