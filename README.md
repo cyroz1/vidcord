@@ -46,7 +46,6 @@ See [latest release](https://github.com/cyroz1/vidcord/releases/latest) to downl
    ```sh
    pip install PyQt5
    pip install ffmpeg-python
-   pip install opencv-python
    ```
 
 3. **Run the application**:
