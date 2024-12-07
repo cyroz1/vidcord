@@ -5,12 +5,10 @@ import shlex
 import ffmpeg
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox, QProgressBar, QSlider
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QImage
+from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap
 import time
 import platform
 import math
-import cv2
-
 
 def get_video_duration(file_path):
     try:
@@ -183,20 +181,19 @@ class vidcord(QWidget):
         if not self.file_path:
             return
 
+        appdata_path = os.getenv('APPDATA')
+        vidcord_temp_dir = os.path.join(appdata_path, 'vidcord')
+        os.makedirs(vidcord_temp_dir, exist_ok=True)
+
+        temp_image_path = os.path.join(vidcord_temp_dir, 'preview_frame.jpg')
+
         try:
-            temp_image_path = os.path.join(os.getcwd(), 'preview_frame.jpg')
-            
             ffmpeg_command = [
                 "ffmpeg", "-y", "-ss", str(time_sec), "-i", self.file_path,
                 "-frames:v", "1", "-q:v", "2", temp_image_path
             ]
 
-            if platform.system() == 'Windows':
-                creationflags = subprocess.CREATE_NO_WINDOW
-            else:
-                creationflags = 0
-
-            subprocess.run(ffmpeg_command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, creationflags=creationflags)
+            subprocess.run(ffmpeg_command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
 
             pixmap = QPixmap(temp_image_path)
             if not pixmap.isNull():
