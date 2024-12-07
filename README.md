@@ -59,5 +59,4 @@ See [latest release](https://github.com/cyroz1/vidcord/releases/latest) to downl
 - [FFmpeg](https://ffmpeg.org/)
 - [PyQt5](https://pypi.org/project/PyQt5/)
 - [PyInstaller](https://www.pyinstaller.org/)
-- [OpenCV](https://pypi.org/project/opencv-python/)
 - [Inno Setup](https://jrsoftware.org/isinfo.php)
