@@ -5,10 +5,11 @@ import shlex
 import ffmpeg
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox, QProgressBar, QSlider
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap
+from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QImage
 import time
 import platform
 import math
+import cv2
 
 
 def get_video_duration(file_path):
@@ -181,14 +182,18 @@ class vidcord(QWidget):
     def updatePreview(self, time_sec):
         if not self.file_path:
             return
-        try:
-            output_image = "_preview_frame.jpg"
-            ffmpeg.input(self.file_path, ss=time_sec).output(output_image, vframes=1, loglevel="error").run(overwrite_output=True)
-            pixmap = QPixmap(output_image)
+
+        cap = cv2.VideoCapture(self.file_path)
+        cap.set(cv2.CAP_PROP_POS_MSEC, time_sec * 1000)
+        ret, frame = cap.read()
+        if ret:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = frame.shape
+            bytes_per_line = ch * w
+            qt_image = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(qt_image)
             self.videoPreview.setPixmap(pixmap.scaled(self.videoPreview.size(), Qt.KeepAspectRatio))
-            os.remove(output_image)
-        except Exception as e:
-            self.label.setText(f"Error updating preview: {e}")
+        cap.release()
 
     def convertVideo(self, filePath):
         try:
