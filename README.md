@@ -1,6 +1,6 @@
 # vidcord
 
-This is a simple Python GUI application for compressing video files under Discord's size limits using FFmpeg and PyQt5. The application allows users to either right click videos in the File Explorer, drag and drop video files, or import them via a file dialog. Users can then adjust starting and ending times, and compress the imported video with five quality presets for different Nitro and server boost levels.
+This is a simple Python GUI application for compressing video files under Discord's size limits using FFmpeg and PyQt5. The application allows users to either right click videos in the File Explorer, drag and drop video files, or import them via a file dialog. Users can then adjust starting and ending times, and compress the imported video with hardware or software encoding andfive quality presets for different Nitro and server boost levels.
 
 ## Download
 
@@ -9,19 +9,18 @@ See [latest release](https://github.com/cyroz1/vidcord/releases/latest) to downl
 ## Features
 
 - Two methods to import videos:
-  - Drag and drop or browse for video files to import.
-  - Right click .mp4 files in File Explorer and choose "Compress with vidcord".
-- Select between five quality presets:
+  - File Explorer: Right click .mp4 files in File Explorer and choose "Compress with vidcord".
+  - Manual: Drag and drop or browse for video files in the application.
+- Five quality presets:
   - 10MB, 480p (Free users)
   - 25MB, 480p (Free users)
   - 50MB, 720p (Nitro Basic or Level 2 Boost)
   - 100MB, 1080p (Level 3 Boost)
   - 500MB, Native (Nitro)
-- GPU hardware encoder is automatically selected if available.
-- Software encoding availble in case of issues.
-- Adjust the start and end points of the video with sliders and a live preview.
+- Software and hardware encoders.
+- Adjustable starting and ending points of the output video with sliders and a live preview.
 - Progress bar and ETA are displayed during encoding.
-- Highlights compressed file in its output path in File Explorer.
+- Compressed file is revealed in its output path in File Explorer.
 
 ## Screenshots
 
