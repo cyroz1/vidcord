@@ -9,6 +9,19 @@ from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap
 import time
 import platform
 import math
+import json
+
+SETTINGS_FILE = os.path.join(os.getenv('APPDATA'), 'vidcord_settings.json')
+
+def load_settings():
+    if os.path.exists(SETTINGS_FILE):
+        with open(SETTINGS_FILE, 'r') as file:
+            return json.load(file)
+    return {}
+
+def save_settings(settings):
+    with open(SETTINGS_FILE, 'w') as file:
+        json.dump(settings, file)
 
 def get_video_duration(file_path):
     try:
@@ -51,7 +64,6 @@ def get_available_encoders():
         'h264_qsv': 'Intel (h264_qsv)',
     }
 
-
     available_encoders = []
 
     for encoder in encoder_labels.keys():
@@ -64,6 +76,7 @@ class vidcord(QWidget):
     def __init__(self, initial_file=None):
         super().__init__()
         self.file_path = initial_file
+        self.settings = load_settings()
         self.initUI()
 
     def initUI(self):
@@ -117,7 +130,7 @@ class vidcord(QWidget):
         self.progressLayout.addWidget(self.etaLabel)
         self.layout.addLayout(self.progressLayout)
         self.linkLabel = QLabel(self)
-        self.linkLabel.setText('v4.2 | <a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
+        self.linkLabel.setText('v4.3 | <a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
         self.linkLabel.setOpenExternalLinks(True)
         self.layout.addWidget(self.linkLabel)
         self.setLayout(self.layout)
@@ -128,6 +141,22 @@ class vidcord(QWidget):
             self.loadVideo(self.file_path)
         self.startTimeSlider.valueChanged.connect(self.updateStartTime)
         self.endTimeSlider.valueChanged.connect(self.updateEndTime)
+        self.loadPreviousSelections()
+
+    def loadPreviousSelections(self):
+        quality_index = self.settings.get("quality_index", 0)
+        encoder_index = self.settings.get("encoder_index", 0)
+        self.qualityComboBox.setCurrentIndex(quality_index)
+        self.encoderComboBox.setCurrentIndex(encoder_index)
+
+    def saveCurrentSelections(self):
+        self.settings["quality_index"] = self.qualityComboBox.currentIndex()
+        self.settings["encoder_index"] = self.encoderComboBox.currentIndex()
+        save_settings(self.settings)
+
+    def closeEvent(self, event):
+        self.saveCurrentSelections()
+        event.accept()
 
     def convertVideoFromButton(self):
         if self.file_path:
