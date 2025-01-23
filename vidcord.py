@@ -130,7 +130,7 @@ class vidcord(QWidget):
         self.progressLayout.addWidget(self.etaLabel)
         self.layout.addLayout(self.progressLayout)
         self.linkLabel = QLabel(self)
-        self.linkLabel.setText('v4.3 | <a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
+        self.linkLabel.setText('v4.4 | <a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
         self.linkLabel.setOpenExternalLinks(True)
         self.layout.addWidget(self.linkLabel)
         self.setLayout(self.layout)
@@ -142,6 +142,8 @@ class vidcord(QWidget):
         self.startTimeSlider.valueChanged.connect(self.updateStartTime)
         self.endTimeSlider.valueChanged.connect(self.updateEndTime)
         self.loadPreviousSelections()
+        self.activateWindow()
+        self.raise_()
 
     def loadPreviousSelections(self):
         quality_index = self.settings.get("quality_index", 0)
@@ -191,6 +193,8 @@ class vidcord(QWidget):
             self.updatePreview(0)
             self.updateStartTime()
             self.updateEndTime()
+            self.activateWindow()
+            self.raise_()
         except ValueError:
             self.label.setText("Could not retrieve video duration. Please select another file.")
             self.startTimeSlider.setEnabled(False)
@@ -239,96 +243,89 @@ class vidcord(QWidget):
                 os.remove(temp_image_path)
 
     def convertVideo(self, filePath):
-        try:
-            quality = self.qualityComboBox.currentText()
+        quality = self.qualityComboBox.currentText()
 
-            if "10MB, 480p" in quality:
-                target_size_mb = 10
-                target_height = 480
-            elif "25MB, 480p" in quality:
-                target_size_mb = 25
-                target_height = 480
-            elif "50MB, 720p" in quality:
-                target_size_mb = 50
-                target_height = 720
-            elif "100MB, 1080p" in quality:
-                target_size_mb = 100
-                target_height = 1080
-            else:
-                target_size_mb = 500
-                target_height = None
+        if "10MB, 480p" in quality:
+            target_size_mb = 10
+            target_height = 480
+        elif "25MB, 480p" in quality:
+            target_size_mb = 25
+            target_height = 480
+        elif "50MB, 720p" in quality:
+            target_size_mb = 50
+            target_height = 720
+        elif "100MB, 1080p" in quality:
+            target_size_mb = 100
+            target_height = 1080
+        else:
+            target_size_mb = 500
+            target_height = None
 
-            start_time = self.startTimeSlider.value() / 10.0
-            end_time = self.endTimeSlider.value() / 10.0
+        start_time = self.startTimeSlider.value() / 10.0
+        end_time = self.endTimeSlider.value() / 10.0
 
-            duration = get_video_duration(filePath)
-            if end_time > duration:
-                end_time = duration
+        duration = get_video_duration(filePath)
+        if end_time > duration:
+            end_time = duration
 
-            clip_duration = end_time - start_time
-            if clip_duration <= 0:
-                raise ValueError("Clip duration must be greater than zero.")
+        clip_duration = end_time - start_time
+        if clip_duration <= 0:
+            raise ValueError("Clip duration must be greater than zero.")
 
-            target_bitrate = calculate_bitrate(target_size_mb, clip_duration)
+        target_bitrate = calculate_bitrate(target_size_mb, clip_duration)
 
-            selected_encoder_label = self.encoderComboBox.currentText()
-            selected_encoder = self.encoder_mapping[selected_encoder_label]
+        selected_encoder_label = self.encoderComboBox.currentText()
+        selected_encoder = self.encoder_mapping[selected_encoder_label]
 
-            options = QFileDialog.Options()
-            output_file, _ = QFileDialog.getSaveFileName(self, "Save Compressed Video", "", "MP4 Files (*.mp4);;All Files (*)", options=options)
-            if not output_file:
-                self.label.setText("Conversion cancelled")
-                return
+        options = QFileDialog.Options()
+        output_file, _ = QFileDialog.getSaveFileName(self, "Save Compressed Video", "", "MP4 Files (*.mp4);;All Files (*)", options=options)
+        if not output_file:
+            self.label.setText("Conversion cancelled")
+            return
 
-            original_width, original_height = self.get_video_resolution(filePath)
+        original_width, original_height = self.get_video_resolution(filePath)
 
-            if target_height:
-                target_width = math.ceil((original_width / original_height) * target_height)
-                resolution_filter = f"scale={target_width}:{target_height}"
-            else:
-                resolution_filter = "scale=-1:-1"
+        if target_height:
+            target_width = math.ceil((original_width / original_height) * target_height)
+            resolution_filter = f"scale={target_width}:{target_height}"
+        else:
+            resolution_filter = "scale=-1:-1"
 
-            cmd = [
-                "ffmpeg", "-i", filePath, "-ss", str(start_time), "-t", str(clip_duration),
-                "-c:v", selected_encoder, "-b:v", f'{target_bitrate}k', "-c:a", 'aac', "-b:a", '128k',
-                "-vf", resolution_filter, output_file, "-y"
-            ]
+        cmd = [
+            "ffmpeg", "-i", filePath, "-ss", str(start_time), "-t", str(clip_duration),
+            "-c:v", selected_encoder, "-b:v", f'{target_bitrate}k', "-c:a", 'aac', "-b:a", '128k',
+            "-vf", resolution_filter, output_file, "-y"
+        ]
 
-            if platform.system() == 'Windows':
-                creationflags = subprocess.CREATE_NO_WINDOW
-            else:
-                creationflags = 0
+        if platform.system() == 'Windows':
+            creationflags = subprocess.CREATE_NO_WINDOW
+        else:
+            creationflags = 0
 
-            process = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True, creationflags=creationflags)
-            start_time = time.time()
-            encoding_started = False
-            while process.poll() is None:
-                line = process.stderr.readline()
-                if line:
-                    if "time=" in line:
-                        if not encoding_started:
-                            self.etaLabel.show()
-                            encoding_started = True
-                        time_str = line.split("time=")[1].split(" ")[0]
-                        time_parts = time_str.split(":")
-                        current_time_sec = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + float(time_parts[2])
-                        percent = min((current_time_sec / clip_duration) * 100, 100)
-                        elapsed_time = time.time() - start_time
-                        eta = (elapsed_time / (current_time_sec / clip_duration)) - elapsed_time
-                        self.progressBar.setValue(int(percent))
-                        self.etaLabel.setText(self.format_time(eta))
-                QApplication.processEvents()
+        process = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True, creationflags=creationflags)
+        start_time = time.time()
+        encoding_started = False
+        while process.poll() is None:
+            line = process.stderr.readline()
+            if line:
+                if "time=" in line:
+                    if not encoding_started:
+                        self.etaLabel.show()
+                        encoding_started = True
+                    time_str = line.split("time=")[1].split(" ")[0]
+                    time_parts = time_str.split(":")
+                    current_time_sec = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + float(time_parts[2])
+                    percent = min((current_time_sec / clip_duration) * 100, 100)
+                    elapsed_time = time.time() - start_time
+                    eta = (elapsed_time / (current_time_sec / clip_duration)) - elapsed_time
+                    self.progressBar.setValue(int(percent))
+                    self.etaLabel.setText(self.format_time(eta))
+            QApplication.processEvents()
 
-            process.wait()
-            self.progressBar.setValue(100)
-            self.label.setText(f'Conversion complete: {output_file}')
-            self.showInFileExplorer(output_file)
-            self.raise_()
-            self.activateWindow()
-        except Exception as e:
-            self.label.setText(f"Error during conversion: {str(e)}")
-            self.progressBar.setValue(0)
-            self.etaLabel.setText("")
+        process.wait()
+        self.progressBar.setValue(100)
+        self.label.setText(f'Conversion complete: {output_file}')
+        self.showInFileExplorer(output_file)
 
     def get_video_resolution(self, filePath):
         cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", filePath]
