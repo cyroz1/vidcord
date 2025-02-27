@@ -3,15 +3,22 @@ import os
 import subprocess
 import shlex
 import ffmpeg
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox, QProgressBar, QSlider
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox, QProgressBar, QSlider, QStyleFactory
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap
 import time
 import platform
 import math
 import json
+import pathlib
 
-SETTINGS_FILE = os.path.join(os.getenv('APPDATA'), 'vidcord_settings.json')
+def get_settings_file_path():
+    if platform.system() == 'Windows':
+        return os.path.join(os.getenv('APPDATA'), 'vidcord_settings.json')
+    else:
+        return os.path.join(os.path.expanduser('~'), '.vidcord_settings.json')
+
+SETTINGS_FILE = get_settings_file_path()
 
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
@@ -214,8 +221,12 @@ class vidcord(QWidget):
         if not self.file_path:
             return
 
-        appdata_path = os.getenv('APPDATA')
-        vidcord_temp_dir = os.path.join(appdata_path, 'vidcord')
+        if platform.system() == 'Windows':
+            appdata_path = os.getenv('APPDATA')
+            vidcord_temp_dir = os.path.join(appdata_path, 'vidcord')
+        else:
+            vidcord_temp_dir = os.path.join(os.path.expanduser('~'), '.vidcord')
+
         os.makedirs(vidcord_temp_dir, exist_ok=True)
 
         temp_image_path = os.path.join(vidcord_temp_dir, 'preview_frame.jpg')
@@ -277,11 +288,10 @@ class vidcord(QWidget):
         selected_encoder_label = self.encoderComboBox.currentText()
         selected_encoder = self.encoder_mapping[selected_encoder_label]
 
-        options = QFileDialog.Options()
-        output_file, _ = QFileDialog.getSaveFileName(self, "Save Compressed Video", "", "MP4 Files (*.mp4);;All Files (*)", options=options)
-        if not output_file:
-            self.label.setText("Conversion cancelled")
-            return
+        downloads_path = str(pathlib.Path.home() / "Downloads")
+        base_name = os.path.basename(filePath)
+        name, ext = os.path.splitext(base_name)
+        output_file = os.path.join(downloads_path, f"{name}-vidcord.mp4")
 
         original_width, original_height = self.get_video_resolution(filePath)
 
@@ -314,12 +324,13 @@ class vidcord(QWidget):
                         encoding_started = True
                     time_str = line.split("time=")[1].split(" ")[0]
                     time_parts = time_str.split(":")
-                    current_time_sec = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + float(time_parts[2])
-                    percent = min((current_time_sec / clip_duration) * 100, 100)
-                    elapsed_time = time.time() - start_time
-                    eta = (elapsed_time / (current_time_sec / clip_duration)) - elapsed_time
-                    self.progressBar.setValue(int(percent))
-                    self.etaLabel.setText(self.format_time(eta))
+                    if all(part.replace('.', '', 1).isdigit() for part in time_parts):
+                        current_time_sec = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + float(time_parts[2])
+                        percent = min((current_time_sec / clip_duration) * 100, 100)
+                        elapsed_time = time.time() - start_time
+                        eta = (elapsed_time / (current_time_sec / clip_duration)) - elapsed_time
+                        self.progressBar.setValue(int(percent))
+                        self.etaLabel.setText(self.format_time(eta))
             QApplication.processEvents()
 
         process.wait()
