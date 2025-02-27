@@ -137,7 +137,7 @@ class vidcord(QWidget):
         self.progressLayout.addWidget(self.etaLabel)
         self.layout.addLayout(self.progressLayout)
         self.linkLabel = QLabel(self)
-        self.linkLabel.setText('v4.4 | <a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
+        self.linkLabel.setText('v4.5 | <a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
         self.linkLabel.setOpenExternalLinks(True)
         self.layout.addWidget(self.linkLabel)
         self.setLayout(self.layout)
