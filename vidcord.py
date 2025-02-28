@@ -3,7 +3,7 @@ import os
 import subprocess
 import shlex
 import ffmpeg
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox, QProgressBar, QSlider, QStyleFactory
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox, QProgressBar, QSlider
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap
 import time
@@ -41,14 +41,8 @@ def get_video_duration(file_path):
         except ValueError:
             raise ValueError("Invalid duration value.")
         return duration
-    except ffmpeg.Error as e:
-        print(f"Error probing video file: {e}")
-        raise
-    except ValueError as e:
-        print(f"Error: {e}")
-        raise
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        print(f"Error probing video file: {e}")
         raise
 
 def calculate_bitrate(target_size_mb, duration_sec, audio_bitrate=128):
