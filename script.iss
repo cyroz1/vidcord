@@ -31,9 +31,9 @@ ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only.)
 ;PrivilegesRequired=lowest
-OutputDir=C:\Users\cyroz\Downloads
+OutputDir=C:\Users\PC\Downloads
 OutputBaseFilename=vidcord_v4.5_x64
-SetupIconFile=C:\Users\cyroz\Downloads\vidcord\icon.ico
+SetupIconFile="C:\Users\PC\Downloads\vidcord-main\vidcord-main\icon.ico"
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -45,8 +45,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "C:\Users\cyroz\Downloads\vidcord\dist\vidcord\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\cyroz\Downloads\vidcord\dist\vidcord\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "C:\Users\PC\Downloads\vidcord-main\vidcord-main\dist\vidcord\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\Users\PC\Downloads\vidcord-main\vidcord-main\dist\vidcord\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Registry]
