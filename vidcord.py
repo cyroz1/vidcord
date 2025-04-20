@@ -217,6 +217,7 @@ class vidcord(QWidget):
             self.updatePreview(0)
             self.updateStartTime()
             self.updateEndTime()
+            self.showNormal()
             self.activateWindow()
             self.raise_()
         except ValueError:
