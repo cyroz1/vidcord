@@ -303,10 +303,8 @@ class vidcord(QWidget):
 
         target_bitrate = calculate_bitrate(target_size_mb, clip_duration)
 
-        # Get the original bitrate of the video
         original_bitrate = self.get_video_bitrate(filePath)
 
-        # Ensure the target bitrate does not exceed the original bitrate
         target_bitrate = min(target_bitrate, original_bitrate)
 
         selected_encoder_label = self.encoderComboBox.currentText()
@@ -367,6 +365,11 @@ class vidcord(QWidget):
         result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
         width, height = map(int, result.stdout.strip().split(","))
         return width, height
+
+    def get_video_bitrate(self, filePath):
+        cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=bit_rate", "-of", "csv=p=0", filePath]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
+        return int(result.stdout.strip()) // 1000  # Convert from bits to kilobits
 
     def format_time(self, seconds):
         if seconds < 0:
