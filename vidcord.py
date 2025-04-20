@@ -303,6 +303,12 @@ class vidcord(QWidget):
 
         target_bitrate = calculate_bitrate(target_size_mb, clip_duration)
 
+        # Get the original bitrate of the video
+        original_bitrate = self.get_video_bitrate(filePath)
+
+        # Ensure the target bitrate does not exceed the original bitrate
+        target_bitrate = min(target_bitrate, original_bitrate)
+
         selected_encoder_label = self.encoderComboBox.currentText()
         selected_encoder = self.encoder_mapping[selected_encoder_label]
 
