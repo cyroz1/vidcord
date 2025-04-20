@@ -11,6 +11,10 @@ import platform
 import math
 import json
 import pathlib
+import requests
+from packaging import version
+
+CURRENT_VERSION = "v4.6"
 
 def get_settings_file_path():
     if platform.system() == 'Windows':
@@ -73,12 +77,26 @@ def get_available_encoders():
 
     return available_encoders
 
+def check_for_updates():
+    try:
+        response = requests.get("https://api.github.com/repos/cyroz1/vidcord/releases/latest", timeout=5)
+        response.raise_for_status()
+        latest_version = response.json().get("tag_name", "")
+        normalized_latest_version = latest_version.lstrip("v")
+        normalized_current_version = CURRENT_VERSION.lstrip("v")
+        if normalized_latest_version and version.parse(normalized_latest_version) > version.parse(normalized_current_version):
+            return f"A new version ({latest_version}) is available! Visit https://github.com/cyroz1/vidcord to update."
+        return "You are using the latest version."
+    except Exception as e:
+        return f"Could not check for updates: {e}"
+
 class vidcord(QWidget):
     def __init__(self, initial_file=None):
         super().__init__()
         self.file_path = initial_file
         self.settings = load_settings()
         self.initUI()
+        self.checkForUpdates()
 
     def initUI(self):
         self.setAcceptDrops(True)
@@ -131,7 +149,7 @@ class vidcord(QWidget):
         self.progressLayout.addWidget(self.etaLabel)
         self.layout.addLayout(self.progressLayout)
         self.linkLabel = QLabel(self)
-        self.linkLabel.setText('v4.5 | <a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
+        self.linkLabel.setText('v4.6 | <a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
         self.linkLabel.setOpenExternalLinks(True)
         self.layout.addWidget(self.linkLabel)
         self.setLayout(self.layout)
@@ -145,6 +163,11 @@ class vidcord(QWidget):
         self.loadPreviousSelections()
         self.activateWindow()
         self.raise_()
+
+    def checkForUpdates(self):
+        update_message = check_for_updates()
+        self.label.setText(update_message)
+        print(update_message)
 
     def loadPreviousSelections(self):
         quality_index = self.settings.get("quality_index", 0)
