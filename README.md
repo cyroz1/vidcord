@@ -13,10 +13,10 @@ See [latest release](https://github.com/cyroz1/vidcord/releases/latest) to downl
   - Manual: Drag and drop or browse for video files in the application.
 - Five quality presets:
   - 10MB, 480p (Free users)
-  - 25MB, 480p (Free users)
-  - 50MB, 720p (Nitro Basic or Level 2 Boost)
-  - 100MB, 1080p (Level 3 Boost or [Clips Bypass](https://github.com/riolubruh/YABDP4Nitro?tab=readme-ov-file#clips))
-  - 500MB, Native (Nitro)
+  - 25MB, 480p (Free users, old)
+  - 50MB, 720p (Nitro Basic or Level 2 Server Boost)
+  - 100MB, 1080p (Level 3 Server Boost or [Clips Bypass](https://github.com/riolubruh/YABDP4Nitro?tab=readme-ov-file#clips))
+  - 500MB, Native (Nitro Full)
 - Software and hardware encoders.
 - Adjustable starting and ending points of the output video with sliders and a live preview.
 - Progress bar and ETA are displayed during encoding.
