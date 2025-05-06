@@ -2,7 +2,7 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "vidcord"
-#define MyAppVersion "4.6"
+#define MyAppVersion "4.7"
 #define MyAppPublisher "cyroz"
 #define MyAppURL "https://github.com/cyroz1/vidcord"
 #define MyAppExeName "vidcord.exe"
@@ -33,7 +33,7 @@ DisableStartupPrompt=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only.)
 ;PrivilegesRequired=lowest
 OutputDir=C:\Users\PC\Downloads
-OutputBaseFilename=vidcord_v4.6_x64
+OutputBaseFilename=vidcord_v4.7_x64
 SetupIconFile="C:\Users\PC\Downloads\vidcord\icon.ico"
 Compression=lzma
 SolidCompression=yes
