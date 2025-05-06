@@ -43,8 +43,10 @@ See [latest release](https://github.com/cyroz1/vidcord/releases/latest) to downl
 
 2. **Install Python dependencies**:
    ```sh
-   pip install PyQt5
    pip install ffmpeg-python
+   pip install PyQt5
+   pip install requests
+   pip install packaging
    ```
 
 3. **Run the application**:
