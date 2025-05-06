@@ -14,7 +14,7 @@ import pathlib
 import requests
 from packaging import version
 
-CURRENT_VERSION = "v4.6"
+CURRENT_VERSION = "v4.7"
 
 def get_settings_file_path():
     if platform.system() == 'Windows':
@@ -149,7 +149,7 @@ class vidcord(QWidget):
         self.progressLayout.addWidget(self.etaLabel)
         self.layout.addLayout(self.progressLayout)
         self.linkLabel = QLabel(self)
-        self.linkLabel.setText('v4.6 | <a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
+        self.linkLabel.setText('v4.7 | <a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
         self.linkLabel.setOpenExternalLinks(True)
         self.layout.addWidget(self.linkLabel)
         self.setLayout(self.layout)
@@ -202,11 +202,20 @@ class vidcord(QWidget):
 
     def openFileDialog(self):
         options = QFileDialog.Options()
-        fileName, _ = QFileDialog.getOpenFileName(self, "Choose a video file to compress", "", "All Files (*);;Video Files (*.mp4 *.avi)", options=options)
+        fileName, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Choose a video file to compress", 
+            "", 
+            "Video Files (*.mp4 *.avi *.mov *.mkv *.flv *.wmv *.webm);;All Files (*)", 
+            options=options
+        )
         if fileName:
             self.loadVideo(fileName)
 
     def loadVideo(self, filePath):
+        if not filePath.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm')):
+            self.label.setText("Unsupported file format. Please select a valid video file.")
+            return
         self.file_path = filePath
         self.label.setText(f'Selected file: {filePath}')
         try:
@@ -303,9 +312,10 @@ class vidcord(QWidget):
 
         target_bitrate = calculate_bitrate(target_size_mb, clip_duration)
 
-        original_bitrate = self.get_video_bitrate(filePath)
+        original_bitrate = self.get_original_bitrate(filePath)
 
-        target_bitrate = min(target_bitrate, original_bitrate)
+        if target_bitrate > original_bitrate:
+            target_bitrate = original_bitrate
 
         selected_encoder_label = self.encoderComboBox.currentText()
         selected_encoder = self.encoder_mapping[selected_encoder_label]
@@ -363,13 +373,20 @@ class vidcord(QWidget):
     def get_video_resolution(self, filePath):
         cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", filePath]
         result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
-        width, height = map(int, result.stdout.strip().split(","))
-        return width, height
+        output = result.stdout.strip().rstrip(",")
+        if not output:
+            raise ValueError("Could not retrieve video resolution.")
+        try:
+            width, height = map(int, output.split(","))
+            return width, height
+        except ValueError:
+            raise ValueError(f"Invalid resolution data: {output}")
 
-    def get_video_bitrate(self, filePath):
+    def get_original_bitrate(self, filePath):
         cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=bit_rate", "-of", "csv=p=0", filePath]
         result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
-        return int(result.stdout.strip()) // 1000  # Convert from bits to kilobits
+        bitrate_str = result.stdout.strip().split(",")[0]
+        return int(bitrate_str) // 1000
 
     def format_time(self, seconds):
         if seconds < 0:
