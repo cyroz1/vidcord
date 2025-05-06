@@ -9,7 +9,7 @@ See [latest release](https://github.com/cyroz1/vidcord/releases/latest) to downl
 ## Features
 
 - Two methods to import videos:
-  - File Explorer: Right click .mp4 files in File Explorer and choose "Compress with vidcord".
+  - File Explorer: Right click video files in File Explorer and choose "Compress with vidcord".
   - Manual: Drag and drop or browse for video files in the application.
 - Five quality presets:
   - 10MB, 480p (Free users)
