@@ -4,7 +4,7 @@ This is a simple Python GUI application for compressing video files under Discor
 
 ## Download
 
-[Download latest release installer.]([https://github.com/cyroz1/vidcord/releases/latest](https://github.com/cyroz1/vidcord/releases/download/4.8/vidcord_v4.8_x64.exe)).
+[Download latest release installer.](https://github.com/cyroz1/vidcord/releases/download/4.8/vidcord_v4.8_x64.exe)
 
 ## Features
 
