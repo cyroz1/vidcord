@@ -1,26 +1,29 @@
 # <img src="icon.ico" height="25"> vidcord  
 
-This is a simple Python GUI application for compressing video files under Discord's size limits using FFmpeg and PyQt5. The application allows users to either right click videos in the File Explorer, drag and drop video files, or import them via a file dialog. Users can then adjust starting and ending times, and compress the imported video with either hardware or software encoding and five quality presets for different Nitro and server boost levels.
+This is a simple Python GUI application for compressing video files under Discord's size limits using FFmpeg and PyQt5. The application features a modern **Fluent Design** interface and allows users to either right click videos in the File Explorer, drag and drop video files, or import them via a file dialog. Users can then adjust starting and ending times, remove audio, and compress the imported video with either hardware or software encoding and five quality presets for different Nitro and server boost levels.
 
 ## Download
 
-[Download latest release installer.](https://github.com/cyroz1/vidcord/releases/download/4.8/vidcord_v4.8_x64.exe)
+[Download latest release installer.](https://github.com/cyroz1/vidcord/releases/latest)
 
 ## Features
 
-- Two methods to import videos:
+- **Modern UI**: Clean and responsive interface built with Fluent Design.
+- **Two methods to import videos**:
   - File Explorer: Right click video files in File Explorer and choose "Compress with vidcord".
   - Manual: Drag and drop or browse for video files in the application.
-- Five quality presets:
+- **Five quality presets**:
   - 10MB, 480p (Free users)
   - 25MB, 480p (Free users, old)
   - 50MB, 720p (Nitro Basic or Level 2 Server Boost)
   - 100MB, 1080p (Level 3 Server Boost or [Clips Bypass](https://github.com/riolubruh/YABDP4Nitro?tab=readme-ov-file#clips))
   - 500MB, Native (Nitro Full)
-- Software and hardware encoders.
-- Adjustable starting and ending points of the output video with sliders and a live preview.
-- Progress bar and ETA are displayed during encoding.
-- Compressed file is revealed in its output path in File Explorer.
+- **Advanced Options**:
+  - **Remove Audio**: Strip audio tracks to save space or for silent clips.
+  - **Trimming**: Adjustable starting and ending points with live preview.
+- **Hardware Acceleration**: Support for NVIDIA (NVENC), AMD (AMF), Intel (QSV), and Apple Silicon encoders.
+- **Progress Tracking**: Real-time progress bar and ETA display.
+- **Context Menu Integration**: Seamlessly integrated into Windows Explorer.
 
 ## Screenshots
 
@@ -45,6 +48,7 @@ This is a simple Python GUI application for compressing video files under Discor
    ```sh
    pip install ffmpeg-python
    pip install PyQt5
+   pip install PyQt-Fluent-Widgets
    pip install requests
    pip install packaging
    ```
@@ -58,5 +62,6 @@ This is a simple Python GUI application for compressing video files under Discor
 
 - [FFmpeg](https://ffmpeg.org/)
 - [PyQt5](https://pypi.org/project/PyQt5/)
+- [PyQt-Fluent-Widgets](https://github.com/zhiyiYo/PyQt-Fluent-Widgets)
 - [PyInstaller](https://www.pyinstaller.org/)
 - [Inno Setup](https://jrsoftware.org/isinfo.php)
