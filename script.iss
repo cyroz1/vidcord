@@ -2,7 +2,7 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "vidcord"
-#define MyAppVersion "4.8"
+#define MyAppVersion "4.9"
 #define MyAppPublisher "cyroz"
 #define MyAppURL "https://github.com/cyroz1/vidcord"
 #define MyAppExeName "vidcord.exe"
@@ -32,9 +32,9 @@ DisableProgramGroupPage=yes
 DisableStartupPrompt=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only.)
 ;PrivilegesRequired=lowest
-OutputDir=C:\Users\PC\Downloads
-OutputBaseFilename=vidcord_v4.8_x64
-SetupIconFile="C:\Users\PC\Downloads\vidcord\icon.ico"
+OutputDir=C:\Users\amir\Downloads
+OutputBaseFilename=vidcord_v4.9_x64
+SetupIconFile="C:\Users\amir\Downloads\vidcord\icon.ico"
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -46,8 +46,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked dontinheritcheck
 
 [Files]
-Source: "C:\Users\PC\Downloads\vidcord\dist\vidcord\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\PC\Downloads\vidcord\dist\vidcord\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "C:\Users\amir\Downloads\vidcord\dist\vidcord\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\Users\amir\Downloads\vidcord\dist\vidcord\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Registry]
@@ -100,4 +100,3 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
-

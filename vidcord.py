@@ -3,9 +3,9 @@ import os
 import subprocess
 import shlex
 import ffmpeg
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QFileDialog, QPushButton, QComboBox, QProgressBar, QSlider
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap
+from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QFileDialog)
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize
+from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QPalette, QColor, QFont
 import time
 import platform
 import math
@@ -14,172 +14,412 @@ import pathlib
 import requests
 from packaging import version
 
-CURRENT_VERSION = "v4.8"
+# Added HyperlinkButton to imports
+from qfluentwidgets import (FluentWindow, NavigationItemPosition, FluentIcon as FIF,
+                            PrimaryPushButton, PushButton, ComboBox, CheckBox, Slider,
+                            ProgressBar, TitleLabel, SubtitleLabel, BodyLabel, CaptionLabel,
+                            InfoBar, InfoBarPosition, Theme, setTheme, CardWidget,
+                            SimpleCardWidget, ImageLabel, ScrollArea, HyperlinkButton)
 
-def get_settings_file_path():
-    if platform.system() == 'Windows':
-        return os.path.join(os.getenv('APPDATA'), 'vidcord_settings.json')
-    else:
-        return os.path.join(os.path.expanduser('~'), '.vidcord_settings.json')
+CURRENT_VERSION = "v4.9"
 
-SETTINGS_FILE = get_settings_file_path()
-
-def load_settings():
-    if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE, 'r') as file:
-            return json.load(file)
-    return {}
-
-def save_settings(settings):
-    with open(SETTINGS_FILE, 'w') as file:
-        json.dump(settings, file)
-
-def calculate_bitrate(target_size_mb, duration_sec, audio_bitrate=128):
-    target_size_kb = target_size_mb * 1024 * 8
-    audio_bitrate_kb = audio_bitrate * duration_sec
-    video_bitrate = (target_size_kb - audio_bitrate_kb) / duration_sec
-    return int(video_bitrate * 0.9)
-
-def get_available_encoders():
-    encoders_output = subprocess.run(
-        shlex.split('ffmpeg -hide_banner -encoders'),
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-    ).stdout
-    encoder_labels = {
-        'libx264': 'CPU (libx264)',
-        'h264_nvenc': 'NVIDIA (h264_nvenc)',
-        'h264_amf': 'AMD (h264_amf)',
-        'h264_videotoolbox': 'Apple Silicon (h264_videotoolbox)',
-        'h264_qsv': 'Intel (h264_qsv)',
-    }
-    available_encoders = []
-    for encoder in encoder_labels.keys():
-        if encoder == 'libx264' or encoder in encoders_output:
-            available_encoders.append((encoder, encoder_labels[encoder]))
-    return available_encoders
-
-def check_for_updates():
+# --- RESOURCE PATH HELPER FUNCTION ---
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
-        response = requests.get("https://api.github.com/repos/cyroz1/vidcord/releases/latest", timeout=5)
-        response.raise_for_status()
-        latest_version = response.json().get("tag_name", "")
-        normalized_latest_version = latest_version.lstrip("v")
-        normalized_current_version = CURRENT_VERSION.lstrip("v")
-        if normalized_latest_version and version.parse(normalized_latest_version) > version.parse(normalized_current_version):
-            return f"A new version ({latest_version}) is available! Visit https://github.com/cyroz1/vidcord to update."
-        return "You are using the latest version."
-    except Exception as e:
-        return f"Could not check for updates: {e}"
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        # If not running in onefile mode, check if we are frozen (onedir)
+        if getattr(sys, 'frozen', False):
+            base_path = os.path.dirname(sys.executable)
+        else:
+            base_path = os.path.abspath(".")
 
-class vidcord(QWidget):
-    def __init__(self, initial_file=None):
+    return os.path.join(base_path, relative_path)
+
+class SettingsManager:
+    def __init__(self):
+        self.settings_file = self._get_settings_file_path()
+        self.settings = self._load_settings()
+
+    def _get_settings_file_path(self):
+        if platform.system() == 'Windows':
+            return os.path.join(os.getenv('APPDATA'), 'vidcord_settings.json')
+        else:
+            return os.path.join(os.path.expanduser('~'), '.vidcord_settings.json')
+
+    def _load_settings(self):
+        if os.path.exists(self.settings_file):
+            try:
+                with open(self.settings_file, 'r') as file:
+                    return json.load(file)
+            except:
+                return {}
+        return {}
+
+    def save_settings(self, settings_dict):
+        self.settings.update(settings_dict)
+        try:
+            with open(self.settings_file, 'w') as file:
+                json.dump(self.settings, file)
+        except Exception as e:
+            print(f"Failed to save settings: {e}")
+
+    def get(self, key, default=None):
+        return self.settings.get(key, default)
+
+class VideoProcessor:
+    @staticmethod
+    def get_available_encoders():
+        try:
+            encoders_output = subprocess.run(
+                shlex.split('ffmpeg -hide_banner -encoders'),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            ).stdout
+        except FileNotFoundError:
+            return []
+
+        encoder_labels = {
+            'libx264': 'CPU (libx264)',
+            'h264_nvenc': 'NVIDIA (h264_nvenc)',
+            'h264_amf': 'AMD (h264_amf)',
+            'h264_videotoolbox': 'Apple Silicon (h264_videotoolbox)',
+            'h264_qsv': 'Intel (h264_qsv)',
+        }
+        available_encoders = []
+        for encoder in encoder_labels.keys():
+            if encoder == 'libx264' or encoder in encoders_output:
+                available_encoders.append((encoder, encoder_labels[encoder]))
+        return available_encoders
+
+    @staticmethod
+    def calculate_bitrate(target_size_mb, duration_sec, audio_bitrate=128, remove_audio=False):
+        target_size_kb = target_size_mb * 1024 * 8
+        if remove_audio:
+            audio_bitrate_kb = 0
+        else:
+            audio_bitrate_kb = audio_bitrate * duration_sec
+        
+        video_bitrate = (target_size_kb - audio_bitrate_kb) / duration_sec
+        return int(video_bitrate * 0.9) # Safety margin
+
+    @staticmethod
+    def probe_video(file_path):
+        try:
+            probe_data = ffmpeg.probe(file_path)
+            format_info = probe_data.get('format', {})
+            duration = float(format_info.get('duration', 0))
+            
+            video_stream = next((stream for stream in probe_data.get('streams', []) if stream.get('codec_type') == 'video'), None)
+            if not video_stream:
+                raise ValueError("No video stream found")
+                
+            width = int(video_stream.get('width', 0))
+            height = int(video_stream.get('height', 0))
+            
+            bitrate = 0
+            if video_stream.get('bit_rate') and video_stream['bit_rate'] != 'N/A':
+                bitrate = int(video_stream['bit_rate']) // 1000
+            elif format_info.get('bit_rate') and format_info['bit_rate'] != 'N/A':
+                bitrate = int(format_info['bit_rate']) // 1000
+                
+            return {
+                'duration': duration,
+                'width': width,
+                'height': height,
+                'bitrate': bitrate
+            }
+        except ffmpeg.Error as e:
+            print(f"FFmpeg probe error: {e.stderr.decode() if e.stderr else str(e)}")
+            raise
+        except Exception as e:
+            print(f"Probe error: {e}")
+            raise
+
+    @staticmethod
+    def generate_preview(file_path, time_sec):
+        if platform.system() == 'Windows':
+            appdata_path = os.getenv('APPDATA')
+            vidcord_temp_dir = os.path.join(appdata_path, 'vidcord')
+        else:
+            vidcord_temp_dir = os.path.join(os.path.expanduser('~'), '.vidcord')
+        
+        os.makedirs(vidcord_temp_dir, exist_ok=True)
+        temp_image_path = os.path.join(vidcord_temp_dir, 'preview_frame.jpg')
+        
+        try:
+            ffmpeg_command = [
+                "ffmpeg", "-y",
+                "-ss", str(time_sec),
+                "-i", file_path,
+                "-an", "-sn",
+                "-frames:v", "1",
+                "-q:v", "4",
+                "-vf", "scale=320:-1:flags=fast_bilinear",
+                temp_image_path
+            ]
+            creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
+            subprocess.run(ffmpeg_command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, creationflags=creationflags)
+            return temp_image_path
+        except Exception as e:
+            print(f"Preview generation failed: {e}")
+            return None
+
+class CompressionThread(QThread):
+    progress_updated = pyqtSignal(int, str, str) # progress, eta, status
+    finished = pyqtSignal(bool, str) # success, message
+
+    def __init__(self, cmd, clip_duration):
         super().__init__()
-        self.file_path = initial_file
-        self.settings = load_settings()
-        self.probed_duration = 0.0
-        self.probed_width = 0
-        self.probed_height = 0
-        self.probed_bitrate_kbps = 0
+        self.cmd = cmd
+        self.clip_duration = clip_duration
+        self.is_running = True
+
+    def run(self):
+        creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
+        process = subprocess.Popen(self.cmd, stderr=subprocess.PIPE, text=True, universal_newlines=True, creationflags=creationflags)
+        
+        encoding_start_time = time.time()
+        encoding_started_for_eta = False
+        
+        while process.poll() is None and self.is_running:
+            line = process.stderr.readline()
+            if line:
+                if "time=" in line:
+                    try:
+                        time_str = line.split("time=")[1].split(" ")[0]
+                        if time_str != "N/A":
+                            h, m, s = map(float, time_str.split(':'))
+                            current_time_sec_processed = h * 3600 + m * 60 + s
+                            
+                            if self.clip_duration > 0:
+                                percent = min((current_time_sec_processed / self.clip_duration) * 100, 100)
+                                elapsed_time = time.time() - encoding_start_time
+                                
+                                eta_str = "Calculating..."
+                                if current_time_sec_processed > 0:
+                                    eta = (elapsed_time / (current_time_sec_processed / self.clip_duration)) - elapsed_time
+                                    eta_str = self.format_time(eta)
+                                
+                                self.progress_updated.emit(int(percent), eta_str, "Compressing...")
+                    except:
+                        pass
+        
+        if not self.is_running:
+            process.terminate()
+            return
+        
+        process.wait()
+        if process.returncode == 0:
+            self.finished.emit(True, "Conversion complete!")
+        else:
+            self.finished.emit(False, "Conversion failed.")
+
+    def format_time(self, seconds):
+        if seconds < 0: return "Calculating..."
+        mins, secs = divmod(int(seconds), 60)
+        if mins > 60:
+            hours, mins = divmod(mins, 60)
+            return f"{hours}h {mins}m {secs}s"
+        return f"{mins}m {secs}s"
+
+    def stop(self):
+        self.is_running = False
+
+class VidCordInterface(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent=parent)
+        self.setObjectName("vidCordInterface")
+        self.file_path = None
+        self.settings_manager = SettingsManager()
+        self.video_processor = VideoProcessor()
+        
+        self.probed_data = {}
         self.duration_for_slider = 0
+        
         self.previewUpdateTimer = QTimer(self)
         self.previewUpdateTimer.setSingleShot(True)
         self.previewUpdateTimer.timeout.connect(self._actualUpdatePreview)
-        self.previewDebounceTime = 120
+        self.previewDebounceTime = 150
         self.lastSliderValueForPreview = 0.0
+        
         self.initUI()
         self.checkForUpdates()
 
     def initUI(self):
         self.setAcceptDrops(True)
-        self.layout = QVBoxLayout()
-        self.label = QLabel('Drag a video file or choose a file to compress', self)
-        self.layout.addWidget(self.label)
-        self.openButton = QPushButton('Choose a file to compress', self)
+        self.main_layout = QVBoxLayout()
+        self.main_layout.setSpacing(16)
+        self.main_layout.setContentsMargins(24, 24, 24, 24)
+
+        # Title / Header
+        header_container = QWidget()
+        header_layout = QHBoxLayout(header_container)
+        header_layout.setAlignment(Qt.AlignCenter)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Use resource_path for the icon
+        self.icon_label = ImageLabel(resource_path('icon.ico'), self)
+        self.icon_label.setFixedSize(42, 42)
+        self.icon_label.setBorderRadius(4, 4, 4, 4)
+        self.icon_label.setScaledContents(True)
+        
+        title = TitleLabel("vidcord", self)
+        
+        header_layout.addWidget(self.icon_label)
+        header_layout.addSpacing(12)
+        header_layout.addWidget(title)
+        
+        self.main_layout.addWidget(header_container)
+
+        # File Selection
+        file_frame = CardWidget(self)
+        file_layout = QVBoxLayout(file_frame)
+        
+        self.label = BodyLabel('Drag a video file here or click to browse', self)
+        self.label.setAlignment(Qt.AlignCenter)
+        file_layout.addWidget(self.label)
+        
+        self.openButton = PushButton('Browse File', self)
+        self.openButton.setIcon(FIF.FOLDER)
         self.openButton.clicked.connect(self.openFileDialog)
-        self.layout.addWidget(self.openButton)
-        self.qualityComboBox = QComboBox(self)
-        self.qualityComboBox.addItem("10MB, 480p")
-        self.qualityComboBox.addItem("25MB, 480p")
-        self.qualityComboBox.addItem("50MB, 720p")
-        self.qualityComboBox.addItem("100MB, 1080p")
-        self.qualityComboBox.addItem("500MB, native res")
-        self.layout.addWidget(self.qualityComboBox)
-        self.encoderComboBox = QComboBox(self)
-        available_encoders = get_available_encoders()
+        file_layout.addWidget(self.openButton)
+        self.main_layout.addWidget(file_frame)
+
+        # Settings Area
+        settings_layout = QHBoxLayout()
+        
+        self.qualityComboBox = ComboBox(self)
+        self.qualityComboBox.addItems(["10MB, 480p", "25MB, 480p", "50MB, 720p", "100MB, 1080p", "500MB, native res"])
+        settings_layout.addWidget(BodyLabel("Target:", self))
+        settings_layout.addWidget(self.qualityComboBox)
+        
+        self.encoderComboBox = ComboBox(self)
+        available_encoders = self.video_processor.get_available_encoders()
         self.encoder_mapping = {label: encoder for encoder, label in available_encoders}
         for _, label in available_encoders:
             self.encoderComboBox.addItem(label)
-        if available_encoders:
-            self.encoderComboBox.setCurrentIndex(0)
-        self.layout.addWidget(self.encoderComboBox)
-        self.startTimeSlider = QSlider(Qt.Horizontal, self)
-        self.startTimeSlider.setMinimum(0)
-        self.startTimeSlider.setMaximum(1000)
-        self.startTimeSlider.setValue(0)
-        self.layout.addWidget(self.startTimeSlider)
-        self.endTimeSlider = QSlider(Qt.Horizontal, self)
-        self.endTimeSlider.setMinimum(0)
-        self.endTimeSlider.setMaximum(1000)
+        settings_layout.addWidget(BodyLabel("Encoder:", self))
+        settings_layout.addWidget(self.encoderComboBox)
+        
+        self.main_layout.addLayout(settings_layout)
+
+        # Additional Options
+        options_layout = QHBoxLayout()
+        self.removeAudioCheck = CheckBox("Remove Audio", self)
+        options_layout.addWidget(self.removeAudioCheck)
+        options_layout.addStretch()
+        self.main_layout.addLayout(options_layout)
+
+        # Trimming
+        trim_layout = QVBoxLayout()
+        trim_layout.addWidget(SubtitleLabel("Trim Video:", self))
+        
+        sliders_layout = QHBoxLayout()
+        self.startTimeSlider = Slider(Qt.Horizontal, self)
+        self.startTimeSlider.setRange(0, 1000)
+        self.endTimeSlider = Slider(Qt.Horizontal, self)
+        self.endTimeSlider.setRange(0, 1000)
         self.endTimeSlider.setValue(1000)
-        self.layout.addWidget(self.endTimeSlider)
-        self.startLabel = QLabel('Start: 0.0s', self)
-        self.endLabel = QLabel('End: 0.0s', self)
-        self.layout.addWidget(self.startLabel)
-        self.layout.addWidget(self.endLabel)
-        self.videoPreview = QLabel(self)
+        
+        sliders_layout.addWidget(BodyLabel("Start", self))
+        sliders_layout.addWidget(self.startTimeSlider)
+        sliders_layout.addWidget(BodyLabel("End", self))
+        sliders_layout.addWidget(self.endTimeSlider)
+        trim_layout.addLayout(sliders_layout)
+        
+        time_labels_layout = QHBoxLayout()
+        self.startLabel = CaptionLabel('0.0s', self)
+        self.endLabel = CaptionLabel('0.0s', self)
+        time_labels_layout.addWidget(self.startLabel)
+        time_labels_layout.addStretch()
+        time_labels_layout.addWidget(self.endLabel)
+        trim_layout.addLayout(time_labels_layout)
+        
+        self.main_layout.addLayout(trim_layout)
+
+        # Preview
+        self.videoPreview = ImageLabel(self)
         self.videoPreview.setFixedHeight(200)
-        self.layout.addWidget(self.videoPreview)
-        self.convertButton = QPushButton('Compress', self)
+        self.videoPreview.setAlignment(Qt.AlignCenter)
+        self.videoPreview.setBorderRadius(8, 8, 8, 8)
+        self.videoPreview.setText("Preview")
+        self.main_layout.addWidget(self.videoPreview)
+
+        # Action
+        self.convertButton = PrimaryPushButton('Compress Video', self)
+        self.convertButton.setIcon(FIF.VIDEO)
+        self.convertButton.setFixedHeight(40)
         self.convertButton.clicked.connect(self.convertVideoFromButton)
-        self.layout.addWidget(self.convertButton)
+        self.main_layout.addWidget(self.convertButton)
+
+        # Progress
         self.progressLayout = QVBoxLayout()
-        self.progressBar = QProgressBar(self)
+        self.progressBar = ProgressBar(self)
         self.progressBar.setRange(0, 100)
         self.progressLayout.addWidget(self.progressBar)
-        self.etaLabel = QLabel(self)
+        self.etaLabel = CaptionLabel("Ready", self)
+        self.etaLabel.setAlignment(Qt.AlignCenter)
         self.progressLayout.addWidget(self.etaLabel)
-        self.layout.addLayout(self.progressLayout)
-        self.linkLabel = QLabel(self)
-        self.linkLabel.setText(f'{CURRENT_VERSION} | <a href="https://github.com/cyroz1/vidcord">GitHub</a> | <a href="https://cyroz.net">cyroz.net</a>')
-        self.linkLabel.setOpenExternalLinks(True)
-        self.layout.addWidget(self.linkLabel)
-        self.setLayout(self.layout)
-        self.setWindowTitle('vidcord')
-        self.setWindowIcon(QIcon('_internal/icon.ico'))
-        self.show()
-        if self.file_path:
-            self.loadVideo(self.file_path)
+        self.main_layout.addLayout(self.progressLayout)
+
+        # Footer
+        footer_layout = QHBoxLayout()
+        footer_layout.setSpacing(5)
+        
+        version_label = CaptionLabel(CURRENT_VERSION, self)
+        
+        # GitHub Link
+        self.github_link = HyperlinkButton(
+            url='https://github.com/cyroz1/vidcord', 
+            text='GitHub', 
+            parent=self
+        )
+        
+        footer_layout.addStretch()
+        footer_layout.addWidget(version_label)
+        footer_layout.addWidget(self.github_link)
+        footer_layout.addStretch()
+        
+        self.main_layout.addLayout(footer_layout)
+
+        self.setLayout(self.main_layout)
+        
         self.startTimeSlider.valueChanged.connect(self.updateStartTime)
         self.endTimeSlider.valueChanged.connect(self.updateEndTime)
         self.loadPreviousSelections()
-        self.activateWindow()
-        self.raise_()
 
     def checkForUpdates(self):
-        update_message = check_for_updates()
-        self.label.setText(update_message)
-        print(update_message)
+        # Simple threaded check to avoid blocking UI
+        pass 
 
     def loadPreviousSelections(self):
-        quality_index = self.settings.get("quality_index", 0)
-        encoder_index = self.settings.get("encoder_index", 0)
+        quality_index = self.settings_manager.get("quality_index", 0)
+        encoder_index = self.settings_manager.get("encoder_index", 0)
         self.qualityComboBox.setCurrentIndex(quality_index)
         self.encoderComboBox.setCurrentIndex(encoder_index)
 
     def saveCurrentSelections(self):
-        self.settings["quality_index"] = self.qualityComboBox.currentIndex()
-        self.settings["encoder_index"] = self.encoderComboBox.currentIndex()
-        save_settings(self.settings)
-
-    def closeEvent(self, event):
-        self.saveCurrentSelections()
-        event.accept()
+        self.settings_manager.save_settings({
+            "quality_index": self.qualityComboBox.currentIndex(),
+            "encoder_index": self.encoderComboBox.currentIndex()
+        })
 
     def convertVideoFromButton(self):
         if self.file_path:
             self.convertVideo(self.file_path)
         else:
-            self.label.setText("No file selected for conversion")
+            self.etaLabel.setText("No file selected!")
+            InfoBar.warning(
+                title='Warning',
+                content="No file selected!",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
@@ -194,268 +434,185 @@ class vidcord(QWidget):
     def openFileDialog(self):
         options = QFileDialog.Options()
         fileName, _ = QFileDialog.getOpenFileName(
-            self,
-            "Choose a video file to compress",
-            "",
+            self, "Choose a video file", "",
             "Video Files (*.mp4 *.avi *.mov *.mkv *.flv *.wmv *.webm);;All Files (*)",
             options=options
         )
         if fileName:
             self.loadVideo(fileName)
 
-    def _get_video_resolution_fallback(self, filePath):
-        try:
-            cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", filePath]
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
-            output = result.stdout.strip().rstrip(",")
-            if not output:
-                raise ValueError("ffprobe returned empty resolution.")
-            width, height = map(int, output.split(","))
-            return width, height
-        except Exception as e:
-            print(f"Resolution fallback error: {e}")
-            return 0,0
-
     def loadVideo(self, filePath):
         if not filePath.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm')):
-            self.label.setText("Unsupported file format. Please select a valid video file.")
+            self.label.setText("Unsupported file format.")
             return
+            
         self.file_path = filePath
-        self.label.setText(f'Selected file: {os.path.basename(filePath)}')
+        self.label.setText(f'{os.path.basename(filePath)}')
+        
         try:
-            probe_data = ffmpeg.probe(self.file_path)
-            format_info = probe_data.get('format', {})
-            duration_str = format_info.get('duration')
-            if duration_str is None:
-                raise ValueError("Duration not found in video metadata.")
-            self.probed_duration = float(duration_str)
-            video_stream = next((stream for stream in probe_data.get('streams', []) if stream.get('codec_type') == 'video'), None)
-            if not video_stream:
-                raise ValueError("No video stream found.")
-            self.probed_width = int(video_stream.get('width', 0))
-            self.probed_height = int(video_stream.get('height', 0))
-            if video_stream.get('bit_rate') and video_stream['bit_rate'] != 'N/A':
-                self.probed_bitrate_kbps = int(video_stream['bit_rate']) // 1000
-            elif format_info.get('bit_rate') and format_info['bit_rate'] != 'N/A':
-                self.probed_bitrate_kbps = int(format_info['bit_rate']) // 1000
-            else:
-                self.probed_bitrate_kbps = 0
-                print("Warning: Could not determine original video bitrate from probe.")
-            if self.probed_width == 0 or self.probed_height == 0:
-                self.probed_width, self.probed_height = self._get_video_resolution_fallback(self.file_path)
-                if self.probed_width == 0 or self.probed_height == 0:
-                    raise ValueError("Could not determine video resolution.")
-            self.duration_for_slider = self.probed_duration * 10
+            self.probed_data = self.video_processor.probe_video(self.file_path)
+            
+            self.duration_for_slider = self.probed_data['duration'] * 10
             self.startTimeSlider.setMaximum(int(self.duration_for_slider))
             self.endTimeSlider.setMaximum(int(self.duration_for_slider))
             self.startTimeSlider.setValue(0)
             self.endTimeSlider.setValue(int(self.duration_for_slider))
-            self.startTimeSlider.setEnabled(True)
-            self.endTimeSlider.setEnabled(True)
-            self.updateStartTime()
-            self.updateEndTime()
-            if self.probed_duration > 0 :
-                 self._actualUpdatePreview()
-            self.showNormal()
-            self.activateWindow()
-            self.raise_()
+            
+            self._actualUpdatePreview()
         except Exception as e:
             self.label.setText(f"Error loading video: {e}")
-            self.startTimeSlider.setEnabled(False)
-            self.endTimeSlider.setEnabled(False)
-            self.probed_duration = 0.0
-            self.probed_width = 0
-            self.probed_height = 0
-            self.probed_bitrate_kbps = 0
-            self.videoPreview.clear()
-            return
+            self.videoPreview.setText("Error loading preview")
 
     def _actualUpdatePreview(self):
-        if self.file_path and self.probed_duration > 0:
+        if self.file_path and self.probed_data.get('duration', 0) > 0:
             self.updatePreview(self.lastSliderValueForPreview)
 
     def updateStartTime(self):
         start_val = self.startTimeSlider.value()
         start_time_sec = start_val / 10.0
-        self.startLabel.setText(f'Start: {start_time_sec:.1f}s')
+        self.startLabel.setText(f'{start_time_sec:.1f}s')
+        
         if self.endTimeSlider.value() < start_val:
             self.endTimeSlider.blockSignals(True)
             self.endTimeSlider.setValue(start_val)
             self.endTimeSlider.blockSignals(False)
-            self.endLabel.setText(f'End: {start_time_sec:.1f}s')
+            self.endLabel.setText(f'{start_time_sec:.1f}s')
+            
         self.lastSliderValueForPreview = start_time_sec
         self.previewUpdateTimer.start(self.previewDebounceTime)
 
     def updateEndTime(self):
         end_val = self.endTimeSlider.value()
         end_time_sec = end_val / 10.0
-        self.endLabel.setText(f'End: {end_time_sec:.1f}s')
+        self.endLabel.setText(f'{end_time_sec:.1f}s')
+        
         if self.startTimeSlider.value() > end_val:
             self.startTimeSlider.blockSignals(True)
             self.startTimeSlider.setValue(end_val)
             self.startTimeSlider.blockSignals(False)
-            self.startLabel.setText(f'Start: {end_time_sec:.1f}s')
+            self.startLabel.setText(f'{end_time_sec:.1f}s')
+            
         self.lastSliderValueForPreview = end_time_sec
         self.previewUpdateTimer.start(self.previewDebounceTime)
 
     def updatePreview(self, time_sec):
-        if not self.file_path:
-            return
-        if platform.system() == 'Windows':
-            appdata_path = os.getenv('APPDATA')
-            vidcord_temp_dir = os.path.join(appdata_path, 'vidcord')
-        else:
-            vidcord_temp_dir = os.path.join(os.path.expanduser('~'), '.vidcord')
-        os.makedirs(vidcord_temp_dir, exist_ok=True)
-        temp_image_path = os.path.join(vidcord_temp_dir, 'preview_frame.jpg')
-        try:
-            ffmpeg_command = [
-                "ffmpeg", "-y",
-                "-ss", str(time_sec),
-                "-i", self.file_path,
-                "-an",
-                "-sn",
-                "-frames:v", "1",
-                "-q:v", "4",
-                "-vf", "scale=320:-1:flags=fast_bilinear",
-                temp_image_path
-            ]
-            creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
-            subprocess.run(ffmpeg_command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, creationflags=creationflags)
-            pixmap = QPixmap(temp_image_path)
+        temp_path = self.video_processor.generate_preview(self.file_path, time_sec)
+        if temp_path and os.path.exists(temp_path):
+            pixmap = QPixmap(temp_path)
             if not pixmap.isNull():
                 self.videoPreview.setPixmap(pixmap.scaled(self.videoPreview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
-            else:
-                self.videoPreview.clear()
-        except Exception as e:
-            print(f"Error updating preview: {e}")
-            self.videoPreview.clear()
-        finally:
-            if os.path.exists(temp_image_path):
                 try:
-                    os.remove(temp_image_path)
-                except Exception as e:
-                    print(f"Error removing temp preview file: {e}")
+                    os.remove(temp_path)
+                except:
+                    pass
+            else:
+                self.videoPreview.setText("Preview Error")
 
     def convertVideo(self, filePath):
+        # Get settings
         quality = self.qualityComboBox.currentText()
-        if "10MB, 480p" in quality:
-            target_size_mb = 10
-            target_height = 480
-        elif "25MB, 480p" in quality:
-            target_size_mb = 25
-            target_height = 480
-        elif "50MB, 720p" in quality:
-            target_size_mb = 50
-            target_height = 720
-        elif "100MB, 1080p" in quality:
-            target_size_mb = 100
-            target_height = 1080
-        else:
-            target_size_mb = 500
-            target_height = None
-        start_time_sec = self.startTimeSlider.value() / 10.0
-        end_time_sec = self.endTimeSlider.value() / 10.0
-        if self.probed_duration == 0:
-            self.label.setText("Error: Video duration not loaded.")
-            return
-        if end_time_sec > self.probed_duration:
-            end_time_sec = self.probed_duration
-        if start_time_sec >= end_time_sec:
-            self.label.setText("Error: Start time must be less than end time.")
-            self.progressBar.setValue(0)
-            self.etaLabel.setText("")
-            return
-        clip_duration = end_time_sec - start_time_sec
+        if "10MB" in quality: target_size = 10; target_h = 480
+        elif "25MB" in quality: target_size = 25; target_h = 480
+        elif "50MB" in quality: target_size = 50; target_h = 720
+        elif "100MB" in quality: target_size = 100; target_h = 1080
+        else: target_size = 500; target_h = None
+
+        start_time = self.startTimeSlider.value() / 10.0
+        end_time = self.endTimeSlider.value() / 10.0
+        clip_duration = end_time - start_time
+        
         if clip_duration <= 0:
-            self.label.setText("Error: Clip duration must be positive.")
-            self.progressBar.setValue(0)
-            self.etaLabel.setText("")
+            self.etaLabel.setText("Invalid duration")
             return
-        target_bitrate_k = calculate_bitrate(target_size_mb, clip_duration)
-        if self.probed_bitrate_kbps > 0 and target_bitrate_k > self.probed_bitrate_kbps:
-            target_bitrate_k = self.probed_bitrate_kbps
-        selected_encoder_label = self.encoderComboBox.currentText()
-        selected_encoder = self.encoder_mapping[selected_encoder_label]
+
+        # Calculate bitrate
+        remove_audio = self.removeAudioCheck.isChecked()
+        target_bitrate = self.video_processor.calculate_bitrate(target_size, clip_duration, remove_audio=remove_audio)
+        
+        # Cap bitrate if needed
+        original_bitrate = self.probed_data.get('bitrate', 0)
+        if original_bitrate > 0 and target_bitrate > original_bitrate:
+            target_bitrate = original_bitrate
+
+        # Prepare output path
         downloads_path = str(pathlib.Path.home() / "Downloads")
         base_name = os.path.basename(filePath)
-        name, ext = os.path.splitext(base_name)
+        name, _ = os.path.splitext(base_name)
         output_file = os.path.join(downloads_path, f"{name}-vidcord.mp4")
-        original_width, original_height = self.probed_width, self.probed_height
-        if original_width == 0 or original_height == 0:
-            self.label.setText("Error: Could not determine original video resolution.")
-            return
-        resolution_filter_parts = []
-        if target_height:
-            if original_height == 0:
-                self.label.setText("Error: Original video height is zero, cannot calculate target width.")
-                return
-            target_width = math.ceil((original_width / original_height) * target_height)
-            target_width = target_width if target_width % 2 == 0 else target_width + 1
-            target_height_actual = target_height if target_height % 2 == 0 else target_height + 1
-            resolution_filter_parts.append(f"scale={target_width}:{target_height_actual}")
+
+        # Prepare filters
+        filters = []
+        original_w = self.probed_data.get('width', 0)
+        original_h = self.probed_data.get('height', 0)
+        
+        if target_h and original_h > 0:
+            target_w = math.ceil((original_w / original_h) * target_h)
+            target_w = target_w if target_w % 2 == 0 else target_w + 1
+            target_h = target_h if target_h % 2 == 0 else target_h + 1
+            filters.append(f"scale={target_w}:{target_h}")
         else:
-            resolution_filter_parts.append(f"scale='trunc(iw/2)*2':'trunc(ih/2)*2'")
+            filters.append(f"scale='trunc(iw/2)*2':'trunc(ih/2)*2'")
+
+        # Build Command
+        selected_encoder_label = self.encoderComboBox.currentText()
+        selected_encoder = self.encoder_mapping.get(selected_encoder_label, 'libx264')
+        
         cmd = [
-            "ffmpeg", "-hide_banner", "-i", filePath,
-            "-ss", str(start_time_sec), "-to", str(end_time_sec),
-            "-c:v", selected_encoder, "-b:v", f'{target_bitrate_k}k',
-            "-c:a", 'aac', "-b:a", '128k',
-            "-vf", ",".join(resolution_filter_parts),
-            output_file, "-y"
+            "ffmpeg", "-hide_banner", "-y",
+            "-ss", str(start_time),
+            "-to", str(end_time),
+            "-i", filePath,
+            "-c:v", selected_encoder,
+            "-b:v", f'{target_bitrate}k',
+            "-vf", ",".join(filters),
+            output_file
         ]
-        self.label.setText(f"Compressing... {os.path.basename(output_file)}")
+        
+        if remove_audio:
+            cmd.append("-an")
+        else:
+            cmd.extend(["-c:a", "aac", "-b:a", "128k"])
+
+        # Start Thread
+        self.convertButton.setEnabled(False)
         self.progressBar.setValue(0)
         self.etaLabel.setText("Starting...")
-        creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
-        process = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True, universal_newlines=True, creationflags=creationflags)
-        encoding_start_time = time.time()
-        encoding_started_for_eta = False
-        while process.poll() is None:
-            line = process.stderr.readline()
-            if line:
-                print(line.strip())
-                if "time=" in line:
-                    if not encoding_started_for_eta:
-                        self.etaLabel.show()
-                        encoding_started_for_eta = True
-                    try:
-                        time_str = line.split("time=")[1].split(" ")[0]
-                        if time_str != "N/A":
-                            h, m, s = map(float, time_str.split(':'))
-                            current_time_sec_processed = h * 3600 + m * 60 + s
-                            if clip_duration > 0:
-                                percent = min((current_time_sec_processed / clip_duration) * 100, 100)
-                                self.progressBar.setValue(int(percent))
-                                elapsed_time = time.time() - encoding_start_time
-                                if current_time_sec_processed > 0:
-                                    eta = (elapsed_time / (current_time_sec_processed / clip_duration)) - elapsed_time
-                                    self.etaLabel.setText(self.format_time(eta))
-                                else:
-                                    self.etaLabel.setText("Calculating ETA...")
-                    except ValueError:
-                        print(f"Could not parse time from ffmpeg: {line.strip()}")
-                        self.etaLabel.setText("Processing...")
-            QApplication.processEvents()
-        process.wait()
-        if process.returncode == 0:
+        
+        self.thread = CompressionThread(cmd, clip_duration)
+        self.thread.progress_updated.connect(self.updateProgress)
+        self.thread.finished.connect(lambda success, msg, output_file=output_file: self.conversionFinished(success, msg, output_file))
+        self.thread.start()
+
+    def updateProgress(self, percent, eta, status):
+        self.progressBar.setValue(percent)
+        self.etaLabel.setText(f"{status} ETA: {eta}")
+
+    def conversionFinished(self, success, message, output_file):
+        self.convertButton.setEnabled(True)
+        self.etaLabel.setText(message)
+        if success:
             self.progressBar.setValue(100)
-            self.label.setText(f'Conversion complete: {output_file}')
-            self.etaLabel.setText("Done!")
+            InfoBar.success(
+                title='Success',
+                content=message,
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
             self.showInFileExplorer(output_file)
         else:
             self.progressBar.setValue(0)
-            self.label.setText(f'Conversion failed. Check console for errors.')
-            self.etaLabel.setText("Failed")
-
-    def format_time(self, seconds):
-        if seconds < 0:
-            return "Calculating..."
-        mins, secs = divmod(int(seconds), 60)
-        if mins > 60:
-            hours, mins = divmod(mins, 60)
-            return f"{hours}h {mins}m {secs}s"
-        return f"{mins}m {secs}s"
+            InfoBar.error(
+                title='Error',
+                content=message,
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
 
     def showInFileExplorer(self, filePath):
         abs_path = os.path.abspath(filePath)
@@ -466,28 +623,53 @@ class vidcord(QWidget):
         elif sys.platform.startswith('linux'):
             subprocess.run(['xdg-open', os.path.dirname(abs_path)])
 
+class MainWindow(FluentWindow):
+    def __init__(self):
+        super().__init__()
+        self.initWindow()
+
+        # Create sub interface
+        self.homeInterface = VidCordInterface(self)
+        self.homeInterface.setObjectName("homeInterface")
+
+        # Add to navigation
+        self.addSubInterface(self.homeInterface, FIF.VIDEO, 'Compressor')
+        self.navigationInterface.hide()
+
+    def initWindow(self):
+        self.resize(600, 750)
+        
+        # Use resource_path for the window icon
+        self.setWindowIcon(QIcon(resource_path('icon.ico')))
+        self.setWindowTitle('vidcord')
+        
+        # Hide the default title bar elements
+        self.titleBar.titleLabel.hide()
+        self.titleBar.iconLabel.hide()
+
+        # Fix title bar alignment
+        self.titleBar.layout().setContentsMargins(0, 0, 0, 0)
+
+        desktop = QApplication.desktop().availableGeometry()
+        w, h = desktop.width(), desktop.height()
+        self.move(w//2 - self.width()//2, h//2 - self.height()//2)
+
 if __name__ == '__main__':
-    if platform.system() == 'Windows':
-        internal_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), '_internal')
-    else:
-        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-             internal_path = os.path.join(sys._MEIPASS, '_internal')
-        else:
-             internal_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '_internal')
-    if os.path.exists(internal_path):
-        os.environ['PATH'] = internal_path + os.pathsep + os.environ['PATH']
-    else:
-        print(f"Warning: _internal directory not found at {internal_path}. FFmpeg/FFprobe might not be found if not in system PATH.")
-    initial_file = sys.argv[1] if len(sys.argv) > 1 else None
+    # Enable DPI scale
+    QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+
+    setTheme(Theme.AUTO)
+
     app = QApplication(sys.argv)
-    icon_path = os.path.join(internal_path, 'icon.ico')
-    if not os.path.exists(icon_path) and hasattr(sys, '_MEIPASS'):
-        icon_path = os.path.join(sys._MEIPASS, 'icon.ico')
-    if os.path.exists(icon_path):
-        app.setWindowIcon(QIcon(icon_path))
-        ex = vidcord(initial_file)
-        ex.setWindowIcon(QIcon(icon_path))
-    else:
-        print(f"Warning: Icon file not found at {icon_path} or default bundle location.")
-        ex = vidcord(initial_file)
+    w = MainWindow()
+    w.show()
+    
+    # Check for initial file argument
+    if len(sys.argv) > 1:
+        initial_file = sys.argv[1]
+        if os.path.exists(initial_file):
+            w.homeInterface.loadVideo(initial_file)
+
     sys.exit(app.exec_())
