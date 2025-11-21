@@ -1,0 +1,5 @@
+ffmpeg-python
+PyQt5
+requests
+PyQt-Fluent-Widgets
+packaging
