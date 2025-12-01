@@ -33,7 +33,7 @@ DisableStartupPrompt=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only.)
 ;PrivilegesRequired=lowest
 OutputDir=C:\Users\amir\Downloads
-OutputBaseFilename=vidcord_v4.9_x64
+OutputBaseFilename=vidcord_v4.9
 SetupIconFile="C:\Users\amir\Downloads\vidcord\icon.ico"
 Compression=lzma
 SolidCompression=yes
