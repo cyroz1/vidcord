@@ -273,6 +273,44 @@ class CompressionThread(QThread):
     def stop(self):
         self.is_running = False
 
+class PreviewThread(QThread):
+    preview_ready = pyqtSignal(str) # path to image
+
+    def __init__(self, video_processor, file_path, time_sec):
+        super().__init__()
+        self.video_processor = video_processor
+        self.file_path = file_path
+        self.time_sec = time_sec
+        self.is_running = True
+
+    def run(self):
+        if not self.is_running: return
+        
+        # We call the static method directly or via the instance provided
+        # Since generate_preview is static, we can just call it.
+        # However, we need to be careful about race conditions if we were writing to the same file.
+        # The original code writes to 'preview_frame.jpg'. 
+        # To avoid conflicts with rapid updates, we might want a unique name or just accept overwrite.
+        # For now, let's stick to the original logic but run it here.
+        
+        try:
+            # We use a unique filename per thread to avoid file locking issues if multiple threads run (though we plan to cancel old ones)
+            # Actually, the original code uses a fixed name. Let's modify it slightly to be safe or just use the existing method.
+            # The existing method: generate_preview(file_path, time_sec) returns a path.
+            
+            # To be safe against UI spam, we should probably check is_running after the heavy operation too.
+            temp_path = self.video_processor.generate_preview(self.file_path, self.time_sec)
+            
+            if self.is_running and temp_path:
+                self.preview_ready.emit(temp_path)
+        except Exception as e:
+            print(f"Preview thread failed: {e}")
+
+    def stop(self):
+        self.is_running = False
+        # Do not wait() here, as it would block the UI thread if ffmpeg is running.
+        # The thread will finish on its own.
+
 class VidCordInterface(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -292,6 +330,8 @@ class VidCordInterface(QWidget):
         
         self.initUI()
         self.checkForUpdates()
+
+        self.preview_thread = None
 
     def initUI(self):
         self.setAcceptDrops(True)
@@ -542,7 +582,15 @@ class VidCordInterface(QWidget):
         self.previewUpdateTimer.start(self.previewDebounceTime)
 
     def updatePreview(self, time_sec):
-        temp_path = self.video_processor.generate_preview(self.file_path, time_sec)
+        # Cancel existing thread if running
+        if self.preview_thread and self.preview_thread.isRunning():
+            self.preview_thread.stop()
+        
+        self.preview_thread = PreviewThread(self.video_processor, self.file_path, time_sec)
+        self.preview_thread.preview_ready.connect(self.onPreviewReady)
+        self.preview_thread.start()
+
+    def onPreviewReady(self, temp_path):
         if temp_path and os.path.exists(temp_path):
             pixmap = QPixmap(temp_path)
             if not pixmap.isNull():
