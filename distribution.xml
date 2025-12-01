@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+    <title>vidcord</title>
+    <options customize="never" require-scripts="false"/>
+    <domains enable_anywhere="true" enable_currentUserHome="true" enable_localSystem="true"/>
+    <choices-outline>
+        <line choice="default">
+            <line choice="com.cyroz1.vidcord"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="com.cyroz1.vidcord" visible="false">
+        <pkg-ref id="com.cyroz1.vidcord"/>
+    </choice>
+    <pkg-ref id="com.cyroz1.vidcord" version="4.9" onConclusion="none">vidcord-component.pkg</pkg-ref>
+</installer-gui-script>
