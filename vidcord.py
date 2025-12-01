@@ -23,6 +23,24 @@ from qfluentwidgets import (FluentWindow, NavigationItemPosition, FluentIcon as 
 
 CURRENT_VERSION = "v4.9"
 
+# --- LOGGING SETUP ---
+log_path = os.path.join(os.path.expanduser('~'), 'vidcord_crash.log')
+# Open the log file in append mode
+log_file = open(log_path, 'a')
+# Redirect Python's stdout/stderr
+sys.stdout = log_file
+sys.stderr = log_file
+
+# Redirect C-level stderr (fd 2) to the log file's file descriptor
+# This captures Qt/C++ errors that bypass sys.stderr
+try:
+    os.dup2(log_file.fileno(), 2)
+    os.dup2(log_file.fileno(), 1)
+except Exception as e:
+    print(f"Failed to redirect C-level streams: {e}")
+
+print(f"Starting vidcord {CURRENT_VERSION}")
+
 # --- RESOURCE PATH HELPER FUNCTION ---
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -33,10 +51,38 @@ def resource_path(relative_path):
         # If not running in onefile mode, check if we are frozen (onedir)
         if getattr(sys, 'frozen', False):
             base_path = os.path.dirname(sys.executable)
+            # Check if we are in a macOS app bundle and the resource is in Resources
+            resources_path = os.path.join(base_path, '..', 'Resources', relative_path)
+            if os.path.exists(resources_path):
+                return resources_path
         else:
             base_path = os.path.abspath(".")
 
     return os.path.join(base_path, relative_path)
+
+# Add bin directory to PATH for ffmpeg/ffprobe
+if getattr(sys, 'frozen', False):
+    # In onedir mode, binaries are in the bundle dir or a subdir
+    bundle_dir = os.path.dirname(sys.executable)
+    
+    # Check multiple possible locations for bin
+    possible_bin_dirs = [
+        os.path.join(bundle_dir, 'bin'), # Standard PyInstaller
+        os.path.join(bundle_dir, '..', 'Resources', 'bin'), # macOS .app structure
+        os.path.join(bundle_dir, '..', 'Frameworks', 'bin'), # PyInstaller .app structure
+        os.path.join(bundle_dir) # Root
+    ]
+    
+    bin_dir_found = False
+    for bin_dir in possible_bin_dirs:
+        if os.path.exists(bin_dir):
+            os.environ["PATH"] += os.pathsep + bin_dir
+            bin_dir_found = True
+            # print(f"Found bin dir at: {bin_dir}") # Debug
+            break
+            
+    if not bin_dir_found:
+        print("WARNING: Could not find bin directory for ffmpeg/ffprobe")
 
 class SettingsManager:
     def __init__(self):
