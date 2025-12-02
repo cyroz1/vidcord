@@ -1,7 +1,7 @@
 #!/bin/bash
 
 APP_NAME="vidcord"
-VERSION="4.9"
+VERSION="5.0"
 IDENTIFIER="com.cyroz1.vidcord"
 INSTALL_LOCATION="/Applications"
 DIST_DIR="dist"
