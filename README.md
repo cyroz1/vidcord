@@ -10,8 +10,8 @@ This is a simple Python GUI application for compressing video files under Discor
 
 - **Modern UI**: Clean and responsive interface built with Fluent Design.
 - **Two methods to import videos**:
-  - File Explorer: Right click video files in File Explorer and choose "Compress with vidcord".
-  - Manual: Drag and drop or browse for video files in the application.
+  - File Explorer: Right click video files in File Explorer and choose "Compress with vidcord". (Windows only)
+  - Manual: Drag and drop or browse for video files in the application. 
 - **Five quality presets**:
   - 10MB, 480p (Free users)
   - 25MB, 480p (Free users, old)
@@ -23,7 +23,6 @@ This is a simple Python GUI application for compressing video files under Discor
   - **Trimming**: Adjustable starting and ending points with live preview.
 - **Hardware Acceleration**: Support for NVIDIA (NVENC), AMD (AMF), Intel (QSV), and Apple Silicon encoders.
 - **Progress Tracking**: Real-time progress bar and ETA display.
-- **Context Menu Integration**: Seamlessly integrated into Windows Explorer.
 
 ## Screenshots
 
