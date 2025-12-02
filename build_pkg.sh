@@ -6,7 +6,7 @@ IDENTIFIER="com.cyroz1.vidcord"
 INSTALL_LOCATION="/Applications"
 DIST_DIR="dist"
 APP_PATH="$DIST_DIR/$APP_NAME.app"
-PKG_NAME="$APP_NAME_$VERSION.pkg"
+PKG_NAME="${APP_NAME}_v${VERSION}.pkg"
 
 # Check if the app exists
 if [ ! -d "$APP_PATH" ]; then
