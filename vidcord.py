@@ -476,6 +476,9 @@ class VidCordInterface(QWidget):
         self.endTimeSlider.valueChanged.connect(self.updateEndTime)
         self.loadPreviousSelections()
 
+        self.qualityComboBox.currentIndexChanged.connect(self.saveCurrentSelections)
+        self.encoderComboBox.currentIndexChanged.connect(self.saveCurrentSelections)
+
     def checkForUpdates(self):
         # Simple threaded check to avoid blocking UI
         pass 
@@ -486,7 +489,7 @@ class VidCordInterface(QWidget):
         self.qualityComboBox.setCurrentIndex(quality_index)
         self.encoderComboBox.setCurrentIndex(encoder_index)
 
-    def saveCurrentSelections(self):
+    def saveCurrentSelections(self, index=None):
         self.settings_manager.save_settings({
             "quality_index": self.qualityComboBox.currentIndex(),
             "encoder_index": self.encoderComboBox.currentIndex()
