@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Vidcord
+Exec=vidcord
+Icon=icon
+Type=Application
+Categories=AudioVideo;
+Comment=Video Compressor and Converter
+Terminal=false
