@@ -3,9 +3,9 @@ import os
 import subprocess
 import shlex
 import ffmpeg
-from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QFileDialog)
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize
-from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QPalette, QColor, QFont
+from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QFileDialog)
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QPalette, QColor, QFont
 import time
 import platform
 import math
@@ -139,11 +139,20 @@ class VideoProcessor:
                 if 'intel' in output: gpus['intel'] = True
                 
             else:
-                # Linux/Other - assume all might be present or let user decide, 
-                # but for safety we can default to False and just show all or none?
-                # Better to show all if we can't detect, so we don't block valid hardware.
-                return {'nvidia': True, 'amd': True, 'intel': True, 'apple': False}
-
+                # Linux
+                try:
+                    cmd = ['lspci']
+                    output = subprocess.check_output(cmd).decode('utf-8').lower()
+                    for line in output.split('\n'):
+                        if 'vga' in line or 'display' in line or '3d' in line:
+                            if 'nvidia' in line: gpus['nvidia'] = True
+                            if 'amd' in line or 'radeon' in line: gpus['amd'] = True
+                            if 'intel' in line: gpus['intel'] = True
+                except Exception as e:
+                    print(f"Linux GPU detection failed: {e}")
+                    # Fallback to False for safety if lspci fails
+                    return {'nvidia': False, 'amd': False, 'intel': False, 'apple': False}
+            
         except Exception as e:
             print(f"GPU detection failed: {e}")
             # If detection fails, return all true to avoid hiding valid encoders
@@ -387,7 +396,7 @@ class VidCordInterface(QWidget):
         # Title / Header
         header_container = QWidget()
         header_layout = QHBoxLayout(header_container)
-        header_layout.setAlignment(Qt.AlignCenter)
+        header_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header_layout.setContentsMargins(0, 0, 0, 0)
         
         # Use resource_path for the icon
@@ -412,7 +421,7 @@ class VidCordInterface(QWidget):
         file_layout = QVBoxLayout(file_frame)
         
         self.label = BodyLabel('Drag a video file here or click to browse', self)
-        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         file_layout.addWidget(self.label)
         
         self.openButton = PushButton('Browse File', self)
@@ -451,9 +460,9 @@ class VidCordInterface(QWidget):
         trim_layout.addWidget(SubtitleLabel("Trim Video:", self))
         
         sliders_layout = QHBoxLayout()
-        self.startTimeSlider = Slider(Qt.Horizontal, self)
+        self.startTimeSlider = Slider(Qt.Orientation.Horizontal, self)
         self.startTimeSlider.setRange(0, 1000)
-        self.endTimeSlider = Slider(Qt.Horizontal, self)
+        self.endTimeSlider = Slider(Qt.Orientation.Horizontal, self)
         self.endTimeSlider.setRange(0, 1000)
         self.endTimeSlider.setValue(1000)
         
@@ -476,7 +485,7 @@ class VidCordInterface(QWidget):
         # Preview
         self.videoPreview = ImageLabel(self)
         self.videoPreview.setFixedHeight(200)
-        self.videoPreview.setAlignment(Qt.AlignCenter)
+        self.videoPreview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.videoPreview.setBorderRadius(8, 8, 8, 8)
         self.videoPreview.setText("Preview")
         self.main_layout.addWidget(self.videoPreview)
@@ -494,7 +503,7 @@ class VidCordInterface(QWidget):
         self.progressBar.setRange(0, 100)
         self.progressLayout.addWidget(self.progressBar)
         self.etaLabel = CaptionLabel("Ready", self)
-        self.etaLabel.setAlignment(Qt.AlignCenter)
+        self.etaLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.progressLayout.addWidget(self.etaLabel)
         self.main_layout.addLayout(self.progressLayout)
 
@@ -551,7 +560,7 @@ class VidCordInterface(QWidget):
             InfoBar.warning(
                 title='Warning',
                 content="No file selected!",
-                orient=Qt.Horizontal,
+                orient=Qt.Orientation.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
                 duration=2000,
@@ -569,11 +578,9 @@ class VidCordInterface(QWidget):
             self.loadVideo(file_path)
 
     def openFileDialog(self):
-        options = QFileDialog.Options()
         fileName, _ = QFileDialog.getOpenFileName(
             self, "Choose a video file", "",
-            "Video Files (*.mp4 *.avi *.mov *.mkv *.flv *.wmv *.webm);;All Files (*)",
-            options=options
+            "Video Files (*.mp4 *.avi *.mov *.mkv *.flv *.wmv *.webm);;All Files (*)"
         )
         if fileName:
             self.loadVideo(fileName)
@@ -645,7 +652,7 @@ class VidCordInterface(QWidget):
         if temp_path and os.path.exists(temp_path):
             pixmap = QPixmap(temp_path)
             if not pixmap.isNull():
-                self.videoPreview.setPixmap(pixmap.scaled(self.videoPreview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                self.videoPreview.setPixmap(pixmap.scaled(self.videoPreview.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
                 try:
                     os.remove(temp_path)
                 except:
@@ -740,7 +747,7 @@ class VidCordInterface(QWidget):
             InfoBar.success(
                 title='Success',
                 content=message,
-                orient=Qt.Horizontal,
+                orient=Qt.Orientation.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
                 duration=2000,
@@ -752,7 +759,7 @@ class VidCordInterface(QWidget):
             InfoBar.error(
                 title='Error',
                 content=message,
-                orient=Qt.Horizontal,
+                orient=Qt.Orientation.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
                 duration=2000,
@@ -799,15 +806,14 @@ class MainWindow(FluentWindow):
         # Fix title bar alignment
         self.titleBar.layout().setContentsMargins(0, 0, 0, 0)
 
-        desktop = QApplication.desktop().availableGeometry()
+        desktop = QApplication.primaryScreen().availableGeometry()
         w, h = desktop.width(), desktop.height()
         self.move(w//2 - self.width()//2, h//2 - self.height()//2)
 
 if __name__ == '__main__':
     # Enable DPI scale
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
-    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
-    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+
 
     setTheme(Theme.AUTO)
 
@@ -821,4 +827,4 @@ if __name__ == '__main__':
         if os.path.exists(initial_file):
             w.homeInterface.loadVideo(initial_file)
 
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

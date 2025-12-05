@@ -1,5 +1,5 @@
 ffmpeg-python
-PyQt5
+PyQt6
 requests
-PyQt-Fluent-Widgets
+PyQt6-Fluent-Widgets
 packaging
