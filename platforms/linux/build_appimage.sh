@@ -73,6 +73,17 @@ fi
 
 # Build AppImage
 echo "Building AppImage..."
-ARCH=$ARCH ./$TOOL_NAME AppDir
 
-echo "Success! AppImage created."
+# Extract version from vidcord.py
+VERSION_LINE=$(grep 'CURRENT_VERSION =' "$PROJECT_ROOT/vidcord.py")
+# Extract content between quotes
+VERSION_STRING=$(echo "$VERSION_LINE" | sed -n 's/.*"\(.*\)".*/\1/p')
+
+# Clean version (remove leading 'v' if present to avoid duplication in filename)
+CLEAN_VERSION="${VERSION_STRING#v}"
+
+OUTPUT_NAME="vidcord_v${CLEAN_VERSION}_${ARCH}.appimage"
+
+ARCH=$ARCH ./$TOOL_NAME AppDir "$OUTPUT_NAME"
+
+echo "Success! AppImage created: $OUTPUT_NAME"
