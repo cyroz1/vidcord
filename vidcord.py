@@ -182,8 +182,8 @@ class VideoProcessor:
             encoder_labels['h264_nvenc'] = 'NVIDIA (h264_nvenc)'
         if gpus['amd']:
             encoder_labels['h264_amf'] = 'AMD (h264_amf)'
-        if gpus['apple']:
-            encoder_labels['h264_videotoolbox'] = 'Apple Silicon (h264_videotoolbox)'
+        if platform.system() == 'Darwin':
+            encoder_labels['h264_videotoolbox'] = 'Apple Silicon (h264_videotoolbox)' if gpus['apple'] else 'Hardware (h264_videotoolbox)'
         if gpus['intel']:
             encoder_labels['h264_qsv'] = 'Intel (h264_qsv)'
 
