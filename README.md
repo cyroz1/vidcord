@@ -1,6 +1,6 @@
 # <img src="icon.ico" height="25"> vidcord  
 
-This is a simple Python GUI application for compressing video files under Discord's size limits using FFmpeg and PyQt5. The application features a modern **Fluent Design** interface and allows users to either right click videos in the File Explorer, drag and drop video files, or import them via a file dialog. Users can then adjust starting and ending times, remove audio, and compress the imported video with either hardware or software encoding and five quality presets for different Nitro and server boost levels.
+This is a simple Python GUI application for compressing video files under Discord's size limits using FFmpeg and PyQt6. The application features a modern **Fluent Design** interface and allows users to either right click videos in the File Explorer, drag and drop video files, or import them via a file dialog. Users can then adjust starting and ending times, remove audio, and compress the imported video with either hardware or software encoding and five quality presets for different Nitro and server boost levels.
 
 ## Download
 
@@ -46,9 +46,9 @@ This is a simple Python GUI application for compressing video files under Discor
 2. **Install Python dependencies**:
    ```sh
    pip install ffmpeg-python
-   pip install PyQt5
-   pip install PyQt-Fluent-Widgets
+   pip install PyQt6
    pip install requests
+   pip install PyQt6-Fluent-Widgets
    pip install packaging
    ```
 
@@ -60,7 +60,7 @@ This is a simple Python GUI application for compressing video files under Discor
 ## Acknowledgements
 
 - [FFmpeg](https://ffmpeg.org/)
-- [PyQt5](https://pypi.org/project/PyQt5/)
-- [PyQt-Fluent-Widgets](https://github.com/zhiyiYo/PyQt-Fluent-Widgets)
+- [PyQt6](https://pypi.org/project/PyQt6/)
+- [PyQt6-Fluent-Widgets](https://github.com/zhiyiYo/PyQt-Fluent-Widgets)
 - [PyInstaller](https://www.pyinstaller.org/)
 - [Inno Setup](https://jrsoftware.org/isinfo.php)
