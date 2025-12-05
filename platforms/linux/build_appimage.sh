@@ -29,12 +29,33 @@ ln -s usr/bin/vidcord AppDir/AppRun
 ARCH=$(uname -m)
 if [ "$ARCH" == "x86_64" ]; then
     TOOL_NAME="appimagetool-x86_64.AppImage"
+    FFMPEG_URL="https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
 elif [ "$ARCH" == "aarch64" ]; then
     TOOL_NAME="appimagetool-aarch64.AppImage"
+    FFMPEG_URL="https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz"
 else
     echo "Unsupported architecture: $ARCH"
     exit 1
 fi
+
+# Download and bundle FFmpeg
+if [ ! -f "ffmpeg.tar.xz" ]; then
+    echo "Downloading static FFmpeg..."
+    if command -v wget >/dev/null 2>&1; then
+        wget -q -O ffmpeg.tar.xz "$FFMPEG_URL"
+    elif command -v curl >/dev/null 2>&1; then
+        curl -L -o ffmpeg.tar.xz "$FFMPEG_URL"
+    fi
+fi
+
+echo "Extracting FFmpeg..."
+tar -xf ffmpeg.tar.xz
+# Find the extracted directory (it usually has a version number)
+FFMPEG_DIR=$(find . -maxdepth 1 -type d -name "ffmpeg-*-static" | head -n 1)
+cp "$FFMPEG_DIR/ffmpeg" AppDir/usr/bin/
+cp "$FFMPEG_DIR/ffprobe" AppDir/usr/bin/
+chmod +x AppDir/usr/bin/ffmpeg AppDir/usr/bin/ffprobe
+rm -rf "$FFMPEG_DIR" ffmpeg.tar.xz
 
 # Download appimagetool if not exists
 if [ ! -f "$TOOL_NAME" ]; then
