@@ -391,7 +391,10 @@ class VidCordInterface(QWidget):
         header_layout.setContentsMargins(0, 0, 0, 0)
         
         # Use resource_path for the icon
-        self.icon_label = ImageLabel(resource_path('icon.ico'), self)
+        icon_path = resource_path('icon.ico')
+        if not os.path.exists(icon_path):
+            icon_path = resource_path('icon.png')
+        self.icon_label = ImageLabel(icon_path, self)
         self.icon_label.setFixedSize(42, 42)
         self.icon_label.setBorderRadius(4, 4, 4, 4)
         self.icon_label.setScaledContents(True)
@@ -782,7 +785,11 @@ class MainWindow(FluentWindow):
         self.resize(600, 750)
         
         # Use resource_path for the window icon
-        self.setWindowIcon(QIcon(resource_path('icon.ico')))
+        icon_path = resource_path('icon.ico')
+        if not os.path.exists(icon_path):
+            icon_path = resource_path('icon.png')
+        self.setWindowIcon(QIcon(icon_path))
+
         self.setWindowTitle('vidcord')
         
         # Hide the default title bar elements
