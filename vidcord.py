@@ -117,6 +117,41 @@ class SettingsManager:
 
 class VideoProcessor:
     @staticmethod
+    def get_system_gpus():
+        gpus = {'nvidia': False, 'amd': False, 'intel': False, 'apple': False}
+        
+        try:
+            if platform.system() == 'Darwin':
+                # macOS
+                cmd = ['system_profiler', 'SPDisplaysDataType']
+                output = subprocess.check_output(cmd).decode('utf-8').lower()
+                if 'nvidia' in output: gpus['nvidia'] = True
+                if 'amd' in output or 'radeon' in output: gpus['amd'] = True
+                if 'intel' in output: gpus['intel'] = True
+                if 'apple' in output or 'm1' in output or 'm2' in output or 'm3' in output or 'm4' in output: gpus['apple'] = True
+                
+            elif platform.system() == 'Windows':
+                # Windows
+                cmd = 'wmic path win32_VideoController get name'
+                output = subprocess.check_output(cmd, shell=True).decode('utf-8').lower()
+                if 'nvidia' in output: gpus['nvidia'] = True
+                if 'amd' in output or 'radeon' in output: gpus['amd'] = True
+                if 'intel' in output: gpus['intel'] = True
+                
+            else:
+                # Linux/Other - assume all might be present or let user decide, 
+                # but for safety we can default to False and just show all or none?
+                # Better to show all if we can't detect, so we don't block valid hardware.
+                return {'nvidia': True, 'amd': True, 'intel': True, 'apple': False}
+
+        except Exception as e:
+            print(f"GPU detection failed: {e}")
+            # If detection fails, return all true to avoid hiding valid encoders
+            return {'nvidia': True, 'amd': True, 'intel': True, 'apple': True}
+            
+        return gpus
+
+    @staticmethod
     def get_available_encoders():
         try:
             encoders_output = subprocess.run(
@@ -126,13 +161,23 @@ class VideoProcessor:
         except FileNotFoundError:
             return []
 
+        gpus = VideoProcessor.get_system_gpus()
+        
+        # Base mapping
         encoder_labels = {
             'libx264': 'CPU (libx264)',
-            'h264_nvenc': 'NVIDIA (h264_nvenc)',
-            'h264_amf': 'AMD (h264_amf)',
-            'h264_videotoolbox': 'Apple Silicon (h264_videotoolbox)',
-            'h264_qsv': 'Intel (h264_qsv)',
         }
+        
+        # Add GPU encoders if hardware is detected
+        if gpus['nvidia']:
+            encoder_labels['h264_nvenc'] = 'NVIDIA (h264_nvenc)'
+        if gpus['amd']:
+            encoder_labels['h264_amf'] = 'AMD (h264_amf)'
+        if gpus['apple']:
+            encoder_labels['h264_videotoolbox'] = 'Apple Silicon (h264_videotoolbox)'
+        if gpus['intel']:
+            encoder_labels['h264_qsv'] = 'Intel (h264_qsv)'
+
         available_encoders = []
         for encoder in encoder_labels.keys():
             if encoder == 'libx264' or encoder in encoders_output:
