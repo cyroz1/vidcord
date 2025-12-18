@@ -332,40 +332,65 @@ class CompressionThread(QThread):
 class PreviewThread(QThread):
     preview_ready = pyqtSignal(str) # path to image
 
-    def __init__(self, video_processor, file_path, time_sec):
+    def __init__(self, file_path, time_sec):
         super().__init__()
-        self.video_processor = video_processor
         self.file_path = file_path
         self.time_sec = time_sec
         self.is_running = True
+        self.process = None
 
     def run(self):
         if not self.is_running: return
         
-        # We call the static method directly or via the instance provided
-        # Since generate_preview is static, we can just call it.
-        # However, we need to be careful about race conditions if we were writing to the same file.
-        # The original code writes to 'preview_frame.jpg'. 
-        # To avoid conflicts with rapid updates, we might want a unique name or just accept overwrite.
-        # For now, let's stick to the original logic but run it here.
+        # Determine temp path
+        if platform.system() == 'Windows':
+            appdata_path = os.getenv('APPDATA')
+            vidcord_temp_dir = os.path.join(appdata_path, 'vidcord')
+        else:
+            vidcord_temp_dir = os.path.join(os.path.expanduser('~'), '.vidcord')
+        
+        os.makedirs(vidcord_temp_dir, exist_ok=True)
+        # Use a unique name for this thread's preview
+        thread_id = int(time.time() * 1000)
+        temp_image_path = os.path.join(vidcord_temp_dir, f'preview_{thread_id}.jpg')
+
+        ffmpeg_command = [
+            "ffmpeg", "-y",
+            "-ss", str(self.time_sec),
+            "-i", self.file_path,
+            "-an", "-sn",
+            "-frames:v", "1",
+            "-q:v", "4",
+            "-vf", "scale=320:-1:flags=fast_bilinear",
+            temp_image_path
+        ]
         
         try:
-            # We use a unique filename per thread to avoid file locking issues if multiple threads run (though we plan to cancel old ones)
-            # Actually, the original code uses a fixed name. Let's modify it slightly to be safe or just use the existing method.
-            # The existing method: generate_preview(file_path, time_sec) returns a path.
+            creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
+            self.process = subprocess.Popen(
+                ffmpeg_command, 
+                stdout=subprocess.DEVNULL, 
+                stderr=subprocess.DEVNULL, 
+                creationflags=creationflags
+            )
+            self.process.wait()
             
-            # To be safe against UI spam, we should probably check is_running after the heavy operation too.
-            temp_path = self.video_processor.generate_preview(self.file_path, self.time_sec)
-            
-            if self.is_running and temp_path:
-                self.preview_ready.emit(temp_path)
+            if self.is_running and self.process.returncode == 0:
+                self.preview_ready.emit(temp_image_path)
+            else:
+                if os.path.exists(temp_image_path):
+                    try: os.remove(temp_image_path)
+                    except: pass
         except Exception as e:
             print(f"Preview thread failed: {e}")
 
     def stop(self):
         self.is_running = False
-        # Do not wait() here, as it would block the UI thread if ffmpeg is running.
-        # The thread will finish on its own.
+        if self.process:
+            try:
+                self.process.terminate()
+            except:
+                pass
 
 class EncoderDetectionThread(QThread):
     finished = pyqtSignal(list)
@@ -395,6 +420,8 @@ class VidCordInterface(QWidget):
         self.checkForUpdates()
 
         self.preview_thread = None
+        self.active_preview_threads = set()
+
 
     def initUI(self):
         self.setAcceptDrops(True)
@@ -701,13 +728,23 @@ class VidCordInterface(QWidget):
         self.previewUpdateTimer.start(self.previewDebounceTime)
 
     def updatePreview(self, time_sec):
-        # Cancel existing thread if running
+        # Retire existing thread if running
         if self.preview_thread and self.preview_thread.isRunning():
-            self.preview_thread.stop()
+            old_thread = self.preview_thread
+            try:
+                old_thread.preview_ready.disconnect(self.onPreviewReady)
+            except:
+                pass
+            old_thread.stop()
+            old_thread.finished.connect(lambda: self.active_preview_threads.discard(old_thread))
+            old_thread.finished.connect(old_thread.deleteLater)
+            # We keep it in a set to prevent garbage collection until it actually finishes
+            self.active_preview_threads.add(old_thread)
         
-        self.preview_thread = PreviewThread(self.video_processor, self.file_path, time_sec)
+        self.preview_thread = PreviewThread(self.file_path, time_sec)
         self.preview_thread.preview_ready.connect(self.onPreviewReady)
         self.preview_thread.start()
+
 
     def onPreviewReady(self, temp_path):
         if temp_path and os.path.exists(temp_path):
