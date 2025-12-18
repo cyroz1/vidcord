@@ -1,0 +1,104 @@
+name: Multi-Platform Build
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm platforms/windows/vidcord.spec
+        
+      - name: Compile Inno Setup Installer
+        uses: AykutSarac/iscc-action@v2
+        with:
+          filepath: platforms/windows/script.iss
+          
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vidcord-windows
+          path: dist/*.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm platforms/linux/vidcord_linux.spec
+        
+      - name: Build AppImage
+        run: |
+          chmod +x platforms/linux/build_appimage.sh
+          ./platforms/linux/build_appimage.sh
+          
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vidcord-linux
+          path: platforms/linux/*.appimage
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm platforms/macos/vidcord_mac.spec
+        
+      - name: Create component package
+        run: |
+          chmod +x platforms/macos/build_pkg.sh
+          ./platforms/macos/build_pkg.sh
+          
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vidcord-macos
+          path: dist/*.pkg
