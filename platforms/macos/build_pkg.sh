@@ -27,18 +27,21 @@ if [ ! -d "$APP_PATH" ]; then
     exit 1
 fi
 
-# Create the component package
-echo "Creating component package..."
-pkgbuild --root "$APP_PATH" \
-         --identifier "$IDENTIFIER" \
-         --version "$CLEAN_VERSION" \
-         --install-location "$INSTALL_LOCATION/$APP_NAME.app" \
-         "$DIST_DIR/$APP_NAME-component.pkg"
+# Verify bundle contents before packaging
+echo "Verifying bundle contents..."
+if [ -d "$APP_PATH/Contents/Frameworks" ]; then
+    echo "Frameworks found:"
+    ls -R "$APP_PATH/Contents/Frameworks"
+else
+    echo "Warning: No Frameworks directory found in bundle."
+fi
 
-# Create a temporary distribution file with the correct version (optional, but good practice)
-# We will just pass the correct package path which already encapsulates the versioned component
-# But for the final product archive, the version doesn't stick as much as the component version does unless we modify dist.xml
-# For simplicity, we just use the existing distribution.xml but ensure dynamic naming of output
+# Create the component package
+# Using --component is better for .app bundles than --root
+echo "Creating component package..."
+pkgbuild --component "$APP_PATH" \
+         --install-location "$INSTALL_LOCATION" \
+         "$DIST_DIR/$APP_NAME-component.pkg"
 
 # Create the product archive (installer)
 echo "Creating product archive..."
@@ -51,3 +54,4 @@ productbuild --distribution "$SCRIPT_DIR/distribution.xml" \
 rm "$DIST_DIR/$APP_NAME-component.pkg"
 
 echo "Done. Installer created at $DIST_DIR/$OUTPUT_PKG_NAME"
+

@@ -62,4 +62,6 @@ app = BUNDLE(
     name='vidcord.app',
     icon='icon.icns',
     bundle_identifier='com.cyroz1.vidcord',
+    bundle_architecture='arm64',
 )
+
