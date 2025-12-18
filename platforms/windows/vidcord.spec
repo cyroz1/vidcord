@@ -2,10 +2,10 @@
 
 
 a = Analysis(
-    ['vidcord.py'],
+    ['../../vidcord.py'],
     pathex=[],
     binaries=[],
-    datas=[('ffmpeg.exe', '.'), ('ffprobe.exe', '.'), ('icon.ico', '.')],
+    datas=[('../../ffmpeg.exe', '.'), ('../../ffprobe.exe', '.'), ('../../icon.ico', '.')],
     hiddenimports=['ffmpeg', 'ffmpeg-python'],
     hookspath=[],
     hooksconfig={},
