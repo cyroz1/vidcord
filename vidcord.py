@@ -2,7 +2,8 @@ import sys
 import os
 import subprocess
 import shlex
-import ffmpeg
+# Deferring heavy imports to improve startup time
+# import ffmpeg  <-- Moved to VideoProcessor methods
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QFileDialog)
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QPalette, QColor, QFont
@@ -11,8 +12,8 @@ import platform
 import math
 import json
 import pathlib
-import requests
-from packaging import version
+# import requests <-- Moved to checkForUpdates
+# from packaging import version <-- Moved to checkForUpdates
 
 # Added HyperlinkButton to imports
 from qfluentwidgets import (FluentWindow, NavigationItemPosition, FluentIcon as FIF,
@@ -206,6 +207,7 @@ class VideoProcessor:
 
     @staticmethod
     def probe_video(file_path):
+        import ffmpeg
         try:
             probe_data = ffmpeg.probe(file_path)
             format_info = probe_data.get('format', {})
@@ -365,6 +367,13 @@ class PreviewThread(QThread):
         # Do not wait() here, as it would block the UI thread if ffmpeg is running.
         # The thread will finish on its own.
 
+class EncoderDetectionThread(QThread):
+    finished = pyqtSignal(list)
+
+    def run(self):
+        encoders = VideoProcessor.get_available_encoders()
+        self.finished.emit(encoders)
+
 class VidCordInterface(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -439,14 +448,17 @@ class VidCordInterface(QWidget):
         settings_layout.addWidget(self.qualityComboBox)
         
         self.encoderComboBox = ComboBox(self)
-        available_encoders = self.video_processor.get_available_encoders()
-        self.encoder_mapping = {label: encoder for encoder, label in available_encoders}
-        for _, label in available_encoders:
-            self.encoderComboBox.addItem(label)
+        self.encoderComboBox.addItem("CPU (libx264)")
+        self.encoder_mapping = {"CPU (libx264)": "libx264"}
         settings_layout.addWidget(BodyLabel("Encoder:", self))
         settings_layout.addWidget(self.encoderComboBox)
         
         self.main_layout.addLayout(settings_layout)
+
+        # Start hardware detection in background
+        self.detection_thread = EncoderDetectionThread()
+        self.detection_thread.finished.connect(self.onEncodersDetected)
+        self.detection_thread.start()
 
         # Additional Options
         options_layout = QHBoxLayout()
@@ -536,20 +548,69 @@ class VidCordInterface(QWidget):
         self.qualityComboBox.currentIndexChanged.connect(self.saveCurrentSelections)
         self.encoderComboBox.currentIndexChanged.connect(self.saveCurrentSelections)
 
+    def onEncodersDetected(self, encoders):
+        # Prevent recursive updates and save current selection
+        current_encoder_text = self.encoderComboBox.currentText()
+        saved_encoder_label = self.settings_manager.get("encoder_label")
+        
+        # Block signals to avoid triggering saveCurrentSelections
+        self.encoderComboBox.blockSignals(True)
+        self.encoderComboBox.clear()
+        self.encoder_mapping = {label: encoder for encoder, label in encoders}
+        for _, label in encoders:
+            self.encoderComboBox.addItem(label)
+            
+        # 1. Prefer saved setting if it exists in the new list
+        if saved_encoder_label:
+            index = self.encoderComboBox.findText(saved_encoder_label)
+            if index >= 0:
+                self.encoderComboBox.setCurrentIndex(index)
+                self.encoderComboBox.blockSignals(False)
+                return
+
+        # 2. Fallback to current text if it's not the placeholder or matches something
+        index = self.encoderComboBox.findText(current_encoder_text)
+        if index >= 0:
+            self.encoderComboBox.setCurrentIndex(index)
+        else:
+            # 3. Last fallback: load by index if no label match
+            encoder_index = self.settings_manager.get("encoder_index", 0)
+            if encoder_index < self.encoderComboBox.count():
+                self.encoderComboBox.setCurrentIndex(encoder_index)
+        
+        self.encoderComboBox.blockSignals(False)
+
     def checkForUpdates(self):
-        # Simple threaded check to avoid blocking UI
-        pass 
+        # Implementation with lazy imports
+        try:
+            import requests
+            from packaging import version
+            # (Rest of update logic would go here if implemented)
+        except ImportError:
+            pass
 
     def loadPreviousSelections(self):
         quality_index = self.settings_manager.get("quality_index", 0)
-        encoder_index = self.settings_manager.get("encoder_index", 0)
         self.qualityComboBox.setCurrentIndex(quality_index)
-        self.encoderComboBox.setCurrentIndex(encoder_index)
+        
+        # Try loading by label first
+        encoder_label = self.settings_manager.get("encoder_label")
+        if encoder_label:
+            index = self.encoderComboBox.findText(encoder_label)
+            if index >= 0:
+                self.encoderComboBox.setCurrentIndex(index)
+                return
+
+        # Fallback to index
+        encoder_index = self.settings_manager.get("encoder_index", 0)
+        if encoder_index < self.encoderComboBox.count():
+            self.encoderComboBox.setCurrentIndex(encoder_index)
 
     def saveCurrentSelections(self, index=None):
         self.settings_manager.save_settings({
             "quality_index": self.qualityComboBox.currentIndex(),
-            "encoder_index": self.encoderComboBox.currentIndex()
+            "encoder_index": self.encoderComboBox.currentIndex(),
+            "encoder_label": self.encoderComboBox.currentText()
         })
 
     def convertVideoFromButton(self):

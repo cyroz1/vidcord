@@ -20,6 +20,7 @@ mkdir -p AppDir/usr/bin
 cp "$PROJECT_ROOT/dist/vidcord" AppDir/usr/bin/
 cp "$PROJECT_ROOT/icon.png" AppDir/icon.png
 cp "$SCRIPT_DIR/vidcord.desktop" AppDir/
+cp "$SCRIPT_DIR/qt.conf" AppDir/usr/bin/
 
 # Create AppRun symlink
 # AppRun is the entry point. Linking it to our binary works for one-file builds.
@@ -57,18 +58,18 @@ cp "$FFMPEG_DIR/ffprobe" AppDir/usr/bin/
 chmod +x AppDir/usr/bin/ffmpeg AppDir/usr/bin/ffprobe
 rm -rf "$FFMPEG_DIR" ffmpeg.tar.xz
 
-# Download appimagetool if not exists
-if [ ! -f "$TOOL_NAME" ]; then
+# Check for appimagetool in script directory
+if [ ! -f "$SCRIPT_DIR/$TOOL_NAME" ]; then
     echo "Downloading $TOOL_NAME..."
     if command -v wget >/dev/null 2>&1; then
-        wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/$TOOL_NAME"
+        wget -q -O "$SCRIPT_DIR/$TOOL_NAME" "https://github.com/AppImage/appimagetool/releases/download/continuous/$TOOL_NAME"
     elif command -v curl >/dev/null 2>&1; then
-        curl -L -o "$TOOL_NAME" "https://github.com/AppImage/appimagetool/releases/download/continuous/$TOOL_NAME"
+        curl -L -o "$SCRIPT_DIR/$TOOL_NAME" "https://github.com/AppImage/appimagetool/releases/download/continuous/$TOOL_NAME"
     else
         echo "Error: Neither wget nor curl found. Cannot download appimagetool."
         exit 1
     fi
-    chmod +x "$TOOL_NAME"
+    chmod +x "$SCRIPT_DIR/$TOOL_NAME"
 fi
 
 # Build AppImage
@@ -84,6 +85,6 @@ CLEAN_VERSION="${VERSION_STRING#v}"
 
 OUTPUT_NAME="vidcord_v${CLEAN_VERSION}_${ARCH}.appimage"
 
-ARCH=$ARCH ./$TOOL_NAME AppDir "$OUTPUT_NAME"
+ARCH=$ARCH "$SCRIPT_DIR/$TOOL_NAME" AppDir "$OUTPUT_NAME"
 
 echo "Success! AppImage created: $OUTPUT_NAME"

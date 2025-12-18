@@ -6,7 +6,7 @@ a = Analysis(
     ['../../vidcord.py'],
     pathex=[],
     binaries=[],
-    datas=[('../../icon.png', '.')],
+    datas=[('../../icon.png', '.'), ('qt.conf', '.')],
     hiddenimports=['ffmpeg', 'ffmpeg-python', 'PyQt6', 'qfluentwidgets', 'requests'],
     hookspath=[],
     hooksconfig={},
