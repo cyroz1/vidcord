@@ -31,7 +31,7 @@ jobs:
         run: pyinstaller --noconfirm platforms/windows/vidcord.spec
         
       - name: Compile Inno Setup Installer
-        uses: AykutSarac/iscc-action@v2
+        uses: AykutSarac/iscc-action@v2.3.0
         with:
           filepath: platforms/windows/script.iss
           
@@ -63,6 +63,7 @@ jobs:
         
       - name: Build AppImage
         run: |
+          chmod +x platforms/linux/appimagetool-x86_64.AppImage
           chmod +x platforms/linux/build_appimage.sh
           ./platforms/linux/build_appimage.sh
           
@@ -88,6 +89,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
+          
+      - name: Install FFmpeg for macOS
+        run: |
+          curl -L https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip -o ffmpeg.zip
+          curl -L https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip -o ffprobe.zip
+          unzip ffmpeg.zip -d platforms/macos/
+          unzip ffprobe.zip -d platforms/macos/
+          chmod +x platforms/macos/ffmpeg platforms/macos/ffprobe
           
       - name: Build with PyInstaller
         run: pyinstaller --noconfirm platforms/macos/vidcord_mac.spec

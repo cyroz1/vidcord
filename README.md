@@ -1,6 +1,6 @@
 # <img src="icon.ico" height="25"> vidcord  
 
-This is a simple Python GUI application for compressing video files under Discord's size limits using FFmpeg and PyQt6. The application features a modern **Fluent Design** interface and allows users to either right click videos in the File Explorer, drag and drop video files, or import them via a file dialog. Users can then adjust starting and ending times, remove audio, and compress the imported video with either hardware or software encoding and five quality presets for different Nitro and server boost levels.
+This is a high-performance Python GUI application for compressing video files under Discord's size limits using FFmpeg and PyQt6. The application features a modern **Fluent Design** interface, **instant-start architecture**, and is available for **Windows, macOS, and Linux**.
 
 ## Download
 
@@ -22,6 +22,8 @@ This is a simple Python GUI application for compressing video files under Discor
   - **Remove Audio**: Strip audio tracks to save space or for silent clips.
   - **Trimming**: Adjustable starting and ending points with live preview.
 - **Hardware Acceleration**: Support for NVIDIA (NVENC), AMD (AMF), Intel (QSV), and Apple Silicon encoders.
+- **Instant Startup**: Optimized with lazy-loading and background hardware detection for immediate responsiveness.
+- **Multi-Platform**: Native builds for Windows (.exe), macOS (.pkg), and Linux (.AppImage).
 - **Progress Tracking**: Real-time progress bar and ETA display.
 
 ## Screenshots
@@ -52,7 +54,14 @@ This is a simple Python GUI application for compressing video files under Discor
    pip install packaging
    ```
 
-3. **Run the application**:
+3. **Build the application**:
+   A unified build script is provided for easy packaging:
+   ```sh
+   python build.py
+   ```
+   This will automatically detect your OS and generate the appropriate installer/package in the `dist/` directory.
+
+4. **Run the source directly**:
    ```sh
    python vidcord.py
    ```

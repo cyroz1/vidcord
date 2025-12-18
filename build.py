@@ -37,7 +37,8 @@ def build_windows():
             iscc = potential_path
             
     if iscc:
-        run_command([iscc, f"/DMyAppVersion={version}", "platforms/windows/script.iss"])
+        arch = "x86_64" # PyInstaller usually builds for this on Windows
+        run_command([iscc, f"/DMyAppVersion={version}", f"/DMyArch={arch}", "platforms/windows/script.iss"])
     else:
         print("Warning: ISCC.exe not found. skipping installer creation.")
 
