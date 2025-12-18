@@ -27,6 +27,13 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
           
+      - name: Install FFmpeg for Windows
+        run: |
+          curl -L https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -o ffmpeg.zip
+          powershell -Command "Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_temp"
+          Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Move-Item -Destination .
+          Get-ChildItem -Path ffmpeg_temp -Filter ffprobe.exe -Recurse | Move-Item -Destination .
+          
       - name: Build with PyInstaller
         run: pyinstaller --noconfirm platforms/windows/vidcord.spec
         
