@@ -8,6 +8,7 @@ ffplay.exe
 AppDir/
 release.md
 
+
 __pycache__/
 *.py[cod]
 *$py.class
