@@ -6,7 +6,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('ffmpeg', 'bin'), ('ffprobe', 'bin'), ('icon.icns', '.'), ('../../icon.ico', '.')]
 binaries = []
-hiddenimports = ['ffmpeg', 'ffmpeg-python']
+hiddenimports = ['ffmpeg']
 
 # Collect all resources for qfluentwidgets
 tmp_ret = collect_all('qfluentwidgets')
