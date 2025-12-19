@@ -132,12 +132,23 @@ class VideoProcessor:
                 if 'apple' in output or 'm1' in output or 'm2' in output or 'm3' in output or 'm4' in output: gpus['apple'] = True
                 
             elif platform.system() == 'Windows':
-                # Windows
-                cmd = 'wmic path win32_VideoController get name'
-                output = subprocess.check_output(cmd, shell=True).decode('utf-8').lower()
-                if 'nvidia' in output: gpus['nvidia'] = True
-                if 'amd' in output or 'radeon' in output: gpus['amd'] = True
-                if 'intel' in output: gpus['intel'] = True
+                # Windows - use PowerShell instead of deprecated wmic for reliability
+                try:
+                    cmd = ['powershell', '-Command', 'Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name']
+                    output = subprocess.check_output(cmd, creationflags=subprocess.CREATE_NO_WINDOW).decode('utf-8').lower()
+                    if 'nvidia' in output: gpus['nvidia'] = True
+                    if 'amd' in output or 'radeon' in output: gpus['amd'] = True
+                    if 'intel' in output: gpus['intel'] = True
+                except Exception:
+                    # Fallback to wmic if powershell fails or isn't behaving
+                    try:
+                        cmd = 'wmic path win32_VideoController get name'
+                        output = subprocess.check_output(cmd, shell=True, creationflags=subprocess.CREATE_NO_WINDOW).decode('utf-8').lower()
+                        if 'nvidia' in output: gpus['nvidia'] = True
+                        if 'amd' in output or 'radeon' in output: gpus['amd'] = True
+                        if 'intel' in output: gpus['intel'] = True
+                    except Exception:
+                        pass # General fallback below handles this
                 
             else:
                 # Linux
