@@ -22,7 +22,7 @@ from qfluentwidgets import (FluentWindow, NavigationItemPosition, FluentIcon as 
                             InfoBar, InfoBarPosition, Theme, setTheme, CardWidget,
                             SimpleCardWidget, ImageLabel, ScrollArea, HyperlinkButton)
 
-CURRENT_VERSION = "v5.1"
+CURRENT_VERSION = "v5.2"
 
 # --- LOGGING SETUP ---
 log_path = os.path.join(os.path.expanduser('~'), 'vidcord_crash.log')
