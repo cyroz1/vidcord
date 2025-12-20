@@ -41,7 +41,7 @@ exe = EXE(
     upx=True,
     console=False,
     disable_windowed_traceback=False,
-    argv_emulation=False,
+    argv_emulation=True,
     target_arch='arm64',
     codesign_identity=None,
     entitlements_file=None,
@@ -63,5 +63,29 @@ app = BUNDLE(
     icon='icon.icns',
     bundle_identifier='com.cyroz1.vidcord',
     bundle_architecture='arm64',
+    info_plist={
+        'CFBundleDocumentTypes': [
+            {
+                'CFBundleTypeName': 'Video',
+                'CFBundleTypeRole': 'Viewer',
+                'LSHandlerRank': 'Default',
+                'CFBundleTypeExtensions': ['mp4', 'avi', 'mov', 'mkv', 'flv', 'wmv', 'webm'],
+                'CFBundleTypeMIMETypes': ['video/mp4', 'video/x-msvideo', 'video/quicktime', 'video/x-matroska', 'video/x-flv', 'video/x-ms-wmv', 'video/webm'],
+            }
+        ],
+        'NSServices': [
+            {
+                'NSMenuItem': {
+                    'default': 'Compress with Vidcord'
+                },
+                'NSMessage': 'dropService',
+                'NSPortName': 'vidcord',
+                'NSSendTypes': ['NSFilenamesPboardType'],
+                'NSRequiredContext': {
+                    'NSTextContent': 'FilePath'
+                }
+            }
+        ]
+    }
 )
 
