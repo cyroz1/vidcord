@@ -9,8 +9,9 @@ This is a high-performance Python GUI application for compressing video files un
 ## Features
 
 - **Modern UI**: Clean and responsive interface built with Fluent Design.
-- **Two methods to import videos**:
+- **Three methods to import videos**:
   - File Explorer: Right click video files in File Explorer and choose "Compress with vidcord". (Windows only)
+  - Finder: Right click video files in Finder and choose "Open with..." -> "vidcord.app". (macOS only)
   - Manual: Drag and drop or browse for video files in the application. 
 - **Five quality presets**:
   - 10MB, 480p (Free users)
@@ -38,30 +39,37 @@ This is a high-performance Python GUI application for compressing video files un
 ### Context menu integration
 
 ![Context menu integration](screenshots/context.png)
+![Finder context menu integration](screenshots/finder.png)
 
 ## Building
 
-1. **Install Python and FFmpeg**
-   - Download and install [Python](https://www.python.org/downloads/).
-   - Download and install [FFmpeg](https://www.ffmpeg.org/download.html).
+1. **Install Prerequisites**
+   - Download and install [Python 3.10+](https://www.python.org/downloads/).
+   - Download and install [FFmpeg](https://www.ffmpeg.org/download.html) and ensure it's in your system PATH.
+   - **Windows**: Install [Inno Setup 6](https://jrsoftware.org/iscc6.php) to build the installer.
+   - **macOS**: Ensure Xcode Command Line Tools are installed (`xcode-select --install`).
 
-2. **Install Python dependencies**:
+2. **Setup Environment & Dependencies**
+   It's recommended to use a virtual environment:
    ```sh
-   pip install ffmpeg-python
-   pip install PyQt6
-   pip install requests
-   pip install PyQt6-Fluent-Widgets
-   pip install packaging
+   # Create and activate venv
+   python -m venv venv
+   source venv/bin/activate  # macOS/Linux
+   venv\Scripts\activate     # Windows
+
+   # Install dependencies
+   pip install -r requirements.txt
+   pip install pyinstaller
    ```
 
-3. **Build the application**:
-   A unified build script is provided for easy packaging:
+3. **Build the Application**
+   A unified build script handles platform-specific packaging (using PyInstaller, Inno Setup, or AppImage tools):
    ```sh
    python build.py
    ```
-   This will automatically detect your OS and generate the appropriate installer/package in the `dist/` directory.
+   The resulting installer/package will be located in the `dist/` directory.
 
-4. **Run the source directly**:
+4. **Run from Source**
    ```sh
    python vidcord.py
    ```
