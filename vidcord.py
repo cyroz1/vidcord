@@ -5,8 +5,8 @@ import shlex
 # Deferring heavy imports to improve startup time
 # import ffmpeg  <-- Moved to VideoProcessor methods
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QFileDialog)
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QPalette, QColor, QFont
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize, QEvent
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QPalette, QColor, QFont, QFileOpenEvent
 import time
 import platform
 import math
@@ -919,6 +919,29 @@ class MainWindow(FluentWindow):
         w, h = desktop.width(), desktop.height()
         self.move(w//2 - self.width()//2, h//2 - self.height()//2)
 
+    def event(self, event):
+        if event.type() == QEvent.Type.FileOpen:
+            file_path = event.file()
+            if os.path.exists(file_path):
+                self.homeInterface.loadVideo(file_path)
+            return True
+        return super().event(event)
+
+class VidCordApp(QApplication):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.main_window = None
+
+    def set_main_window(self, window):
+        self.main_window = window
+
+    def event(self, event):
+        if event.type() == QEvent.Type.FileOpen:
+            if self.main_window:
+                self.main_window.event(event)
+                return True
+        return super().event(event)
+
 if __name__ == '__main__':
     # Enable DPI scale
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
@@ -926,14 +949,17 @@ if __name__ == '__main__':
 
     setTheme(Theme.AUTO)
 
-    app = QApplication(sys.argv)
+    app = VidCordApp(sys.argv)
     w = MainWindow()
+    app.set_main_window(w)
     w.show()
     
     # Check for initial file argument
     if len(sys.argv) > 1:
+        # On macOS with argv_emulation, the file might be in sys.argv
+        # or it might come via FileOpen event.
         initial_file = sys.argv[1]
-        if os.path.exists(initial_file):
+        if os.path.exists(initial_file) and not initial_file.startswith('-psn'):
             w.homeInterface.loadVideo(initial_file)
 
     sys.exit(app.exec())
