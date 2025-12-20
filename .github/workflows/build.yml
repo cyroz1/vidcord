@@ -6,8 +6,18 @@ on:
     tags:
       - 'v*'
       - '[0-9]*'
+    paths-ignore:
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - '.gitignore'
+      - 'screenshots/**'
   pull_request:
     branches: [ main, master ]
+    paths-ignore:
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - '.gitignore'
+      - 'screenshots/**'
   workflow_dispatch:
 
 concurrency:
