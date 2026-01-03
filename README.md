@@ -1,6 +1,6 @@
 # <img src="icon.ico" height="25"> vidcord  
 
-This is a high-performance Python GUI application for compressing video files under Discord's size limits using FFmpeg and PyQt6. The application features a modern **Fluent Design** interface, **instant-start architecture**, and is available for **Windows, macOS, and Linux**.
+This is a simple and fast Python GUI application for compressing video files under Discord's size limits using FFmpeg and PyQt6 in one-click. The application features a modern **Fluent Design** interface, and is available for **Windows, macOS, and Linux**.
 
 ## Download
 
@@ -45,8 +45,6 @@ This is a high-performance Python GUI application for compressing video files un
 
 1. **Install Prerequisites**
    - Download and install [Python 3.10+](https://www.python.org/downloads/).
-   - Download and install [FFmpeg](https://www.ffmpeg.org/download.html) and ensure it's in your system PATH.
-   - **Windows**: Install [Inno Setup 6](https://jrsoftware.org/iscc6.php) to build the installer.
    - **macOS**: Ensure Xcode Command Line Tools are installed (`xcode-select --install`).
 
 2. **Setup Environment & Dependencies**
@@ -69,15 +67,9 @@ This is a high-performance Python GUI application for compressing video files un
    ```
    The resulting installer/package will be located in the `dist/` directory.
 
-4. **Run from Source**
-   ```sh
-   python vidcord.py
-   ```
-
 ## Acknowledgements
 
 - [FFmpeg](https://ffmpeg.org/)
 - [PyQt6](https://pypi.org/project/PyQt6/)
 - [PyQt6-Fluent-Widgets](https://github.com/zhiyiYo/PyQt-Fluent-Widgets)
 - [PyInstaller](https://www.pyinstaller.org/)
-- [Inno Setup](https://jrsoftware.org/isinfo.php)
