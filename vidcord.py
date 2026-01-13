@@ -154,7 +154,10 @@ class VideoProcessor:
                 # Linux
                 try:
                     cmd = ['lspci']
-                    output = subprocess.check_output(cmd).decode('utf-8').lower()
+                    output = subprocess.check_output(cmd)
+                    if isinstance(output, bytes):
+                        output = output.decode('utf-8')
+                    output = output.lower()
                     for line in output.split('\n'):
                         if 'vga' in line or 'display' in line or '3d' in line:
                             if 'nvidia' in line: gpus['nvidia'] = True
@@ -189,19 +192,21 @@ class VideoProcessor:
             'libx264': 'CPU (libx264)',
         }
         
-        # Add GPU encoders if hardware is detected
-        if gpus['nvidia']:
-            encoder_labels['h264_nvenc'] = 'NVIDIA (h264_nvenc)'
-        if gpus['amd']:
-            encoder_labels['h264_amf'] = 'AMD (h264_amf)'
-            if platform.system() == 'Linux':
-                encoder_labels['h264_vaapi'] = 'Linux Hardware (h264_vaapi)'
-        if platform.system() == 'Darwin':
-            encoder_labels['h264_videotoolbox'] = 'Apple Silicon (h264_videotoolbox)' if gpus['apple'] else 'Hardware (h264_videotoolbox)'
-        if gpus['intel']:
-            encoder_labels['h264_qsv'] = 'Intel (h264_qsv)'
-            if platform.system() == 'Linux' and 'h264_vaapi' not in encoder_labels:
-                encoder_labels['h264_vaapi'] = 'Linux Hardware (h264_vaapi)'
+        if platform.system() == 'Linux':
+            # On Linux, only show CPU and Linux Hardware (VAAPI)
+            encoder_labels['libx264'] = 'CPU (libx264)'
+            # We check if VAAPI is available in ffmpeg later, but we specifically only want it for Linux
+            encoder_labels['h264_vaapi'] = 'Linux Hardware (h264_vaapi)'
+        else:
+            # Add GPU encoders if hardware is detected on other platforms
+            if gpus['nvidia']:
+                encoder_labels['h264_nvenc'] = 'NVIDIA (h264_nvenc)'
+            if gpus['amd']:
+                encoder_labels['h264_amf'] = 'AMD (h264_amf)'
+            if platform.system() == 'Darwin':
+                encoder_labels['h264_videotoolbox'] = 'Apple Silicon (h264_videotoolbox)' if gpus['apple'] else 'Hardware (h264_videotoolbox)'
+            if gpus['intel']:
+                encoder_labels['h264_qsv'] = 'Intel (h264_qsv)'
 
         available_encoders = []
         for encoder in encoder_labels.keys():
