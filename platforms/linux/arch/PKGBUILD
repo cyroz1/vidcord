@@ -1,6 +1,6 @@
 # Maintainer: Your Name <your.email@example.com>
 pkgname=vidcord
-pkgver=5.1
+pkgver=5.3
 pkgrel=1
 pkgdesc="A video compressor using ffmpeg and PyQt5"
 arch=('x86_64')

@@ -12,5 +12,5 @@
     <choice id="com.cyroz1.vidcord" visible="false">
         <pkg-ref id="com.cyroz1.vidcord"/>
     </choice>
-    <pkg-ref id="com.cyroz1.vidcord" version="5.1" onConclusion="none">vidcord-component.pkg</pkg-ref>
+    <pkg-ref id="com.cyroz1.vidcord" version="5.3" onConclusion="none">vidcord-component.pkg</pkg-ref>
 </installer-gui-script>

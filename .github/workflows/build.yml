@@ -52,10 +52,23 @@ jobs:
       - name: Build with PyInstaller
         run: pyinstaller --noconfirm platforms/windows/vidcord.spec
         
+      - name: Get Version
+        id: get_version
+        shell: pwsh
+        run: |
+          $content = Get-Content vidcord.py -Raw
+          if ($content -match 'CURRENT_VERSION = "(.*)"') {
+            $version = $Matches[1].TrimStart('v')
+            echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "VERSION=0.0.0" >> $env:GITHUB_OUTPUT
+          }
+
       - name: Compile Inno Setup Installer
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.7
         with:
           path: platforms/windows/script.iss
+          options: /DMyAppVersion=${{ steps.get_version.outputs.VERSION }}
           
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4

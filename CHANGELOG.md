@@ -1,21 +1,16 @@
 # Changelog
 
-## v5.2 (2025-12-20)
+## v5.3 (2026-01-13)
 
 ### Features
-- **Linux ARM64 Support**: Added support for building and distributing Linux AppImages on ARM64 (aarch64) architecture.
-- **Improved Hardware Detection**: Replaced deprecated `wmic` with PowerShell for more reliable GPU detection on Windows, with a robust fallback mechanism.
+- **Dynamic Versioning**: Automated version extraction from `vidcord.py` for Windows build artifacts, ensuring consistency between application version and installer filename.
+- **Multi-Platform Consistency**: Synchronized versioning across all platform-specific configurations (Inno Setup, macOS PKG, Arch PKGBUILD, Debian Control, and Fedora Spec).
 
 ### CI/CD & Automation
-- **Concurrency Control**: Implemented GitHub Actions concurrency settings to prevent duplicate workflow runs on the same branch.
-- **Enhanced Release Workflow**: 
-  - Added support for numeric tags (e.g., `5.1`) in addition to prefixed tags (e.g., `v5.1`).
-  - Fixed release permission issues to ensure automated asset uploads.
-  - Optimized multi-architecture builds for Linux.
+- **Workflow Optimization**: Updated GitHub Actions to dynamically pass the version string to Inno Setup compiler.
 
 ### Bug Fixes
-- Fixed potential crashes or detection failures in Windows GPU identification.
-- Resolved permission errors during the automated release process.
-
-### Maintenance
-- General stability improvements and workflow refinements for faster and more reliable builds.
+- Fixed issue where Windows installer filenames had incorrect or hardcoded version numbers.
+- Fixed Linux hardware acceleration.
+- Fixed context menu integration on macOS.
+- Fixed build scripts on local environment.
