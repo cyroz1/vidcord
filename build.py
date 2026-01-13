@@ -25,16 +25,32 @@ def build_windows():
     version = get_version()
     
     # 1. Run PyInstaller
-    run_command(["pyinstaller", "--noconfirm", "platforms/windows/vidcord.spec"])
+    pyinstaller = shutil.which("pyinstaller.exe")
+    if not pyinstaller:
+        # Try local venv
+        potential_pyi = os.path.join(".venv", "Scripts", "pyinstaller.exe")
+        if os.path.exists(potential_pyi):
+            pyinstaller = potential_pyi
+            
+    if not pyinstaller:
+        print("Error: pyinstaller.exe not found. Please install it in your venv.")
+        sys.exit(1)
+
+    run_command([pyinstaller, "--noconfirm", "platforms/windows/vidcord.spec"])
     
     # 2. Run Inno Setup
     # Assumes ISCC is in PATH or common location
     iscc = shutil.which("ISCC.exe")
     if not iscc:
-        # Try common location
-        potential_path = r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-        if os.path.exists(potential_path):
-            iscc = potential_path
+        # Try common locations
+        potential_paths = [
+            r"C:\Program Files\Inno Setup 6\ISCC.exe",
+            r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+        ]
+        for path in potential_paths:
+            if os.path.exists(path):
+                iscc = path
+                break
             
     if iscc:
         arch = "x86_64" # PyInstaller usually builds for this on Windows
