@@ -74,16 +74,42 @@ if getattr(sys, 'frozen', False):
         os.path.join(bundle_dir) # Root
     ]
     
+    # On macOS, if we are not frozen (running from source) or if bundled ffmpeg fails, 
+    # we should also check common Homebrew/system paths
+    if platform.system() == 'Darwin':
+        possible_bin_dirs.extend(['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin'])
+
+    def is_ffmpeg_functional(ffmpeg_path):
+        try:
+            # Check if it even exists first
+            if not os.path.exists(ffmpeg_path):
+                return False
+            # Try running it with a simple flag that doesn't do much but checks dynamic linking
+            result = subprocess.run([ffmpeg_path, '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return result.returncode == 0
+        except Exception:
+            return False
+
     bin_dir_found = False
     for bin_dir in possible_bin_dirs:
-        if os.path.exists(bin_dir):
-            os.environ["PATH"] += os.pathsep + bin_dir
+        ffmpeg_candidate = os.path.join(bin_dir, 'ffmpeg' + ('.exe' if platform.system() == 'Windows' else ''))
+        if is_ffmpeg_functional(ffmpeg_candidate):
+            # Prepend to PATH so it's found first
+            os.environ["PATH"] = bin_dir + os.pathsep + os.environ["PATH"]
             bin_dir_found = True
-            # print(f"Found bin dir at: {bin_dir}") # Debug
+            # print(f"Found functional ffmpeg at: {ffmpeg_candidate}") # Debug
             break
             
     if not bin_dir_found:
-        print("WARNING: Could not find bin directory for ffmpeg/ffprobe")
+        print("WARNING: Could not find working ffmpeg. Hardware encoders may not be detected.")
+else:
+    # If running from source, also try to find system ffmpeg
+    if platform.system() == 'Darwin':
+        system_paths = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin']
+        for p in system_paths:
+            if os.path.exists(os.path.join(p, 'ffmpeg')):
+                os.environ["PATH"] = p + os.pathsep + os.environ["PATH"]
+                break
 
 class SettingsManager:
     def __init__(self):

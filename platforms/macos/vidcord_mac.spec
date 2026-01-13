@@ -71,19 +71,15 @@ app = BUNDLE(
                 'LSHandlerRank': 'Default',
                 'CFBundleTypeExtensions': ['mp4', 'avi', 'mov', 'mkv', 'flv', 'wmv', 'webm'],
                 'CFBundleTypeMIMETypes': ['video/mp4', 'video/x-msvideo', 'video/quicktime', 'video/x-matroska', 'video/x-flv', 'video/x-ms-wmv', 'video/webm'],
-            }
-        ],
-        'NSServices': [
-            {
-                'NSMenuItem': {
-                    'default': 'Compress with Vidcord'
-                },
-                'NSMessage': 'dropService',
-                'NSPortName': 'vidcord',
-                'NSSendTypes': ['NSFilenamesPboardType'],
-                'NSRequiredContext': {
-                    'NSTextContent': 'FilePath'
-                }
+                'LSItemContentTypes': [
+                    'public.mpeg-4',
+                    'public.avi',
+                    'com.apple.quicktime-movie',
+                    'org.matroska.mkv',
+                    'public.mpeg',
+                    'public.webm-video',
+                    'com.microsoft.windows-media-wmv'
+                ],
             }
         ]
     }
