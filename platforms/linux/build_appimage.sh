@@ -86,6 +86,7 @@ CLEAN_VERSION="${VERSION_STRING#v}"
 OUTPUT_NAME="vidcord_v${CLEAN_VERSION}_${ARCH}.appimage"
 
 mkdir -p "$PROJECT_ROOT/dist"
+chmod +x "$SCRIPT_DIR/$TOOL_NAME"
 ARCH=$ARCH "$SCRIPT_DIR/$TOOL_NAME" AppDir "$PROJECT_ROOT/dist/$OUTPUT_NAME"
 
 echo "Success! AppImage created: $OUTPUT_NAME"

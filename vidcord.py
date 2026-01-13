@@ -176,7 +176,7 @@ class VideoProcessor:
     def get_available_encoders():
         try:
             encoders_output = subprocess.run(
-                shlex.split('ffmpeg -hide_banner -encoders'),
+                ['ffmpeg', '-hide_banner', '-encoders'],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
             ).stdout
         except FileNotFoundError:
@@ -194,14 +194,18 @@ class VideoProcessor:
             encoder_labels['h264_nvenc'] = 'NVIDIA (h264_nvenc)'
         if gpus['amd']:
             encoder_labels['h264_amf'] = 'AMD (h264_amf)'
+            if platform.system() == 'Linux':
+                encoder_labels['h264_vaapi'] = 'Linux Hardware (h264_vaapi)'
         if platform.system() == 'Darwin':
             encoder_labels['h264_videotoolbox'] = 'Apple Silicon (h264_videotoolbox)' if gpus['apple'] else 'Hardware (h264_videotoolbox)'
         if gpus['intel']:
             encoder_labels['h264_qsv'] = 'Intel (h264_qsv)'
+            if platform.system() == 'Linux' and 'h264_vaapi' not in encoder_labels:
+                encoder_labels['h264_vaapi'] = 'Linux Hardware (h264_vaapi)'
 
         available_encoders = []
         for encoder in encoder_labels.keys():
-            if encoder == 'libx264' or encoder in encoders_output:
+            if encoder == 'libx264' or f' {encoder} ' in encoders_output:
                 available_encoders.append((encoder, encoder_labels[encoder]))
         return available_encoders
 
@@ -214,7 +218,8 @@ class VideoProcessor:
             audio_bitrate_kb = audio_bitrate * duration_sec
         
         video_bitrate = (target_size_kb - audio_bitrate_kb) / duration_sec
-        return int(video_bitrate * 0.9) # Safety margin
+        # Ensure minimum bitrate of 100kbps to prevent "Conversion failed" for long videos
+        return max(100, int(video_bitrate * 0.9))
 
     @staticmethod
     def probe_video(file_path):
@@ -327,7 +332,17 @@ class CompressionThread(QThread):
         if process.returncode == 0:
             self.finished.emit(True, "Conversion complete!")
         else:
-            self.finished.emit(False, "Conversion failed.")
+            # Try to grab the last few lines of stderr for a better error message
+            error_msg = "Conversion failed."
+            try:
+                # We already read some lines, but if it failed, there might be more info
+                remaining_stderr = process.stderr.read()
+                if remaining_stderr:
+                    last_lines = remaining_stderr.strip().split('\n')[-3:]
+                    error_msg += f"\n\nFFmpeg Error:\n" + "\n".join(last_lines)
+            except:
+                pass
+            self.finished.emit(False, error_msg)
 
     def format_time(self, seconds):
         if seconds < 0: return "Calculating..."
@@ -797,6 +812,9 @@ class VidCordInterface(QWidget):
 
         # Prepare output path
         downloads_path = str(pathlib.Path.home() / "Downloads")
+        if not os.path.exists(downloads_path):
+            os.makedirs(downloads_path, exist_ok=True)
+            
         base_name = os.path.basename(filePath)
         name, _ = os.path.splitext(base_name)
         output_file = os.path.join(downloads_path, f"{name}-vidcord.mp4")
@@ -818,8 +836,15 @@ class VidCordInterface(QWidget):
         selected_encoder_label = self.encoderComboBox.currentText()
         selected_encoder = self.encoder_mapping.get(selected_encoder_label, 'libx264')
         
-        cmd = [
-            "ffmpeg", "-hide_banner", "-y",
+        cmd = ["ffmpeg", "-hide_banner", "-y"]
+        
+        # VAAPI specific setup
+        if selected_encoder == 'h264_vaapi':
+            cmd.extend(["-vaapi_device", "/dev/dri/renderD128"])
+            # Format filter for VAAPI
+            filters.append("format=nv12,hwupload")
+
+        cmd.extend([
             "-ss", str(start_time),
             "-to", str(end_time),
             "-i", filePath,
@@ -827,7 +852,7 @@ class VidCordInterface(QWidget):
             "-b:v", f'{target_bitrate}k',
             "-vf", ",".join(filters),
             output_file
-        ]
+        ])
         
         if remove_audio:
             cmd.append("-an")

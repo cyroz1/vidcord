@@ -8,9 +8,9 @@ PROJECT_ROOT="$SCRIPT_DIR/../.."
 # Change to project root
 cd "$PROJECT_ROOT"
 
-VENV_PYTHON="./venv/bin/python3"
-VENV_PIP="./venv/bin/pip"
-VENV_PYINSTALLER="./venv/bin/pyinstaller"
+VENV_PYTHON="./.venv/bin/python3"
+VENV_PIP="./.venv/bin/pip"
+VENV_PYINSTALLER="./.venv/bin/pyinstaller"
 
 echo "Installing dependencies..."
 $VENV_PIP install -r requirements.txt
