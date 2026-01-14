@@ -22,7 +22,7 @@ from qfluentwidgets import (FluentWindow, NavigationItemPosition, FluentIcon as 
                             InfoBar, InfoBarPosition, Theme, setTheme, CardWidget,
                             SimpleCardWidget, ImageLabel, ScrollArea, HyperlinkButton)
 
-CURRENT_VERSION = "v5.3"
+CURRENT_VERSION = "v5.4"
 
 # --- LOGGING SETUP ---
 log_path = os.path.join(os.path.expanduser('~'), 'vidcord_crash.log')
@@ -204,6 +204,8 @@ class VideoProcessor:
     @staticmethod
     def get_available_encoders():
         try:
+            # -encoders output shows encoders with their type (V=Video, etc)
+            # Example: V..... libx264             libx264 H.264 / AVC / MPEG-4 AVC / ICTCP (codec h264)
             encoders_output = subprocess.run(
                 ['ffmpeg', '-hide_banner', '-encoders'],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -213,31 +215,42 @@ class VideoProcessor:
 
         gpus = VideoProcessor.get_system_gpus()
         
-        # Base mapping
-        encoder_labels = {
+        # Define all potential encoders and their readable labels
+        potential_encoders = {
             'libx264': 'CPU (libx264)',
+            'h264_nvenc': 'NVIDIA (h264_nvenc)',
+            'h264_amf': 'AMD (h264_amf)',
+            'h264_qsv': 'Intel (h264_qsv)',
+            'h264_vaapi': 'Linux Hardware (h264_vaapi)',
+            'h264_videotoolbox': 'Apple Silicon (h264_videotoolbox)' if gpus.get('apple') else 'Hardware (h264_videotoolbox)'
         }
         
-        if platform.system() == 'Linux':
-            # On Linux, only show CPU and Linux Hardware (VAAPI)
-            encoder_labels['libx264'] = 'CPU (libx264)'
-            # We check if VAAPI is available in ffmpeg later, but we specifically only want it for Linux
-            encoder_labels['h264_vaapi'] = 'Linux Hardware (h264_vaapi)'
-        else:
-            # Add GPU encoders if hardware is detected on other platforms
-            if gpus['nvidia']:
-                encoder_labels['h264_nvenc'] = 'NVIDIA (h264_nvenc)'
-            if gpus['amd']:
-                encoder_labels['h264_amf'] = 'AMD (h264_amf)'
-            if platform.system() == 'Darwin':
-                encoder_labels['h264_videotoolbox'] = 'Apple Silicon (h264_videotoolbox)' if gpus['apple'] else 'Hardware (h264_videotoolbox)'
-            if gpus['intel']:
-                encoder_labels['h264_qsv'] = 'Intel (h264_qsv)'
-
         available_encoders = []
-        for encoder in encoder_labels.keys():
-            if encoder == 'libx264' or f' {encoder} ' in encoders_output:
-                available_encoders.append((encoder, encoder_labels[encoder]))
+        system = platform.system()
+
+        for encoder, label in potential_encoders.items():
+            # Check if this encoder makes sense for the current platform/hardware
+            should_check = False
+            
+            if encoder == 'libx264':
+                should_check = True
+            elif encoder == 'h264_nvenc' and gpus['nvidia']:
+                should_check = True
+            elif encoder == 'h264_amf' and gpus['amd']:
+                should_check = True
+            elif encoder == 'h264_qsv' and gpus['intel']:
+                should_check = True
+            elif encoder == 'h264_vaapi' and system == 'Linux':
+                should_check = True
+            elif encoder == 'h264_videotoolbox' and system == 'Darwin':
+                should_check = True
+
+            if should_check:
+                # Use a more robust check for the encoder name in the output
+                # Most ffmpeg versions list encoders with a leading space or after some flags
+                if encoder == 'libx264' or f" {encoder} " in encoders_output or f"\n {encoder} " in encoders_output or encoder in encoders_output:
+                    available_encoders.append((encoder, label))
+                    
         return available_encoders
 
     @staticmethod

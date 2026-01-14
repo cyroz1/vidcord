@@ -22,7 +22,7 @@ def get_system_gpus():
 def get_available_encoders():
     try:
         encoders_output = subprocess.run(
-            shlex.split('ffmpeg -hide_banner -encoders'),
+            ['ffmpeg', '-hide_banner', '-encoders'],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         ).stdout
         print(f"DEBUG: ffmpeg encoders output length: {len(encoders_output)}")
@@ -33,17 +33,31 @@ def get_available_encoders():
     gpus = get_system_gpus()
     print(f"DEBUG: Detected GPUs: {gpus}")
     
-    encoder_labels = {'libx264': 'CPU (libx264)'}
-    if gpus['nvidia']: encoder_labels['h264_nvenc'] = 'NVIDIA (h264_nvenc)'
-    if gpus['amd']: encoder_labels['h264_amf'] = 'AMD (h264_amf)'
-    if platform.system() == 'Darwin':
-        encoder_labels['h264_videotoolbox'] = 'Apple Silicon (h264_videotoolbox)' if gpus['apple'] else 'Hardware (h264_videotoolbox)'
-    if gpus['intel']: encoder_labels['h264_qsv'] = 'Intel (h264_qsv)'
-
+    potential_encoders = {
+        'libx264': 'CPU (libx264)',
+        'h264_nvenc': 'NVIDIA (h264_nvenc)',
+        'h264_amf': 'AMD (h264_amf)',
+        'h264_qsv': 'Intel (h264_qsv)',
+        'h264_vaapi': 'Linux Hardware (h264_vaapi)',
+        'h264_videotoolbox': 'Apple Silicon (h264_videotoolbox)' if gpus.get('apple') else 'Hardware (h264_videotoolbox)'
+    }
+    
     available_encoders = []
-    for encoder in encoder_labels.keys():
-        if encoder == 'libx264' or encoder in encoders_output:
-            available_encoders.append((encoder, encoder_labels[encoder]))
+    system = platform.system()
+
+    for encoder, label in potential_encoders.items():
+        should_check = False
+        if encoder == 'libx264': should_check = True
+        elif encoder == 'h264_nvenc' and gpus['nvidia']: should_check = True
+        elif encoder == 'h264_amf' and gpus['amd']: should_check = True
+        elif encoder == 'h264_qsv' and gpus['intel']: should_check = True
+        elif encoder == 'h264_vaapi' and system == 'Linux': should_check = True
+        elif encoder == 'h264_videotoolbox' and system == 'Darwin': should_check = True
+
+        if should_check:
+            if encoder == 'libx264' or f" {encoder} " in encoders_output or f"\n {encoder} " in encoders_output or encoder in encoders_output:
+                available_encoders.append((encoder, label))
+                
     return available_encoders
 
 if __name__ == "__main__":
