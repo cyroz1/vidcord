@@ -1,5 +1,14 @@
 # Changelog
 
+## v5.4 (2026-01-13)
+
+### Bug Fixes
+- **Linux Hardware Acceleration**: Fixed an issue where `h264_vaapi` and other hardware encoders were not correctly detected on Linux.
+- **Robust Encoder Detection**: Improved the encoder detection mechanism to be more robust across different FFmpeg versions and environments.
+
+### Features
+- **Expanded Linux Support**: Enabled NVIDIA (`nvenc`), AMD (`amf`), and Intel (`qsv`) encoder support on Linux when compatible hardware is detected.
+
 ## v5.3 (2026-01-13)
 
 ### Features
@@ -11,6 +20,5 @@
 
 ### Bug Fixes
 - Fixed issue where Windows installer filenames had incorrect or hardcoded version numbers.
-- Fixed Linux hardware acceleration.
-- Fixed context menu integration on macOS.
-- Fixed build scripts on local environment.
+
+## v5.2 (2025-12-20)
