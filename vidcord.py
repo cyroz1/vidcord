@@ -290,7 +290,7 @@ class VideoProcessor:
                     should_check = True
 
                 if should_check:
-                    if encoder == 'libx264' or encoder in ffmpeg_encoders:
+                    if (encoder == 'h264_vaapi' and system == 'Linux') or encoder == 'libx264' or encoder in ffmpeg_encoders:
                         available_encoders.append((encoder, label))
                         
             if not any(e[0].endswith('_vaapi') for e in available_encoders) and system == 'Linux':
