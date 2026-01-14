@@ -202,14 +202,41 @@ class VideoProcessor:
         return gpus
 
     @staticmethod
+    def get_vaapi_device():
+        """Find the best VAAPI render node on Linux"""
+        if platform.system() != 'Linux':
+            return None
+            
+        render_nodes = []
+        try:
+            if os.path.exists('/dev/dri'):
+                for entry in os.listdir('/dev/dri'):
+                    if entry.startswith('renderD'):
+                        render_nodes.append(os.path.join('/dev/dri', entry))
+            
+            # Prefer renderD128 if it exists, otherwise use the first one found
+            if '/dev/dri/renderD128' in render_nodes:
+                return '/dev/dri/renderD128'
+            elif render_nodes:
+                return render_nodes[0]
+        except Exception as e:
+            print(f"Error scanning for VAAPI devices: {e}")
+            
+        return "/dev/dri/renderD128" # Fallback
+
+    @staticmethod
     def get_available_encoders():
         try:
             # -encoders output shows encoders with their type (V=Video, etc)
             # Example: V..... libx264             libx264 H.264 / AVC / MPEG-4 AVC / ICTCP (codec h264)
-            encoders_output = subprocess.run(
+            result = subprocess.run(
                 ['ffmpeg', '-hide_banner', '-encoders'],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-            ).stdout
+            )
+            encoders_output = result.stdout
+            
+            # Print for debugging in the log file
+            print(f"DEBUG: Found {len(encoders_output.splitlines())} encoder lines in FFmpeg output")
         except FileNotFoundError:
             return []
 
@@ -227,6 +254,17 @@ class VideoProcessor:
         
         available_encoders = []
         system = platform.system()
+        
+        # Parse FFmpeg output line by line for more reliability
+        ffmpeg_encoders = set()
+        for line in encoders_output.splitlines():
+            parts = line.split()
+            if len(parts) >= 2:
+                # The encoder name is usually the second or third element after flags
+                # Flags like V..... or V.S...
+                if parts[0].startswith('V'):
+                    encoder_name = parts[1]
+                    ffmpeg_encoders.add(encoder_name)
 
         for encoder, label in potential_encoders.items():
             # Check if this encoder makes sense for the current platform/hardware
@@ -246,10 +284,12 @@ class VideoProcessor:
                 should_check = True
 
             if should_check:
-                # Use a more robust check for the encoder name in the output
-                # Most ffmpeg versions list encoders with a leading space or after some flags
-                if encoder == 'libx264' or f" {encoder} " in encoders_output or f"\n {encoder} " in encoders_output or encoder in encoders_output:
+                if encoder == 'libx264' or encoder in ffmpeg_encoders:
                     available_encoders.append((encoder, label))
+                    
+        if not any(e[0].endswith('_vaapi') for e in available_encoders) and system == 'Linux':
+            print("DEBUG: No VAAPI encoders found in Linux. Raw output first 1000 chars:")
+            print(encoders_output[:1000])
                     
         return available_encoders
 
@@ -883,8 +923,9 @@ class VidCordInterface(QWidget):
         cmd = ["ffmpeg", "-hide_banner", "-y"]
         
         # VAAPI specific setup
-        if selected_encoder == 'h264_vaapi':
-            cmd.extend(["-vaapi_device", "/dev/dri/renderD128"])
+        if selected_encoder.endswith('_vaapi'):
+            vaapi_dev = self.video_processor.get_vaapi_device()
+            cmd.extend(["-vaapi_device", vaapi_dev])
             # Format filter for VAAPI
             filters.append("format=nv12,hwupload")
 
