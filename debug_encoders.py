@@ -45,6 +45,18 @@ def get_available_encoders():
     available_encoders = []
     system = platform.system()
 
+    import re
+    # Match regex from vidcord.py
+    regex = re.compile(r'^\s*V[A-Z.]*\s+([a-zA-Z0-9_]+)\s+')
+    
+    ffmpeg_encoders = set()
+    for line in encoders_output.splitlines():
+        match = regex.match(line)
+        if match:
+            ffmpeg_encoders.add(match.group(1))
+            
+    print(f"DEBUG: Parsed encoders: {sorted(list(ffmpeg_encoders))}")
+
     for encoder, label in potential_encoders.items():
         should_check = False
         if encoder == 'libx264': should_check = True
@@ -55,7 +67,8 @@ def get_available_encoders():
         elif encoder == 'h264_videotoolbox' and system == 'Darwin': should_check = True
 
         if should_check:
-            if encoder == 'libx264' or f" {encoder} " in encoders_output or f"\n {encoder} " in encoders_output or encoder in encoders_output:
+            # Check against the set of found encoders
+            if encoder == 'libx264' or encoder in ffmpeg_encoders:
                 available_encoders.append((encoder, label))
                 
     return available_encoders
