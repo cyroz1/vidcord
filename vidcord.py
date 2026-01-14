@@ -238,60 +238,71 @@ class VideoProcessor:
             # Print for debugging in the log file
             print(f"DEBUG: Found {len(encoders_output.splitlines())} encoder lines in FFmpeg output")
         except FileNotFoundError:
+            print("DEBUG: ffmpeg binary not found.")
+            return []
+        except Exception as e:
+            print(f"DEBUG: Error running ffmpeg for detection: {e}")
             return []
 
-        gpus = VideoProcessor.get_system_gpus()
-        
-        # Define all potential encoders and their readable labels
-        potential_encoders = {
-            'libx264': 'CPU (libx264)',
-            'h264_nvenc': 'NVIDIA (h264_nvenc)',
-            'h264_amf': 'AMD (h264_amf)',
-            'h264_qsv': 'Intel (h264_qsv)',
-            'h264_vaapi': 'Linux Hardware (h264_vaapi)',
-            'h264_videotoolbox': 'Apple Silicon (h264_videotoolbox)' if gpus.get('apple') else 'Hardware (h264_videotoolbox)'
-        }
-        
-        available_encoders = []
-        system = platform.system()
-        
-        # Parse FFmpeg output line by line for more reliability
-        ffmpeg_encoders = set()
-        for line in encoders_output.splitlines():
-            parts = line.split()
-            if len(parts) >= 2:
-                # The encoder name is usually the second or third element after flags
-                # Flags like V..... or V.S...
-                if parts[0].startswith('V'):
-                    encoder_name = parts[1]
+        try:
+            gpus = VideoProcessor.get_system_gpus()
+            
+            # Define all potential encoders and their readable labels
+            potential_encoders = {
+                'libx264': 'CPU (libx264)',
+                'h264_nvenc': 'NVIDIA (h264_nvenc)',
+                'h264_amf': 'AMD (h264_amf)',
+                'h264_qsv': 'Intel (h264_qsv)',
+                'h264_vaapi': 'Linux Hardware (h264_vaapi)',
+                'h264_videotoolbox': 'Apple Silicon (h264_videotoolbox)' if gpus.get('apple') else 'Hardware (h264_videotoolbox)'
+            }
+            
+            available_encoders = []
+            system = platform.system()
+            
+            # Parse FFmpeg output using regex for more reliability across platforms/ffmpeg versions
+            import re
+            ffmpeg_encoders = set()
+            # Pattern: Start of line, 'V' flag, optional other flags, whitespace, encoder name
+            regex = re.compile(r'^\s*V[A-Z.]*\s+([a-zA-Z0-9_]+)\s+')
+            
+            for line in encoders_output.splitlines():
+                match = regex.match(line)
+                if match:
+                    encoder_name = match.group(1)
                     ffmpeg_encoders.add(encoder_name)
 
-        for encoder, label in potential_encoders.items():
-            # Check if this encoder makes sense for the current platform/hardware
-            should_check = False
-            
-            if encoder == 'libx264':
-                should_check = True
-            elif encoder == 'h264_nvenc' and gpus['nvidia']:
-                should_check = True
-            elif encoder == 'h264_amf' and gpus['amd']:
-                should_check = True
-            elif encoder == 'h264_qsv' and gpus['intel']:
-                should_check = True
-            elif encoder == 'h264_vaapi' and system == 'Linux':
-                should_check = True
-            elif encoder == 'h264_videotoolbox' and system == 'Darwin':
-                should_check = True
+            for encoder, label in potential_encoders.items():
+                # Check if this encoder makes sense for the current platform/hardware
+                should_check = False
+                
+                if encoder == 'libx264':
+                    should_check = True
+                elif encoder == 'h264_nvenc' and gpus['nvidia']:
+                    should_check = True
+                elif encoder == 'h264_amf' and gpus['amd']:
+                    should_check = True
+                elif encoder == 'h264_qsv' and gpus['intel']:
+                    should_check = True
+                elif encoder == 'h264_vaapi' and system == 'Linux':
+                    should_check = True
+                elif encoder == 'h264_videotoolbox' and system == 'Darwin':
+                    should_check = True
 
-            if should_check:
-                if encoder == 'libx264' or encoder in ffmpeg_encoders:
-                    available_encoders.append((encoder, label))
-                    
-        if not any(e[0].endswith('_vaapi') for e in available_encoders) and system == 'Linux':
-            print("DEBUG: No VAAPI encoders found in Linux. Raw output first 1000 chars:")
-            print(encoders_output[:1000])
-                    
-        return available_encoders
+                if should_check:
+                    if encoder == 'libx264' or encoder in ffmpeg_encoders:
+                        available_encoders.append((encoder, label))
+                        
+            if not any(e[0].endswith('_vaapi') for e in available_encoders) and system == 'Linux':
+                print("DEBUG: No VAAPI encoders found in Linux. Raw output first 1000 chars:")
+                print(encoders_output[:1000])
+                        
+            return available_encoders
+        except Exception as e:
+            print(f"DEBUG: Critical error in get_available_encoders parsing: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
 
     @staticmethod
     def calculate_bitrate(target_size_mb, duration_sec, audio_bitrate=128, remove_audio=False):
@@ -506,8 +517,16 @@ class EncoderDetectionThread(QThread):
     finished = pyqtSignal(list)
 
     def run(self):
-        encoders = VideoProcessor.get_available_encoders()
-        self.finished.emit(encoders)
+        print("DEBUG: EncoderDetectionThread started")
+        try:
+            encoders = VideoProcessor.get_available_encoders()
+            print(f"DEBUG: EncoderDetectionThread finished with {len(encoders)} encoders")
+            self.finished.emit(encoders)
+        except Exception as e:
+            print(f"DEBUG: EncoderDetectionThread CRASHED: {e}")
+            import traceback
+            traceback.print_exc()
+            self.finished.emit([])
 
 class VidCordInterface(QWidget):
     def __init__(self, parent=None):
