@@ -390,15 +390,22 @@ class CompressionThread(QThread):
         self.is_running = True
 
     def run(self):
+        print(f"DEBUG: Starting encoding with command: {self.cmd}")
         creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
         process = subprocess.Popen(self.cmd, stderr=subprocess.PIPE, text=True, universal_newlines=True, creationflags=creationflags)
         
         encoding_start_time = time.time()
-        encoding_started_for_eta = False
         
+        full_log = [] # Capture full log
+
         while process.poll() is None and self.is_running:
             line = process.stderr.readline()
             if line:
+                full_log.append(line.strip())
+                # Log "error" or "warning" lines immediately
+                if "error" in line.lower() or "warning" in line.lower():
+                     print(f"FFMPEG_LOG: {line.strip()}")
+
                 if "time=" in line:
                     try:
                         time_str = line.split("time=")[1].split(" ")[0]
@@ -420,23 +427,33 @@ class CompressionThread(QThread):
                         pass
         
         if not self.is_running:
+            print("DEBUG: Encoding cancelled by user.")
             process.terminate()
             return
         
         process.wait()
+        
+        # Read any remaining output
+        remaining_stderr = process.stderr.read()
+        if remaining_stderr:
+            full_log.extend(remaining_stderr.splitlines())
+
         if process.returncode == 0:
+            print("DEBUG: Encoding finished successfully.")
             self.finished.emit(True, "Conversion complete!")
         else:
+            print(f"DEBUG: Encoding failed with return code {process.returncode}")
+            # Log full stderr for debugging
+            print("DEBUG: Full FFmpeg Log:")
+            for l in full_log:
+                print(f"  {l}")
+
             # Try to grab the last few lines of stderr for a better error message
             error_msg = "Conversion failed."
-            try:
-                # We already read some lines, but if it failed, there might be more info
-                remaining_stderr = process.stderr.read()
-                if remaining_stderr:
-                    last_lines = remaining_stderr.strip().split('\n')[-3:]
-                    error_msg += f"\n\nFFmpeg Error:\n" + "\n".join(last_lines)
-            except:
-                pass
+            if full_log:
+                last_lines = full_log[-5:]
+                error_msg += f"\n\nFFmpeg Error:\n" + "\n".join(last_lines)
+            
             self.finished.emit(False, error_msg)
 
     def format_time(self, seconds):
