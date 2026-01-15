@@ -78,6 +78,10 @@ if getattr(sys, 'frozen', False):
     # we should also check common Homebrew/system paths
     if platform.system() == 'Darwin':
         possible_bin_dirs.extend(['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin'])
+    
+    # On Linux, PyInstaller builds often expect system ffmpeg
+    if platform.system() == 'Linux':
+        possible_bin_dirs.extend(['/usr/bin', '/usr/local/bin', '/snap/bin'])
 
     def is_ffmpeg_functional(ffmpeg_path):
         try:
