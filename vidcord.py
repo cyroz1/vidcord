@@ -944,7 +944,7 @@ class VidCordInterface(QWidget):
         # VAAPI specific setup
         if selected_encoder.endswith('_vaapi'):
             vaapi_dev = self.video_processor.get_vaapi_device()
-            cmd.extend(["-vaapi_device", vaapi_dev])
+            cmd.extend(["-init_hw_device", f"vaapi=va:{vaapi_dev}", "-filter_hw_device", "va"])
             # Format filter for VAAPI
             filters.append("format=nv12,hwupload")
 
