@@ -933,7 +933,8 @@ class VidCordInterface(QWidget):
             target_h = target_h if target_h % 2 == 0 else target_h + 1
             filters.append(f"scale={target_w}:{target_h}")
         else:
-            filters.append(f"scale='trunc(iw/2)*2':'trunc(ih/2)*2'")
+            # Removed single quotes around trunc(...) as they can cause "Option not found" with some ffmpeg builds/shells
+            filters.append("scale=trunc(iw/2)*2:trunc(ih/2)*2")
 
         # Build Command
         selected_encoder_label = self.encoderComboBox.currentText()
@@ -944,9 +945,13 @@ class VidCordInterface(QWidget):
         # VAAPI specific setup
         if selected_encoder.endswith('_vaapi'):
             vaapi_dev = self.video_processor.get_vaapi_device()
-            cmd.extend(["-init_hw_device", f"vaapi=va:{vaapi_dev}", "-filter_hw_device", "va"])
-            # Format filter for VAAPI
-            filters.append("format=nv12,hwupload")
+            if vaapi_dev:
+                cmd.extend(["-init_hw_device", f"vaapi=va:{vaapi_dev}", "-filter_hw_device", "va"])
+                # Format filter for VAAPI
+                filters.append("format=nv12,hwupload")
+            else:
+                print("DEBUG: VAAPI selected but no device found. Falling back to CPU.")
+                selected_encoder = 'libx264' # Safe fallback
 
         cmd.extend([
             "-ss", str(start_time),
@@ -968,6 +973,9 @@ class VidCordInterface(QWidget):
         self.progressBar.setValue(0)
         self.etaLabel.setText("Starting...")
         
+        # Log the command for debugging
+        print(f"DEBUG: FFmpeg Command: {cmd}")
+
         self.thread = CompressionThread(cmd, clip_duration)
         self.thread.progress_updated.connect(self.updateProgress)
         self.thread.finished.connect(lambda success, msg, output_file=output_file: self.conversionFinished(success, msg, output_file))
