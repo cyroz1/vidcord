@@ -42,6 +42,14 @@ except Exception as e:
 
 print(f"Starting vidcord {CURRENT_VERSION}")
 
+# DEBUG: Log environment variables to diagnose shell/library issues
+print("DEBUG: Initial Environment Variables (Relevant):")
+for key in ['LD_LIBRARY_PATH', 'LIBVA_DRIVER_NAME', 'PATH', 'SHELL', 'TERM']:
+    val = os.environ.get(key)
+    if val:
+        print(f"  {key}={val}")
+
+
 # --- RESOURCE PATH HELPER FUNCTION ---
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -206,6 +214,28 @@ class VideoProcessor:
         return gpus
 
     @staticmethod
+    def get_ffmpeg_env():
+        """
+        Returns a copy of os.environ with adjustments for FFmpeg:
+        - Linux + AMD: Force LIBVA_DRIVER_NAME=radeonsi to fix 'Cannot allocate memory' error.
+        """
+        env = os.environ.copy()
+        if platform.system() == 'Linux':
+            # We need to detect GPUs without recursion. get_system_gpus calls lspci.
+            # Assuming lspci doesn't need special env vars.
+            try:
+                gpus = VideoProcessor.get_system_gpus()
+                if gpus['amd']:
+                    # Only set if not already set, or force it? 
+                    # forcing it is safer for this specific fix.
+                    if env.get('LIBVA_DRIVER_NAME') != 'radeonsi':
+                        print("DEBUG: Force-setting LIBVA_DRIVER_NAME=radeonsi for AMD VAAPI")
+                        env['LIBVA_DRIVER_NAME'] = 'radeonsi'
+            except Exception as e:
+                print(f"DEBUG: Failed to setup FFmpeg env: {e}")
+        return env
+
+    @staticmethod
     def get_vaapi_device():
         """Find the best VAAPI render node on Linux"""
         if platform.system() != 'Linux':
@@ -235,7 +265,8 @@ class VideoProcessor:
             # Example: V..... libx264             libx264 H.264 / AVC / MPEG-4 AVC / ICTCP (codec h264)
             result = subprocess.run(
                 ['ffmpeg', '-hide_banner', '-encoders'],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                env=VideoProcessor.get_ffmpeg_env()
             )
             encoders_output = result.stdout
             
@@ -377,7 +408,7 @@ class VideoProcessor:
                 temp_image_path
             ]
             creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
-            subprocess.run(ffmpeg_command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, creationflags=creationflags)
+            subprocess.run(ffmpeg_command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, creationflags=creationflags, env=VideoProcessor.get_ffmpeg_env())
             return temp_image_path
         except Exception as e:
             print(f"Preview generation failed: {e}")
@@ -396,7 +427,7 @@ class CompressionThread(QThread):
     def run(self):
         print(f"DEBUG: Starting encoding with command: {self.cmd}")
         creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
-        process = subprocess.Popen(self.cmd, stderr=subprocess.PIPE, text=True, universal_newlines=True, creationflags=creationflags)
+        process = subprocess.Popen(self.cmd, stderr=subprocess.PIPE, text=True, universal_newlines=True, creationflags=creationflags, env=VideoProcessor.get_ffmpeg_env())
         
         encoding_start_time = time.time()
         
@@ -513,7 +544,8 @@ class PreviewThread(QThread):
                 ffmpeg_command, 
                 stdout=subprocess.DEVNULL, 
                 stderr=subprocess.DEVNULL, 
-                creationflags=creationflags
+                creationflags=creationflags,
+                env=VideoProcessor.get_ffmpeg_env()
             )
             self.process.wait()
             
