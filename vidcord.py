@@ -237,7 +237,7 @@ class VideoProcessor:
 
     @staticmethod
     def get_vaapi_device():
-        """Find the best VAAPI render node on Linux"""
+        """Find the best functioning VAAPI render node on Linux"""
         if platform.system() != 'Linux':
             return None
             
@@ -248,15 +248,47 @@ class VideoProcessor:
                     if entry.startswith('renderD'):
                         render_nodes.append(os.path.join('/dev/dri', entry))
             
-            # Prefer renderD128 if it exists, otherwise use the first one found
-            if '/dev/dri/renderD128' in render_nodes:
-                return '/dev/dri/renderD128'
-            elif render_nodes:
-                return render_nodes[0]
+            # Helper to check if a device actually works with ffmpeg
+            def is_device_working(path):
+                try:
+                    # Try to initialize the device. 
+                    # We use -version as a no-op command that still triggers device init when -init_hw_device is passed.
+                    cmd = ['ffmpeg', '-y', '-hide_banner', '-init_hw_device', f'vaapi=va:{path}', '-filter_hw_device', 'va', '-f', 'lavfi', '-i', 'nullsrc=s=64x64', '-frames:v', '1', '-f', 'null', '-']
+                    # Using a minimal filter graph is more robust than just -version for some drivers
+                    
+                    result = subprocess.run(
+                        cmd, 
+                        stdout=subprocess.DEVNULL, 
+                        stderr=subprocess.PIPE, 
+                        text=True
+                    )
+                    
+                    if result.returncode == 0:
+                        return True
+                        
+                    # Check for specific memory errors which indicate driver issues
+                    if "Cannot allocate memory" in result.stderr:
+                         print(f"DEBUG: VAAPI OOM on {path}: {result.stderr.splitlines()[-1] if result.stderr else 'Unknown'}")
+                         
+                    return False
+                except Exception as e:
+                    print(f"DEBUG: Error checking VAAPI device {path}: {e}")
+                    return False
+
+            # Sort: usage of renderD128 is standard preference
+            render_nodes.sort(key=lambda x: 'renderD128' not in x)
+
+            for node in render_nodes:
+                if is_device_working(node):
+                    print(f"DEBUG: Found working VAAPI device: {node}")
+                    return node
+            
+            print("DEBUG: No working VAAPI devices found.")
+            
         except Exception as e:
             print(f"Error scanning for VAAPI devices: {e}")
             
-        return "/dev/dri/renderD128" # Fallback
+        return None
 
     @staticmethod
     def get_available_encoders():
@@ -316,11 +348,14 @@ class VideoProcessor:
                 elif encoder == 'h264_nvenc' and gpus['nvidia']:
                     should_check = True
                 elif encoder == 'h264_amf' and gpus['amd']:
+                    # AMF is valid on Linux too (via amdgpu-pro or specialized mesas)
                     should_check = True
                 elif encoder == 'h264_qsv' and gpus['intel']:
                     should_check = True
                 elif encoder == 'h264_vaapi' and system == 'Linux':
-                    should_check = True
+                    # verify actually working
+                    if VideoProcessor.get_vaapi_device():
+                        should_check = True
                 elif encoder == 'h264_videotoolbox' and system == 'Darwin':
                     should_check = True
 
@@ -999,9 +1034,26 @@ class VidCordInterface(QWidget):
         if selected_encoder.endswith('_vaapi'):
             vaapi_dev = self.video_processor.get_vaapi_device()
             if vaapi_dev:
+                # Use typical VAAPI initialization: -init_hw_device vaapi=va:/dev/dri/renderD128 -filter_hw_device va
                 cmd.extend(["-init_hw_device", f"vaapi=va:{vaapi_dev}", "-filter_hw_device", "va"])
-                # Format filter for VAAPI
-                filters.append("format=nv12,hwupload")
+                
+                # Update filters for hardware path
+                filters = [] # Clear software scalers
+                filters.append("format=nv12,hwupload") # ensure data is uploaded to GPU
+                
+                if target_h and original_h > 0:
+                     # Calculate scaling dimensions
+                    target_w = math.ceil((original_w / original_h) * target_h)
+                    target_w = target_w if target_w % 2 == 0 else target_w + 1
+                    target_h = target_h if target_h % 2 == 0 else target_h + 1
+                    # Use scale_vaapi instead of software scale
+                    filters.append(f"scale_vaapi=w={target_w}:h={target_h}")
+                else:
+                    # Generic scaling if needed, otherwise just the format/upload
+                    # Note: trunc logic in software scale is harder to replicate exactly in scale_vaapi directly without complex expr, 
+                    # but scale_vaapi generally handles div2 automatically.
+                    filters.append("scale_vaapi=w=iw:h=ih")
+                    
             else:
                 print("DEBUG: VAAPI selected but no device found. Falling back to CPU.")
                 selected_encoder = 'libx264' # Safe fallback
@@ -1015,6 +1067,8 @@ class VidCordInterface(QWidget):
             "-vf", ",".join(filters),
             output_file
         ])
+        
+        # Audio handling (no change)
         
         if remove_audio:
             cmd.append("-an")
