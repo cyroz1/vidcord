@@ -22,7 +22,7 @@ from qfluentwidgets import (FluentWindow, NavigationItemPosition, FluentIcon as 
                             InfoBar, InfoBarPosition, Theme, setTheme, CardWidget,
                             SimpleCardWidget, ImageLabel, ScrollArea, HyperlinkButton)
 
-CURRENT_VERSION = "v5.4"
+CURRENT_VERSION = "v5.5"
 
 # --- LOGGING SETUP ---
 # --- LOGGING SETUP ---
