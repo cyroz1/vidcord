@@ -26,7 +26,10 @@ concurrency:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && 'windows-arm64' || 'windows-latest' }}
     steps:
       - uses: actions/checkout@v4
       
@@ -44,6 +47,8 @@ jobs:
           
       - name: Install FFmpeg for Windows
         run: |
+          # Using x64 FFmpeg for both architectures (ARM64 Windows can run x64 binaries via emulation)
+          # TODO: Switch to native ARM64 FFmpeg build when available/verified
           curl -L https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -o ffmpeg.zip
           powershell -Command "Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_temp"
           Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Move-Item -Destination .
@@ -68,12 +73,12 @@ jobs:
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.7
         with:
           path: platforms/windows/script.iss
-          options: /DMyAppVersion=${{ steps.get_version.outputs.VERSION }}
+          options: /DMyAppVersion=${{ steps.get_version.outputs.VERSION }} /DMyArch=${{ matrix.arch }}
           
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: vidcord-windows
+          name: vidcord-windows-${{ matrix.arch }}
           path: dist/*.exe
 
   build-linux:
