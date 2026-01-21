@@ -78,7 +78,7 @@ jobs:
 
       - name: Compile Inno Setup Installer
         run: |
-          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.get_version.outputs.VERSION }} /DMyArch=${{ matrix.arch }} /DMyOutputBaseFilename=vidcord_v${{ steps.get_version.outputs.VERSION }}_${{ matrix.arch }}_setup platforms/windows/script.iss
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.get_version.outputs.VERSION }} /DMyArch=${{ matrix.arch }} /DMyOutputBaseFilename=vidcord_v${{ steps.get_version.outputs.VERSION }}_${{ matrix.arch }} platforms/windows/script.iss
           
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
