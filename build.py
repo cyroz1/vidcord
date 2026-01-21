@@ -4,6 +4,7 @@ import subprocess
 import platform
 import shutil
 import re
+import argparse
 
 def get_version():
     with open("vidcord.py", "r") as f:
@@ -20,8 +21,8 @@ def run_command(cmd, cwd=None):
         print(f"Error: Command failed with return code {result.returncode}")
         sys.exit(result.returncode)
 
-def build_windows():
-    print("Building for Windows...")
+def build_windows(arch="x86_64"):
+    print(f"Building for Windows ({arch})...")
     version = get_version()
     
     # 1. Run PyInstaller
@@ -53,7 +54,6 @@ def build_windows():
                 break
             
     if iscc:
-        arch = "x86_64" # PyInstaller usually builds for this on Windows
         run_command([iscc, f"/DMyAppVersion={version}", f"/DMyArch={arch}", "platforms/windows/script.iss"])
     else:
         print("Warning: ISCC.exe not found. skipping installer creation.")
@@ -74,12 +74,15 @@ def build_macos():
     # 2. Run pkg build
     run_command(["bash", "platforms/macos/build_pkg.sh"])
 
-def main():
+    parser = argparse.ArgumentParser(description="Build vidcord")
+    parser.add_argument("--arch", default="x86_64", help="Target architecture (default: x86_64)")
+    args = parser.parse_args()
+    
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     
     system = platform.system()
     if system == "Windows":
-        build_windows()
+        build_windows(args.arch)
     elif system == "Linux":
         build_linux()
     elif system == "Darwin":
