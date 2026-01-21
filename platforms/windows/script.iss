@@ -12,6 +12,10 @@
   #define MyArch "x86_64"
 #endif
 
+#ifndef MyOutputBaseFilename
+  #define MyOutputBaseFilename "vidcord_setup"
+#endif
+
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
 ; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
@@ -38,7 +42,7 @@ DisableStartupPrompt=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only.)
 ;PrivilegesRequired=lowest
 OutputDir=..\..\dist
-OutputBaseFilename=vidcord_v{#StringChange(MyAppVersion, '"', '')}_{#StringChange(MyArch, '"', '')}_setup
+OutputBaseFilename={#MyOutputBaseFilename}
 SetupIconFile="..\..\icon.ico"
 Compression=lzma
 SolidCompression=yes
