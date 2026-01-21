@@ -25,20 +25,25 @@ from qfluentwidgets import (FluentWindow, NavigationItemPosition, FluentIcon as 
 CURRENT_VERSION = "v5.4"
 
 # --- LOGGING SETUP ---
-log_path = os.path.join(os.path.expanduser('~'), 'vidcord_crash.log')
-# Open the log file in append mode
-log_file = open(log_path, 'a')
-# Redirect Python's stdout/stderr
-sys.stdout = log_file
-sys.stderr = log_file
-
-# Redirect C-level stderr (fd 2) to the log file's file descriptor
-# This captures Qt/C++ errors that bypass sys.stderr
-try:
-    os.dup2(log_file.fileno(), 2)
-    os.dup2(log_file.fileno(), 1)
-except Exception as e:
-    print(f"Failed to redirect C-level streams: {e}")
+# --- LOGGING SETUP ---
+def setup_logging():
+    log_path = os.path.join(os.path.expanduser('~'), 'vidcord_crash.log')
+    # Open the log file in append mode
+    try:
+        log_file = open(log_path, 'a')
+        # Redirect Python's stdout/stderr
+        sys.stdout = log_file
+        sys.stderr = log_file
+        
+        # Redirect C-level stderr (fd 2) to the log file's file descriptor
+        # This captures Qt/C++ errors that bypass sys.stderr
+        try:
+            os.dup2(log_file.fileno(), 2)
+            os.dup2(log_file.fileno(), 1)
+        except Exception as e:
+            print(f"Failed to redirect C-level streams: {e}")
+    except Exception as e:
+        print(f"Failed to setup logging: {e}")
 
 print(f"Starting vidcord {CURRENT_VERSION}")
 
@@ -69,59 +74,16 @@ def resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
-# Add bin directory to PATH for ffmpeg/ffprobe
-if getattr(sys, 'frozen', False):
-    # In onedir mode, binaries are in the bundle dir or a subdir
-    bundle_dir = os.path.dirname(sys.executable)
-    
-    # Check multiple possible locations for bin
-    possible_bin_dirs = [
-        os.path.join(bundle_dir, 'bin'), # Standard PyInstaller
-        os.path.join(bundle_dir, '..', 'Resources', 'bin'), # macOS .app structure
-        os.path.join(bundle_dir, '..', 'Frameworks', 'bin'), # PyInstaller .app structure
-        os.path.join(bundle_dir) # Root
-    ]
-    
-    # On macOS, if we are not frozen (running from source) or if bundled ffmpeg fails, 
-    # we should also check common Homebrew/system paths
-    if platform.system() == 'Darwin':
-        possible_bin_dirs.extend(['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin'])
-    
-    # On Linux, PyInstaller builds often expect system ffmpeg
-    if platform.system() == 'Linux':
-        possible_bin_dirs.extend(['/usr/bin', '/usr/local/bin', '/snap/bin'])
 
-    def is_ffmpeg_functional(ffmpeg_path):
-        try:
-            # Check if it even exists first
-            if not os.path.exists(ffmpeg_path):
-                return False
-            # Try running it with a simple flag that doesn't do much but checks dynamic linking
-            result = subprocess.run([ffmpeg_path, '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return result.returncode == 0
-        except Exception:
-            return False
+    def get(self, key, default=None):
+        return self.settings_manager.get(key, default) # Corrected wrapper if needed, but the original code was:
+    # def get(self, key, default=None):
+    #     return self.settings.get(key, default)
+    # Re-reading the file, the global block is lines 72-125.
+    # The previous block ends at line 70: return os.path.join(base_path, relative_path)
+    # Line 71 is empty.
+    # I will replace lines 72-125 with nothing (empty string).
 
-    bin_dir_found = False
-    for bin_dir in possible_bin_dirs:
-        ffmpeg_candidate = os.path.join(bin_dir, 'ffmpeg' + ('.exe' if platform.system() == 'Windows' else ''))
-        if is_ffmpeg_functional(ffmpeg_candidate):
-            # Prepend to PATH so it's found first
-            os.environ["PATH"] = bin_dir + os.pathsep + os.environ["PATH"]
-            bin_dir_found = True
-            # print(f"Found functional ffmpeg at: {ffmpeg_candidate}") # Debug
-            break
-            
-    if not bin_dir_found:
-        print("WARNING: Could not find working ffmpeg. Hardware encoders may not be detected.")
-else:
-    # If running from source, also try to find system ffmpeg
-    if platform.system() == 'Darwin':
-        system_paths = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin']
-        for p in system_paths:
-            if os.path.exists(os.path.join(p, 'ffmpeg')):
-                os.environ["PATH"] = p + os.pathsep + os.environ["PATH"]
-                break
 
 class SettingsManager:
     def __init__(self):
@@ -155,8 +117,73 @@ class SettingsManager:
         return self.settings.get(key, default)
 
 class VideoProcessor:
+    _gpu_cache = None
+
+    @staticmethod
+    def setup_ffmpeg_path():
+        """
+        Detects and configures the PATH for ffmpeg.
+        This is moved from global scope to here to be run in a background thread.
+        """
+        # Add bin directory to PATH for ffmpeg/ffprobe
+        if getattr(sys, 'frozen', False):
+            # In onedir mode, binaries are in the bundle dir or a subdir
+            bundle_dir = os.path.dirname(sys.executable)
+            
+            # Check multiple possible locations for bin
+            possible_bin_dirs = [
+                os.path.join(bundle_dir, 'bin'), # Standard PyInstaller
+                os.path.join(bundle_dir, '..', 'Resources', 'bin'), # macOS .app structure
+                os.path.join(bundle_dir, '..', 'Frameworks', 'bin'), # PyInstaller .app structure
+                os.path.join(bundle_dir) # Root
+            ]
+            
+            # On macOS, if we are not frozen (running from source) or if bundled ffmpeg fails, 
+            # we should also check common Homebrew/system paths
+            if platform.system() == 'Darwin':
+                possible_bin_dirs.extend(['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin'])
+            
+            # On Linux, PyInstaller builds often expect system ffmpeg
+            if platform.system() == 'Linux':
+                possible_bin_dirs.extend(['/usr/bin', '/usr/local/bin', '/snap/bin'])
+
+            def is_ffmpeg_functional(ffmpeg_path):
+                try:
+                    # Check if it even exists first
+                    if not os.path.exists(ffmpeg_path):
+                        return False
+                    # Try running it with a simple flag that doesn't do much but checks dynamic linking
+                    result = subprocess.run([ffmpeg_path, '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return result.returncode == 0
+                except Exception:
+                    return False
+
+            bin_dir_found = False
+            for bin_dir in possible_bin_dirs:
+                ffmpeg_candidate = os.path.join(bin_dir, 'ffmpeg' + ('.exe' if platform.system() == 'Windows' else ''))
+                if is_ffmpeg_functional(ffmpeg_candidate):
+                    # Prepend to PATH so it's found first
+                    os.environ["PATH"] = bin_dir + os.pathsep + os.environ["PATH"]
+                    bin_dir_found = True
+                    # print(f"Found functional ffmpeg at: {ffmpeg_candidate}") # Debug
+                    break
+                    
+            if not bin_dir_found:
+                print("WARNING: Could not find working ffmpeg. Hardware encoders may not be detected.")
+        else:
+            # If running from source, also try to find system ffmpeg
+            if platform.system() == 'Darwin':
+                system_paths = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin']
+                for p in system_paths:
+                    if os.path.exists(os.path.join(p, 'ffmpeg')):
+                        os.environ["PATH"] = p + os.pathsep + os.environ["PATH"]
+                        break
+
     @staticmethod
     def get_system_gpus():
+        if VideoProcessor._gpu_cache is not None:
+            return VideoProcessor._gpu_cache
+
         gpus = {'nvidia': False, 'amd': False, 'intel': False, 'apple': False}
         
         try:
@@ -209,8 +236,10 @@ class VideoProcessor:
         except Exception as e:
             print(f"GPU detection failed: {e}")
             # If detection fails, return all true to avoid hiding valid encoders
-            return {'nvidia': True, 'amd': True, 'intel': True, 'apple': True}
+            VideoProcessor._gpu_cache = {'nvidia': True, 'amd': True, 'intel': True, 'apple': True}
+            return VideoProcessor._gpu_cache
             
+        VideoProcessor._gpu_cache = gpus
         return gpus
 
     @staticmethod
@@ -606,6 +635,8 @@ class EncoderDetectionThread(QThread):
 
     def run(self):
         print("DEBUG: EncoderDetectionThread started")
+        # Ensure ffmpeg is found before detecting encoders
+        VideoProcessor.setup_ffmpeg_path()
         try:
             encoders = VideoProcessor.get_available_encoders()
             print(f"DEBUG: EncoderDetectionThread finished with {len(encoders)} encoders")
@@ -890,11 +921,18 @@ class VidCordInterface(QWidget):
         if fileName:
             self.loadVideo(fileName)
 
+    def _actualUpdatePreview(self):
+        if self.file_path and self.probed_data.get('duration', 0) > 0:
+            self.updatePreview(self.lastSliderValueForPreview)
+
     def loadVideo(self, filePath):
         if not filePath.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm')):
             self.label.setText("Unsupported file format.")
             return
             
+        # Stop any pending preview updates from previous video
+        self.previewUpdateTimer.stop()
+        
         self.file_path = filePath
         self.label.setText(f'{os.path.basename(filePath)}')
         
@@ -902,19 +940,27 @@ class VidCordInterface(QWidget):
             self.probed_data = self.video_processor.probe_video(self.file_path)
             
             self.duration_for_slider = self.probed_data['duration'] * 10
+            
+            # Block signals to prevent redundant preview triggers during setup
+            self.startTimeSlider.blockSignals(True)
+            self.endTimeSlider.blockSignals(True)
+            
             self.startTimeSlider.setMaximum(int(self.duration_for_slider))
             self.endTimeSlider.setMaximum(int(self.duration_for_slider))
             self.startTimeSlider.setValue(0)
             self.endTimeSlider.setValue(int(self.duration_for_slider))
             
-            self._actualUpdatePreview()
+            self.startTimeSlider.blockSignals(False)
+            self.endTimeSlider.blockSignals(False)
+            
+            # Explicitly reset state and force update
+            self.lastSliderValueForPreview = 0.0
+            self.videoPreview.setText("Loading Preview...")
+            self.updatePreview(0.0)
+            
         except Exception as e:
             self.label.setText(f"Error loading video: {e}")
             self.videoPreview.setText("Error loading preview")
-
-    def _actualUpdatePreview(self):
-        if self.file_path and self.probed_data.get('duration', 0) > 0:
-            self.updatePreview(self.lastSliderValueForPreview)
 
     def updateStartTime(self):
         start_val = self.startTimeSlider.value()
@@ -1187,6 +1233,8 @@ class VidCordApp(QApplication):
         return super().event(event)
 
 if __name__ == '__main__':
+    setup_logging()
+    
     # Enable DPI scale
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
 
