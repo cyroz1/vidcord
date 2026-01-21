@@ -38,7 +38,7 @@ DisableStartupPrompt=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only.)
 ;PrivilegesRequired=lowest
 OutputDir=..\..\dist
-OutputBaseFilename=vidcord_v{#MyAppVersion}_{#MyArch}
+OutputBaseFilename="vidcord_v{#StringChange(MyAppVersion, '"', '')}_{#StringChange(MyArch, '"', '')}"
 SetupIconFile="..\..\icon.ico"
 Compression=lzma
 SolidCompression=yes
