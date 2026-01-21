@@ -68,7 +68,7 @@ jobs:
         id: get_version
         shell: pwsh
         run: |
-          python -c "import re, os; content = open('vidcord.py').read(); match = re.search(r'CURRENT_VERSION = \"(.*)\"', content); version = match.group(1).lstrip('v') if match else '0.0.0'; version = re.sub(r'[^a-zA-Z0-9.-]', '', version); print(f'Extracted version: {version}'); with open(os.environ['GITHUB_OUTPUT'], 'a') as f: f.write(f'VERSION={version}\n')"
+          python -c "import build, os; v = build.get_version(); print(f'Extracted: {v}'); open(os.environ['GITHUB_OUTPUT'], 'a').write(f'VERSION={v}\n')"
 
       - name: Compile Inno Setup Installer
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.7
