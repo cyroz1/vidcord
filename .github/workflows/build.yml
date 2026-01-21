@@ -71,8 +71,12 @@ jobs:
           $content = Get-Content vidcord.py -Raw
           if ($content -match 'CURRENT_VERSION = "(.*)"') {
             $version = $Matches[1].TrimStart('v')
+            # Sanitize: keep only alphanumeric, dots, and hyphens
+            $version = $version -replace '[^a-zA-Z0-9.-]', ''
+            Write-Host "Extracted Version: '$version'"
             echo "VERSION=$version" >> $env:GITHUB_OUTPUT
           } else {
+            Write-Host "Version not found, defaulting to 0.0.0"
             echo "VERSION=0.0.0" >> $env:GITHUB_OUTPUT
           }
 

@@ -11,7 +11,9 @@ def get_version():
         content = f.read()
         match = re.search(r'CURRENT_VERSION = "(.*)"', content)
         if match:
-            return match.group(1).lstrip('v')
+            version = match.group(1).lstrip('v')
+            # Sanitize: keep only alphanumeric, dots, and hyphens
+            return re.sub(r'[^a-zA-Z0-9.-]', '', version)
     return "0.0.0"
 
 def run_command(cmd, cwd=None):
