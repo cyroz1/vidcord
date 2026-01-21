@@ -69,6 +69,9 @@ jobs:
         shell: pwsh
         run: |
           python -c "import build, os; v = build.get_version(); print(f'Extracted: {v}'); open(os.environ['GITHUB_OUTPUT'], 'a').write(f'VERSION={v}\n')"
+          
+      - name: Debug Version
+        run: echo "VERSION=${{ steps.get_version.outputs.VERSION }}"
 
       - name: Compile Inno Setup Installer
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.7
