@@ -56,7 +56,7 @@ def build_windows(arch="x86_64"):
                 break
             
     if iscc:
-        output_filename = f"vidcord_v{version}_{arch}_setup"
+        output_filename = f"vidcord_v{version}_{arch}"
         run_command([iscc, f"/DMyAppVersion={version}", f"/DMyArch={arch}", f"/DMyOutputBaseFilename={output_filename}", "platforms/windows/script.iss"])
     else:
         print("Warning: ISCC.exe not found. skipping installer creation.")
