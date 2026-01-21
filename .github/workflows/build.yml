@@ -45,12 +45,19 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
           
-      - name: Install FFmpeg for Windows
+      - name: Install FFmpeg for Windows (x86_64)
+        if: matrix.arch == 'x86_64'
         run: |
-          # Using x64 FFmpeg for both architectures (ARM64 Windows can run x64 binaries via emulation)
-          # TODO: Switch to native ARM64 FFmpeg build when available/verified
           curl -L https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -o ffmpeg.zip
           powershell -Command "Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_temp"
+          Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Move-Item -Destination .
+          Get-ChildItem -Path ffmpeg_temp -Filter ffprobe.exe -Recurse | Move-Item -Destination .
+
+      - name: Install FFmpeg for Windows (ARM64)
+        if: matrix.arch == 'arm64'
+        run: |
+          curl -L https://github.com/tordona/ffmpeg-win-arm64/releases/download/8.0.1/ffmpeg-8.0.1-essentials-static-win-arm64.7z -o ffmpeg.7z
+          7z x ffmpeg.7z -offmpeg_temp
           Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Move-Item -Destination .
           Get-ChildItem -Path ffmpeg_temp -Filter ffprobe.exe -Recurse | Move-Item -Destination .
           
