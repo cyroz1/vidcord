@@ -73,11 +73,12 @@ jobs:
       - name: Debug Version
         run: echo "VERSION=${{ steps.get_version.outputs.VERSION }}"
 
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress
+
       - name: Compile Inno Setup Installer
-        uses: Minionguyjpro/Inno-Setup-Action@v1.2.7
-        with:
-          path: platforms/windows/script.iss
-          options: "/DMyAppVersion=${{ steps.get_version.outputs.VERSION }} /DMyArch=${{ matrix.arch }} /DMyOutputBaseFilename=vidcord_v${{ steps.get_version.outputs.VERSION }}_${{ matrix.arch }}_setup"
+        run: |
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.get_version.outputs.VERSION }} /DMyArch=${{ matrix.arch }} /DMyOutputBaseFilename=vidcord_v${{ steps.get_version.outputs.VERSION }}_${{ matrix.arch }}_setup platforms/windows/script.iss
           
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
