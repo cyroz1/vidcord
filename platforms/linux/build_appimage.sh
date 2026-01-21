@@ -43,9 +43,9 @@ fi
 if [ ! -f "ffmpeg.tar.xz" ]; then
     echo "Downloading static FFmpeg..."
     if command -v wget >/dev/null 2>&1; then
-        wget -q -O ffmpeg.tar.xz "$FFMPEG_URL"
+        wget -O ffmpeg.tar.xz "$FFMPEG_URL"
     elif command -v curl >/dev/null 2>&1; then
-        curl -L -o ffmpeg.tar.xz "$FFMPEG_URL"
+        curl -L -v -o ffmpeg.tar.xz "$FFMPEG_URL"
     fi
 fi
 
@@ -62,9 +62,9 @@ rm -rf "$FFMPEG_DIR" ffmpeg.tar.xz
 if [ ! -f "$SCRIPT_DIR/$TOOL_NAME" ]; then
     echo "Downloading $TOOL_NAME..."
     if command -v wget >/dev/null 2>&1; then
-        wget -q -O "$SCRIPT_DIR/$TOOL_NAME" "https://github.com/AppImage/appimagetool/releases/download/continuous/$TOOL_NAME"
+        wget -O "$SCRIPT_DIR/$TOOL_NAME" "https://github.com/AppImage/appimagetool/releases/download/continuous/$TOOL_NAME"
     elif command -v curl >/dev/null 2>&1; then
-        curl -L -o "$SCRIPT_DIR/$TOOL_NAME" "https://github.com/AppImage/appimagetool/releases/download/continuous/$TOOL_NAME"
+        curl -L -v -o "$SCRIPT_DIR/$TOOL_NAME" "https://github.com/AppImage/appimagetool/releases/download/continuous/$TOOL_NAME"
     else
         echo "Error: Neither wget nor curl found. Cannot download appimagetool."
         exit 1
