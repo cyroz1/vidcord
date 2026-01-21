@@ -3,26 +3,26 @@
 
 #define MyAppName "vidcord"
 #ifndef MyAppVersion
-  #define MyAppVersion 5.5
+  #define MyAppVersion "5.5"
 #endif
 #define MyAppPublisher "cyroz"
 #define MyAppURL "https://github.com/cyroz1/vidcord"
 #define MyAppExeName "vidcord.exe"
 #ifndef MyArch
-  #define MyArch x86_64
+  #define MyArch "x86_64"
 #endif
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
 ; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
 AppId={{ECF6EF9A-4851-4443-BC21-B89AA2A3B13C}
-AppName="{#MyAppName}"
-AppVersion="{#MyAppVersion}"
-;AppVerName="{#MyAppName}" "{#MyAppVersion}"
-AppPublisher="{#MyAppPublisher}"
-AppPublisherURL="{#MyAppURL}"
-AppSupportURL="{#MyAppURL}"
-AppUpdatesURL="{#MyAppURL}"
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+;AppVerName={#MyAppName} {#MyAppVersion}
+AppPublisher={#MyAppPublisher}
+AppPublisherURL={#MyAppURL}
+AppSupportURL={#MyAppURL}
+AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DisableDirPage=yes
 ; "ArchitecturesAllowed=x64compatible" specifies that Setup cannot run
@@ -38,7 +38,7 @@ DisableStartupPrompt=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only.)
 ;PrivilegesRequired=lowest
 OutputDir=..\..\dist
-OutputBaseFilename=vidcord_v{#MyAppVersion}_{#MyArch}_setup
+OutputBaseFilename=vidcord_v{#StringChange(MyAppVersion, '"', '')}_{#StringChange(MyArch, '"', '')}_setup
 SetupIconFile="..\..\icon.ico"
 Compression=lzma
 SolidCompression=yes
