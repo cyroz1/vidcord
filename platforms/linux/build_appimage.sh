@@ -40,14 +40,7 @@ else
 fi
 
 # Download and bundle FFmpeg
-if [ ! -f "ffmpeg.tar.xz" ]; then
-    echo "Downloading static FFmpeg..."
-    if command -v wget >/dev/null 2>&1; then
-        wget -O ffmpeg.tar.xz "$FFMPEG_URL"
-    elif command -v curl >/dev/null 2>&1; then
-        curl -L -v -o ffmpeg.tar.xz "$FFMPEG_URL"
-    fi
-fi
+    curl -L -v --retry 5 --retry-delay 5 -o ffmpeg.tar.xz "$FFMPEG_URL"
 
 echo "Extracting FFmpeg..."
 tar -xf ffmpeg.tar.xz
@@ -59,18 +52,7 @@ chmod +x AppDir/usr/bin/ffmpeg AppDir/usr/bin/ffprobe
 rm -rf "$FFMPEG_DIR" ffmpeg.tar.xz
 
 # Check for appimagetool in script directory
-if [ ! -f "$SCRIPT_DIR/$TOOL_NAME" ]; then
-    echo "Downloading $TOOL_NAME..."
-    if command -v wget >/dev/null 2>&1; then
-        wget -O "$SCRIPT_DIR/$TOOL_NAME" "https://github.com/AppImage/appimagetool/releases/download/continuous/$TOOL_NAME"
-    elif command -v curl >/dev/null 2>&1; then
-        curl -L -v -o "$SCRIPT_DIR/$TOOL_NAME" "https://github.com/AppImage/appimagetool/releases/download/continuous/$TOOL_NAME"
-    else
-        echo "Error: Neither wget nor curl found. Cannot download appimagetool."
-        exit 1
-    fi
-    chmod +x "$SCRIPT_DIR/$TOOL_NAME"
-fi
+    curl -L -v --retry 5 --retry-delay 5 -o "$SCRIPT_DIR/$TOOL_NAME" "https://github.com/AppImage/appimagetool/releases/download/continuous/$TOOL_NAME"
 
 # Build AppImage
 echo "Building AppImage..."
