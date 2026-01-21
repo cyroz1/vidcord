@@ -77,7 +77,7 @@ jobs:
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.7
         with:
           path: platforms/windows/script.iss
-          options: "/DMyAppVersion=${{ steps.get_version.outputs.VERSION }} /DMyArch=${{ matrix.arch }}"
+          options: "/DMyAppVersion=${{ steps.get_version.outputs.VERSION }} /DMyArch=${{ matrix.arch }} /DMyOutputBaseFilename=vidcord_v${{ steps.get_version.outputs.VERSION }}_${{ matrix.arch }}_setup"
           
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
