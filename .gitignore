@@ -171,3 +171,6 @@ cython_debug/
 #.idea/
 Vidcord-aarch64.AppImage
 vidcord_v5.1_aarch64.appimage
+
+# Codex
+.codex/
