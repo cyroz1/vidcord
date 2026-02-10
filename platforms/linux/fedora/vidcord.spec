@@ -1,5 +1,5 @@
 Name:           vidcord
-Version:        5.3
+Version:        5.6
 Release:        1%{?dist}
 Summary:        Video Compressor
 
