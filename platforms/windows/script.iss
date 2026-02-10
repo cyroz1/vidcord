@@ -3,7 +3,7 @@
 
 #define MyAppName "vidcord"
 #ifndef MyAppVersion
-  #define MyAppVersion "5.5"
+  #define MyAppVersion "5.6"
 #endif
 #define MyAppPublisher "cyroz"
 #define MyAppURL "https://github.com/cyroz1/vidcord"
