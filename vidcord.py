@@ -5,10 +5,12 @@ import shlex
 # Deferring heavy imports to improve startup time
 # import ffmpeg  <-- Moved to VideoProcessor methods
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QFileDialog,
-                             QGridLayout, QToolButton)
+                             QGridLayout, QToolButton, QLineEdit, QDialog, QPlainTextEdit,
+                             QDialogButtonBox, QStyle)
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize, QEvent, QUrl, QRectF, QPointF, QPoint
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QIcon, QPixmap, QPalette, QColor,
-                         QFont, QFileOpenEvent, QPainterPath, QRegion, QPainter, QImage, QCursor)
+                         QFont, QFileOpenEvent, QPainterPath, QRegion, QPainter, QImage, QCursor,
+                         QDoubleValidator)
 
 MULTIMEDIA_AVAILABLE = True
 try:
@@ -1245,7 +1247,9 @@ class VidCordInterface(QWidget):
         self.main_layout.addWidget(file_frame)
 
         # Settings Area
-        settings_layout = QHBoxLayout()
+        self.basicSettingsContainer = QWidget(self)
+        settings_layout = QHBoxLayout(self.basicSettingsContainer)
+        settings_layout.setContentsMargins(0, 0, 0, 0)
         
         self.qualityComboBox = ComboBox(self)
         self.qualityComboBox.addItems(["10MB, 480p", "25MB, 480p", "50MB, 720p", "100MB, 1080p", "500MB, native res"])
@@ -1258,7 +1262,50 @@ class VidCordInterface(QWidget):
         settings_layout.addWidget(BodyLabel("Encoder:", self))
         settings_layout.addWidget(self.encoderComboBox)
         
-        self.main_layout.addLayout(settings_layout)
+        self.main_layout.addWidget(self.basicSettingsContainer)
+
+        self.advancedSettingsContainer = QWidget(self)
+        advanced_controls_layout = QHBoxLayout(self.advancedSettingsContainer)
+        advanced_controls_layout.setContentsMargins(0, 0, 0, 0)
+        advanced_controls_layout.setSpacing(4)
+
+        self.advancedTargetSizeInput = QLineEdit(self)
+        self.advancedTargetSizeInput.setPlaceholderText("MB")
+        size_validator = QDoubleValidator(0.1, 100000.0, 2, self)
+        size_validator.setNotation(QDoubleValidator.Notation.StandardNotation)
+        self.advancedTargetSizeInput.setValidator(size_validator)
+        self.advancedTargetSizeInput.setFixedWidth(90)
+
+        self.advancedResolutionComboBox = ComboBox(self)
+        self.advancedResolutionComboBox.addItems(["Native", "4K", "1440p", "1080p", "720p", "480p"])
+        self.advancedResolutionComboBox.setFixedWidth(110)
+
+        self.advancedEncoderInput = QLineEdit(self)
+        self.advancedEncoderInput.setPlaceholderText("e.g. libx264")
+        self.advancedEncoderInput.setFixedWidth(140)
+
+        self.advancedEncodersInfoButton = QToolButton(self)
+        self.advancedEncodersInfoButton.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation)
+        )
+        self.advancedEncodersInfoButton.setToolTip("Show ffmpeg encoders")
+        self.advancedEncodersInfoButton.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.advancedEncodersInfoButton.setAutoRaise(True)
+        self.advancedEncodersInfoButton.setFixedSize(22, 22)
+
+        advanced_controls_layout.addWidget(BodyLabel("Size (MB):", self))
+        advanced_controls_layout.addWidget(self.advancedTargetSizeInput)
+        advanced_controls_layout.addSpacing(4)
+        advanced_controls_layout.addWidget(BodyLabel("Resolution:", self))
+        advanced_controls_layout.addWidget(self.advancedResolutionComboBox)
+        advanced_controls_layout.addSpacing(4)
+        advanced_controls_layout.addWidget(BodyLabel("Encoder:", self))
+        advanced_controls_layout.addWidget(self.advancedEncoderInput)
+        advanced_controls_layout.addWidget(self.advancedEncodersInfoButton)
+        advanced_controls_layout.addStretch()
+
+        self.advancedSettingsContainer.setVisible(False)
+        self.main_layout.addWidget(self.advancedSettingsContainer)
 
         # Start hardware detection in background
         self.detection_thread = EncoderDetectionThread()
@@ -1338,10 +1385,14 @@ class VidCordInterface(QWidget):
             parent=self
         )
         
-        footer_layout.addStretch()
+        self.advancedModeCheck = CheckBox("Advanced Mode", self)
+        
         footer_layout.addWidget(version_label)
         footer_layout.addWidget(self.github_link)
         footer_layout.addStretch()
+        footer_layout.addWidget(self.advancedModeCheck)
+        footer_layout.setAlignment(self.advancedModeCheck, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        footer_layout.setContentsMargins(0, 0, 0, 6)
         
         self.main_layout.addLayout(footer_layout)
 
@@ -1350,9 +1401,15 @@ class VidCordInterface(QWidget):
         self.startTimeSlider.valueChanged.connect(self.updateStartTime)
         self.endTimeSlider.valueChanged.connect(self.updateEndTime)
         self.loadPreviousSelections()
+        self._applyAdvancedModeState(self.advancedModeCheck.isChecked(), save_settings=False)
 
         self.qualityComboBox.currentIndexChanged.connect(self.saveCurrentSelections)
         self.encoderComboBox.currentIndexChanged.connect(self.saveCurrentSelections)
+        self.advancedModeCheck.toggled.connect(self.onAdvancedModeToggled)
+        self.advancedTargetSizeInput.editingFinished.connect(self.saveCurrentSelections)
+        self.advancedResolutionComboBox.currentIndexChanged.connect(self.saveCurrentSelections)
+        self.advancedEncoderInput.editingFinished.connect(self.saveCurrentSelections)
+        self.advancedEncodersInfoButton.clicked.connect(self.showFfmpegEncoders)
 
     def onEncodersDetected(self, encoders):
         # Prevent recursive updates and save current selection
@@ -1434,12 +1491,131 @@ class VidCordInterface(QWidget):
         if encoder_index < self.encoderComboBox.count():
             self.encoderComboBox.setCurrentIndex(encoder_index)
 
+        # Advanced settings
+        advanced_enabled = self.settings_manager.get("advanced_mode", False)
+        self.advancedModeCheck.setChecked(advanced_enabled)
+
+        advanced_target_size = self.settings_manager.get("advanced_target_size", "")
+        if advanced_target_size:
+            self.advancedTargetSizeInput.setText(str(advanced_target_size))
+
+        advanced_resolution = self.settings_manager.get("advanced_resolution", "Native")
+        resolution_index = self.advancedResolutionComboBox.findText(advanced_resolution)
+        if resolution_index >= 0:
+            self.advancedResolutionComboBox.setCurrentIndex(resolution_index)
+
+        advanced_encoder = self.settings_manager.get("advanced_encoder", "")
+        if advanced_encoder:
+            self.advancedEncoderInput.setText(str(advanced_encoder))
+
     def saveCurrentSelections(self, index=None):
         self.settings_manager.save_settings({
             "quality_index": self.qualityComboBox.currentIndex(),
             "encoder_index": self.encoderComboBox.currentIndex(),
-            "encoder_label": self.encoderComboBox.currentText()
+            "encoder_label": self.encoderComboBox.currentText(),
+            "advanced_mode": self.advancedModeCheck.isChecked(),
+            "advanced_target_size": self.advancedTargetSizeInput.text().strip(),
+            "advanced_resolution": self.advancedResolutionComboBox.currentText(),
+            "advanced_encoder": self.advancedEncoderInput.text().strip()
         })
+
+    def _applyAdvancedModeState(self, enabled, save_settings=True):
+        self.advancedSettingsContainer.setVisible(enabled)
+        self.basicSettingsContainer.setVisible(not enabled)
+        if save_settings:
+            self.saveCurrentSelections()
+
+    def onAdvancedModeToggled(self, enabled):
+        self._applyAdvancedModeState(enabled, save_settings=True)
+
+    def _resolutionChoiceToShortSide(self, choice):
+        normalized = choice.strip().lower()
+        if normalized in ("native", "native res", "native resolution"):
+            return None
+        mapping = {
+            "4k": 2160,
+            "2160p": 2160,
+            "1440p": 1440,
+            "1080p": 1080,
+            "720p": 720,
+            "480p": 480
+        }
+        return mapping.get(normalized)
+
+    def _computeTargetDimensions(self, original_w, original_h, target_h=None, target_short_side=None):
+        if original_w <= 0 or original_h <= 0:
+            return None, None
+
+        if target_short_side:
+            scale_factor = target_short_side / min(original_w, original_h)
+            target_w = math.ceil(original_w * scale_factor)
+            target_h_out = math.ceil(original_h * scale_factor)
+        elif target_h:
+            target_h_out = target_h
+            target_w = math.ceil((original_w / original_h) * target_h_out)
+        else:
+            return None, None
+
+        target_w = target_w if target_w % 2 == 0 else target_w + 1
+        target_h_out = target_h_out if target_h_out % 2 == 0 else target_h_out + 1
+        return target_w, target_h_out
+
+    def _showTextDialog(self, title, text):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(title)
+        dialog.resize(720, 520)
+
+        layout = QVBoxLayout(dialog)
+        output_view = QPlainTextEdit(dialog)
+        output_view.setReadOnly(True)
+        output_view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        output_view.setPlainText(text)
+        layout.addWidget(output_view)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=dialog)
+        buttons.rejected.connect(dialog.reject)
+        buttons.accepted.connect(dialog.accept)
+        layout.addWidget(buttons)
+
+        dialog.exec()
+
+    def showFfmpegEncoders(self):
+        VideoProcessor.setup_ffmpeg_path()
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-encoders"],
+                capture_output=True,
+                text=True,
+                env=VideoProcessor.get_ffmpeg_env()
+            )
+        except Exception as e:
+            InfoBar.error(
+                title='Error',
+                content=f"Failed to run ffmpeg: {e}",
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=4000,
+                parent=self
+            )
+            return
+
+        output = ""
+        if result.stdout:
+            output += result.stdout.strip()
+        if result.stderr:
+            if output:
+                output += "\n\n"
+            output += result.stderr.strip()
+
+        if not output:
+            output = "No output from ffmpeg -encoders."
+
+        title = "FFmpeg Encoders"
+        if result.returncode != 0:
+            title = "FFmpeg Encoders (Error)"
+
+        self._showTextDialog(title, output)
 
     def convertVideoFromButton(self):
         if self.file_path:
@@ -1727,12 +1903,62 @@ class VidCordInterface(QWidget):
 
     def convertVideo(self, filePath):
         # Get settings
-        quality = self.qualityComboBox.currentText()
-        if "10MB" in quality: target_size = 10; target_h = 480
-        elif "25MB" in quality: target_size = 25; target_h = 480
-        elif "50MB" in quality: target_size = 50; target_h = 720
-        elif "100MB" in quality: target_size = 100; target_h = 1080
-        else: target_size = 500; target_h = None
+        use_advanced = self.advancedModeCheck.isChecked()
+        target_h = None
+        target_short_side = None
+
+        if use_advanced:
+            target_size_text = self.advancedTargetSizeInput.text().strip()
+            try:
+                target_size = float(target_size_text)
+            except ValueError:
+                self.etaLabel.setText("Invalid target size")
+                InfoBar.warning(
+                    title='Warning',
+                    content="Enter a valid target size in MB.",
+                    orient=Qt.Orientation.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2500,
+                    parent=self
+                )
+                return
+
+            if target_size <= 0:
+                self.etaLabel.setText("Invalid target size")
+                InfoBar.warning(
+                    title='Warning',
+                    content="Target size must be greater than 0 MB.",
+                    orient=Qt.Orientation.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2500,
+                    parent=self
+                )
+                return
+
+            target_short_side = self._resolutionChoiceToShortSide(
+                self.advancedResolutionComboBox.currentText()
+            )
+
+            custom_encoder_text = self.advancedEncoderInput.text().strip()
+            if custom_encoder_text in self.encoder_mapping:
+                selected_encoder = self.encoder_mapping[custom_encoder_text]
+            elif custom_encoder_text:
+                selected_encoder = custom_encoder_text
+            else:
+                selected_encoder_label = self.encoderComboBox.currentText()
+                selected_encoder = self.encoder_mapping.get(selected_encoder_label, 'libx264')
+        else:
+            quality = self.qualityComboBox.currentText()
+            if "10MB" in quality: target_size = 10; target_h = 480
+            elif "25MB" in quality: target_size = 25; target_h = 480
+            elif "50MB" in quality: target_size = 50; target_h = 720
+            elif "100MB" in quality: target_size = 100; target_h = 1080
+            else: target_size = 500; target_h = None
+
+            selected_encoder_label = self.encoderComboBox.currentText()
+            selected_encoder = self.encoder_mapping.get(selected_encoder_label, 'libx264')
 
         start_time = self.startTimeSlider.value() / 10.0
         end_time = self.endTimeSlider.value() / 10.0
@@ -1764,20 +1990,18 @@ class VidCordInterface(QWidget):
         filters = []
         original_w = self.probed_data.get('width', 0)
         original_h = self.probed_data.get('height', 0)
-        
-        if target_h and original_h > 0:
-            target_w = math.ceil((original_w / original_h) * target_h)
-            target_w = target_w if target_w % 2 == 0 else target_w + 1
-            target_h = target_h if target_h % 2 == 0 else target_h + 1
-            filters.append(f"scale={target_w}:{target_h}")
+
+        target_w, target_h_out = self._computeTargetDimensions(
+            original_w, original_h, target_h=target_h, target_short_side=target_short_side
+        )
+
+        if target_w and target_h_out:
+            filters.append(f"scale={target_w}:{target_h_out}")
         else:
             # Removed single quotes around trunc(...) as they can cause "Option not found" with some ffmpeg builds/shells
             filters.append("scale=trunc(iw/2)*2:trunc(ih/2)*2")
 
         # Build Command
-        selected_encoder_label = self.encoderComboBox.currentText()
-        selected_encoder = self.encoder_mapping.get(selected_encoder_label, 'libx264')
-        
         cmd = ["ffmpeg", "-hide_banner", "-y"]
         
         # VAAPI specific setup
@@ -1791,13 +2015,9 @@ class VidCordInterface(QWidget):
                 filters = [] # Clear software scalers
                 filters.append("format=nv12,hwupload") # ensure data is uploaded to GPU
                 
-                if target_h and original_h > 0:
-                     # Calculate scaling dimensions
-                    target_w = math.ceil((original_w / original_h) * target_h)
-                    target_w = target_w if target_w % 2 == 0 else target_w + 1
-                    target_h = target_h if target_h % 2 == 0 else target_h + 1
+                if target_w and target_h_out:
                     # Use scale_vaapi instead of software scale
-                    filters.append(f"scale_vaapi=w={target_w}:h={target_h}")
+                    filters.append(f"scale_vaapi=w={target_w}:h={target_h_out}")
                 else:
                     # Generic scaling if needed, otherwise just the format/upload
                     # Note: trunc logic in software scale is harder to replicate exactly in scale_vaapi directly without complex expr, 
