@@ -19,9 +19,11 @@ This is a simple and fast Python GUI application for compressing video files und
   - 50MB, 720p (Nitro Basic or Level 2 Server Boost)
   - 100MB, 1080p (Level 3 Server Boost or [Clips Bypass](https://github.com/riolubruh/YABDP4Nitro?tab=readme-ov-file#clips))
   - 500MB, Native (Nitro Full)
+- **Advanced Mode**: Toggle custom target size, resolution, and encoder settings beyond the presets.
 - **Advanced Options**:
   - **Remove Audio**: Strip audio tracks to save space or for silent clips.
-  - **Trimming**: Adjustable starting and ending points with live preview.
+  - **Trimming**: Adjustable starting and ending points with live frame preview.
+- **Video Playback Preview**: Play/stop the selected trim segment in-app (where supported).
 - **Hardware Acceleration**: Support for NVIDIA (NVENC), AMD (AMF), Intel (QSV), and Apple Silicon encoders.
 - **Instant Startup**: Optimized with lazy-loading and background hardware detection for immediate responsiveness.
 - **Multi-Platform**: Native builds for Windows (.exe), macOS (.pkg), and Linux (.AppImage).
