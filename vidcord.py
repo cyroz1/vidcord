@@ -4,9 +4,25 @@ import subprocess
 import shlex
 # Deferring heavy imports to improve startup time
 # import ffmpeg  <-- Moved to VideoProcessor methods
-from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QFileDialog)
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize, QEvent
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QPalette, QColor, QFont, QFileOpenEvent
+from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QFileDialog,
+                             QGridLayout, QToolButton)
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize, QEvent, QUrl, QRectF, QPointF, QPoint
+from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QIcon, QPixmap, QPalette, QColor,
+                         QFont, QFileOpenEvent, QPainterPath, QRegion, QPainter, QImage, QCursor)
+
+MULTIMEDIA_AVAILABLE = True
+try:
+    from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink
+except Exception:
+    QMediaPlayer = None
+    QAudioOutput = None
+    QVideoSink = None
+    MULTIMEDIA_AVAILABLE = False
+
+try:
+    from PyQt6.QtMultimediaWidgets import QVideoWidget
+except Exception:
+    QVideoWidget = None
 import time
 import platform
 import math
@@ -647,6 +663,501 @@ class EncoderDetectionThread(QThread):
             traceback.print_exc()
             self.finished.emit([])
 
+class UpdateCheckThread(QThread):
+    update_available = pyqtSignal(str, str)  # latest_version, release_url
+    up_to_date = pyqtSignal()
+    failed = pyqtSignal(str)
+
+    def __init__(self, current_version, parent=None):
+        super().__init__(parent=parent)
+        self.current_version = current_version
+
+    def run(self):
+        try:
+            import requests
+            from packaging import version
+        except Exception as e:
+            self.failed.emit(f"Missing dependencies: {e}")
+            return
+
+        api_url = "https://api.github.com/repos/cyroz1/vidcord/releases/latest"
+        try:
+            response = requests.get(
+                api_url,
+                timeout=6,
+                headers={"Accept": "application/vnd.github+json", "User-Agent": "vidcord-update-check"}
+            )
+        except Exception as e:
+            self.failed.emit(f"Request failed: {e}")
+            return
+
+        if response.status_code != 200:
+            self.failed.emit(f"HTTP {response.status_code}")
+            return
+
+        try:
+            data = response.json()
+        except Exception as e:
+            self.failed.emit(f"Invalid JSON: {e}")
+            return
+
+        tag = data.get("tag_name") or data.get("name")
+        release_url = data.get("html_url") or "https://github.com/cyroz1/vidcord/releases/latest"
+        if not tag:
+            self.failed.emit("Missing tag name")
+            return
+
+        try:
+            current = version.parse(str(self.current_version).lstrip("vV"))
+            latest = version.parse(str(tag).lstrip("vV"))
+        except Exception as e:
+            self.failed.emit(f"Version parse failed: {e}")
+            return
+
+        if latest > current:
+            self.update_available.emit(str(tag), release_url)
+        else:
+            self.up_to_date.emit()
+
+class VideoFrameWidget(QWidget):
+    def __init__(self, corner_radius=8, parent=None):
+        super().__init__(parent=parent)
+        self._frame_image = None
+        self._corner_radius = corner_radius
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAutoFillBackground(False)
+
+    def setFrameImage(self, image: QImage):
+        self._frame_image = image
+        self.update()
+
+    def clearFrame(self):
+        self._frame_image = None
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        rect = self.rect()
+
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(rect), self._corner_radius, self._corner_radius)
+        painter.setClipPath(path)
+
+        if not self._frame_image or self._frame_image.isNull():
+            return
+
+        pixmap = QPixmap.fromImage(self._frame_image)
+        scaled = pixmap.scaled(rect.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        x = int((rect.width() - scaled.width()) / 2)
+        y = int((rect.height() - scaled.height()) / 2)
+        painter.drawPixmap(x, y, scaled)
+
+class PreviewWidget(QWidget):
+    playRequested = pyqtSignal()
+    stopRequested = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent=parent)
+        self._play_enabled = False
+        self._hovered = False
+        self._playing = False
+        self._corner_radius = 8
+        self._content_aspect = None
+        self._content_rect = None
+        self.setMouseTracking(True)
+
+        self.image_label = ImageLabel(self)
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setBorderRadius(self._corner_radius, self._corner_radius, self._corner_radius, self._corner_radius)
+        self.image_label.setText("Preview")
+
+        self.video_sink = None
+        self.video_frame_widget = None
+        self.video_widget = None
+        self._video_layer = None
+        self._video_output_available = False
+
+        if QVideoSink is not None:
+            self.video_sink = QVideoSink(self)
+            self.video_frame_widget = VideoFrameWidget(self._corner_radius, self)
+            self.video_frame_widget.hide()
+            self.video_sink.videoFrameChanged.connect(self._on_video_frame_changed)
+            self._video_layer = self.video_frame_widget
+            self._video_output_available = True
+        elif QVideoWidget is not None:
+            self.video_widget = QVideoWidget(self)
+            self.video_widget.setStyleSheet("background: transparent; border-radius: 8px;")
+            self.video_widget.setAutoFillBackground(False)
+            self.video_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            try:
+                self.video_widget.setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatio)
+            except Exception:
+                pass
+            self.video_widget.hide()
+            self._video_layer = self.video_widget
+            self._video_output_available = True
+        else:
+            self._video_layer = QWidget(self)
+            self._video_layer.hide()
+
+        self.play_button = self._make_overlay_button()
+        self._set_play_button_icon()
+        self.play_button.clicked.connect(self.playRequested.emit)
+        self.play_button.hide()
+
+        self.stop_button = self._make_overlay_button()
+        self._set_stop_button_icon()
+        self.stop_button.clicked.connect(self.stopRequested.emit)
+        self.stop_button.hide()
+
+        self.controls_container = QWidget(self)
+        controls_layout = QHBoxLayout(self.controls_container)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.setSpacing(12)
+        controls_layout.addWidget(self.play_button)
+        controls_layout.addWidget(self.stop_button)
+        self.controls_container.setMouseTracking(True)
+        self._controls_spacing = 12
+        self._controls_button_size = 48
+        self._update_controls_container_size()
+
+        layout = QGridLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.image_label, 0, 0)
+        layout.addWidget(self._video_layer, 0, 0)
+
+        self.image_label.setMouseTracking(True)
+        self.image_label.installEventFilter(self)
+        self.controls_container.installEventFilter(self)
+        self.play_button.setMouseTracking(True)
+        self.play_button.installEventFilter(self)
+        self.stop_button.setMouseTracking(True)
+        self.stop_button.installEventFilter(self)
+        if self.video_widget is not None:
+            self.video_widget.setMouseTracking(True)
+            self.video_widget.installEventFilter(self)
+        if self.video_frame_widget is not None:
+            self.video_frame_widget.setMouseTracking(True)
+            self.video_frame_widget.installEventFilter(self)
+
+        self.controls_container.raise_()
+        self._position_controls_container()
+
+    def _make_overlay_button(self):
+        button = QToolButton(self)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setFixedSize(48, 48)
+        button.setStyleSheet(
+            "QToolButton {"
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
+            "stop:0 rgba(255, 255, 255, 70), stop:1 rgba(255, 255, 255, 30));"
+            "border: 1px solid rgba(255, 255, 255, 160);"
+            "border-radius: 24px;"
+            "color: #ffffff;"
+            "}"
+            "QToolButton:hover {"
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
+            "stop:0 rgba(255, 255, 255, 110), stop:1 rgba(255, 255, 255, 60));"
+            "border: 1px solid rgba(255, 255, 255, 220);"
+            "}"
+            "QToolButton:pressed {"
+            "background: rgba(255, 255, 255, 140);"
+            "}"
+        )
+        return button
+
+    def _set_play_button_icon(self):
+        try:
+            icon = self._make_play_icon()
+            if icon is not None:
+                self.play_button.setIcon(icon)
+                self.play_button.setIconSize(QSize(24, 24))
+                self.play_button.setText("")
+                return
+        except Exception:
+            pass
+        self.play_button.setText("Play")
+
+    def _set_stop_button_icon(self):
+        try:
+            icon = self._make_stop_icon()
+            if icon is not None:
+                self.stop_button.setIcon(icon)
+                self.stop_button.setIconSize(QSize(22, 22))
+                self.stop_button.setText("")
+                return
+        except Exception:
+            pass
+        self.stop_button.setText("■")
+
+    def _update_controls_container_size(self):
+        if self.controls_container is None:
+            return
+        total_width = (self._controls_button_size * 2) + self._controls_spacing
+        total_height = self._controls_button_size
+        self.controls_container.setFixedSize(total_width, total_height)
+
+    def _make_play_icon(self):
+        size = 24
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(255, 255, 255))
+        margin = 6
+        path = QPainterPath()
+        path.moveTo(margin, margin - 1)
+        path.lineTo(size - margin, size / 2)
+        path.lineTo(margin, size - margin + 1)
+        path.closeSubpath()
+        painter.drawPath(path)
+        painter.end()
+        return QIcon(pixmap)
+
+    def _make_stop_icon(self):
+        size = 24
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(255, 255, 255))
+        side = 10
+        x = (size - side) / 2
+        y = (size - side) / 2
+        painter.drawRoundedRect(QRectF(x, y, side, side), 1.5, 1.5)
+        painter.end()
+        return QIcon(pixmap)
+
+    def setPlayEnabled(self, enabled: bool):
+        self._play_enabled = enabled
+        self._update_controls_visibility()
+
+    def setPlaying(self, playing: bool):
+        self._playing = playing
+        self._update_controls_visibility()
+
+    def showVideo(self):
+        if self._video_layer is not None:
+            self._video_layer.show()
+
+    def showImage(self):
+        if self._video_layer is not None:
+            self._video_layer.hide()
+        if self.video_frame_widget is not None:
+            self.video_frame_widget.clearFrame()
+        self.image_label.show()
+
+    def setPixmap(self, pixmap: QPixmap):
+        self.image_label.setPixmap(pixmap)
+        if pixmap is not None and not pixmap.isNull():
+            self._set_content_aspect(pixmap.width(), pixmap.height())
+
+    def setText(self, text: str):
+        self.image_label.setText(text)
+
+    def imageSize(self):
+        return self.image_label.size()
+
+    def setContentAspectRatio(self, width: int, height: int):
+        self._set_content_aspect(width, height)
+
+    def hasVideoOutput(self):
+        return self._video_output_available
+
+    def videoOutputTarget(self):
+        if self.video_sink is not None:
+            return ("sink", self.video_sink)
+        if self.video_widget is not None:
+            return ("widget", self.video_widget)
+        return (None, None)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_rounded_masks()
+        self._update_content_rect()
+        self._position_controls_container()
+
+    def _update_rounded_masks(self):
+        if self.image_label is not None:
+            rect = self.image_label.rect()
+            if rect.width() > 0 and rect.height() > 0:
+                path = QPainterPath()
+                path.addRoundedRect(QRectF(rect), self._corner_radius, self._corner_radius)
+                region = QRegion(path.toFillPolygon().toPolygon())
+                self.image_label.setMask(region)
+
+        if self.video_widget is not None:
+            rect = self.video_widget.rect()
+            if rect.width() > 0 and rect.height() > 0:
+                path = QPainterPath()
+                path.addRoundedRect(QRectF(rect), self._corner_radius, self._corner_radius)
+                region = QRegion(path.toFillPolygon().toPolygon())
+                self.video_widget.setMask(region)
+
+    def _set_content_aspect(self, width: int, height: int):
+        if width and height and width > 0 and height > 0:
+            self._content_aspect = float(width) / float(height)
+        else:
+            self._content_aspect = None
+        self._update_content_rect()
+        self._position_controls_container()
+
+    def _update_content_rect(self):
+        if self._content_aspect is None or self.image_label is None:
+            self._content_rect = None
+            return
+        rect = self.image_label.rect()
+        if rect.width() <= 0 or rect.height() <= 0:
+            self._content_rect = None
+            return
+
+        available_w = rect.width()
+        available_h = rect.height()
+        if available_w / available_h >= self._content_aspect:
+            draw_h = available_h
+            draw_w = available_h * self._content_aspect
+        else:
+            draw_w = available_w
+            draw_h = available_w / self._content_aspect
+        x = (available_w - draw_w) / 2
+        y = (available_h - draw_h) / 2
+        self._content_rect = QRectF(x, y, draw_w, draw_h)
+        self._position_controls_container()
+
+    def _controls_rect_in_label(self):
+        if self.controls_container is None or self.image_label is None:
+            return None
+        global_top_left = self.controls_container.mapToGlobal(QPoint(0, 0))
+        label_top_left = self.image_label.mapFromGlobal(global_top_left)
+        return QRectF(
+            label_top_left.x(),
+            label_top_left.y(),
+            self.controls_container.width(),
+            self.controls_container.height()
+        )
+
+    def _position_controls_container(self):
+        if self.controls_container is None or self.image_label is None:
+            return
+        self._update_controls_container_size()
+        container_size = self.controls_container.size()
+
+        if self._content_rect is None:
+            target_rect = QRectF(self.rect())
+        else:
+            label_geo = self.image_label.geometry()
+            target_rect = QRectF(
+                label_geo.x() + self._content_rect.x(),
+                label_geo.y() + self._content_rect.y(),
+                self._content_rect.width(),
+                self._content_rect.height()
+            )
+
+        center_x = target_rect.x() + (target_rect.width() / 2)
+        center_y = target_rect.y() + (target_rect.height() / 2)
+        x = center_x - (container_size.width() / 2)
+        y = center_y - (container_size.height() / 2)
+
+        x = max(target_rect.left(), min(x, target_rect.right() - container_size.width()))
+        y = max(target_rect.top(), min(y, target_rect.bottom() - container_size.height()))
+
+        self.controls_container.setGeometry(
+            int(x), int(y), int(container_size.width()), int(container_size.height())
+        )
+
+    def _is_point_over_content(self, point):
+        if point is None:
+            return True
+        if self._content_rect is None:
+            return True
+        if isinstance(point, QPoint):
+            point = QPointF(point)
+        if self._content_rect.contains(point):
+            return True
+        controls_rect = self._controls_rect_in_label()
+        if controls_rect is None:
+            return False
+        return controls_rect.contains(point)
+
+    def _on_video_frame_changed(self, frame):
+        if self.video_frame_widget is None:
+            return
+        try:
+            if frame is None:
+                return
+            if hasattr(frame, "isValid") and not frame.isValid():
+                return
+            if hasattr(frame, "toImage"):
+                image = frame.toImage()
+            elif hasattr(frame, "image"):
+                image = frame.image()
+            else:
+                return
+            if image is None or image.isNull():
+                return
+            self._set_content_aspect(image.width(), image.height())
+            self.video_frame_widget.setFrameImage(image)
+        except Exception:
+            pass
+
+    def _map_event_pos_to_label(self, obj, pos):
+        if pos is None or self.image_label is None:
+            return None
+        if obj is self.image_label:
+            if isinstance(pos, QPoint):
+                return QPointF(pos)
+            return pos
+        if isinstance(pos, QPointF):
+            point = QPoint(int(pos.x()), int(pos.y()))
+        elif isinstance(pos, QPoint):
+            point = pos
+        else:
+            return None
+        mapped = self.image_label.mapFrom(obj, point)
+        return QPointF(mapped)
+
+    def _update_hover_from_global(self):
+        if self.image_label is None:
+            self._hovered = False
+            return
+        global_pos = QCursor.pos()
+        label_pos = self.image_label.mapFromGlobal(global_pos)
+        self._hovered = self._is_point_over_content(QPointF(label_pos))
+
+    def eventFilter(self, obj, event):
+        etype = event.type()
+        if etype in (QEvent.Type.MouseMove, QEvent.Type.HoverMove, QEvent.Type.Enter, QEvent.Type.Leave):
+            self._update_hover_from_global()
+            self._update_controls_visibility()
+        return super().eventFilter(obj, event)
+
+    def mouseMoveEvent(self, event):
+        self._update_hover_from_global()
+        self._update_controls_visibility()
+        return super().mouseMoveEvent(event)
+
+    def enterEvent(self, event):
+        self._update_hover_from_global()
+        self._update_controls_visibility()
+        return super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self._update_controls_visibility()
+        return super().leaveEvent(event)
+
+    def _update_controls_visibility(self):
+        self._position_controls_container()
+        show_play = self._play_enabled and self._hovered and not self._playing
+        show_stop = self._play_enabled and self._hovered and self._playing
+        self.play_button.setVisible(show_play)
+        self.stop_button.setVisible(show_stop)
+
 class VidCordInterface(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -669,6 +1180,25 @@ class VidCordInterface(QWidget):
 
         self.preview_thread = None
         self.active_preview_threads = set()
+
+        self.previewPlayer = None
+        self.previewAudioOutput = None
+        if MULTIMEDIA_AVAILABLE and QMediaPlayer is not None and QAudioOutput is not None:
+            self.previewPlayer = QMediaPlayer(self)
+            self.previewAudioOutput = QAudioOutput(self)
+            self.previewAudioOutput.setVolume(1.0)
+            self.previewPlayer.setAudioOutput(self.previewAudioOutput)
+            self.previewPlayer.mediaStatusChanged.connect(self._onPreviewMediaStatusChanged)
+            self.previewPlayer.positionChanged.connect(self._onPreviewPositionChanged)
+            self.previewPlayer.playbackStateChanged.connect(self._onPreviewPlaybackStateChanged)
+            try:
+                self.previewPlayer.errorOccurred.connect(self._onPreviewPlaybackError)
+            except Exception:
+                pass
+        self.previewEndMs = None
+        self.previewStartMs = None
+        self.previewPendingSeek = False
+        self.update_thread = None
 
 
     def initUI(self):
@@ -770,11 +1300,12 @@ class VidCordInterface(QWidget):
         self.main_layout.addLayout(trim_layout)
 
         # Preview
-        self.videoPreview = ImageLabel(self)
+        self.videoPreview = PreviewWidget(self)
         self.videoPreview.setFixedHeight(200)
-        self.videoPreview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.videoPreview.setBorderRadius(8, 8, 8, 8)
-        self.videoPreview.setText("Preview")
+        self.videoPreview.playRequested.connect(self.playPreviewSegment)
+        self.videoPreview.stopRequested.connect(self.stopPreviewPlayback)
+        if not MULTIMEDIA_AVAILABLE or not self.videoPreview.hasVideoOutput():
+            self.videoPreview.setPlayEnabled(False)
         self.main_layout.addWidget(self.videoPreview)
 
         # Action
@@ -856,13 +1387,35 @@ class VidCordInterface(QWidget):
         self.encoderComboBox.blockSignals(False)
 
     def checkForUpdates(self):
-        # Implementation with lazy imports
-        try:
-            import requests
-            from packaging import version
-            # (Rest of update logic would go here if implemented)
-        except ImportError:
-            pass
+        # Avoid excessive checks
+        last_check = self.settings_manager.get("update_last_check", 0)
+        if time.time() - last_check < 6 * 60 * 60:
+            return
+
+        self.settings_manager.save_settings({"update_last_check": time.time()})
+
+        if self.update_thread and self.update_thread.isRunning():
+            return
+
+        self.update_thread = UpdateCheckThread(CURRENT_VERSION, self)
+        self.update_thread.update_available.connect(self.onUpdateAvailable)
+        self.update_thread.failed.connect(self.onUpdateCheckFailed)
+        self.update_thread.start()
+
+    def onUpdateAvailable(self, latest_version, release_url):
+        InfoBar.info(
+            title='Update Available',
+            content=f"Version {latest_version} is available on GitHub Releases.",
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=8000,
+            parent=self
+        )
+
+    def onUpdateCheckFailed(self, reason):
+        # Silently log failures to avoid noisy UI
+        print(f"Update check failed: {reason}")
 
     def loadPreviousSelections(self):
         quality_index = self.settings_manager.get("quality_index", 0)
@@ -932,6 +1485,8 @@ class VidCordInterface(QWidget):
             
         # Stop any pending preview updates from previous video
         self.previewUpdateTimer.stop()
+        self.stopPreviewPlayback()
+        self.videoPreview.setPlayEnabled(False)
         
         self.file_path = filePath
         self.label.setText(f'{os.path.basename(filePath)}')
@@ -940,6 +1495,12 @@ class VidCordInterface(QWidget):
             self.probed_data = self.video_processor.probe_video(self.file_path)
             
             self.duration_for_slider = self.probed_data['duration'] * 10
+
+            if self.probed_data.get('width') and self.probed_data.get('height'):
+                self.videoPreview.setContentAspectRatio(
+                    int(self.probed_data['width']),
+                    int(self.probed_data['height'])
+                )
             
             # Block signals to prevent redundant preview triggers during setup
             self.startTimeSlider.blockSignals(True)
@@ -961,8 +1522,10 @@ class VidCordInterface(QWidget):
         except Exception as e:
             self.label.setText(f"Error loading video: {e}")
             self.videoPreview.setText("Error loading preview")
+            self.videoPreview.setPlayEnabled(False)
 
     def updateStartTime(self):
+        self.stopPreviewPlayback()
         start_val = self.startTimeSlider.value()
         start_time_sec = start_val / 10.0
         self.startLabel.setText(f'{start_time_sec:.1f}s')
@@ -977,6 +1540,7 @@ class VidCordInterface(QWidget):
         self.previewUpdateTimer.start(self.previewDebounceTime)
 
     def updateEndTime(self):
+        self.stopPreviewPlayback()
         end_val = self.endTimeSlider.value()
         end_time_sec = end_val / 10.0
         self.endLabel.setText(f'{end_time_sec:.1f}s')
@@ -1013,13 +1577,153 @@ class VidCordInterface(QWidget):
         if temp_path and os.path.exists(temp_path):
             pixmap = QPixmap(temp_path)
             if not pixmap.isNull():
-                self.videoPreview.setPixmap(pixmap.scaled(self.videoPreview.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                target_size = self.videoPreview.imageSize()
+                if target_size.width() > 0 and target_size.height() > 0:
+                    scaled = pixmap.scaled(target_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                else:
+                    scaled = pixmap
+                self.videoPreview.setPixmap(scaled)
+                if self.previewPlayer is not None and self.videoPreview.hasVideoOutput():
+                    self.videoPreview.setPlayEnabled(True)
+                else:
+                    self.videoPreview.setPlayEnabled(False)
                 try:
                     os.remove(temp_path)
                 except:
                     pass
             else:
                 self.videoPreview.setText("Preview Error")
+                self.videoPreview.setPlayEnabled(False)
+
+    def playPreviewSegment(self):
+        if not self.file_path:
+            InfoBar.warning(
+                title='Warning',
+                content="No file selected!",
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+        if self.previewPlayer is None or not self.videoPreview.hasVideoOutput():
+            InfoBar.warning(
+                title='Warning',
+                content="Preview playback is not available on this system.",
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            return
+
+        start_time = self.startTimeSlider.value() / 10.0
+        end_time = self.endTimeSlider.value() / 10.0
+        if end_time <= start_time:
+            InfoBar.warning(
+                title='Warning',
+                content="Invalid trim range for preview.",
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+
+        start_ms = int(start_time * 1000)
+        self.previewStartMs = start_ms
+        self.previewEndMs = int(end_time * 1000)
+
+        self.previewPlayer.stop()
+        self.previewPlayer.setSource(QUrl.fromLocalFile(self.file_path))
+        self.previewPlayer.setPosition(start_ms)
+        output_type, output_target = self.videoPreview.videoOutputTarget()
+        try:
+            if output_type == "sink":
+                if hasattr(self.previewPlayer, "setVideoSink"):
+                    self.previewPlayer.setVideoSink(output_target)
+                else:
+                    self.previewPlayer.setVideoOutput(output_target)
+            elif output_type == "widget":
+                self.previewPlayer.setVideoOutput(output_target)
+            else:
+                raise RuntimeError("No compatible video output")
+        except Exception:
+            InfoBar.warning(
+                title='Warning',
+                content="No compatible video output for preview.",
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            return
+
+        self.videoPreview.showVideo()
+        self.videoPreview.setPlaying(True)
+        self.previewPendingSeek = True
+        if self.previewPlayer.mediaStatus() in (
+            QMediaPlayer.MediaStatus.LoadedMedia,
+            QMediaPlayer.MediaStatus.BufferedMedia,
+        ):
+            self._startPreviewPlayback()
+
+    def stopPreviewPlayback(self):
+        if self.previewPlayer is not None:
+            try:
+                if self.previewPlayer.playbackState() != QMediaPlayer.PlaybackState.StoppedState:
+                    self.previewPlayer.stop()
+            except Exception:
+                self.previewPlayer.stop()
+        self.previewEndMs = None
+        self.previewStartMs = None
+        self.previewPendingSeek = False
+        self.videoPreview.setPlaying(False)
+        self.videoPreview.showImage()
+
+    def _startPreviewPlayback(self):
+        if self.previewPlayer is None or self.previewStartMs is None:
+            return
+        self.previewPlayer.setPosition(self.previewStartMs)
+        self.previewPlayer.play()
+        self.previewPendingSeek = False
+
+    def _onPreviewPositionChanged(self, position: int):
+        if self.previewEndMs is not None and position >= self.previewEndMs:
+            self.stopPreviewPlayback()
+
+    def _onPreviewMediaStatusChanged(self, status):
+        if self.previewPendingSeek and status in (
+            QMediaPlayer.MediaStatus.LoadedMedia,
+            QMediaPlayer.MediaStatus.BufferedMedia,
+        ):
+            self._startPreviewPlayback()
+
+    def _onPreviewPlaybackError(self, error, error_string=None):
+        # Show a brief, cross-platform friendly message for missing codecs/backends
+        message = "Preview playback failed."
+        if error_string:
+            message = f"Preview playback failed: {error_string}"
+        InfoBar.warning(
+            title='Preview Error',
+            content=message,
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=4000,
+            parent=self
+        )
+        self.stopPreviewPlayback()
+
+    def _onPreviewPlaybackStateChanged(self, state):
+        is_playing = state == QMediaPlayer.PlaybackState.PlayingState
+        self.videoPreview.setPlaying(is_playing)
+        if not is_playing:
+            self.videoPreview.showImage()
 
     def convertVideo(self, filePath):
         # Get settings
