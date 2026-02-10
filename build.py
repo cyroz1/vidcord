@@ -77,6 +77,7 @@ def build_macos():
     # 2. Run pkg build
     run_command(["bash", "platforms/macos/build_pkg.sh"])
 
+def main():
     parser = argparse.ArgumentParser(description="Build vidcord")
     parser.add_argument("--arch", default="x86_64", help="Target architecture (default: x86_64)")
     args = parser.parse_args()
