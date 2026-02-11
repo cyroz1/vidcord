@@ -1218,11 +1218,9 @@ class VidCordInterface(QWidget):
         self.previewDebounceTime = 150
         self.lastSliderValueForPreview = 0.0
         
-        self.initUI()
-        self.checkForUpdates()
-
         self.preview_thread = None
         self.active_preview_threads = set()
+        self.update_thread = None
 
         self.previewPlayer = None
         self.previewAudioOutput = None
@@ -1241,7 +1239,9 @@ class VidCordInterface(QWidget):
         self.previewEndMs = None
         self.previewStartMs = None
         self.previewPendingSeek = False
-        self.update_thread = None
+
+        self.initUI()
+        self.checkForUpdates()
 
 
     def initUI(self):
