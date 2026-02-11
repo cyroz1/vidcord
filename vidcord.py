@@ -1,7 +1,8 @@
 import sys
 import os
 import subprocess
-import shlex
+import re
+import atexit
 # Deferring heavy imports to improve startup time
 # import ffmpeg  <-- Moved to VideoProcessor methods
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QFileDialog,
@@ -30,6 +31,7 @@ import platform
 import math
 import json
 import pathlib
+import tempfile
 # import requests <-- Moved to checkForUpdates
 # from packaging import version <-- Moved to checkForUpdates
 
@@ -42,7 +44,18 @@ from qfluentwidgets import (FluentWindow, NavigationItemPosition, FluentIcon as 
 
 CURRENT_VERSION = "v5.6"
 
-# --- LOGGING SETUP ---
+# --- QUALITY PRESETS ---
+QUALITY_PRESETS = [
+    {"label": "10MB, 480p", "size_mb": 10, "target_h": 480},
+    {"label": "25MB, 480p", "size_mb": 25, "target_h": 480},
+    {"label": "50MB, 720p", "size_mb": 50, "target_h": 720},
+    {"label": "100MB, 1080p", "size_mb": 100, "target_h": 1080},
+    {"label": "500MB, native res", "size_mb": 500, "target_h": None},
+]
+
+# --- PLATFORM CONSTANTS ---
+_CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
+
 # --- LOGGING SETUP ---
 def setup_logging():
     log_path = os.path.join(os.path.expanduser('~'), 'vidcord_crash.log')
@@ -60,17 +73,20 @@ def setup_logging():
             os.dup2(log_file.fileno(), 1)
         except Exception as e:
             print(f"Failed to redirect C-level streams: {e}")
+        
+        # Ensure log file is closed on exit
+        atexit.register(log_file.close)
     except Exception as e:
         print(f"Failed to setup logging: {e}")
 
-print(f"Starting vidcord {CURRENT_VERSION}")
-
-# DEBUG: Log environment variables to diagnose shell/library issues
-print("DEBUG: Initial Environment Variables (Relevant):")
-for key in ['LD_LIBRARY_PATH', 'LIBVA_DRIVER_NAME', 'PATH', 'SHELL', 'TERM']:
-    val = os.environ.get(key)
-    if val:
-        print(f"  {key}={val}")
+def _log_startup_info():
+    """Log startup information. Call after setup_logging() so output goes to log file."""
+    print(f"Starting vidcord {CURRENT_VERSION}")
+    print("DEBUG: Initial Environment Variables (Relevant):")
+    for key in ['LD_LIBRARY_PATH', 'LIBVA_DRIVER_NAME', 'PATH', 'SHELL', 'TERM']:
+        val = os.environ.get(key)
+        if val:
+            print(f"  {key}={val}")
 
 
 # --- RESOURCE PATH HELPER FUNCTION ---
@@ -93,14 +109,14 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
-    def get(self, key, default=None):
-        return self.settings_manager.get(key, default) # Corrected wrapper if needed, but the original code was:
-    # def get(self, key, default=None):
-    #     return self.settings.get(key, default)
-    # Re-reading the file, the global block is lines 72-125.
-    # The previous block ends at line 70: return os.path.join(base_path, relative_path)
-    # Line 71 is empty.
-    # I will replace lines 72-125 with nothing (empty string).
+def _get_temp_dir():
+    """Get the platform-appropriate temp directory for vidcord."""
+    if platform.system() == 'Windows':
+        appdata_path = os.getenv('APPDATA')
+        return os.path.join(appdata_path, 'vidcord')
+    else:
+        return os.path.join(os.path.expanduser('~'), '.vidcord')
+
 
 
 class SettingsManager:
@@ -119,23 +135,37 @@ class SettingsManager:
             try:
                 with open(self.settings_file, 'r') as file:
                     return json.load(file)
-            except:
+            except Exception:
                 return {}
         return {}
 
     def save_settings(self, settings_dict):
         self.settings.update(settings_dict)
         try:
-            with open(self.settings_file, 'w') as file:
-                json.dump(self.settings, file)
+            # Atomic write: write to temp file then rename to prevent corruption
+            dir_name = os.path.dirname(self.settings_file)
+            fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
+            with os.fdopen(fd, 'w') as tmp_file:
+                json.dump(self.settings, tmp_file)
+            # os.replace is atomic on most file systems
+            os.replace(tmp_path, self.settings_file)
         except Exception as e:
             print(f"Failed to save settings: {e}")
+            # Clean up temp file on failure
+            try:
+                if 'tmp_path' in locals() and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
 
     def get(self, key, default=None):
         return self.settings.get(key, default)
 
 class VideoProcessor:
     _gpu_cache = None
+    _vaapi_cache = None
+    _vaapi_cache_set = False
+    _ffmpeg_path_configured = False
 
     @staticmethod
     def setup_ffmpeg_path():
@@ -143,6 +173,8 @@ class VideoProcessor:
         Detects and configures the PATH for ffmpeg.
         This is moved from global scope to here to be run in a background thread.
         """
+        if VideoProcessor._ffmpeg_path_configured:
+            return
         # Add bin directory to PATH for ffmpeg/ffprobe
         if getattr(sys, 'frozen', False):
             # In onedir mode, binaries are in the bundle dir or a subdir
@@ -196,6 +228,7 @@ class VideoProcessor:
                     if os.path.exists(os.path.join(p, 'ffmpeg')):
                         os.environ["PATH"] = p + os.pathsep + os.environ["PATH"]
                         break
+        VideoProcessor._ffmpeg_path_configured = True
 
     @staticmethod
     def get_system_gpus():
@@ -287,6 +320,10 @@ class VideoProcessor:
         """Find the best functioning VAAPI render node on Linux"""
         if platform.system() != 'Linux':
             return None
+        
+        # Return cached result if available
+        if VideoProcessor._vaapi_cache_set:
+            return VideoProcessor._vaapi_cache
             
         render_nodes = []
         try:
@@ -328,13 +365,17 @@ class VideoProcessor:
             for node in render_nodes:
                 if is_device_working(node):
                     print(f"DEBUG: Found working VAAPI device: {node}")
+                    VideoProcessor._vaapi_cache = node
+                    VideoProcessor._vaapi_cache_set = True
                     return node
             
             print("DEBUG: No working VAAPI devices found.")
             
         except Exception as e:
             print(f"Error scanning for VAAPI devices: {e}")
-            
+        
+        VideoProcessor._vaapi_cache = None
+        VideoProcessor._vaapi_cache_set = True
         return None
 
     @staticmethod
@@ -375,7 +416,6 @@ class VideoProcessor:
             system = platform.system()
             
             # Parse FFmpeg output using regex for more reliability across platforms/ffmpeg versions
-            import re
             ffmpeg_encoders = set()
             # Pattern: Start of line, 'V' flag, optional other flags, whitespace, encoder name
             regex = re.compile(r'^\s*V[A-Z.]*\s+([a-zA-Z0-9_]+)\s+')
@@ -435,7 +475,10 @@ class VideoProcessor:
 
     @staticmethod
     def probe_video(file_path):
-        import ffmpeg
+        try:
+            import ffmpeg
+        except ImportError:
+            raise RuntimeError("python-ffmpeg package is required but not installed")
         try:
             probe_data = ffmpeg.probe(file_path)
             format_info = probe_data.get('format', {})
@@ -469,11 +512,7 @@ class VideoProcessor:
 
     @staticmethod
     def generate_preview(file_path, time_sec):
-        if platform.system() == 'Windows':
-            appdata_path = os.getenv('APPDATA')
-            vidcord_temp_dir = os.path.join(appdata_path, 'vidcord')
-        else:
-            vidcord_temp_dir = os.path.join(os.path.expanduser('~'), '.vidcord')
+        vidcord_temp_dir = _get_temp_dir()
         
         os.makedirs(vidcord_temp_dir, exist_ok=True)
         temp_image_path = os.path.join(vidcord_temp_dir, 'preview_frame.jpg')
@@ -489,8 +528,7 @@ class VideoProcessor:
                 "-vf", "scale=320:-1:flags=fast_bilinear",
                 temp_image_path
             ]
-            creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
-            subprocess.run(ffmpeg_command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, creationflags=creationflags, env=VideoProcessor.get_ffmpeg_env())
+            subprocess.run(ffmpeg_command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, creationflags=_CREATION_FLAGS, env=VideoProcessor.get_ffmpeg_env())
             return temp_image_path
         except Exception as e:
             print(f"Preview generation failed: {e}")
@@ -500,16 +538,16 @@ class CompressionThread(QThread):
     progress_updated = pyqtSignal(int, str, str) # progress, eta, status
     finished = pyqtSignal(bool, str) # success, message
 
-    def __init__(self, cmd, clip_duration):
+    def __init__(self, cmd, clip_duration, output_file=None):
         super().__init__()
         self.cmd = cmd
         self.clip_duration = clip_duration
+        self.output_file = output_file
         self.is_running = True
 
     def run(self):
         print(f"DEBUG: Starting encoding with command: {self.cmd}")
-        creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
-        process = subprocess.Popen(self.cmd, stderr=subprocess.PIPE, text=True, universal_newlines=True, creationflags=creationflags, env=VideoProcessor.get_ffmpeg_env())
+        process = subprocess.Popen(self.cmd, stderr=subprocess.PIPE, text=True, universal_newlines=True, creationflags=_CREATION_FLAGS, env=VideoProcessor.get_ffmpeg_env())
         
         encoding_start_time = time.time()
         
@@ -540,12 +578,20 @@ class CompressionThread(QThread):
                                     eta_str = self.format_time(eta)
                                 
                                 self.progress_updated.emit(int(percent), eta_str, "Compressing...")
-                    except:
+                    except Exception:
                         pass
         
         if not self.is_running:
             print("DEBUG: Encoding cancelled by user.")
             process.terminate()
+            # Clean up partial output file
+            if self.output_file:
+                try:
+                    if os.path.exists(self.output_file):
+                        os.remove(self.output_file)
+                        print(f"DEBUG: Cleaned up partial file: {self.output_file}")
+                except Exception:
+                    pass
             return
         
         process.wait()
@@ -598,11 +644,7 @@ class PreviewThread(QThread):
         if not self.is_running: return
         
         # Determine temp path
-        if platform.system() == 'Windows':
-            appdata_path = os.getenv('APPDATA')
-            vidcord_temp_dir = os.path.join(appdata_path, 'vidcord')
-        else:
-            vidcord_temp_dir = os.path.join(os.path.expanduser('~'), '.vidcord')
+        vidcord_temp_dir = _get_temp_dir()
         
         os.makedirs(vidcord_temp_dir, exist_ok=True)
         # Use a unique name for this thread's preview
@@ -621,12 +663,11 @@ class PreviewThread(QThread):
         ]
         
         try:
-            creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
             self.process = subprocess.Popen(
                 ffmpeg_command, 
                 stdout=subprocess.DEVNULL, 
                 stderr=subprocess.DEVNULL, 
-                creationflags=creationflags,
+                creationflags=_CREATION_FLAGS,
                 env=VideoProcessor.get_ffmpeg_env()
             )
             self.process.wait()
@@ -636,7 +677,7 @@ class PreviewThread(QThread):
             else:
                 if os.path.exists(temp_image_path):
                     try: os.remove(temp_image_path)
-                    except: pass
+                    except Exception: pass
         except Exception as e:
             print(f"Preview thread failed: {e}")
 
@@ -645,7 +686,7 @@ class PreviewThread(QThread):
         if self.process:
             try:
                 self.process.terminate()
-            except:
+            except Exception:
                 pass
 
 class EncoderDetectionThread(QThread):
@@ -1166,7 +1207,7 @@ class VidCordInterface(QWidget):
         self.setObjectName("vidCordInterface")
         self.file_path = None
         self.settings_manager = SettingsManager()
-        self.video_processor = VideoProcessor()
+        self.video_processor = VideoProcessor
         
         self.probed_data = {}
         self.duration_for_slider = 0
@@ -1252,7 +1293,7 @@ class VidCordInterface(QWidget):
         settings_layout.setContentsMargins(0, 0, 0, 0)
         
         self.qualityComboBox = ComboBox(self)
-        self.qualityComboBox.addItems(["10MB, 480p", "25MB, 480p", "50MB, 720p", "100MB, 1080p", "500MB, native res"])
+        self.qualityComboBox.addItems([p['label'] for p in QUALITY_PRESETS])
         settings_layout.addWidget(BodyLabel("Target:", self))
         settings_layout.addWidget(self.qualityComboBox)
         
@@ -1547,10 +1588,16 @@ class VidCordInterface(QWidget):
             return None, None
 
         if target_short_side:
+            # Don't upscale: if target is larger than source, skip scaling
+            if target_short_side >= min(original_w, original_h):
+                return None, None
             scale_factor = target_short_side / min(original_w, original_h)
             target_w = math.ceil(original_w * scale_factor)
             target_h_out = math.ceil(original_h * scale_factor)
         elif target_h:
+            # Don't upscale: if target height is larger than source, skip scaling
+            if target_h >= original_h:
+                return None, None
             target_h_out = target_h
             target_w = math.ceil((original_w / original_h) * target_h_out)
         else:
@@ -1736,7 +1783,7 @@ class VidCordInterface(QWidget):
             old_thread = self.preview_thread
             try:
                 old_thread.preview_ready.disconnect(self.onPreviewReady)
-            except:
+            except Exception:
                 pass
             old_thread.stop()
             old_thread.finished.connect(lambda: self.active_preview_threads.discard(old_thread))
@@ -1765,7 +1812,7 @@ class VidCordInterface(QWidget):
                     self.videoPreview.setPlayEnabled(False)
                 try:
                     os.remove(temp_path)
-                except:
+                except Exception:
                     pass
             else:
                 self.videoPreview.setText("Preview Error")
@@ -1951,11 +1998,19 @@ class VidCordInterface(QWidget):
                 selected_encoder = self.encoder_mapping.get(selected_encoder_label, 'libx264')
         else:
             quality = self.qualityComboBox.currentText()
-            if "10MB" in quality: target_size = 10; target_h = 480
-            elif "25MB" in quality: target_size = 25; target_h = 480
-            elif "50MB" in quality: target_size = 50; target_h = 720
-            elif "100MB" in quality: target_size = 100; target_h = 1080
-            else: target_size = 500; target_h = None
+            # Look up preset from QUALITY_PRESETS
+            preset = None
+            for p in QUALITY_PRESETS:
+                if p['label'] == quality:
+                    preset = p
+                    break
+            if preset:
+                target_size = preset['size_mb']
+                target_h = preset['target_h']
+            else:
+                # Fallback if label doesn't match
+                target_size = 500
+                target_h = None
 
             selected_encoder_label = self.encoderComboBox.currentText()
             selected_encoder = self.encoder_mapping.get(selected_encoder_label, 'libx264')
@@ -2035,15 +2090,15 @@ class VidCordInterface(QWidget):
             "-c:v", selected_encoder,
             "-b:v", f'{target_bitrate}k',
             "-vf", ",".join(filters),
-            output_file
         ])
         
-        # Audio handling (no change)
-        
+        # Audio handling — must come BEFORE the output file
         if remove_audio:
             cmd.append("-an")
         else:
             cmd.extend(["-c:a", "aac", "-b:a", "128k"])
+
+        cmd.append(output_file)
 
         # Start Thread
         self.convertButton.setEnabled(False)
@@ -2053,7 +2108,7 @@ class VidCordInterface(QWidget):
         # Log the command for debugging
         print(f"DEBUG: FFmpeg Command: {cmd}")
 
-        self.thread = CompressionThread(cmd, clip_duration)
+        self.thread = CompressionThread(cmd, clip_duration, output_file=output_file)
         self.thread.progress_updated.connect(self.updateProgress)
         self.thread.finished.connect(lambda success, msg, output_file=output_file: self.conversionFinished(success, msg, output_file))
         self.thread.start()
@@ -2158,6 +2213,7 @@ class VidCordApp(QApplication):
 
 if __name__ == '__main__':
     setup_logging()
+    _log_startup_info()
     
     # Enable DPI scale
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
