@@ -1,7 +1,5 @@
 # Changelog
 
-## v5.7 — Code Quality & Reliability Overhaul
-
 ### Bug Fixes
 - **Fixed FFmpeg command argument ordering** — audio flags (`-an` / `-c:a aac`) are now correctly placed before the output file, preventing undefined behavior with certain FFmpeg versions
 - **Fixed video upscaling** — selecting a resolution preset higher than the source (e.g. "1080p" on a 480p video) no longer upscales; the original resolution is preserved
