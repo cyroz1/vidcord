@@ -35,6 +35,10 @@ This is a simple and fast Python GUI application for compressing video files und
 
 ![Program window](screenshots/window.png)
 
+### Advanced mode
+
+![Advanced mode](screenshots/advancedmode.png)
+
 ### Output file example
 
 ![Output file example](screenshots/file.png)
