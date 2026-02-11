@@ -1647,22 +1647,30 @@ class VidCordInterface(QWidget):
             )
             return
 
-        output = ""
-        if result.stdout:
-            output += result.stdout.strip()
-        if result.stderr:
-            if output:
-                output += "\n\n"
-            output += result.stderr.strip()
-
-        if not output:
-            output = "No output from ffmpeg -encoders."
-
-        title = "FFmpeg Encoders"
+        raw = result.stdout or ""
         if result.returncode != 0:
-            title = "FFmpeg Encoders (Error)"
+            error_text = raw.strip()
+            if result.stderr:
+                error_text += "\n\n" + result.stderr.strip()
+            self._showTextDialog("FFmpeg Encoders (Error)", error_text or "No output from ffmpeg -encoders.")
+            return
 
-        self._showTextDialog(title, output)
+        # Parse only video encoders (lines where the first flag column char is 'V')
+        video_regex = re.compile(r'^\s*V[A-Z.]*\s+(\S+)\s+(.*)')
+        lines = []
+        for line in raw.splitlines():
+            m = video_regex.match(line)
+            if m:
+                name = m.group(1)
+                desc = m.group(2).strip()
+                lines.append(f"{name}  —  {desc}" if desc else name)
+
+        if not lines:
+            output = "No video encoders found."
+        else:
+            output = "\n".join(lines)
+
+        self._showTextDialog("FFmpeg Video Encoders", output)
 
     def convertVideoFromButton(self):
         if self.file_path:
