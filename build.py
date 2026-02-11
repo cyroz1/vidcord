@@ -71,8 +71,19 @@ def build_linux():
 
 def build_macos():
     print("Building for macOS...")
-    # 1. Run PyInstaller
-    run_command(["pyinstaller", "--noconfirm", "platforms/macos/vidcord_mac.spec"])
+    # 1. Run PyInstaller — use the same Python that's running this script
+    #    to ensure PyQt6 and other venv packages are detected correctly
+    pyinstaller = shutil.which("pyinstaller")
+    venv_pyi = os.path.join(".venv", "bin", "pyinstaller")
+    if os.path.exists(venv_pyi):
+        pyinstaller = venv_pyi
+    elif not pyinstaller:
+        # Fallback: invoke as module via current interpreter
+        run_command([sys.executable, "-m", "PyInstaller", "--noconfirm", "platforms/macos/vidcord_mac.spec"])
+        run_command(["bash", "platforms/macos/build_pkg.sh"])
+        return
+
+    run_command([pyinstaller, "--noconfirm", "platforms/macos/vidcord_mac.spec"])
     
     # 2. Run pkg build
     run_command(["bash", "platforms/macos/build_pkg.sh"])
