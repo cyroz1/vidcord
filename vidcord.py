@@ -2229,6 +2229,15 @@ if __name__ == '__main__':
 
     setTheme(Theme.AUTO)
 
+    # Override QFluentWidgets default font families to avoid
+    # "Populating font family aliases" warning for missing fonts
+    if platform.system() == 'Darwin':
+        from qfluentwidgets import qconfig
+        qconfig.set(qconfig.fontFamilies, ['.AppleSystemUIFont', 'PingFang SC', 'Helvetica Neue'])
+    elif platform.system() == 'Linux':
+        from qfluentwidgets import qconfig
+        qconfig.set(qconfig.fontFamilies, ['Ubuntu', 'Noto Sans', 'DejaVu Sans'])
+
     app = VidCordApp(sys.argv)
     w = MainWindow()
     app.set_main_window(w)
