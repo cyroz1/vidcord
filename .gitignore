@@ -174,3 +174,4 @@ vidcord_v5.1_aarch64.appimage
 
 # Codex
 .codex/
+config/config.json
