@@ -37,12 +37,6 @@ productbuild \
     --component "$APP_PATH" "$INSTALL_LOCATION" \
     --identifier "$IDENTIFIER" \
     --version "$CLEAN_VERSION" \
-    --sign "Developer ID Installer: " 2>/dev/null \
-    "$OUTPUT_PKG" || \
-productbuild \
-    --component "$APP_PATH" "$INSTALL_LOCATION" \
-    --identifier "$IDENTIFIER" \
-    --version "$CLEAN_VERSION" \
     "$OUTPUT_PKG"
 
 echo "Done. Installer created at $OUTPUT_PKG"

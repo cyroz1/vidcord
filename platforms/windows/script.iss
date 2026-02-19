@@ -63,45 +63,45 @@ Source: "..\..\dist\vidcord\_internal\*"; DestDir: "{app}\_internal"; Flags: ign
 ;Registry data for context menu on specific video file extensions
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord"; Flags: uninsdeletekeyifempty
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord"; ValueType: string; ValueName: ""; ValueData: "Compress with vidcord"; Flags: uninsdeletevalue
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: "C:\\Program Files\\vidcord\\_internal\\icon.ico"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\_internal\icon.ico"; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord\command"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: """C:\\Program Files\\vidcord\\vidcord.exe"" ""%1"""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: """{app}\vidcord.exe"" ""%1"""; Flags: uninsdeletevalue
 
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\vidcord"; Flags: uninsdeletekeyifempty
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\vidcord"; ValueType: string; ValueName: ""; ValueData: "Compress with vidcord"; Flags: uninsdeletevalue
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: "C:\\Program Files\\vidcord\\_internal\\icon.ico"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\_internal\icon.ico"; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\vidcord\command"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: """C:\\Program Files\\vidcord\\vidcord.exe"" ""%1"""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: """{app}\vidcord.exe"" ""%1"""; Flags: uninsdeletevalue
 
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\vidcord"; Flags: uninsdeletekeyifempty
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\vidcord"; ValueType: string; ValueName: ""; ValueData: "Compress with vidcord"; Flags: uninsdeletevalue
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: "C:\\Program Files\\vidcord\\_internal\\icon.ico"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\_internal\icon.ico"; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\vidcord\command"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: """C:\\Program Files\\vidcord\\vidcord.exe"" ""%1"""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: """{app}\vidcord.exe"" ""%1"""; Flags: uninsdeletevalue
 
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\vidcord"; Flags: uninsdeletekeyifempty
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\vidcord"; ValueType: string; ValueName: ""; ValueData: "Compress with vidcord"; Flags: uninsdeletevalue
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: "C:\\Program Files\\vidcord\\_internal\\icon.ico"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\_internal\icon.ico"; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\vidcord\command"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: """C:\\Program Files\\vidcord\\vidcord.exe"" ""%1"""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: """{app}\vidcord.exe"" ""%1"""; Flags: uninsdeletevalue
 
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.flv\shell\vidcord"; Flags: uninsdeletekeyifempty
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.flv\shell\vidcord"; ValueType: string; ValueName: ""; ValueData: "Compress with vidcord"; Flags: uninsdeletevalue
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.flv\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: "C:\\Program Files\\vidcord\\_internal\\icon.ico"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.flv\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\_internal\icon.ico"; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.flv\shell\vidcord\command"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.flv\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: """C:\\Program Files\\vidcord\\vidcord.exe"" ""%1"""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.flv\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: """{app}\vidcord.exe"" ""%1"""; Flags: uninsdeletevalue
 
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.wmv\shell\vidcord"; Flags: uninsdeletekeyifempty
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.wmv\shell\vidcord"; ValueType: string; ValueName: ""; ValueData: "Compress with vidcord"; Flags: uninsdeletevalue
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.wmv\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: "C:\\Program Files\\vidcord\\_internal\\icon.ico"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.wmv\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\_internal\icon.ico"; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.wmv\shell\vidcord\command"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.wmv\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: """C:\\Program Files\\vidcord\\vidcord.exe"" ""%1"""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.wmv\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: """{app}\vidcord.exe"" ""%1"""; Flags: uninsdeletevalue
 
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\vidcord"; Flags: uninsdeletekeyifempty
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\vidcord"; ValueType: string; ValueName: ""; ValueData: "Compress with vidcord"; Flags: uninsdeletevalue
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: "C:\\Program Files\\vidcord\\_internal\\icon.ico"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\vidcord"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\_internal\icon.ico"; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\vidcord\command"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: """C:\\Program Files\\vidcord\\vidcord.exe"" ""%1"""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\vidcord\command"; ValueType: string; ValueName: ""; ValueData: """{app}\vidcord.exe"" ""%1"""; Flags: uninsdeletevalue
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

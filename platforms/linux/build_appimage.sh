@@ -5,26 +5,26 @@ set -e
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 
-# Ensure dist/vidcord exists
+# Ensure dist/vidcord exists (one-file build output)
 if [ ! -f "$PROJECT_ROOT/dist/vidcord" ]; then
     echo "Error: dist/vidcord not found. Please run PyInstaller first."
     exit 1
 fi
 
-# Create AppDir structure
-echo "Setting up AppDir..."
-rm -rf AppDir
-mkdir -p AppDir/usr/bin
+# Create AppDir structure (always in a temp location, not wherever the shell cwd is)
+APPDIR="$PROJECT_ROOT/AppDir"
+rm -rf "$APPDIR"
+mkdir -p "$APPDIR/usr/bin"
 
 # Copy files
-cp "$PROJECT_ROOT/dist/vidcord" AppDir/usr/bin/
-cp "$PROJECT_ROOT/icon.png" AppDir/icon.png
-cp "$SCRIPT_DIR/vidcord.desktop" AppDir/
-cp "$SCRIPT_DIR/qt.conf" AppDir/usr/bin/
+cp "$PROJECT_ROOT/dist/vidcord" "$APPDIR/usr/bin/"
+cp "$PROJECT_ROOT/icon.png"       "$APPDIR/icon.png"
+cp "$SCRIPT_DIR/vidcord.desktop"  "$APPDIR/"
+cp "$SCRIPT_DIR/qt.conf"          "$APPDIR/usr/bin/"
 
-# Create AppRun symlink
-# AppRun is the entry point. Linking it to our binary works for one-file builds.
-ln -s usr/bin/vidcord AppDir/AppRun
+# Create AppRun entry-point symlink and make binary executable
+chmod +x "$APPDIR/usr/bin/vidcord"
+ln -sf usr/bin/vidcord "$APPDIR/AppRun"
 
 # Detect architecture
 ARCH=$(uname -m)
@@ -40,35 +40,37 @@ else
 fi
 
 # Download and bundle FFmpeg
-    curl -L -v --retry 5 --retry-delay 5 -o ffmpeg.tar.xz "$FFMPEG_URL"
+echo "Downloading FFmpeg..."
+curl -L --retry 5 --retry-delay 5 -o "$PROJECT_ROOT/ffmpeg.tar.xz" "$FFMPEG_URL"
 
 echo "Extracting FFmpeg..."
-tar -xf ffmpeg.tar.xz
-# Find the extracted directory (it usually has a version number)
-FFMPEG_DIR=$(find . -maxdepth 1 -type d -name "ffmpeg-*-static" | head -n 1)
-cp "$FFMPEG_DIR/ffmpeg" AppDir/usr/bin/
-cp "$FFMPEG_DIR/ffprobe" AppDir/usr/bin/
-chmod +x AppDir/usr/bin/ffmpeg AppDir/usr/bin/ffprobe
-rm -rf "$FFMPEG_DIR" ffmpeg.tar.xz
+tar -xf "$PROJECT_ROOT/ffmpeg.tar.xz" -C "$PROJECT_ROOT"
+FFMPEG_DIR=$(find "$PROJECT_ROOT" -maxdepth 1 -type d -name "ffmpeg-*-static" | head -n 1)
+cp "$FFMPEG_DIR/ffmpeg"  "$APPDIR/usr/bin/"
+cp "$FFMPEG_DIR/ffprobe" "$APPDIR/usr/bin/"
+chmod +x "$APPDIR/usr/bin/ffmpeg" "$APPDIR/usr/bin/ffprobe"
+rm -rf "$FFMPEG_DIR" "$PROJECT_ROOT/ffmpeg.tar.xz"
 
-# Check for appimagetool in script directory
-    curl -L -v --retry 5 --retry-delay 5 -o "$SCRIPT_DIR/$TOOL_NAME" "https://github.com/AppImage/appimagetool/releases/download/continuous/$TOOL_NAME"
-
-# Build AppImage
-echo "Building AppImage..."
+# Download appimagetool only if not already cached
+TOOL_PATH="$SCRIPT_DIR/$TOOL_NAME"
+if [ ! -f "$TOOL_PATH" ]; then
+    echo "Downloading $TOOL_NAME..."
+    curl -L --retry 5 --retry-delay 5 -o "$TOOL_PATH" \
+        "https://github.com/AppImage/appimagetool/releases/download/continuous/$TOOL_NAME"
+fi
+chmod +x "$TOOL_PATH"
 
 # Extract version from vidcord.py
 VERSION_LINE=$(grep 'CURRENT_VERSION =' "$PROJECT_ROOT/vidcord.py")
-# Extract content between quotes
 VERSION_STRING=$(echo "$VERSION_LINE" | sed -n 's/.*"\(.*\)".*/\1/p')
-
-# Clean version (remove leading 'v' if present to avoid duplication in filename)
 CLEAN_VERSION="${VERSION_STRING#v}"
-
 OUTPUT_NAME="vidcord_v${CLEAN_VERSION}_${ARCH}.appimage"
 
+echo "Building AppImage..."
 mkdir -p "$PROJECT_ROOT/dist"
-chmod +x "$SCRIPT_DIR/$TOOL_NAME"
-ARCH=$ARCH "$SCRIPT_DIR/$TOOL_NAME" AppDir "$PROJECT_ROOT/dist/$OUTPUT_NAME"
+ARCH=$ARCH "$TOOL_PATH" "$APPDIR" "$PROJECT_ROOT/dist/$OUTPUT_NAME"
 
-echo "Success! AppImage created: $OUTPUT_NAME"
+# Clean up
+rm -rf "$APPDIR"
+
+echo "Success! AppImage created: dist/$OUTPUT_NAME"

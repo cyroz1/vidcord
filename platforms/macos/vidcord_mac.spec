@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
-
-block_cipher = None
+# NOTE: block_cipher was removed (deprecated in PyInstaller 6, always None)
 
 from PyInstaller.utils.hooks import collect_all
+import platform
 
 datas = [('ffmpeg', 'bin'), ('ffprobe', 'bin'), ('icon.icns', '.'), ('../../icon.ico', '.')]
 binaries = []
@@ -11,6 +11,9 @@ hiddenimports = ['ffmpeg']
 # Collect all resources for qfluentwidgets
 tmp_ret = collect_all('qfluentwidgets')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+
+# Detect the host arch at build time so the spec works on both arm64 and x86_64
+host_arch = platform.machine()  # 'arm64' or 'x86_64'
 
 a = Analysis(
     ['../../vidcord.py'],
@@ -22,12 +25,9 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
     noarchive=False,
 )
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
@@ -41,8 +41,8 @@ exe = EXE(
     upx=True,
     console=False,
     disable_windowed_traceback=False,
-    argv_emulation=True,
-    target_arch='arm64',
+    argv_emulation=False,   # True causes crashes on Ventura+ with some frameworks
+    target_arch=host_arch,
     codesign_identity=None,
     entitlements_file=None,
     icon='icon.icns',
@@ -62,7 +62,7 @@ app = BUNDLE(
     name='vidcord.app',
     icon='icon.icns',
     bundle_identifier='com.cyroz1.vidcord',
-    bundle_architecture='arm64',
+    bundle_architecture=host_arch,
     info_plist={
         'CFBundleDocumentTypes': [
             {
@@ -84,4 +84,3 @@ app = BUNDLE(
         ]
     }
 )
-
