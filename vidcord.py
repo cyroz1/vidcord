@@ -2198,7 +2198,7 @@ class VidCordInterface(QWidget):
             self.convertButton.clicked.disconnect()
         except Exception:
             pass
-        self.convertButton.clicked.connect(self.convertVideo)
+        self.convertButton.clicked.connect(self.convertVideoFromButton)
 
         self.etaLabel.setText(message)
         if success:
@@ -2310,9 +2310,18 @@ if __name__ == '__main__':
     # "Populating font family aliases" warning for missing fonts
     if platform.system() == 'Darwin':
         from qfluentwidgets import qconfig
+        # Point qfluentwidgets config to a user-writable location BEFORE calling
+        # qconfig.set(), which triggers save(). The default relative 'config/'
+        # path is read-only inside a .app bundle. (#bundle-config-fix)
+        _cfg_dir = os.path.join(os.path.expanduser('~'), 'Library', 'Application Support', 'vidcord')
+        os.makedirs(_cfg_dir, exist_ok=True)
+        qconfig.load(os.path.join(_cfg_dir, 'qconfig.json'))
         qconfig.set(qconfig.fontFamilies, ['.AppleSystemUIFont', 'PingFang SC', 'Helvetica Neue'])
     elif platform.system() == 'Linux':
         from qfluentwidgets import qconfig
+        _cfg_dir = os.path.join(os.path.expanduser('~'), '.config', 'vidcord')
+        os.makedirs(_cfg_dir, exist_ok=True)
+        qconfig.load(os.path.join(_cfg_dir, 'qconfig.json'))
         qconfig.set(qconfig.fontFamilies, ['Ubuntu', 'Noto Sans', 'DejaVu Sans'])
 
     app = VidCordApp(sys.argv)
