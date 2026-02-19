@@ -3,4 +3,3 @@ PyQt6
 requests
 PyQt6-Fluent-Widgets
 packaging
-urllib3<2.0.0
