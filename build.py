@@ -63,18 +63,30 @@ def build_windows(arch="x86_64"):
 
 def build_linux():
     print("Building for Linux...")
-    # 1. Run PyInstaller via build_linux.sh or directly
-    run_command(["bash", "platforms/linux/build_linux.sh"])
-    
-    # 2. Run AppImage build
-    run_command(["bash", "platforms/linux/build_appimage.sh"])
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    # 1. Run PyInstaller via build_linux.sh
+    run_command(["bash", "platforms/linux/build_linux.sh"], cwd=project_root)
+    # 2. Run AppImage build (must run from project root so relative paths resolve)
+    run_command(["bash", "platforms/linux/build_appimage.sh"], cwd=project_root)
 
 def build_macos():
     print("Building for macOS...")
-    # 1. Run PyInstaller
-    run_command(["pyinstaller", "--noconfirm", "platforms/macos/vidcord_mac.spec"])
-    
-    # 2. Run pkg build
+    project_root = os.path.dirname(os.path.abspath(__file__))
+
+    # Remove old .app bundle before PyInstaller runs to avoid PermissionError
+    # when macOS code-signs the bundle and makes files read-only.
+    old_app = os.path.join(project_root, "dist", "vidcord.app")
+    if os.path.isdir(old_app):
+        print(f"Removing old bundle: {old_app}")
+        subprocess.run(["sudo", "rm", "-rf", old_app], check=True)
+
+    # 1. Run PyInstaller — prefer the venv binary so the correct Python is used
+    pyinstaller = os.path.join(project_root, ".venv", "bin", "pyinstaller")
+    if not os.path.exists(pyinstaller):
+        pyinstaller = shutil.which("pyinstaller") or "pyinstaller"
+    run_command([pyinstaller, "--noconfirm", "platforms/macos/vidcord_mac.spec"])
+
+    # 2. Build the .pkg installer
     run_command(["bash", "platforms/macos/build_pkg.sh"])
 
 def main():
