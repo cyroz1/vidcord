@@ -20,6 +20,7 @@ CLEAN_VERSION="${VERSION_STRING#v}"
 ARCH=$(uname -m)
 
 OUTPUT_PKG_NAME="vidcord_v${CLEAN_VERSION}_${ARCH}.pkg"
+OUTPUT_PKG="$DIST_DIR/$OUTPUT_PKG_NAME"
 
 # Check if the app exists
 if [ ! -d "$APP_PATH" ]; then
@@ -27,31 +28,21 @@ if [ ! -d "$APP_PATH" ]; then
     exit 1
 fi
 
-# Verify bundle contents before packaging
-echo "Verifying bundle contents..."
-if [ -d "$APP_PATH/Contents/Frameworks" ]; then
-    echo "Frameworks found:"
-    ls -R "$APP_PATH/Contents/Frameworks"
-else
-    echo "Warning: No Frameworks directory found in bundle."
-fi
+echo "Building installer → $INSTALL_LOCATION/$APP_NAME.app"
 
-# Create the component package
-# Using --component is better for .app bundles than --root
-echo "Creating component package..."
-pkgbuild --component "$APP_PATH" \
-         --install-location "$INSTALL_LOCATION" \
-         "$DIST_DIR/$APP_NAME-component.pkg"
+# Single-step: productbuild --component guarantees the install location.
+# This avoids distribution.xml entirely so macOS Installer cannot redirect
+# the destination to ~/Applications or anywhere else.
+productbuild \
+    --component "$APP_PATH" "$INSTALL_LOCATION" \
+    --identifier "$IDENTIFIER" \
+    --version "$CLEAN_VERSION" \
+    --sign "Developer ID Installer: " 2>/dev/null \
+    "$OUTPUT_PKG" || \
+productbuild \
+    --component "$APP_PATH" "$INSTALL_LOCATION" \
+    --identifier "$IDENTIFIER" \
+    --version "$CLEAN_VERSION" \
+    "$OUTPUT_PKG"
 
-# Create the product archive (installer)
-echo "Creating product archive..."
-productbuild --distribution "$SCRIPT_DIR/distribution.xml" \
-             --package-path "$DIST_DIR" \
-             --resources "$SCRIPT_DIR" \
-             "$DIST_DIR/$OUTPUT_PKG_NAME"
-
-# Clean up component package
-rm "$DIST_DIR/$APP_NAME-component.pkg"
-
-echo "Done. Installer created at $DIST_DIR/$OUTPUT_PKG_NAME"
-
+echo "Done. Installer created at $OUTPUT_PKG"
