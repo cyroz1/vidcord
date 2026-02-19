@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="1">
-    <title>vidcord</title>
-    <options customize="never" require-scripts="false"/>
-    <domains enable_anywhere="true" enable_currentUserHome="true" enable_localSystem="true"/>
+    <title>Vidcord</title>
+    <!-- Force installation to /Applications only — no location choice shown to user -->
+    <options customize="never" require-scripts="false" rootVolumeOnly="true"/>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
     <choices-outline>
         <line choice="default">
             <line choice="com.cyroz1.vidcord"/>
