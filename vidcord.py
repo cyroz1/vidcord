@@ -32,6 +32,7 @@ import math
 import json
 import pathlib
 import tempfile
+import logging
 # import requests <-- Moved to checkForUpdates
 # from packaging import version <-- Moved to checkForUpdates
 
@@ -52,12 +53,43 @@ QUALITY_PRESETS = [
     {"label": "100MB, 1080p", "size_mb": 100, "target_h": 1080},
     {"label": "500MB, native res", "size_mb": 500, "target_h": None},
 ]
+# O(1) preset lookup by label (#8)
+_PRESET_BY_LABEL: dict = {p['label']: p for p in QUALITY_PRESETS}
 
 # --- PLATFORM CONSTANTS ---
 _CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
 
+# --- UI CONSTANTS ---
+# Shared stylesheet for translucent overlay buttons on the preview widget (#11)
+_OVERLAY_BUTTON_STYLE = (
+    "QToolButton {"
+    "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
+    "stop:0 rgba(255, 255, 255, 70), stop:1 rgba(255, 255, 255, 30));"
+    "border: 1px solid rgba(255, 255, 255, 160);"
+    "border-radius: 24px;"
+    "color: #ffffff;"
+    "}"
+    "QToolButton:hover {"
+    "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
+    "stop:0 rgba(255, 255, 255, 110), stop:1 rgba(255, 255, 255, 60));"
+    "border: 1px solid rgba(255, 255, 255, 220);"
+    "}"
+    "QToolButton:pressed {"
+    "background: rgba(255, 255, 255, 140);"
+    "}"
+)
+
 # --- LOGGING SETUP ---
+_logging_initialized = False
+# Module-level logger — all components use logger.debug/info/warning (#17)
+logger = logging.getLogger("vidcord")
+
 def setup_logging():
+    """Redirect stdout/stderr to the crash log. Guards against double-call."""
+    global _logging_initialized
+    if _logging_initialized:
+        return
+    _logging_initialized = True
     log_path = os.path.join(os.path.expanduser('~'), 'vidcord_crash.log')
     # Open the log file in append mode
     try:
@@ -74,19 +106,26 @@ def setup_logging():
         except Exception as e:
             print(f"Failed to redirect C-level streams: {e}")
         
+        # Route the Python logger to the same file (#17)
+        handler = logging.StreamHandler(log_file)
+        handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+        logging.getLogger("vidcord").addHandler(handler)
+        logging.getLogger("vidcord").setLevel(logging.DEBUG)
+        
         # Ensure log file is closed on exit
         atexit.register(log_file.close)
+
     except Exception as e:
         print(f"Failed to setup logging: {e}")
 
 def _log_startup_info():
     """Log startup information. Call after setup_logging() so output goes to log file."""
-    print(f"Starting vidcord {CURRENT_VERSION}")
-    print("DEBUG: Initial Environment Variables (Relevant):")
+    logger.info("Starting vidcord %s", CURRENT_VERSION)
+    logger.debug("Initial Environment Variables (Relevant):")
     for key in ['LD_LIBRARY_PATH', 'LIBVA_DRIVER_NAME', 'PATH', 'SHELL', 'TERM']:
         val = os.environ.get(key)
         if val:
-            print(f"  {key}={val}")
+            logger.debug("  %s=%s", key, val)
 
 
 # --- RESOURCE PATH HELPER FUNCTION ---
@@ -112,7 +151,8 @@ def resource_path(relative_path):
 def _get_temp_dir():
     """Get the platform-appropriate temp directory for vidcord."""
     if platform.system() == 'Windows':
-        appdata_path = os.getenv('APPDATA')
+        # Guard against APPDATA being unset in restricted environments
+        appdata_path = os.getenv('APPDATA') or os.path.expanduser('~')
         return os.path.join(appdata_path, 'vidcord')
     else:
         return os.path.join(os.path.expanduser('~'), '.vidcord')
@@ -150,7 +190,7 @@ class SettingsManager:
             # os.replace is atomic on most file systems
             os.replace(tmp_path, self.settings_file)
         except Exception as e:
-            print(f"Failed to save settings: {e}")
+            logger.warning("Failed to save settings: %s", e)
             # Clean up temp file on failure
             try:
                 if 'tmp_path' in locals() and os.path.exists(tmp_path):
@@ -219,7 +259,7 @@ class VideoProcessor:
                     break
                     
             if not bin_dir_found:
-                print("WARNING: Could not find working ffmpeg. Hardware encoders may not be detected.")
+                logger.warning("Could not find working ffmpeg. Hardware encoders may not be detected.")
         else:
             # If running from source, also try to find system ffmpeg
             if platform.system() == 'Darwin':
@@ -280,12 +320,12 @@ class VideoProcessor:
                             if 'amd' in line or 'radeon' in line: gpus['amd'] = True
                             if 'intel' in line: gpus['intel'] = True
                 except Exception as e:
-                    print(f"Linux GPU detection failed: {e}")
+                    logger.warning("Linux GPU detection failed: %s", e)
                     # Fallback to False for safety if lspci fails
                     return {'nvidia': False, 'amd': False, 'intel': False, 'apple': False}
             
         except Exception as e:
-            print(f"GPU detection failed: {e}")
+            logger.warning("GPU detection failed: %s", e)
             # If detection fails, return all true to avoid hiding valid encoders
             VideoProcessor._gpu_cache = {'nvidia': True, 'amd': True, 'intel': True, 'apple': True}
             return VideoProcessor._gpu_cache
@@ -309,10 +349,10 @@ class VideoProcessor:
                     # Only set if not already set, or force it? 
                     # forcing it is safer for this specific fix.
                     if env.get('LIBVA_DRIVER_NAME') != 'radeonsi':
-                        print("DEBUG: Force-setting LIBVA_DRIVER_NAME=radeonsi for AMD VAAPI")
+                        logger.debug("Force-setting LIBVA_DRIVER_NAME=radeonsi for AMD VAAPI")
                         env['LIBVA_DRIVER_NAME'] = 'radeonsi'
             except Exception as e:
-                print(f"DEBUG: Failed to setup FFmpeg env: {e}")
+                logger.debug("Failed to setup FFmpeg env: %s", e)
         return env
 
     @staticmethod
@@ -352,11 +392,11 @@ class VideoProcessor:
                         
                     # Check for specific memory errors which indicate driver issues
                     if "Cannot allocate memory" in result.stderr:
-                         print(f"DEBUG: VAAPI OOM on {path}: {result.stderr.splitlines()[-1] if result.stderr else 'Unknown'}")
-                         
+                        logger.debug("VAAPI OOM on %s: %s", path,
+                                     result.stderr.splitlines()[-1] if result.stderr else 'Unknown')
                     return False
                 except Exception as e:
-                    print(f"DEBUG: Error checking VAAPI device {path}: {e}")
+                    logger.debug("Error checking VAAPI device %s: %s", path, e)
                     return False
 
             # Sort: usage of renderD128 is standard preference
@@ -364,15 +404,15 @@ class VideoProcessor:
 
             for node in render_nodes:
                 if is_device_working(node):
-                    print(f"DEBUG: Found working VAAPI device: {node}")
+                    logger.debug("Found working VAAPI device: %s", node)
                     VideoProcessor._vaapi_cache = node
                     VideoProcessor._vaapi_cache_set = True
                     return node
-            
-            print("DEBUG: No working VAAPI devices found.")
-            
+
+            logger.debug("No working VAAPI devices found.")
+
         except Exception as e:
-            print(f"Error scanning for VAAPI devices: {e}")
+            logger.warning("Error scanning for VAAPI devices: %s", e)
         
         VideoProcessor._vaapi_cache = None
         VideoProcessor._vaapi_cache_set = True
@@ -390,13 +430,13 @@ class VideoProcessor:
             )
             encoders_output = result.stdout
             
-            # Print for debugging in the log file
-            print(f"DEBUG: Found {len(encoders_output.splitlines())} encoder lines in FFmpeg output")
+            # Log for debugging
+            logger.debug("Found %d encoder lines in FFmpeg output", len(encoders_output.splitlines()))
         except FileNotFoundError:
-            print("DEBUG: ffmpeg binary not found.")
+            logger.debug("ffmpeg binary not found.")
             return []
         except Exception as e:
-            print(f"DEBUG: Error running ffmpeg for detection: {e}")
+            logger.debug("Error running ffmpeg for detection: %s", e)
             return []
 
         try:
@@ -451,25 +491,32 @@ class VideoProcessor:
                         available_encoders.append((encoder, label))
                         
             if not any(e[0].endswith('_vaapi') for e in available_encoders) and system == 'Linux':
-                print("DEBUG: No VAAPI encoders found in Linux. Raw output first 1000 chars:")
-                print(encoders_output[:1000])
+                logger.debug("No VAAPI encoders found in Linux. Raw output first 1000 chars:\n%s",
+                             encoders_output[:1000])
                         
             return available_encoders
         except Exception as e:
-            print(f"DEBUG: Critical error in get_available_encoders parsing: {e}")
+            logger.debug("Critical error in get_available_encoders parsing: %s", e)
             import traceback
             traceback.print_exc()
             return []
 
     @staticmethod
-    def calculate_bitrate(target_size_mb, duration_sec, audio_bitrate=128, remove_audio=False):
-        target_size_kb = target_size_mb * 1024 * 8
+    def calculate_bitrate(target_size_mb: float, duration_sec: float, audio_bitrate: int = 128, remove_audio: bool = False) -> int:
+        """Compute target video bitrate (kbps) to hit the given file size.
+
+        audio_bitrate is in kbps. Total audio size in kilobits:
+            audio_bitrate [kbps] * duration_sec [s] = total audio kilobits
+        Target file size in kilobits: target_size_mb * 1024 * 8
+        """
+        target_size_kbits = target_size_mb * 1024 * 8
         if remove_audio:
-            audio_bitrate_kb = 0
+            audio_kbits = 0
         else:
-            audio_bitrate_kb = audio_bitrate * duration_sec
-        
-        video_bitrate = (target_size_kb - audio_bitrate_kb) / duration_sec
+            # audio_bitrate is in kbps, so total audio = bitrate * duration
+            audio_kbits = audio_bitrate * duration_sec
+
+        video_bitrate = (target_size_kbits - audio_kbits) / duration_sec
         # Ensure minimum bitrate of 100kbps to prevent "Conversion failed" for long videos
         return max(100, int(video_bitrate * 0.9))
 
@@ -504,10 +551,10 @@ class VideoProcessor:
                 'bitrate': bitrate
             }
         except ffmpeg.Error as e:
-            print(f"FFmpeg probe error: {e.stderr.decode() if e.stderr else str(e)}")
+            logger.warning("FFmpeg probe error: %s", e.stderr.decode() if e.stderr else str(e))
             raise
         except Exception as e:
-            print(f"Probe error: {e}")
+            logger.warning("Probe error: %s", e)
             raise
 
     @staticmethod
@@ -531,7 +578,7 @@ class VideoProcessor:
             subprocess.run(ffmpeg_command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, creationflags=_CREATION_FLAGS, env=VideoProcessor.get_ffmpeg_env())
             return temp_image_path
         except Exception as e:
-            print(f"Preview generation failed: {e}")
+            logger.warning("Preview generation failed: %s", e)
             return None
 
 class CompressionThread(QThread):
@@ -546,20 +593,20 @@ class CompressionThread(QThread):
         self.is_running = True
 
     def run(self):
-        print(f"DEBUG: Starting encoding with command: {self.cmd}")
+        logger.debug("Starting encoding with command: %s", self.cmd)
         process = subprocess.Popen(self.cmd, stderr=subprocess.PIPE, text=True, universal_newlines=True, creationflags=_CREATION_FLAGS, env=VideoProcessor.get_ffmpeg_env())
         
         encoding_start_time = time.time()
         
-        full_log = [] # Capture full log
+        full_log = []  # Capture full log
 
         while process.poll() is None and self.is_running:
             line = process.stderr.readline()
             if line:
                 full_log.append(line.strip())
-                # Log "error" or "warning" lines immediately
+                # Route ffmpeg error/warning lines through the logger
                 if "error" in line.lower() or "warning" in line.lower():
-                     print(f"FFMPEG_LOG: {line.strip()}")
+                    logger.debug("FFMPEG: %s", line.strip())
 
                 if "time=" in line:
                     try:
@@ -582,14 +629,20 @@ class CompressionThread(QThread):
                         pass
         
         if not self.is_running:
-            print("DEBUG: Encoding cancelled by user.")
+            logger.debug("Encoding cancelled by user.")
             process.terminate()
+            # Wait for the process to exit to avoid zombie processes on Linux/macOS
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
             # Clean up partial output file
             if self.output_file:
                 try:
                     if os.path.exists(self.output_file):
                         os.remove(self.output_file)
-                        print(f"DEBUG: Cleaned up partial file: {self.output_file}")
+                        logger.debug("Cleaned up partial file: %s", self.output_file)
                 except Exception:
                     pass
             return
@@ -602,14 +655,12 @@ class CompressionThread(QThread):
             full_log.extend(remaining_stderr.splitlines())
 
         if process.returncode == 0:
-            print("DEBUG: Encoding finished successfully.")
+            logger.debug("Encoding finished successfully.")
             self.finished.emit(True, "Conversion complete!")
         else:
-            print(f"DEBUG: Encoding failed with return code {process.returncode}")
-            # Log full stderr for debugging
-            print("DEBUG: Full FFmpeg Log:")
-            for l in full_log:
-                print(f"  {l}")
+            logger.debug("Encoding failed with return code %d", process.returncode)
+            # Log full stderr at debug level
+            logger.debug("Full FFmpeg Log:\n%s", "\n".join(full_log))
 
             # Try to grab the last few lines of stderr for a better error message
             error_msg = "Conversion failed."
@@ -675,11 +726,20 @@ class PreviewThread(QThread):
             if self.is_running and self.process.returncode == 0:
                 self.preview_ready.emit(temp_image_path)
             else:
+                # Always clean up the temp file when we are not emitting it
                 if os.path.exists(temp_image_path):
-                    try: os.remove(temp_image_path)
-                    except Exception: pass
+                    try:
+                        os.remove(temp_image_path)
+                    except Exception:
+                        pass
         except Exception as e:
-            print(f"Preview thread failed: {e}")
+            logger.warning("Preview thread failed: %s", e)
+            # Clean up temp file on any exception too
+            try:
+                if os.path.exists(temp_image_path):
+                    os.remove(temp_image_path)
+            except Exception:
+                pass
 
     def stop(self):
         self.is_running = False
@@ -693,15 +753,15 @@ class EncoderDetectionThread(QThread):
     finished = pyqtSignal(list)
 
     def run(self):
-        print("DEBUG: EncoderDetectionThread started")
+        logger.debug("EncoderDetectionThread started")
         # Ensure ffmpeg is found before detecting encoders
         VideoProcessor.setup_ffmpeg_path()
         try:
             encoders = VideoProcessor.get_available_encoders()
-            print(f"DEBUG: EncoderDetectionThread finished with {len(encoders)} encoders")
+            logger.debug("EncoderDetectionThread finished with %d encoders", len(encoders))
             self.finished.emit(encoders)
         except Exception as e:
-            print(f"DEBUG: EncoderDetectionThread CRASHED: {e}")
+            logger.debug("EncoderDetectionThread CRASHED: %s", e)
             import traceback
             traceback.print_exc()
             self.finished.emit([])
@@ -893,23 +953,7 @@ class PreviewWidget(QWidget):
         button = QToolButton(self)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setFixedSize(48, 48)
-        button.setStyleSheet(
-            "QToolButton {"
-            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
-            "stop:0 rgba(255, 255, 255, 70), stop:1 rgba(255, 255, 255, 30));"
-            "border: 1px solid rgba(255, 255, 255, 160);"
-            "border-radius: 24px;"
-            "color: #ffffff;"
-            "}"
-            "QToolButton:hover {"
-            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
-            "stop:0 rgba(255, 255, 255, 110), stop:1 rgba(255, 255, 255, 60));"
-            "border: 1px solid rgba(255, 255, 255, 220);"
-            "}"
-            "QToolButton:pressed {"
-            "background: rgba(255, 255, 255, 140);"
-            "}"
-        )
+        button.setStyleSheet(_OVERLAY_BUTTON_STYLE)  # (#11) shared constant
         return button
 
     def _set_play_button_icon(self):
@@ -1366,10 +1410,10 @@ class VidCordInterface(QWidget):
         
         sliders_layout = QHBoxLayout()
         self.startTimeSlider = Slider(Qt.Orientation.Horizontal, self)
-        self.startTimeSlider.setRange(0, 1000)
+        self.startTimeSlider.setRange(0, 10000)
         self.endTimeSlider = Slider(Qt.Orientation.Horizontal, self)
-        self.endTimeSlider.setRange(0, 1000)
-        self.endTimeSlider.setValue(1000)
+        self.endTimeSlider.setRange(0, 10000)
+        self.endTimeSlider.setValue(10000)
         
         sliders_layout.addWidget(BodyLabel("Start", self))
         sliders_layout.addWidget(self.startTimeSlider)
@@ -1501,19 +1545,25 @@ class VidCordInterface(QWidget):
         self.update_thread.start()
 
     def onUpdateAvailable(self, latest_version, release_url):
-        InfoBar.info(
+        """Show update notification with a clickable 'Download' action (#13)."""
+        import webbrowser
+        bar = InfoBar.info(
             title='Update Available',
-            content=f"Version {latest_version} is available on GitHub Releases.",
+            content=f"Version {latest_version} is available.",
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,
-            duration=8000,
+            duration=0,  # Keep open until dismissed
             parent=self
         )
+        # Add a Download button that opens the release page (#13)
+        from qfluentwidgets import HyperlinkButton
+        btn = HyperlinkButton(QUrl(release_url), 'Download', bar)
+        bar.addWidget(btn)
 
     def onUpdateCheckFailed(self, reason):
         # Silently log failures to avoid noisy UI
-        print(f"Update check failed: {reason}")
+        logger.debug("Update check failed: %s", reason)
 
     def loadPreviousSelections(self):
         quality_index = self.settings_manager.get("quality_index", 0)
@@ -1725,7 +1775,8 @@ class VidCordInterface(QWidget):
         try:
             self.probed_data = self.video_processor.probe_video(self.file_path)
             
-            self.duration_for_slider = self.probed_data['duration'] * 10
+            # Slider integer range = duration × 100, giving 0.01 s precision (#9)
+            self.duration_for_slider = self.probed_data['duration'] * 100
 
             if self.probed_data.get('width') and self.probed_data.get('height'):
                 self.videoPreview.setContentAspectRatio(
@@ -1758,7 +1809,7 @@ class VidCordInterface(QWidget):
     def updateStartTime(self):
         self.stopPreviewPlayback()
         start_val = self.startTimeSlider.value()
-        start_time_sec = start_val / 10.0
+        start_time_sec = start_val / 100.0
         self.startLabel.setText(f'{start_time_sec:.1f}s')
         
         if self.endTimeSlider.value() < start_val:
@@ -1773,7 +1824,7 @@ class VidCordInterface(QWidget):
     def updateEndTime(self):
         self.stopPreviewPlayback()
         end_val = self.endTimeSlider.value()
-        end_time_sec = end_val / 10.0
+        end_time_sec = end_val / 100.0
         self.endLabel.setText(f'{end_time_sec:.1f}s')
         
         if self.startTimeSlider.value() > end_val:
@@ -1850,8 +1901,8 @@ class VidCordInterface(QWidget):
             )
             return
 
-        start_time = self.startTimeSlider.value() / 10.0
-        end_time = self.endTimeSlider.value() / 10.0
+        start_time = self.startTimeSlider.value() / 100.0
+        end_time = self.endTimeSlider.value() / 100.0
         if end_time <= start_time:
             InfoBar.warning(
                 title='Warning',
@@ -2006,12 +2057,8 @@ class VidCordInterface(QWidget):
                 selected_encoder = self.encoder_mapping.get(selected_encoder_label, 'libx264')
         else:
             quality = self.qualityComboBox.currentText()
-            # Look up preset from QUALITY_PRESETS
-            preset = None
-            for p in QUALITY_PRESETS:
-                if p['label'] == quality:
-                    preset = p
-                    break
+            # O(1) lookup via pre-built dict (#8)
+            preset = _PRESET_BY_LABEL.get(quality)
             if preset:
                 target_size = preset['size_mb']
                 target_h = preset['target_h']
@@ -2023,8 +2070,8 @@ class VidCordInterface(QWidget):
             selected_encoder_label = self.encoderComboBox.currentText()
             selected_encoder = self.encoder_mapping.get(selected_encoder_label, 'libx264')
 
-        start_time = self.startTimeSlider.value() / 10.0
-        end_time = self.endTimeSlider.value() / 10.0
+        start_time = self.startTimeSlider.value() / 100.0
+        end_time = self.endTimeSlider.value() / 100.0
         clip_duration = end_time - start_time
         
         if clip_duration <= 0:
@@ -2047,7 +2094,13 @@ class VidCordInterface(QWidget):
             
         base_name = os.path.basename(filePath)
         name, _ = os.path.splitext(base_name)
-        output_file = os.path.join(downloads_path, f"{name}-vidcord.mp4")
+        # (#14) Auto-increment the filename if it already exists
+        candidate = os.path.join(downloads_path, f"{name}-vidcord.mp4")
+        counter = 1
+        while os.path.exists(candidate):
+            candidate = os.path.join(downloads_path, f"{name}-vidcord-{counter}.mp4")
+            counter += 1
+        output_file = candidate
 
         # Prepare filters
         filters = []
@@ -2088,8 +2141,8 @@ class VidCordInterface(QWidget):
                     filters.append("scale_vaapi=w=iw:h=ih")
                     
             else:
-                print("DEBUG: VAAPI selected but no device found. Falling back to CPU.")
-                selected_encoder = 'libx264' # Safe fallback
+                logger.debug("VAAPI selected but no device found. Falling back to CPU.")
+                selected_encoder = 'libx264'  # Safe fallback
 
         cmd.extend([
             "-ss", str(start_time),
@@ -2109,24 +2162,44 @@ class VidCordInterface(QWidget):
         cmd.append(output_file)
 
         # Start Thread
-        self.convertButton.setEnabled(False)
+        self.convertButton.setEnabled(False)  # Will become Cancel below
+        self.convertButton.setText('Cancel')
+        self.convertButton.clicked.disconnect()
+        self.convertButton.clicked.connect(self._cancelConversion)  # (#15)
         self.progressBar.setValue(0)
         self.etaLabel.setText("Starting...")
         
         # Log the command for debugging
-        print(f"DEBUG: FFmpeg Command: {cmd}")
+        logger.debug("FFmpeg Command: %s", cmd)
 
         self.thread = CompressionThread(cmd, clip_duration, output_file=output_file)
         self.thread.progress_updated.connect(self.updateProgress)
         self.thread.finished.connect(lambda success, msg, output_file=output_file: self.conversionFinished(success, msg, output_file))
         self.thread.start()
 
+    def _cancelConversion(self):
+        """Cancel the running compression thread (#15)."""
+        if self.thread and self.thread.isRunning():
+            self.thread.stop()
+        # Re-label button immediately so it feels responsive
+        self.convertButton.setText('Converting...')
+        self.convertButton.setEnabled(False)
+
     def updateProgress(self, percent, eta, status):
         self.progressBar.setValue(percent)
         self.etaLabel.setText(f"{status} ETA: {eta}")
 
     def conversionFinished(self, success, message, output_file):
+        """Restore the UI after compression finishes or is cancelled."""
+        # Re-wire the Convert button regardless of outcome (#15)
         self.convertButton.setEnabled(True)
+        self.convertButton.setText('Convert')
+        try:
+            self.convertButton.clicked.disconnect()
+        except Exception:
+            pass
+        self.convertButton.clicked.connect(self.convertVideo)
+
         self.etaLabel.setText(message)
         if success:
             self.progressBar.setValue(100)
@@ -2153,13 +2226,17 @@ class VidCordInterface(QWidget):
             )
 
     def showInFileExplorer(self, filePath):
-        abs_path = os.path.abspath(filePath)
-        if sys.platform == 'win32':
-            subprocess.run(['explorer', '/select,', abs_path])
-        elif sys.platform == 'darwin':
-            subprocess.run(['open', '-R', abs_path])
-        elif sys.platform.startswith('linux'):
-            subprocess.run(['xdg-open', os.path.dirname(abs_path)])
+        """Reveal the output file in the OS file manager (#16)."""
+        try:
+            abs_path = os.path.abspath(filePath)
+            if sys.platform == 'win32':
+                subprocess.run(['explorer', '/select,', abs_path], check=True)
+            elif sys.platform == 'darwin':
+                subprocess.run(['open', '-R', abs_path], check=True)
+            elif sys.platform.startswith('linux'):
+                subprocess.run(['xdg-open', os.path.dirname(abs_path)], check=True)
+        except Exception as e:
+            logger.warning("Failed to open file explorer: %s", e)
 
 class MainWindow(FluentWindow):
     def __init__(self):
