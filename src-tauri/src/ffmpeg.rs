@@ -30,16 +30,15 @@ pub fn get_ffmpeg_env() -> HashMap<String, String> {
 
 pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let env = get_ffmpeg_env();
-    let out = std::process::Command::new("ffprobe")
-        .args([
-            "-v", "quiet",
-            "-print_format", "json",
-            "-show_streams",
-            "-show_format",
-            path,
-        ])
-        .envs(&env)
-        .output()?;
+
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new("ffprobe");
+    cmd.args(["-v", "quiet", "-print_format", "json", "-show_streams", "-show_format", path])
+        .envs(&env);
+    #[cfg(target_os = "windows")]
+    { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); }
+
+    let out = cmd.output()?;
 
     if !out.status.success() {
         return Err(format!("ffprobe failed: {}", String::from_utf8_lossy(&out.stderr)).into());
@@ -90,21 +89,17 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<String, Box<dyn std
     };
     let tmp_path = tmp_dir.join(format!("preview_{rand_hex}.jpg"));
 
-    let status = std::process::Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-ss", &time_sec.to_string(),
-            "-i", path,
-            "-an", "-sn",
-            "-frames:v", "1",
-            "-q:v", "4",
-            "-vf", "scale=320:-1:flags=fast_bilinear",
-        ])
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new("ffmpeg");
+    cmd.args(["-y", "-ss", &time_sec.to_string(), "-i", path, "-an", "-sn", "-frames:v", "1", "-q:v", "4", "-vf", "scale=320:-1:flags=fast_bilinear"])
         .arg(tmp_path.to_str().ok_or("Invalid tmp path")?)
         .envs(&env)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()?;
+        .stderr(std::process::Stdio::null());
+    #[cfg(target_os = "windows")]
+    { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); }
+
+    let status = cmd.status()?;
 
     if !status.success() {
         return Err("FFmpeg preview failed".into());
@@ -121,11 +116,14 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<String, Box<dyn std
 
 pub fn get_available_encoders() -> Vec<(String, String)> {
     let env = get_ffmpeg_env();
-    let out = match std::process::Command::new("ffmpeg")
-        .args(["-hide_banner", "-encoders"])
-        .envs(&env)
-        .output()
-    {
+
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new("ffmpeg");
+    cmd.args(["-hide_banner", "-encoders"]).envs(&env);
+    #[cfg(target_os = "windows")]
+    { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); }
+
+    let out = match cmd.output() {
         Ok(o) => o,
         Err(_) => return vec![("libx264".to_string(), "CPU (libx264)".to_string())],
     };

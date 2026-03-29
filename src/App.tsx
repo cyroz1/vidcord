@@ -7,6 +7,7 @@ import "./App.css";
 import Toast from "./components/Toast";
 import ProgressSection from "./components/ProgressSection";
 import PreviewPane from "./components/PreviewPane";
+import EncodersDialog from "./components/EncodersDialog";
 
 const CURRENT_VERSION = "v5.6";
 
@@ -92,6 +93,9 @@ export default function App() {
   // Update notification
   const [updateInfo, setUpdateInfo] = useState<{ version: string; url: string } | null>(null);
 
+  // Encoders dialog
+  const [encodersDialogText, setEncodersDialogText] = useState<string | null>(null);
+
   // Toasts
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
 
@@ -125,11 +129,16 @@ export default function App() {
     invoke("save_settings", { settings: settingsRef.current }).catch(() => {});
   }, []);
 
-  // Encoder detection
+  // Encoder detection + ffmpeg availability check
   useEffect(() => {
     invoke<Encoder[]>("detect_encoders").then(list => {
       if (list.length > 0) {
-        setEncoders(list);
+        // Check if ffmpeg is missing (sentinel returned by backend)
+        if ((list[0] as Encoder & { ffmpeg_missing?: boolean }).ffmpeg_missing) {
+          addToast("error", "FFmpeg Not Found",
+            "FFmpeg was not found on PATH. Install FFmpeg and restart vidcord to enable compression.");
+        }
+        setEncoders(list.map(({ name, label }) => ({ name, label })));
         const savedLabel = settingsRef.current.encoder_label as string | undefined;
         if (savedLabel) {
           const idx = list.findIndex(e => e.label === savedLabel);
@@ -139,7 +148,15 @@ export default function App() {
         setEncoderIdx(Math.min(savedIdx, list.length - 1));
       }
     }).catch(() => {});
-  }, []);
+  }, [addToast]);
+
+  // Listen for file opened via CLI arg or OS file association
+  useEffect(() => {
+    const unsub = listen<string>("open-file", e => {
+      loadVideo(e.payload);
+    });
+    return () => { unsub.then(fn => fn()); };
+  }, []); // loadVideo stable via useCallback, omitted to avoid re-subscribing
 
   // File drop via OS / drag-drop
   useEffect(() => {
@@ -308,8 +325,8 @@ export default function App() {
 
   const showEncoders = useCallback(async () => {
     const text = await invoke<string>("list_ffmpeg_video_encoders").catch(e => `Error: ${e}`);
-    addToast("info", "FFmpeg Video Encoders", text.slice(0, 800) + (text.length > 800 ? "\n…" : ""));
-  }, [addToast]);
+    setEncodersDialogText(text);
+  }, []);
 
   const startTime = probeData ? (startVal / sliderMax) * probeData.duration : 0;
   const endTime = probeData ? (endVal / sliderMax) * probeData.duration : 0;
@@ -459,6 +476,11 @@ export default function App() {
           </label>
         </div>
       </div>
+
+      {/* Encoders dialog */}
+      {encodersDialogText !== null && (
+        <EncodersDialog text={encodersDialogText} onClose={() => setEncodersDialogText(null)} />
+      )}
 
       {/* Toasts */}
       <div className="toast-container">
