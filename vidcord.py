@@ -2283,6 +2283,15 @@ class MainWindow(FluentWindow):
         self.titleBar.titleLabel.hide()
         self.titleBar.iconLabel.hide()
 
+        # Use platform-native window button positions:
+        # macOS: native traffic light buttons on the left
+        # Windows/Linux: fluent-style buttons on the right (default)
+        if platform.system() == 'Darwin':
+            self.setSystemTitleBarButtonVisible(True)
+            self.titleBar.minBtn.hide()
+            self.titleBar.maxBtn.hide()
+            self.titleBar.closeBtn.hide()
+
         # Fix title bar alignment
         self.titleBar.layout().setContentsMargins(0, 0, 0, 0)
 
