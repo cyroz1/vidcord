@@ -1,0 +1,70 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #1c1c1e;
+  --surface: #2c2c2e;
+  --surface2: #3a3a3c;
+  --border: rgba(255,255,255,0.1);
+  --accent: #0a84ff;
+  --accent-hover: #409cff;
+  --text: #f2f2f7;
+  --text-secondary: rgba(242,242,247,0.6);
+  --radius: 10px;
+  --radius-sm: 6px;
+  --success: #30d158;
+  --error: #ff453a;
+  --warning: #ffd60a;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  font-size: 14px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f2f2f7;
+    --surface: #ffffff;
+    --surface2: #e5e5ea;
+    --border: rgba(0,0,0,0.12);
+    --text: #1c1c1e;
+    --text-secondary: rgba(28,28,30,0.55);
+  }
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+input, select {
+  font-family: inherit;
+  font-size: 14px;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--surface2);
+  border-radius: 3px;
+}

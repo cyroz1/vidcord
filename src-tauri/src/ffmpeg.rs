@@ -1,0 +1,254 @@
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::OnceLock;
+use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
+use crate::gpu::get_system_gpus;
+
+static VAAPI_CACHE: OnceLock<Option<String>> = OnceLock::new();
+
+// ---------------------------------------------------------------------------
+// FFmpeg environment
+// ---------------------------------------------------------------------------
+
+pub fn get_ffmpeg_env() -> HashMap<String, String> {
+    let mut env: HashMap<String, String> = std::env::vars().collect();
+
+    #[cfg(target_os = "linux")]
+    {
+        let gpus = get_system_gpus();
+        if *gpus.get("amd").unwrap_or(&false) && !env.contains_key("LIBVA_DRIVER_NAME") {
+            env.insert("LIBVA_DRIVER_NAME".to_string(), "radeonsi".to_string());
+        }
+    }
+
+    env
+}
+
+// ---------------------------------------------------------------------------
+// Video probing
+// ---------------------------------------------------------------------------
+
+pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let env = get_ffmpeg_env();
+    let out = std::process::Command::new("ffprobe")
+        .args([
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_streams",
+            "-show_format",
+            path,
+        ])
+        .envs(&env)
+        .output()?;
+
+    if !out.status.success() {
+        return Err(format!("ffprobe failed: {}", String::from_utf8_lossy(&out.stderr)).into());
+    }
+
+    let data: serde_json::Value = serde_json::from_slice(&out.stdout)?;
+    let format = &data["format"];
+    let duration: f64 = format["duration"].as_str()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
+
+    let streams = data["streams"].as_array().ok_or("No streams")?;
+    let video = streams.iter()
+        .find(|s| s["codec_type"].as_str() == Some("video"))
+        .ok_or("No video stream")?;
+
+    let width = video["width"].as_u64().unwrap_or(0);
+    let height = video["height"].as_u64().unwrap_or(0);
+    let bitrate = video["bit_rate"].as_str()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(|b| b / 1000)
+        .or_else(|| format["bit_rate"].as_str()
+            .and_then(|s| s.parse::<u64>().ok())
+            .map(|b| b / 1000))
+        .unwrap_or(0);
+
+    Ok(serde_json::json!({
+        "duration": duration,
+        "width": width,
+        "height": height,
+        "bitrate": bitrate
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Preview frame extraction
+// ---------------------------------------------------------------------------
+
+pub fn generate_preview(path: &str, time_sec: f64) -> Result<String, Box<dyn std::error::Error>> {
+    let env = get_ffmpeg_env();
+    let tmp_dir = temp_dir();
+    std::fs::create_dir_all(&tmp_dir)?;
+
+    let rand_hex: String = {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.subsec_nanos();
+        format!("{:x}{:x}", nanos, std::process::id())
+    };
+    let tmp_path = tmp_dir.join(format!("preview_{rand_hex}.jpg"));
+
+    let status = std::process::Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-ss", &time_sec.to_string(),
+            "-i", path,
+            "-an", "-sn",
+            "-frames:v", "1",
+            "-q:v", "4",
+            "-vf", "scale=320:-1:flags=fast_bilinear",
+        ])
+        .arg(tmp_path.to_str().ok_or("Invalid tmp path")?)
+        .envs(&env)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()?;
+
+    if !status.success() {
+        return Err("FFmpeg preview failed".into());
+    }
+
+    let bytes = std::fs::read(&tmp_path)?;
+    let _ = std::fs::remove_file(&tmp_path);
+    Ok(B64.encode(&bytes))
+}
+
+// ---------------------------------------------------------------------------
+// Encoder detection
+// ---------------------------------------------------------------------------
+
+pub fn get_available_encoders() -> Vec<(String, String)> {
+    let env = get_ffmpeg_env();
+    let out = match std::process::Command::new("ffmpeg")
+        .args(["-hide_banner", "-encoders"])
+        .envs(&env)
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return vec![("libx264".to_string(), "CPU (libx264)".to_string())],
+    };
+
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    let gpus = get_system_gpus();
+    let system = std::env::consts::OS;
+
+    // Parse ffmpeg encoder list
+    let re = regex_lite::Regex::new(r"^\s*V[A-Z.]*\s+([a-zA-Z0-9_]+)\s+").unwrap();
+    let mut ffmpeg_encoders: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for line in text.lines() {
+        if let Some(cap) = re.captures(line) {
+            ffmpeg_encoders.insert(cap[1].to_string());
+        }
+    }
+
+    let mut result: Vec<(String, String)> = Vec::new();
+
+    let candidates = [
+        ("libx264", "CPU (libx264)", true, ""),
+        ("h264_nvenc", "NVIDIA (h264_nvenc)", false, "nvidia"),
+        ("h264_amf", "AMD (h264_amf)", false, "amd"),
+        ("h264_qsv", "Intel (h264_qsv)", false, "intel"),
+        ("h264_vaapi", "Linux Hardware (h264_vaapi)", false, "vaapi"),
+        ("h264_videotoolbox", "Apple Silicon (h264_videotoolbox)", false, "apple"),
+    ];
+
+    for (enc, label, always, gpu_key) in &candidates {
+        let include = if *always {
+            true
+        } else if *gpu_key == "vaapi" {
+            system == "linux" && find_vaapi_device().is_some()
+        } else if *gpu_key == "apple" {
+            system == "macos"
+        } else {
+            *gpus.get(*gpu_key).unwrap_or(&false)
+        };
+
+        if include && (*enc == "libx264" || *enc == "h264_vaapi" || ffmpeg_encoders.contains(*enc)) {
+            result.push((enc.to_string(), label.to_string()));
+        }
+    }
+
+    if result.is_empty() {
+        result.push(("libx264".to_string(), "CPU (libx264)".to_string()));
+    }
+    result
+}
+
+// ---------------------------------------------------------------------------
+// VAAPI device discovery (Linux)
+// ---------------------------------------------------------------------------
+
+pub fn find_vaapi_device() -> Option<String> {
+    VAAPI_CACHE.get_or_init(|| {
+        #[cfg(target_os = "linux")]
+        {
+            let dri = std::path::Path::new("/dev/dri");
+            if !dri.exists() {
+                return None;
+            }
+
+            let mut nodes: Vec<PathBuf> = std::fs::read_dir(dri)
+                .ok()?
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.file_name().and_then(|n| n.to_str()).map(|n| n.starts_with("renderD")).unwrap_or(false))
+                .collect();
+
+            // Prefer renderD128
+            nodes.sort_by_key(|p| if p.to_string_lossy().contains("renderD128") { 0 } else { 1 });
+
+            let env = get_ffmpeg_env();
+            for node in &nodes {
+                let node_str = node.to_string_lossy().to_string();
+                let ok = std::process::Command::new("ffmpeg")
+                    .args([
+                        "-y", "-hide_banner",
+                        "-init_hw_device", &format!("vaapi=va:{node_str}"),
+                        "-filter_hw_device", "va",
+                        "-f", "lavfi",
+                        "-i", "nullsrc=s=64x64",
+                        "-frames:v", "1",
+                        "-f", "null",
+                        "-",
+                    ])
+                    .envs(&env)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+
+                if ok {
+                    return Some(node_str);
+                }
+            }
+            None
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            None
+        }
+    }).clone()
+}
+
+// ---------------------------------------------------------------------------
+// Platform temp dir
+// ---------------------------------------------------------------------------
+
+fn temp_dir() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        let base = std::env::var("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")));
+        base.join("vidcord")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".vidcord")
+    }
+}
