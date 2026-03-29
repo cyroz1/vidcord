@@ -12,6 +12,9 @@ use settings::SettingsManager;
 use ffmpeg::{probe_video, generate_preview, get_available_encoders, get_ffmpeg_env};
 use log::vidcord_log;
 
+// Cached regex for the "show encoders" dialog — compiled once, reused on repeat calls.
+static LIST_ENCODER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+
 // ---------------------------------------------------------------------------
 // Shared compression-process state (PID + output path for partial cleanup)
 // ---------------------------------------------------------------------------
@@ -53,13 +56,16 @@ fn save_settings(settings: serde_json::Value) -> Result<(), String> {
 
 #[tauri::command]
 async fn probe(path: String) -> Result<serde_json::Value, String> {
-    probe_video(&path).map_err(|e| e.to_string())
+    tokio::task::spawn_blocking(move || probe_video(&path).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 async fn get_preview_frame(path: String, time_sec: f64) -> Result<String, String> {
-    // Returns base64-encoded JPEG
-    generate_preview(&path, time_sec).map_err(|e| e.to_string())
+    tokio::task::spawn_blocking(move || generate_preview(&path, time_sec).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 // ---------------------------------------------------------------------------
@@ -68,71 +74,71 @@ async fn get_preview_frame(path: String, time_sec: f64) -> Result<String, String
 
 #[tauri::command]
 async fn detect_encoders() -> Vec<serde_json::Value> {
-    // Verify ffmpeg is on PATH first
-    if std::process::Command::new("ffmpeg")
-        .arg("-version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-    {
+    // get_available_encoders() already returns a safe fallback if ffmpeg is missing.
+    tokio::task::spawn_blocking(|| {
         get_available_encoders()
             .into_iter()
             .map(|(name, label)| serde_json::json!({"name": name, "label": label}))
-            .collect()
-    } else {
-        vidcord_log("FFmpeg not found on PATH — encoder detection skipped");
-        vec![serde_json::json!({"name": "libx264", "label": "CPU (libx264)", "ffmpeg_missing": true})]
-    }
+            .collect::<Vec<_>>()
+    })
+    .await
+    .unwrap_or_else(|_| vec![serde_json::json!({"name": "libx264", "label": "CPU (libx264)"})])
 }
 
 #[tauri::command]
 async fn check_ffmpeg_available() -> bool {
-    std::process::Command::new("ffmpeg")
-        .arg("-version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    tokio::task::spawn_blocking(|| {
+        std::process::Command::new("ffmpeg")
+            .arg("-version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
 }
 
 #[tauri::command]
 async fn list_ffmpeg_video_encoders() -> Result<String, String> {
-    let env = get_ffmpeg_env();
+    tokio::task::spawn_blocking(|| -> Result<String, String> {
+        #[allow(unused_mut)]
+        let mut cmd = std::process::Command::new("ffmpeg");
+        cmd.args(["-hide_banner", "-encoders"]).envs(get_ffmpeg_env());
 
-    #[allow(unused_mut)]
-    let mut cmd = std::process::Command::new("ffmpeg");
-    cmd.args(["-hide_banner", "-encoders"]).envs(&env);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000);
+        }
 
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
+        let output = cmd.output().map_err(|e| format!("Failed to run ffmpeg: {e}"))?;
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
-    let output = cmd.output().map_err(|e| format!("Failed to run ffmpeg: {e}"))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let mut lines: Vec<String> = Vec::new();
-    let re = regex_lite::Regex::new(r"^\s*V[A-Z.]*\s+(\S+)\s+(.*)").unwrap();
-    for line in stdout.lines() {
-        if let Some(caps) = re.captures(line) {
-            let name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-            let desc = caps.get(2).map(|m| m.as_str().trim()).unwrap_or("");
-            if desc.is_empty() {
-                lines.push(name.to_string());
-            } else {
-                lines.push(format!("{name}  —  {desc}"));
+        let re = LIST_ENCODER_RE.get_or_init(|| {
+            regex_lite::Regex::new(r"^\s*V[A-Z.]*\s+(\S+)\s+(.*)").unwrap()
+        });
+        let mut lines: Vec<String> = Vec::new();
+        for line in stdout.lines() {
+            if let Some(caps) = re.captures(line) {
+                let name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                let desc = caps.get(2).map(|m| m.as_str().trim()).unwrap_or("");
+                if desc.is_empty() {
+                    lines.push(name.to_string());
+                } else {
+                    lines.push(format!("{name}  —  {desc}"));
+                }
             }
         }
-    }
-    if lines.is_empty() {
-        Ok("No video encoders found.".to_string())
-    } else {
-        Ok(lines.join("\n"))
-    }
+        if lines.is_empty() {
+            Ok("No video encoders found.".to_string())
+        } else {
+            Ok(lines.join("\n"))
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +160,6 @@ pub struct CompressOptions {
 
 #[tauri::command]
 async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<String, String> {
-    let env = get_ffmpeg_env();
     let clip_duration = opts.end_time - opts.start_time;
     if clip_duration <= 0.0 {
         return Err("Invalid clip duration".to_string());
@@ -175,14 +180,6 @@ async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<String,
         }
     }
 
-    cmd_args.extend([
-        "-ss".into(), opts.start_time.to_string(),
-        "-to".into(), opts.end_time.to_string(),
-        "-i".into(), opts.input_path.clone(),
-        "-c:v".into(), opts.encoder.clone(),
-        "-b:v".into(), format!("{}k", opts.video_bitrate_k),
-    ]);
-
     // Video filter
     let vf = if opts.encoder.ends_with("_vaapi") {
         let scale = opts.scale_filter.as_deref().unwrap_or("iw:ih");
@@ -192,7 +189,15 @@ async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<String,
             .clone()
             .unwrap_or_else(|| "scale=trunc(iw/2)*2:trunc(ih/2)*2".into())
     };
-    cmd_args.extend(["-vf".into(), vf]);
+
+    cmd_args.extend([
+        "-ss".into(), opts.start_time.to_string(),
+        "-to".into(), opts.end_time.to_string(),
+        "-i".into(), opts.input_path,
+        "-c:v".into(), opts.encoder,
+        "-b:v".into(), format!("{}k", opts.video_bitrate_k),
+        "-vf".into(), vf,
+    ]);
 
     if opts.remove_audio {
         cmd_args.push("-an".into());
@@ -200,21 +205,22 @@ async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<String,
         cmd_args.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "128k".into()]);
     }
 
-    cmd_args.push(opts.output_path.clone());
+    let output_path = opts.output_path;
+    cmd_args.push(output_path.clone());
 
     vidcord_log(&format!("FFmpeg command: ffmpeg {}", cmd_args.join(" ")));
 
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
     cmd.args(&cmd_args)
-        .envs(&env)
+        .envs(get_ffmpeg_env())
         .stderr(Stdio::piped())
         .stdout(Stdio::null());
 
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        cmd.creation_flags(0x08000000);
     }
 
     let mut child = cmd.spawn().map_err(|e| {
@@ -227,45 +233,56 @@ async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<String,
     {
         let mut state = compression_state().lock().unwrap();
         state.pid = Some(pid);
-        state.output_path = Some(opts.output_path.clone());
+        state.output_path = Some(output_path.clone());
         state.cancelled = false;
     }
 
     let stderr = child.stderr.take().unwrap();
-    let reader = BufReader::new(stderr);
+    let app_for_progress = app.clone();
 
-    let start_instant = std::time::Instant::now();
-    let mut last_lines: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    // Run the blocking stderr-read loop on a dedicated thread so it doesn't
+    // starve the Tokio executor for the (potentially multi-minute) duration.
+    let (exit_status, last_lines) = tokio::task::spawn_blocking(move || -> Result<_, std::io::Error> {
+        let reader = BufReader::new(stderr);
+        let start_instant = std::time::Instant::now();
+        let mut last_lines: std::collections::VecDeque<String> = std::collections::VecDeque::new();
 
-    for line in reader.lines().flatten() {
-        last_lines.push_back(line.clone());
-        if last_lines.len() > 200 {
-            last_lines.pop_front();
-        }
-        if line.to_lowercase().contains("error") || line.to_lowercase().contains("warning") {
-            vidcord_log(&format!("FFMPEG: {line}"));
-        }
-        if line.contains("time=") {
-            if let Some(time_str) = parse_ffmpeg_time(&line) {
-                let pct = ((time_str / clip_duration) * 100.0).min(100.0);
-                let elapsed = start_instant.elapsed().as_secs_f64();
-                let eta = if time_str > 0.0 && elapsed > 0.0 {
-                    let rate = time_str / elapsed;
-                    let remaining = clip_duration - time_str;
-                    format_eta(remaining / rate)
-                } else {
-                    "Calculating...".to_string()
-                };
-                let _ = app.emit("compress-progress", serde_json::json!({
-                    "percent": pct as u32,
-                    "eta": eta,
-                    "status": "Compressing..."
-                }));
+        for line in reader.lines().flatten() {
+            last_lines.push_back(line.clone());
+            if last_lines.len() > 200 {
+                last_lines.pop_front();
+            }
+            // Allocate lowercase once per line instead of twice.
+            let lower = line.to_lowercase();
+            if lower.contains("error") || lower.contains("warning") {
+                vidcord_log(&format!("FFMPEG: {line}"));
+            }
+            if line.contains("time=") {
+                if let Some(time_str) = parse_ffmpeg_time(&line) {
+                    let pct = ((time_str / clip_duration) * 100.0).min(100.0);
+                    let elapsed = start_instant.elapsed().as_secs_f64();
+                    let eta = if time_str > 0.0 && elapsed > 0.0 {
+                        let rate = time_str / elapsed;
+                        let remaining = clip_duration - time_str;
+                        format_eta(remaining / rate)
+                    } else {
+                        "Calculating...".to_string()
+                    };
+                    let _ = app_for_progress.emit("compress-progress", serde_json::json!({
+                        "percent": pct as u32,
+                        "eta": eta,
+                        "status": "Compressing..."
+                    }));
+                }
             }
         }
-    }
 
-    let status = child.wait().map_err(|e| e.to_string())?;
+        let status = child.wait()?;
+        Ok((status, last_lines))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
 
     let cancelled = {
         let mut state = compression_state().lock().unwrap();
@@ -282,14 +299,16 @@ async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<String,
         return Err("Cancelled".to_string());
     }
 
-    if status.success() {
+    if exit_status.success() {
         vidcord_log("Compression finished successfully.");
-        let _ = app.emit("compress-done", serde_json::json!({"success": true, "message": "Compression complete!", "output_path": opts.output_path}));
-        Ok(opts.output_path)
+        let _ = app.emit("compress-done", serde_json::json!({"success": true, "message": "Compression complete!", "output_path": output_path}));
+        Ok(output_path)
     } else {
         let err_lines: Vec<&str> = last_lines.iter().rev().take(5).map(|s| s.as_str()).collect();
         let err_msg = format!("Compression failed.\n\nFFmpeg Error:\n{}", err_lines.join("\n"));
-        vidcord_log(&format!("Compression failed (rc={:?}):\n{}", status.code(), last_lines.iter().cloned().collect::<Vec<_>>().join("\n")));
+        // Avoid cloning 200 strings — borrow as &str slices instead.
+        let all_lines: Vec<&str> = last_lines.iter().map(|s| s.as_str()).collect();
+        vidcord_log(&format!("Compression failed (rc={:?}):\n{}", exit_status.code(), all_lines.join("\n")));
         let _ = app.emit("compress-done", serde_json::json!({"success": false, "message": err_msg}));
         Err(err_msg)
     }
@@ -310,6 +329,7 @@ fn cancel_compression() {
         }
         #[cfg(windows)]
         {
+            use std::os::windows::process::CommandExt;
             let _ = std::process::Command::new("taskkill")
                 .args(["/PID", &pid.to_string(), "/F"])
                 .creation_flags(0x08000000)

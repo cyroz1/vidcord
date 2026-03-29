@@ -5,23 +5,29 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use crate::gpu::get_system_gpus;
 
 static VAAPI_CACHE: OnceLock<Option<String>> = OnceLock::new();
+// Cached once at first use — env doesn't change during an app session.
+static FFMPEG_ENV: OnceLock<HashMap<String, String>> = OnceLock::new();
+// Cached regex for encoder list parsing.
+static ENCODER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 
 // ---------------------------------------------------------------------------
 // FFmpeg environment
 // ---------------------------------------------------------------------------
 
-pub fn get_ffmpeg_env() -> HashMap<String, String> {
-    let mut env: HashMap<String, String> = std::env::vars().collect();
+pub fn get_ffmpeg_env() -> &'static HashMap<String, String> {
+    FFMPEG_ENV.get_or_init(|| {
+        let mut env: HashMap<String, String> = std::env::vars().collect();
 
-    #[cfg(target_os = "linux")]
-    {
-        let gpus = get_system_gpus();
-        if *gpus.get("amd").unwrap_or(&false) && !env.contains_key("LIBVA_DRIVER_NAME") {
-            env.insert("LIBVA_DRIVER_NAME".to_string(), "radeonsi".to_string());
+        #[cfg(target_os = "linux")]
+        {
+            let gpus = get_system_gpus();
+            if *gpus.get("amd").unwrap_or(&false) && !env.contains_key("LIBVA_DRIVER_NAME") {
+                env.insert("LIBVA_DRIVER_NAME".to_string(), "radeonsi".to_string());
+            }
         }
-    }
 
-    env
+        env
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -29,12 +35,10 @@ pub fn get_ffmpeg_env() -> HashMap<String, String> {
 // ---------------------------------------------------------------------------
 
 pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    let env = get_ffmpeg_env();
-
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffprobe");
     cmd.args(["-v", "quiet", "-print_format", "json", "-show_streams", "-show_format", path])
-        .envs(&env);
+        .envs(get_ffmpeg_env());
     #[cfg(target_os = "windows")]
     { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); }
 
@@ -78,7 +82,6 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
 // ---------------------------------------------------------------------------
 
 pub fn generate_preview(path: &str, time_sec: f64) -> Result<String, Box<dyn std::error::Error>> {
-    let env = get_ffmpeg_env();
     let tmp_dir = temp_dir();
     std::fs::create_dir_all(&tmp_dir)?;
 
@@ -93,7 +96,7 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<String, Box<dyn std
     let mut cmd = std::process::Command::new("ffmpeg");
     cmd.args(["-y", "-ss", &time_sec.to_string(), "-i", path, "-an", "-sn", "-frames:v", "1", "-q:v", "4", "-vf", "scale=320:-1:flags=fast_bilinear"])
         .arg(tmp_path.to_str().ok_or("Invalid tmp path")?)
-        .envs(&env)
+        .envs(get_ffmpeg_env())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
     #[cfg(target_os = "windows")]
@@ -115,11 +118,9 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<String, Box<dyn std
 // ---------------------------------------------------------------------------
 
 pub fn get_available_encoders() -> Vec<(String, String)> {
-    let env = get_ffmpeg_env();
-
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
-    cmd.args(["-hide_banner", "-encoders"]).envs(&env);
+    cmd.args(["-hide_banner", "-encoders"]).envs(get_ffmpeg_env());
     #[cfg(target_os = "windows")]
     { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); }
 
@@ -132,8 +133,9 @@ pub fn get_available_encoders() -> Vec<(String, String)> {
     let gpus = get_system_gpus();
     let system = std::env::consts::OS;
 
-    // Parse ffmpeg encoder list
-    let re = regex_lite::Regex::new(r"^\s*V[A-Z.]*\s+([a-zA-Z0-9_]+)\s+").unwrap();
+    let re = ENCODER_RE.get_or_init(|| {
+        regex_lite::Regex::new(r"^\s*V[A-Z.]*\s+([a-zA-Z0-9_]+)\s+").unwrap()
+    });
     let mut ffmpeg_encoders: std::collections::HashSet<String> = std::collections::HashSet::new();
     for line in text.lines() {
         if let Some(cap) = re.captures(line) {
@@ -197,7 +199,6 @@ pub fn find_vaapi_device() -> Option<String> {
             // Prefer renderD128
             nodes.sort_by_key(|p| if p.to_string_lossy().contains("renderD128") { 0 } else { 1 });
 
-            let env = get_ffmpeg_env();
             for node in &nodes {
                 let node_str = node.to_string_lossy().to_string();
                 let ok = std::process::Command::new("ffmpeg")
@@ -211,7 +212,7 @@ pub fn find_vaapi_device() -> Option<String> {
                         "-f", "null",
                         "-",
                     ])
-                    .envs(&env)
+                    .envs(get_ffmpeg_env())
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null())
                     .status()
