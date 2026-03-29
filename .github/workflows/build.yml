@@ -25,161 +25,142 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-windows:
+  build:
     strategy:
+      fail-fast: false
       matrix:
-        arch: [x86_64]
-    runs-on: windows-latest
+        include:
+          - platform: windows-latest
+            arch: x86_64
+            rust-target: x86_64-pc-windows-msvc
+            artifact-name: vidcord-windows-x86_64
+            artifact-glob: src-tauri/target/release/bundle/**/*.exe
+
+          - platform: windows-latest
+            arch: aarch64
+            rust-target: aarch64-pc-windows-msvc
+            artifact-name: vidcord-windows-aarch64
+            artifact-glob: src-tauri/target/aarch64-pc-windows-msvc/release/bundle/**/*.exe
+
+          - platform: ubuntu-22.04
+            arch: x86_64
+            rust-target: x86_64-unknown-linux-gnu
+            artifact-name: vidcord-linux-x86_64
+            artifact-glob: src-tauri/target/release/bundle/**/*.AppImage
+
+          - platform: ubuntu-22.04-arm
+            arch: aarch64
+            rust-target: aarch64-unknown-linux-gnu
+            artifact-name: vidcord-linux-aarch64
+            artifact-glob: src-tauri/target/release/bundle/**/*.AppImage
+
+          - platform: macos-latest
+            arch: universal
+            rust-target: universal-apple-darwin
+            artifact-name: vidcord-macos
+            artifact-glob: src-tauri/target/universal-apple-darwin/release/bundle/**/*.dmg
+
+    runs-on: ${{ matrix.platform }}
+
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          
-      - name: Install dependencies
+
+      - name: Install system dependencies (Linux)
+        if: startsWith(matrix.platform, 'ubuntu')
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
-          
-      - name: Install FFmpeg for Windows (x86_64)
-        if: matrix.arch == 'x86_64'
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            ffmpeg
+
+      - name: Install FFmpeg (Windows x86_64)
+        if: matrix.platform == 'windows-latest' && matrix.arch == 'x86_64'
         run: |
           curl -L https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -o ffmpeg.zip
           powershell -Command "Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_temp"
-          Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Move-Item -Destination .
-          Get-ChildItem -Path ffmpeg_temp -Filter ffprobe.exe -Recurse | Move-Item -Destination .
+          Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Move-Item -Destination "$env:SystemRoot\System32"
+          Get-ChildItem -Path ffmpeg_temp -Filter ffprobe.exe -Recurse | Move-Item -Destination "$env:SystemRoot\System32"
 
-      - name: Install FFmpeg for Windows (ARM64)
-        if: matrix.arch == 'arm64'
+      - name: Install FFmpeg (Windows aarch64)
+        if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
         run: |
           curl -L https://github.com/tordona/ffmpeg-win-arm64/releases/download/8.0.1/ffmpeg-8.0.1-essentials-static-win-arm64.7z -o ffmpeg.7z
           7z x ffmpeg.7z -offmpeg_temp
-          Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Move-Item -Destination .
-          Get-ChildItem -Path ffmpeg_temp -Filter ffprobe.exe -Recurse | Move-Item -Destination .
-          
-      - name: Build with PyInstaller
-        run: pyinstaller --noconfirm platforms/windows/vidcord.spec
-        
-      - name: Get Version
-        id: get_version
-        shell: pwsh
-        run: |
-          python -c "import build, os; v = build.get_version(); print(f'Extracted: {v}'); open(os.environ['GITHUB_OUTPUT'], 'a').write(f'VERSION={v}\n')"
-          
-      - name: Debug Version
-        run: echo "VERSION=${{ steps.get_version.outputs.VERSION }}"
+          Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Move-Item -Destination "$env:SystemRoot\System32"
+          Get-ChildItem -Path ffmpeg_temp -Filter ffprobe.exe -Recurse | Move-Item -Destination "$env:SystemRoot\System32"
 
-      - name: Install Inno Setup
-        run: choco install innosetup --no-progress
+      - name: Install FFmpeg (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: brew install ffmpeg
 
-      - name: Compile Inno Setup Installer
-        shell: cmd
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Add aarch64 Windows Rust target
+        if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
+        run: rustup target add aarch64-pc-windows-msvc
+
+      - name: Add macOS universal targets
+        if: matrix.platform == 'macos-latest'
         run: |
-          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.get_version.outputs.VERSION }} /DMyArch=${{ matrix.arch }} /DMyOutputBaseFilename=vidcord_v${{ steps.get_version.outputs.VERSION }}_${{ matrix.arch }} platforms/windows/script.iss
-          
-      - name: Upload Artifacts
+          rustup target add x86_64-apple-darwin
+          rustup target add aarch64-apple-darwin
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build (macOS universal)
+        if: matrix.platform == 'macos-latest'
+        run: npx tauri build --target universal-apple-darwin
+
+      - name: Build (Windows aarch64)
+        if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
+        run: npx tauri build --target aarch64-pc-windows-msvc
+
+      - name: Build (all other platforms)
+        if: "!(matrix.platform == 'macos-latest') && !(matrix.platform == 'windows-latest' && matrix.arch == 'aarch64')"
+        run: npx tauri build
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: vidcord-windows-${{ matrix.arch }}
-          path: dist/*.exe
-
-  build-linux:
-    strategy:
-      matrix:
-        arch: [x86_64, aarch64]
-    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
-          
-      - name: Build with PyInstaller
-        run: pyinstaller --noconfirm platforms/linux/vidcord_linux.spec
-        
-      - name: Build AppImage
-        run: |
-          chmod +x platforms/linux/appimagetool-x86_64.AppImage
-          chmod +x platforms/linux/appimagetool-aarch64.AppImage
-          chmod +x platforms/linux/build_appimage.sh
-          ./platforms/linux/build_appimage.sh
-          
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: vidcord-linux-${{ matrix.arch }}
-          path: dist/*.appimage
-
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
-          
-      - name: Install FFmpeg for macOS
-        run: |
-          brew install ffmpeg
-          cp "$(which ffmpeg)"  platforms/macos/ffmpeg
-          cp "$(which ffprobe)" platforms/macos/ffprobe
-          
-      - name: Build with PyInstaller
-        run: pyinstaller --noconfirm platforms/macos/vidcord_mac.spec
-        
-      - name: Create component package
-        run: |
-          chmod +x platforms/macos/build_pkg.sh
-          ./platforms/macos/build_pkg.sh
-          
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: vidcord-macos
-          path: dist/*.pkg
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.artifact-glob }}
+          if-no-files-found: warn
 
   release:
-    needs: [build-windows, build-linux, build-macos]
+    needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
     steps:
-      - name: Download Artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-artifacts
           merge-multiple: true
 
-      - name: Create Release
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            release-artifacts/*.exe
-            release-artifacts/*.appimage
-            release-artifacts/*.pkg
+          files: release-artifacts/**/*
           draft: true
           generate_release_notes: true
         env:
