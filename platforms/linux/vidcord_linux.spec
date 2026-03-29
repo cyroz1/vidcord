@@ -1,23 +1,28 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-block_cipher = None
+from PyInstaller.utils.hooks import collect_all
+
+datas = [('../../icon.png', '.'), ('qt.conf', '.')]
+binaries = []
+hiddenimports = ['ffmpeg', 'PyQt6', 'qfluentwidgets', 'requests']
+
+# Collect all resources for qfluentwidgets (icons, fonts, etc.)
+tmp_ret = collect_all('qfluentwidgets')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 a = Analysis(
     ['../../vidcord.py'],
     pathex=[],
-    binaries=[],
-    datas=[('../../icon.png', '.'), ('qt.conf', '.')],
-    hiddenimports=['ffmpeg', 'PyQt6', 'qfluentwidgets', 'requests'],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
     noarchive=False,
 )
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
