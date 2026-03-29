@@ -166,7 +166,8 @@ class SettingsManager:
 
     def _get_settings_file_path(self):
         if platform.system() == 'Windows':
-            return os.path.join(os.getenv('APPDATA'), 'vidcord_settings.json')
+            appdata_path = os.getenv('APPDATA') or os.path.expanduser('~')
+            return os.path.join(appdata_path, 'vidcord_settings.json')
         else:
             return os.path.join(os.path.expanduser('~'), '.vidcord_settings.json')
 
@@ -285,7 +286,7 @@ class VideoProcessor:
                 if 'nvidia' in output: gpus['nvidia'] = True
                 if 'amd' in output or 'radeon' in output: gpus['amd'] = True
                 if 'intel' in output: gpus['intel'] = True
-                if 'apple' in output or 'm1' in output or 'm2' in output or 'm3' in output or 'm4' in output: gpus['apple'] = True
+                if 'apple' in output or re.search(r'\bm\d+\b', output): gpus['apple'] = True
                 
             elif platform.system() == 'Windows':
                 # Windows - use PowerShell instead of deprecated wmic for reliability
@@ -320,9 +321,9 @@ class VideoProcessor:
                             if 'amd' in line or 'radeon' in line: gpus['amd'] = True
                             if 'intel' in line: gpus['intel'] = True
                 except Exception as e:
-                    logger.warning("Linux GPU detection failed: %s", e)
-                    # Fallback to False for safety if lspci fails
-                    return {'nvidia': False, 'amd': False, 'intel': False, 'apple': False}
+                    logger.warning("Linux GPU detection failed (lspci unavailable?): %s", e)
+                    # Fallback to True to avoid hiding valid encoders on systems without lspci
+                    return {'nvidia': True, 'amd': True, 'intel': True, 'apple': False}
             
         except Exception as e:
             logger.warning("GPU detection failed: %s", e)
