@@ -1,8 +1,11 @@
+use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
+// Persistent file handle — opened once in setup_crash_log(), reused for every write.
+static LOG_FILE: OnceLock<Mutex<Option<File>>> = OnceLock::new();
 
 fn log_path() -> &'static PathBuf {
     LOG_PATH.get_or_init(|| {
@@ -14,22 +17,28 @@ fn log_path() -> &'static PathBuf {
 
 pub fn setup_crash_log() {
     let path = log_path();
-    // Set owner-only permissions on Unix
+
+    // Open (or create) the log file once; keep the handle alive for the process lifetime.
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .ok();
+
+    // Set owner-only permissions on Unix (works on both new and existing files).
     #[cfg(unix)]
-    {
-        if !path.exists() {
-            if let Ok(f) = std::fs::File::create(path) {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = f.set_permissions(std::fs::Permissions::from_mode(0o600));
-            }
-        }
+    if let Some(ref f) = file {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = f.set_permissions(std::fs::Permissions::from_mode(0o600));
     }
+
+    LOG_FILE.get_or_init(|| Mutex::new(file));
+
     vidcord_log(&format!(
         "=== vidcord {} starting === pid={}",
         env!("CARGO_PKG_VERSION"),
         std::process::id()
     ));
-    // Log relevant environment variables
     for key in &["LD_LIBRARY_PATH", "LIBVA_DRIVER_NAME", "PATH", "SHELL"] {
         if let Ok(val) = std::env::var(key) {
             vidcord_log(&format!("  env {key}={val}"));
@@ -38,9 +47,7 @@ pub fn setup_crash_log() {
 }
 
 pub fn vidcord_log(msg: &str) {
-    let path = log_path();
     let timestamp = {
-        // Simple ISO-ish timestamp without external deps
         use std::time::{SystemTime, UNIX_EPOCH};
         let secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -52,7 +59,11 @@ pub fn vidcord_log(msg: &str) {
         let sec = s % 60;
         format!("{h:02}:{m:02}:{sec:02}")
     };
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(f, "[{timestamp}] {msg}");
+    if let Some(mutex) = LOG_FILE.get() {
+        if let Ok(mut guard) = mutex.lock() {
+            if let Some(f) = guard.as_mut() {
+                let _ = writeln!(f, "[{timestamp}] {msg}");
+            }
+        }
     }
 }
