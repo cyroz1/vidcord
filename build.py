@@ -18,9 +18,17 @@ def get_version():
 
 def run_command(cmd, cwd=None):
     print(f"Running: {' '.join(cmd) if isinstance(cmd, list) else cmd}")
-    result = subprocess.run(cmd, cwd=cwd, shell=True if isinstance(cmd, str) and platform.system() == "Windows" else False)
+    result = subprocess.run(
+        cmd, cwd=cwd,
+        shell=True if isinstance(cmd, str) and platform.system() == "Windows" else False,
+        capture_output=True, text=True
+    )
+    if result.stdout:
+        print(result.stdout, end="")
     if result.returncode != 0:
         print(f"Error: Command failed with return code {result.returncode}")
+        if result.stderr:
+            print(result.stderr)
         sys.exit(result.returncode)
 
 def build_windows(arch="x86_64"):
@@ -78,7 +86,10 @@ def build_macos():
     old_app = os.path.join(project_root, "dist", "vidcord.app")
     if os.path.isdir(old_app):
         print(f"Removing old bundle: {old_app}")
-        subprocess.run(["sudo", "rm", "-rf", old_app], check=True)
+        shutil.rmtree(old_app, ignore_errors=True)
+        if os.path.isdir(old_app):
+            print("Warning: could not fully remove old bundle; PyInstaller may fail.")
+
 
     # 1. Run PyInstaller — prefer the venv binary so the correct Python is used
     pyinstaller = os.path.join(project_root, ".venv", "bin", "pyinstaller")

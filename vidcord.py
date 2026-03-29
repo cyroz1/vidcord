@@ -30,6 +30,7 @@ import time
 import platform
 import math
 import json
+import collections
 import pathlib
 import tempfile
 import logging
@@ -94,6 +95,12 @@ def setup_logging():
     # Open the log file in append mode
     try:
         log_file = open(log_path, 'a')
+        # Restrict crash log to owner-only on Unix (may contain file paths)
+        if platform.system() != 'Windows':
+            try:
+                os.chmod(log_path, 0o600)
+            except Exception:
+                pass
         # Redirect Python's stdout/stderr
         sys.stdout = log_file
         sys.stderr = log_file
@@ -260,7 +267,7 @@ class VideoProcessor:
                     break
                     
             if not bin_dir_found:
-                logger.warning("Could not find working ffmpeg. Hardware encoders may not be detected.")
+                logger.warning("FFmpeg not found. The app requires FFmpeg to compress videos.")
         else:
             # If running from source, also try to find system ffmpeg
             if platform.system() == 'Darwin':
@@ -347,10 +354,10 @@ class VideoProcessor:
             try:
                 gpus = VideoProcessor.get_system_gpus()
                 if gpus['amd']:
-                    # Only set if not already set, or force it? 
-                    # forcing it is safer for this specific fix.
-                    if env.get('LIBVA_DRIVER_NAME') != 'radeonsi':
-                        logger.debug("Force-setting LIBVA_DRIVER_NAME=radeonsi for AMD VAAPI")
+                    # Only set a default if the user hasn't already configured a driver.
+                    # Forcing radeonsi over a user-set value breaks newer AMD drivers.
+                    if not env.get('LIBVA_DRIVER_NAME'):
+                        logger.debug("Setting LIBVA_DRIVER_NAME=radeonsi for AMD VAAPI")
                         env['LIBVA_DRIVER_NAME'] = 'radeonsi'
             except Exception as e:
                 logger.debug("Failed to setup FFmpeg env: %s", e)
@@ -599,7 +606,7 @@ class CompressionThread(QThread):
         
         encoding_start_time = time.time()
         
-        full_log = []  # Capture full log
+        full_log = collections.deque(maxlen=200)  # Bounded: keeps last 200 lines
 
         while process.poll() is None and self.is_running:
             line = process.stderr.readline()
@@ -666,7 +673,7 @@ class CompressionThread(QThread):
             # Try to grab the last few lines of stderr for a better error message
             error_msg = "Conversion failed."
             if full_log:
-                last_lines = full_log[-5:]
+                last_lines = list(full_log)[-5:]
                 error_msg += f"\n\nFFmpeg Error:\n" + "\n".join(last_lines)
             
             self.finished.emit(False, error_msg)
@@ -699,9 +706,8 @@ class PreviewThread(QThread):
         vidcord_temp_dir = _get_temp_dir()
         
         os.makedirs(vidcord_temp_dir, exist_ok=True)
-        # Use a unique name for this thread's preview
-        thread_id = int(time.time() * 1000)
-        temp_image_path = os.path.join(vidcord_temp_dir, f'preview_{thread_id}.jpg')
+        # Use random bytes for a collision-free unique filename
+        temp_image_path = os.path.join(vidcord_temp_dir, f'preview_{os.urandom(8).hex()}.jpg')
 
         ffmpeg_command = [
             "ffmpeg", "-y",
@@ -2090,8 +2096,18 @@ class VidCordInterface(QWidget):
 
         # Prepare output path
         downloads_path = str(pathlib.Path.home() / "Downloads")
-        if not os.path.exists(downloads_path):
-            os.makedirs(downloads_path, exist_ok=True)
+        os.makedirs(downloads_path, exist_ok=True)
+        if not os.access(downloads_path, os.W_OK):
+            InfoBar.error(
+                title='Error',
+                content="Cannot write to Downloads folder. Check folder permissions.",
+                orient=Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=4000,
+                parent=self
+            )
+            return
             
         base_name = os.path.basename(filePath)
         name, _ = os.path.splitext(base_name)
