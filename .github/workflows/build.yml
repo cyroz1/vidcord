@@ -142,11 +142,9 @@ jobs:
           
       - name: Install FFmpeg for macOS
         run: |
-          curl -L https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip -o ffmpeg.zip
-          curl -L https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip -o ffprobe.zip
-          unzip ffmpeg.zip -d platforms/macos/
-          unzip ffprobe.zip -d platforms/macos/
-          chmod +x platforms/macos/ffmpeg platforms/macos/ffprobe
+          brew install ffmpeg
+          cp "$(which ffmpeg)"  platforms/macos/ffmpeg
+          cp "$(which ffprobe)" platforms/macos/ffprobe
           
       - name: Build with PyInstaller
         run: pyinstaller --noconfirm platforms/macos/vidcord_mac.spec
