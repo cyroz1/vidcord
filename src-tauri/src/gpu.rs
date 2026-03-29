@@ -50,16 +50,30 @@ fn detect_gpus() -> Option<HashMap<String, bool>> {
 
     #[cfg(target_os = "windows")]
     {
-        #[allow(unused_mut)]
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args(["-Command", "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"]);
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        }
-        let out = cmd.output().ok()?;
-        let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
+        use std::os::windows::process::CommandExt;
+        // Primary: PowerShell Get-CimInstance (Windows 10+)
+        let ps_result = std::process::Command::new("powershell")
+            .args(["-Command", "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output();
+
+        let text = match ps_result {
+            Ok(ref out) if out.status.success() => {
+                String::from_utf8_lossy(&out.stdout).to_lowercase()
+            }
+            _ => {
+                // Fallback: wmic (works on older Windows / restricted PowerShell)
+                let wmic_result = std::process::Command::new("wmic")
+                    .args(["path", "win32_VideoController", "get", "name"])
+                    .creation_flags(0x08000000)
+                    .output();
+                match wmic_result {
+                    Ok(ref out) => String::from_utf8_lossy(&out.stdout).to_lowercase(),
+                    Err(_) => return None,
+                }
+            }
+        };
+
         if text.contains("nvidia") { *gpus.get_mut("nvidia").unwrap() = true; }
         if text.contains("amd") || text.contains("radeon") { *gpus.get_mut("amd").unwrap() = true; }
         if text.contains("intel") { *gpus.get_mut("intel").unwrap() = true; }
@@ -82,4 +96,3 @@ fn detect_gpus() -> Option<HashMap<String, bool>> {
 
     Some(gpus)
 }
-
