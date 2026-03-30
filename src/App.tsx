@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import "./App.css";
 import Toast from "./components/Toast";
 import ProgressSection from "./components/ProgressSection";
@@ -114,7 +113,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const s = await invoke<Settings>("load_settings").catch(() => ({}));
+      const s = await invoke<Settings>("load_settings").catch((): Settings => ({}));
       settingsRef.current = s;
       if (typeof s.quality_index === "number") setQualityIdx(s.quality_index);
       if (typeof s.advanced_mode === "boolean") setAdvancedMode(s.advanced_mode);
@@ -158,15 +157,14 @@ export default function App() {
     return () => { unsub.then(fn => fn()); };
   }, []); // loadVideo stable via useCallback, omitted to avoid re-subscribing
 
-  // File drop via OS / drag-drop
+  // File drop via OS / drag-drop (Tauri v2: listen on 'tauri://drag-drop')
   useEffect(() => {
-    const win = getCurrentWebviewWindow();
-    const unlisten = win.onFileDropEvent(e => {
-      if (e.payload.type === "drop" && e.payload.paths.length > 0) {
+    const unlisten = listen<{ paths: string[] }>("tauri://drag-drop", e => {
+      if (e.payload.paths.length > 0) {
         loadVideo(e.payload.paths[0]);
       }
     });
-    return () => { unlisten.then(fn => fn()); };
+    return () => { unlisten.then((fn: () => void) => fn()); };
   }, []);
 
   // Compression events
