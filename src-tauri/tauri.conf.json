@@ -30,13 +30,7 @@
         "enable": true,
         "scope": ["**"]
       }
-    },
-    "fileAssociations": [
-      {
-        "name": "Video",
-        "extensions": ["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"]
-      }
-    ]
+    }
   },
   "bundle": {
     "active": true,
@@ -70,6 +64,12 @@
       "appimage": {
         "bundleMediaFramework": false
       }
-    }
+    },
+    "fileAssociations": [
+      {
+        "name": "Video",
+        "ext": ["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"]
+      }
+    ]
   }
 }
