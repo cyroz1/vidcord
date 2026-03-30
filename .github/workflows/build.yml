@@ -56,7 +56,7 @@ jobs:
 
           - platform: macos-latest
             arch: universal
-            rust-target: universal-apple-darwin
+            rust-target: aarch64-apple-darwin
             artifact-name: vidcord-macos
             artifact-glob: src-tauri/target/universal-apple-darwin/release/bundle/**/*.dmg
 
