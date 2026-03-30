@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex, OnceLock};
 use std::process::Stdio;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use tauri::{AppHandle, Emitter, Manager};
 
 mod settings;

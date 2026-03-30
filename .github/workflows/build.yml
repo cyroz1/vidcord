@@ -125,6 +125,21 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Check Rust (macOS aarch64)
+        if: matrix.platform == 'macos-latest'
+        working-directory: src-tauri
+        run: cargo check --target aarch64-apple-darwin
+
+      - name: Check Rust (Windows aarch64)
+        if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
+        working-directory: src-tauri
+        run: cargo check --target aarch64-pc-windows-msvc
+
+      - name: Check Rust (all other platforms)
+        if: "!(matrix.platform == 'macos-latest') && !(matrix.platform == 'windows-latest' && matrix.arch == 'aarch64')"
+        working-directory: src-tauri
+        run: cargo check
+
       - name: Build (macOS universal)
         if: matrix.platform == 'macos-latest'
         run: npx tauri build --target universal-apple-darwin
