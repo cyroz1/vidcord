@@ -128,17 +128,25 @@ jobs:
       - name: Check Rust (macOS aarch64)
         if: matrix.platform == 'macos-latest'
         working-directory: src-tauri
-        run: cargo check --target aarch64-apple-darwin
+        run: cargo check --target aarch64-apple-darwin 2>&1 | tee ../cargo-check.log
 
       - name: Check Rust (Windows aarch64)
         if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
+        shell: bash
         working-directory: src-tauri
-        run: cargo check --target aarch64-pc-windows-msvc
+        run: cargo check --target aarch64-pc-windows-msvc 2>&1 | tee ../cargo-check.log
 
       - name: Check Rust (all other platforms)
         if: "!(matrix.platform == 'macos-latest') && !(matrix.platform == 'windows-latest' && matrix.arch == 'aarch64')"
         working-directory: src-tauri
-        run: cargo check
+        run: cargo check 2>&1 | tee ../cargo-check.log
+
+      - name: Upload cargo check log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-check-${{ matrix.artifact-name }}
+          path: cargo-check.log
 
       - name: Build (macOS universal)
         if: matrix.platform == 'macos-latest'
