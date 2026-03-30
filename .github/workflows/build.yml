@@ -74,7 +74,8 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             patchelf \
-            ffmpeg
+            ffmpeg \
+            xdg-utils
 
       - name: Install FFmpeg (Windows x86_64)
         if: matrix.platform == 'windows-latest' && matrix.arch == 'x86_64'
