@@ -16,7 +16,7 @@ static ENCODER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 
 pub fn get_ffmpeg_env() -> &'static HashMap<String, String> {
     FFMPEG_ENV.get_or_init(|| {
-        let mut env: HashMap<String, String> = std::env::vars().collect();
+        let env: HashMap<String, String> = std::env::vars().collect();
 
         #[cfg(target_os = "linux")]
         {
