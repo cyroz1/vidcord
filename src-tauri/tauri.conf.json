@@ -21,11 +21,7 @@
         "resizable": true,
         "center": true,
         "decorations": true,
-        "transparent": true,
-        "effects": {
-          "effects": ["UnderWindowBackground"],
-          "state": "FollowsWindowActiveState"
-        }
+        "transparent": true
       }
     ],
     "security": {
