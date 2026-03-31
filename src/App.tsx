@@ -408,9 +408,12 @@ export default function App() {
 
         {/* Remove audio */}
         <div className="row options-row">
-          <label className="checkbox-label">
-            <input type="checkbox" checked={removeAudio} onChange={e => setRemoveAudio(e.target.checked)} />
-            Remove Audio
+          <label className="toggle-label">
+            <span>Remove Audio</span>
+            <span className="toggle-track">
+              <input type="checkbox" className="toggle-input" checked={removeAudio} onChange={e => setRemoveAudio(e.target.checked)} />
+              <span className="toggle-thumb" />
+            </span>
           </label>
         </div>
 
@@ -465,12 +468,15 @@ export default function App() {
         <div className="footer">
           <span className="version">{CURRENT_VERSION}</span>
           <a href="https://github.com/cyroz1/vidcord" target="_blank" rel="noreferrer" className="gh-link">GitHub</a>
-          <label className="checkbox-label advanced-toggle">
-            <input
-              type="checkbox" checked={advancedMode}
-              onChange={e => { setAdvancedMode(e.target.checked); saveSettings({ advanced_mode: e.target.checked }); }}
-            />
-            Advanced Mode
+          <label className="toggle-label footer-toggle advanced-toggle">
+            <span>Advanced Mode</span>
+            <span className="toggle-track">
+              <input
+                type="checkbox" className="toggle-input" checked={advancedMode}
+                onChange={e => { setAdvancedMode(e.target.checked); saveSettings({ advanced_mode: e.target.checked }); }}
+              />
+              <span className="toggle-thumb" />
+            </span>
           </label>
         </div>
       </div>

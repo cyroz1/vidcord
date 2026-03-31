@@ -21,7 +21,8 @@
         "resizable": true,
         "center": true,
         "decorations": true,
-        "transparent": false
+        "transparent": true,
+        "vibrancy": "under-window"
       }
     ],
     "security": {
