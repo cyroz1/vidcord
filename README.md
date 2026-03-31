@@ -1,4 +1,4 @@
-# <img src="icon.ico" height="25"> vidcord
+# <img src="public/icon.png" height="25"> vidcord
 
 A fast, lightweight desktop app for compressing video files under Discord's size limits — powered by FFmpeg, built with **Tauri** (Rust + React). Available for **Windows, macOS, and Linux**.
 
