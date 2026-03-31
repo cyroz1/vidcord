@@ -22,7 +22,10 @@
         "center": true,
         "decorations": true,
         "transparent": true,
-        "vibrancy": "under-window"
+        "effects": {
+          "effects": ["UnderWindowBackground"],
+          "state": "FollowsWindowActiveState"
+        }
       }
     ],
     "security": {
