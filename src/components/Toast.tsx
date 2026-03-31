@@ -17,15 +17,17 @@ export default function Toast({ type, title, message, onClose }: ToastProps) {
   const color = COLORS[type] ?? COLORS.info;
   return (
     <div style={{
-      background: "var(--surface)",
-      border: `1px solid var(--border)`,
+      background: "rgba(44, 44, 46, 0.82)",
+      backdropFilter: "blur(20px) saturate(160%)",
+      WebkitBackdropFilter: "blur(20px) saturate(160%)",
+      border: "1px solid rgba(255,255,255,0.14)",
       borderLeft: `3px solid ${color}`,
       borderRadius: "var(--radius)",
       padding: "10px 12px",
       display: "flex",
       flexDirection: "column",
       gap: "4px",
-      boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+      boxShadow: "0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.12)",
       animation: "toast-in 0.2s ease",
       maxWidth: "340px",
       wordBreak: "break-word",
