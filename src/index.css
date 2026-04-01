@@ -1,54 +1,81 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 :root {
-  /* Base palette */
-  --bg: rgba(24, 24, 26, 0.72);
-  --surface: rgba(255, 255, 255, 0.07);
-  --surface2: rgba(255, 255, 255, 0.12);
-  --border: rgba(255, 255, 255, 0.18);
-  --border-subtle: rgba(255, 255, 255, 0.10);
+  /* WinUI 3 Dark — surface & background */
+  --bg: #202020;
+  --surface: #2B2B2B;
+  --surface2: #333333;
+  --surface-subtle: rgba(255, 255, 255, 0.0412);
 
-  /* Accent */
-  --accent: #0a84ff;
-  --accent-hover: #409cff;
-  --accent-glow: rgba(10, 132, 255, 0.30);
+  /* Strokes */
+  --border: rgba(255, 255, 255, 0.1578);
+  --border-subtle: rgba(255, 255, 255, 0.0837);
+  --border-focus: #60CDFF;
+
+  /* Accent — Windows 11 dark-mode tint */
+  --accent: #60CDFF;
+  --accent-hover: #78D5FF;
+  --accent-pressed: #4AC8FC;
+  --accent-glow: rgba(96, 205, 255, 0.22);
+  --accent-text: #000000;
 
   /* Text */
-  --text: #f2f2f7;
-  --text-secondary: rgba(242, 242, 247, 0.55);
+  --text: rgba(255, 255, 255, 0.8956);
+  --text-secondary: rgba(255, 255, 255, 0.6063);
+  --text-disabled: rgba(255, 255, 255, 0.3614);
 
   /* Semantic */
-  --success: #30d158;
-  --error: #ff453a;
-  --warning: #ffd60a;
+  --success: #6CCB5F;
+  --error: #FF99A4;
+  --warning: #FCE100;
 
-  /* Glass system */
-  --glass-blur: blur(20px) saturate(160%);
-  --glass-specular: inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  --shadow-panel: 0 4px 24px rgba(0, 0, 0, 0.28), 0 1px 4px rgba(0, 0, 0, 0.18);
-  --shadow-hover: 0 0 0 3px var(--accent-glow), 0 4px 24px rgba(0, 0, 0, 0.28);
+  /* Elevation — WinUI 3 uses very subtle shadows */
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.36), 0 0 0 1px rgba(255, 255, 255, 0.0412);
+  --shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.52);
+  --shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.44);
 
-  /* Radii */
-  --radius: 14px;
-  --radius-sm: 10px;
-  --radius-xs: 7px;
+  /* Radii — WinUI 3 values */
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-xs: 4px;
 
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  /* Control highlight (top edge on cards) */
+  --card-top: inset 0 1px 0 rgba(255, 255, 255, 0.085);
+
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   font-size: 14px;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: rgba(235, 235, 240, 0.68);
-    --surface: rgba(255, 255, 255, 0.55);
-    --surface2: rgba(255, 255, 255, 0.75);
-    --border: rgba(0, 0, 0, 0.12);
-    --border-subtle: rgba(0, 0, 0, 0.07);
-    --text: #1c1c1e;
-    --text-secondary: rgba(28, 28, 30, 0.52);
-    --glass-specular: inset 0 1px 0 rgba(255, 255, 255, 0.70);
-    --shadow-panel: 0 4px 24px rgba(0, 0, 0, 0.10), 0 1px 4px rgba(0, 0, 0, 0.07);
-    --shadow-hover: 0 0 0 3px var(--accent-glow), 0 4px 24px rgba(0, 0, 0, 0.10);
+    --bg: #F3F3F3;
+    --surface: #FFFFFF;
+    --surface2: #F9F9F9;
+    --surface-subtle: rgba(0, 0, 0, 0.025);
+
+    --border: rgba(0, 0, 0, 0.0578);
+    --border-subtle: rgba(0, 0, 0, 0.0373);
+    --border-focus: #0067C0;
+
+    --accent: #0067C0;
+    --accent-hover: #1975C4;
+    --accent-pressed: #005AA3;
+    --accent-glow: rgba(0, 103, 192, 0.18);
+    --accent-text: #FFFFFF;
+
+    --text: rgba(0, 0, 0, 0.8956);
+    --text-secondary: rgba(0, 0, 0, 0.6063);
+    --text-disabled: rgba(0, 0, 0, 0.3614);
+
+    --success: #0F7B0F;
+    --error: #C42B1C;
+    --warning: #9D5D00;
+
+    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.0412);
+    --shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.16);
+    --shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.12);
+
+    --card-top: inset 0 1px 0 rgba(255, 255, 255, 0.70);
   }
 }
 
@@ -65,8 +92,9 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   background: var(--bg);
-  backdrop-filter: blur(32px) saturate(180%);
-  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  /* Simulate Mica material — OS will layer its own effect on Windows 11 */
+  backdrop-filter: blur(40px) saturate(120%);
+  -webkit-backdrop-filter: blur(40px) saturate(120%);
 }
 
 button {
@@ -80,9 +108,12 @@ input, select {
   font-size: 14px;
 }
 
-::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(128, 128, 128, 0.45);
   border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.65);
 }
