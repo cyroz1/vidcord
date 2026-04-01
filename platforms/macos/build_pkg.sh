@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # Determine project root relative to this script
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -28,7 +28,15 @@ else
 fi
 
 # Extract version from tauri.conf.json
-CLEAN_VERSION=$(grep '"version"' "$PROJECT_ROOT/src-tauri/tauri.conf.json" | head -1 | sed -n 's/.*"\([0-9][0-9.]*\)".*/\1/p')
+if command -v jq &>/dev/null; then
+    CLEAN_VERSION=$(jq -r '.version' "$PROJECT_ROOT/src-tauri/tauri.conf.json")
+else
+    CLEAN_VERSION=$(grep '"version"' "$PROJECT_ROOT/src-tauri/tauri.conf.json" | head -1 | sed -n 's/.*"\([0-9][0-9.]*\)".*/\1/p')
+fi
+if [[ -z "$CLEAN_VERSION" ]]; then
+    echo "Error: Could not extract version from tauri.conf.json" >&2
+    exit 1
+fi
 
 # Detect Architecture
 ARCH=$(uname -m)
