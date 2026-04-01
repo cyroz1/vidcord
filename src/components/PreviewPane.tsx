@@ -77,11 +77,12 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
     const vid = videoRef.current;
     if (!vid) return;
 
-    const src = convertFileSrc(filePath);
-    vid.src = src;
-    vid.currentTime = startTime;
+    // Clear any previous handlers before setting src
+    vid.oncanplay = null;
+    vid.onerror = null;
 
     vid.oncanplay = () => {
+      vid.oncanplay = null; // fire only once
       vid.currentTime = startTime;
       vid.play().catch(() => stopPlayback());
       setPlaying(true);
@@ -96,6 +97,10 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
     };
 
     vid.onerror = () => stopPlayback();
+
+    const src = convertFileSrc(filePath);
+    vid.src = src;
+    vid.load();
   }, [filePath, probeData, startTime, endTime, stopPlayback]);
 
   // Stop playback when trim range changes
@@ -121,6 +126,7 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
     <div
       style={{
         background: "var(--surface)",
+        border: "1px solid var(--border-subtle)",
         borderRadius: "var(--radius)",
         overflow: "hidden",
         position: "relative",
@@ -130,7 +136,7 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        cursor: canPlay ? "default" : undefined,
+        boxShadow: "var(--shadow-card)",
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -143,7 +149,7 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
           style={{ width: "100%", height: "100%", objectFit: "contain" }}
         />
       ) : !playing ? (
-        <span style={{ color: "var(--text-secondary)", fontSize: "13px" }}>
+        <span style={{ color: "var(--text-disabled)", fontSize: "13px" }}>
           {loading ? "Loading preview…" : filePath ? "Preview" : "No file selected"}
         </span>
       ) : null}
@@ -161,7 +167,7 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
         onEnded={stopPlayback}
       />
 
-      {/* Play/Stop overlay buttons — show on hover when preview is ready */}
+      {/* Play/Stop overlay — shown on hover */}
       {canPlay && hovered && (
         <div style={{
           position: "absolute",
@@ -176,9 +182,8 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
               title="Play trim segment"
               style={overlayBtnStyle}
             >
-              {/* Play triangle */}
-              <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-                <polygon points="6,4 18,11 6,18" fill="white" />
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <polygon points="5,3 17,10 5,17" fill="white" />
               </svg>
             </button>
           ) : (
@@ -187,9 +192,8 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
               title="Stop playback"
               style={overlayBtnStyle}
             >
-              {/* Stop square */}
-              <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-                <rect x="5" y="5" width="12" height="12" rx="2" fill="white" />
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <rect x="4" y="4" width="12" height="12" rx="2" fill="white" />
               </svg>
             </button>
           )}
@@ -201,7 +205,7 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
         <div style={{
           position: "absolute", bottom: "6px", right: "8px",
           fontSize: "11px", color: "rgba(255,255,255,0.85)",
-          background: "rgba(0,0,0,0.55)", borderRadius: "4px", padding: "2px 6px",
+          background: "rgba(0,0,0,0.58)", borderRadius: "var(--radius-xs)", padding: "2px 6px",
           pointerEvents: "none",
         }}>
           {probeData.width}×{probeData.height} · {probeData.duration.toFixed(1)}s
@@ -211,7 +215,7 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
         <div style={{
           position: "absolute", bottom: "6px", left: "8px",
           fontSize: "11px", color: "rgba(255,255,255,0.85)",
-          background: "rgba(0,0,0,0.55)", borderRadius: "4px", padding: "2px 6px",
+          background: "rgba(0,0,0,0.58)", borderRadius: "var(--radius-xs)", padding: "2px 6px",
           pointerEvents: "none",
         }}>
           {startTime.toFixed(1)}s → {endTime.toFixed(1)}s
@@ -222,14 +226,13 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
 }
 
 const overlayBtnStyle: React.CSSProperties = {
-  background: "linear-gradient(135deg, rgba(255,255,255,0.27) 0%, rgba(255,255,255,0.12) 100%)",
-  border: "1px solid rgba(255,255,255,0.63)",
+  background: "rgba(0, 0, 0, 0.55)",
+  border: "1px solid rgba(255, 255, 255, 0.20)",
   borderRadius: "50%",
-  width: "48px",
-  height: "48px",
+  width: "44px",
+  height: "44px",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   cursor: "pointer",
-  backdropFilter: "blur(4px)",
 };
