@@ -14,21 +14,20 @@ export default function ProgressSection({ progress, eta }: Props) {
       <style>{shimmerKeyframes}</style>
       <div style={{
         width: "100%",
-        height: "5px",
-        background: "rgba(255,255,255,0.10)",
-        borderRadius: "3px",
+        height: "4px",
+        background: "var(--border)",
+        borderRadius: "2px",
         overflow: "hidden",
-        boxShadow: "inset 0 1px 2px rgba(0,0,0,0.20)",
       }}>
         <div style={{
           height: "100%",
           width: `${progress}%`,
           background: isActive
-            ? "linear-gradient(90deg, #0a84ff 0%, #409cff 50%, #0a84ff 100%)"
+            ? `linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 50%, var(--accent) 100%)`
             : "var(--accent)",
           backgroundSize: isActive ? "200% 100%" : "100% 100%",
           animation: isActive ? "shimmer 1.6s linear infinite" : "none",
-          borderRadius: "3px",
+          borderRadius: "2px",
           transition: "width 0.2s ease",
         }} />
       </div>
