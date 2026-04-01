@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import "./App.css";
 import Toast from "./components/Toast";
 import ProgressSection from "./components/ProgressSection";
@@ -341,7 +342,7 @@ export default function App() {
       {updateInfo && (
         <div className="update-banner">
           <span>Version {updateInfo.version} available.</span>
-          <a href={updateInfo.url} target="_blank" rel="noreferrer">Download</a>
+          <a href={updateInfo.url} onClick={e => { e.preventDefault(); openUrl(updateInfo.url); }}>Download</a>
           <button className="update-dismiss" onClick={() => setUpdateInfo(null)}>✕</button>
         </div>
       )}
@@ -467,7 +468,7 @@ export default function App() {
         {/* Footer */}
         <div className="footer">
           <span className="version">{CURRENT_VERSION}</span>
-          <a href="https://github.com/cyroz1/vidcord" target="_blank" rel="noreferrer" className="gh-link">GitHub</a>
+          <a href="https://github.com/cyroz1/vidcord" onClick={e => { e.preventDefault(); openUrl("https://github.com/cyroz1/vidcord"); }} className="gh-link">GitHub</a>
           <label className="toggle-label footer-toggle advanced-toggle">
             <span>Advanced Mode</span>
             <span className="toggle-track">
