@@ -1,5 +1,0 @@
-ffmpeg-python
-PyQt6
-requests
-PyQt6-Fluent-Widgets
-packaging
