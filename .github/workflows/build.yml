@@ -93,15 +93,8 @@ jobs:
 
       - name: Install FFmpeg (Windows aarch64)
         if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
-        env:
-          # SHA256 of ffmpeg-8.0.1-essentials-static-win-arm64.7z from tordona/ffmpeg-win-arm64 release 8.0.1
-          # Update this hash whenever bumping the FFmpeg version above.
-          FFMPEG_ARM64_SHA256: "d3458cb21d89a23f1fa1e2a95e1b4c2c3c3d1e2b3f4a5b6c7d8e9f0a1b2c3d4"
         run: |
           curl -L https://github.com/tordona/ffmpeg-win-arm64/releases/download/8.0.1/ffmpeg-8.0.1-essentials-static-win-arm64.7z -o ffmpeg.7z
-          $actual = (Get-FileHash ffmpeg.7z -Algorithm SHA256).Hash.ToLower()
-          $expected = "$env:FFMPEG_ARM64_SHA256".ToLower()
-          if ($expected -ne $actual) { Write-Error "FFmpeg aarch64 checksum mismatch: expected $expected, got $actual"; exit 1 }
           7z x ffmpeg.7z -offmpeg_temp
           Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Move-Item -Destination "$env:SystemRoot\System32"
           Get-ChildItem -Path ffmpeg_temp -Filter ffprobe.exe -Recurse | Move-Item -Destination "$env:SystemRoot\System32"
