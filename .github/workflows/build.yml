@@ -58,9 +58,7 @@ jobs:
             arch: universal
             rust-target: aarch64-apple-darwin
             artifact-name: vidcord-macos
-            artifact-glob: |
-              src-tauri/target/universal-apple-darwin/release/bundle/**/*.dmg
-              src-tauri/target/release/bundle/pkg/*.pkg
+            artifact-glob: src-tauri/target/release/bundle/pkg/*.pkg
 
     runs-on: ${{ matrix.platform }}
 
@@ -157,7 +155,7 @@ jobs:
 
       - name: Build (macOS universal)
         if: matrix.platform == 'macos-latest'
-        run: npx tauri build --target universal-apple-darwin
+        run: npx tauri build --target universal-apple-darwin --bundles app
 
       - name: Build macOS PKG installer
         if: matrix.platform == 'macos-latest'
