@@ -2,7 +2,7 @@ name: Multi-Platform Build
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, rust ]
     tags:
       - 'v*'
       - '[0-9]*'
