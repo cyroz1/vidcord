@@ -66,8 +66,11 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
     }
     const vid = videoRef.current;
     if (vid) {
+      vid.oncanplay = null;
+      vid.onerror = null;
       vid.pause();
       vid.src = "";
+      vid.load(); // abort any in-flight load so stale canplay events don't fire
     }
     setPlaying(false);
   }, []);
