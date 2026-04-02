@@ -243,36 +243,48 @@ async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<String,
     // Run the blocking stderr-read loop on a dedicated thread so it doesn't
     // starve the Tokio executor for the (potentially multi-minute) duration.
     let (exit_status, last_lines) = tokio::task::spawn_blocking(move || -> Result<_, std::io::Error> {
-        let reader = BufReader::new(stderr);
+        let mut reader = BufReader::new(stderr);
         let start_instant = std::time::Instant::now();
         let mut last_lines: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+        let mut chunk_buf = Vec::new();
 
-        for line in reader.lines().flatten() {
-            last_lines.push_back(line.clone());
-            if last_lines.len() > 200 {
-                last_lines.pop_front();
-            }
-            // Allocate lowercase once per line instead of twice.
-            let lower = line.to_lowercase();
-            if lower.contains("error") || lower.contains("warning") {
-                vidcord_log(&format!("FFMPEG: {line}"));
-            }
-            if line.contains("time=") {
-                if let Some(time_str) = parse_ffmpeg_time(&line) {
-                    let pct = ((time_str / clip_duration) * 100.0).min(100.0);
-                    let elapsed = start_instant.elapsed().as_secs_f64();
-                    let eta = if time_str > 0.0 && elapsed > 0.0 {
-                        let rate = time_str / elapsed;
-                        let remaining = clip_duration - time_str;
-                        format_eta(remaining / rate)
-                    } else {
-                        "Calculating...".to_string()
-                    };
-                    let _ = app_for_progress.emit("compress-progress", serde_json::json!({
-                        "percent": pct as u32,
-                        "eta": eta,
-                        "status": "Compressing..."
-                    }));
+        // FFmpeg writes progress updates terminated by \r (not \n), so we cannot
+        // use lines() which only splits on \n. Instead, read until \r to get each
+        // progress update in real time, and also split any embedded \n within the chunk.
+        loop {
+            chunk_buf.clear();
+            let n = reader.read_until(b'\r', &mut chunk_buf)?;
+            if n == 0 { break; }
+
+            for seg in chunk_buf.split(|&b| b == b'\r' || b == b'\n') {
+                let line = std::str::from_utf8(seg).unwrap_or("").trim();
+                if line.is_empty() { continue; }
+
+                last_lines.push_back(line.to_string());
+                if last_lines.len() > 200 {
+                    last_lines.pop_front();
+                }
+                let lower = line.to_lowercase();
+                if lower.contains("error") || lower.contains("warning") {
+                    vidcord_log(&format!("FFMPEG: {line}"));
+                }
+                if line.contains("time=") {
+                    if let Some(time_str) = parse_ffmpeg_time(line) {
+                        let pct = ((time_str / clip_duration) * 100.0).min(100.0);
+                        let elapsed = start_instant.elapsed().as_secs_f64();
+                        let eta = if time_str > 0.0 && elapsed > 0.0 {
+                            let rate = time_str / elapsed;
+                            let remaining = clip_duration - time_str;
+                            format_eta(remaining / rate)
+                        } else {
+                            "Calculating...".to_string()
+                        };
+                        let _ = app_for_progress.emit("compress-progress", serde_json::json!({
+                            "percent": pct as u32,
+                            "eta": eta,
+                            "status": "Compressing..."
+                        }));
+                    }
                 }
             }
         }
@@ -423,12 +435,37 @@ fn show_in_file_explorer(path: String) -> Result<(), String> {
     }
     #[cfg(target_os = "linux")]
     {
-        let parent = abs.parent().map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|| abs.to_string_lossy().into_owned());
-        std::process::Command::new("xdg-open")
-            .arg(&parent)
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        // Use the org.freedesktop.FileManager1 DBus interface to reveal and select
+        // the specific file. This works with Nautilus, Dolphin, Thunar, Nemo, etc.
+        // and navigates to the correct folder even when a file manager window is
+        // already open showing a different directory.
+        let file_uri = format!("file://{}", abs.display());
+        let dbus_ok = std::process::Command::new("dbus-send")
+            .args([
+                "--session",
+                "--print-reply",
+                "--dest=org.freedesktop.FileManager1",
+                "/org/freedesktop/FileManager1",
+                "org.freedesktop.FileManager1.ShowItems",
+                &format!("array:string:{file_uri}"),
+                "string:",
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+
+        if !dbus_ok {
+            // Fallback: open the parent directory with xdg-open
+            let parent = abs.parent()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|| abs.to_string_lossy().into_owned());
+            std::process::Command::new("xdg-open")
+                .arg(&parent)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
     }
     Ok(())
 }
