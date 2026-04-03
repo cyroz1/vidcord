@@ -111,6 +111,7 @@ export default function App() {
 
   // Settings persistence
   const settingsRef = useRef<Settings>({});
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -121,6 +122,8 @@ export default function App() {
       if (typeof s.advanced_target_size === "string") setAdvSize(s.advanced_target_size);
       if (typeof s.advanced_resolution === "string") setAdvResolution(s.advanced_resolution);
       if (typeof s.advanced_encoder === "string") setAdvEncoder(s.advanced_encoder);
+      if (typeof s.remove_audio === "boolean") setRemoveAudio(s.remove_audio);
+      setSettingsLoaded(true);
     })();
   }, []);
 
@@ -131,6 +134,7 @@ export default function App() {
 
   // Encoder detection + ffmpeg availability check
   useEffect(() => {
+    if (!settingsLoaded) return;
     invoke<Encoder[]>("detect_encoders").then(list => {
       if (list.length > 0) {
         // Check if ffmpeg is missing (sentinel returned by backend)
@@ -148,7 +152,7 @@ export default function App() {
         setEncoderIdx(Math.min(savedIdx, list.length - 1));
       }
     }).catch(() => {});
-  }, [addToast]);
+  }, [addToast, settingsLoaded]);
 
   // Listen for file opened via CLI arg or OS file association
   useEffect(() => {
@@ -184,6 +188,7 @@ export default function App() {
 
   // Update check (once per session, respecting 6h cooldown)
   useEffect(() => {
+    if (!settingsLoaded) return;
     const lastCheck = (settingsRef.current.update_last_check as number) ?? 0;
     if (Date.now() / 1000 - lastCheck < 6 * 3600) return;
     saveSettings({ update_last_check: Date.now() / 1000 });
@@ -194,7 +199,7 @@ export default function App() {
         setUpdateInfo({ version: r.latest_version, url: r.release_url });
       }
     }).catch(() => {});
-  }, [saveSettings]);
+  }, [saveSettings, settingsLoaded]);
 
   const loadVideo = useCallback(async (path: string) => {
     const supported = /\.(mp4|avi|mov|mkv|flv|wmv|webm)$/i.test(path);
@@ -435,7 +440,7 @@ export default function App() {
           <label className="toggle-label">
             <span>Remove Audio</span>
             <span className="toggle-track">
-              <input type="checkbox" className="toggle-input" checked={removeAudio} onChange={e => setRemoveAudio(e.target.checked)} />
+              <input type="checkbox" className="toggle-input" checked={removeAudio} onChange={e => { setRemoveAudio(e.target.checked); saveSettings({ remove_audio: e.target.checked }); }} />
               <span className="toggle-thumb" />
             </span>
           </label>
