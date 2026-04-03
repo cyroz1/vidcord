@@ -74,15 +74,30 @@ async fn get_preview_frame(path: String, time_sec: f64) -> Result<Vec<u8>, Strin
 
 #[tauri::command]
 async fn detect_encoders() -> Vec<serde_json::Value> {
-    // get_available_encoders() already returns a safe fallback if ffmpeg is missing.
     tokio::task::spawn_blocking(|| {
+        let ffmpeg_ok = std::process::Command::new("ffmpeg")
+            .arg("-version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+
+        if !ffmpeg_ok {
+            return vec![serde_json::json!({
+                "name": "libx264",
+                "label": "CPU (libx264)",
+                "ffmpeg_missing": true
+            })];
+        }
+
         get_available_encoders()
             .into_iter()
             .map(|(name, label)| serde_json::json!({"name": name, "label": label}))
             .collect::<Vec<_>>()
     })
     .await
-    .unwrap_or_else(|_| vec![serde_json::json!({"name": "libx264", "label": "CPU (libx264)"})])
+    .unwrap_or_else(|_| vec![serde_json::json!({"name": "libx264", "label": "CPU (libx264)", "ffmpeg_missing": true})])
 }
 
 #[tauri::command]
@@ -551,6 +566,22 @@ fn format_eta(secs: f64) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     log::setup_crash_log();
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(path) = std::env::var("PATH") {
+            let mut new_path = path.clone();
+            if !new_path.contains("/usr/local/bin") {
+                new_path = format!("{new_path}:/usr/local/bin");
+            }
+            if !new_path.contains("/opt/homebrew/bin") {
+                new_path = format!("{new_path}:/opt/homebrew/bin");
+            }
+            std::env::set_var("PATH", new_path);
+        } else {
+            std::env::set_var("PATH", "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin");
+        }
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
