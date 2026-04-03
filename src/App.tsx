@@ -330,6 +330,10 @@ export default function App() {
   const startTime = probeData ? (startVal / sliderMax) * probeData.duration : 0;
   const endTime = probeData ? (endVal / sliderMax) * probeData.duration : 0;
 
+  const lowerAdvEnc = advEncoder.toLowerCase();
+  const predictedEncoder = advEncoder ? encoders.find(enc => enc.name.toLowerCase().startsWith(lowerAdvEnc))?.name : undefined;
+  const showPrediction = predictedEncoder && predictedEncoder.toLowerCase() !== lowerAdvEnc;
+
   return (
     <div className="app">
       {/* Header */}
@@ -396,11 +400,30 @@ export default function App() {
             </label>
             <label className="encoder-label">Encoder
               <div className="encoder-row">
-                <input
-                  type="text" placeholder="e.g. libx264"
-                  value={advEncoder}
-                  onChange={e => { setAdvEncoder(e.target.value); saveSettings({ advanced_encoder: e.target.value }); }}
-                />
+                <div style={{ position: "relative", flex: 1, display: "flex" }}>
+                  {showPrediction && (
+                    <input
+                      type="text"
+                      value={predictedEncoder}
+                      readOnly
+                      style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", color: "var(--text-disabled)", pointerEvents: "none", zIndex: 0, borderColor: "transparent", background: "transparent" }}
+                      tabIndex={-1}
+                    />
+                  )}
+                  <input
+                    type="text" placeholder="e.g. libx264"
+                    value={advEncoder}
+                    style={{ position: "relative", zIndex: 1, backgroundColor: "transparent", width: "100%" }}
+                    onChange={e => { setAdvEncoder(e.target.value); saveSettings({ advanced_encoder: e.target.value }); }}
+                    onKeyDown={e => {
+                      if (e.key === "Tab" && showPrediction) {
+                        e.preventDefault();
+                        setAdvEncoder(predictedEncoder!);
+                        saveSettings({ advanced_encoder: predictedEncoder! });
+                      }
+                    }}
+                  />
+                </div>
                 <button className="icon-btn" title="Show FFmpeg encoders" onClick={showEncoders}>ℹ</button>
               </div>
             </label>

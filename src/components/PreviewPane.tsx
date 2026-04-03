@@ -10,7 +10,7 @@ type Props = {
 };
 
 export default function PreviewPane({ filePath, startTime, endTime, probeData }: Props) {
-  const [frameB64, setFrameB64] = useState<string | null>(null);
+  const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -27,10 +27,17 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
     activeRef.current = true;
     setLoading(true);
     try {
-      const b64 = await invoke<string>("get_preview_frame", { path, timeSec: time });
-      if (activeRef.current) setFrameB64(b64);
+      const buffer = await invoke<Uint8Array>("get_preview_frame", { path, timeSec: time });
+      if (activeRef.current) {
+        const blob = new Blob([new Uint8Array(buffer)], { type: "image/jpeg" });
+        const url = URL.createObjectURL(blob);
+        setFrameUrl(prev => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+      }
     } catch {
-      if (activeRef.current) setFrameB64(null);
+      if (activeRef.current) setFrameUrl(null);
     } finally {
       setLoading(false);
     }
@@ -39,7 +46,10 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
   useEffect(() => {
     if (!filePath || !probeData) {
       activeRef.current = false;
-      setFrameB64(null);
+      setFrameUrl(prev => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
       stopPlayback();
       return;
     }
@@ -116,6 +126,10 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
   useEffect(() => () => {
     stopPlayback();
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    setFrameUrl(prev => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -145,9 +159,9 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
       onMouseLeave={() => setHovered(false)}
     >
       {/* Static frame preview */}
-      {frameB64 && !playing ? (
+      {frameUrl && !playing ? (
         <img
-          src={`data:image/jpeg;base64,${frameB64}`}
+          src={frameUrl}
           alt="preview"
           style={{ width: "100%", height: "100%", objectFit: "contain" }}
         />
