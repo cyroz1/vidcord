@@ -62,10 +62,14 @@ async fn probe(path: String) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-async fn get_preview_frame(path: String, time_sec: f64) -> Result<Vec<u8>, String> {
-    tokio::task::spawn_blocking(move || generate_preview(&path, time_sec).map_err(|e| e.to_string()))
-        .await
-        .map_err(|e| e.to_string())?
+async fn get_preview_frame(path: String, time_sec: f64) -> Result<tauri::ipc::Response, String> {
+    tokio::task::spawn_blocking(move || {
+        generate_preview(&path, time_sec)
+            .map(|bytes| tauri::ipc::Response::new(bytes))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ---------------------------------------------------------------------------
