@@ -1,7 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::OnceLock;
-use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use crate::gpu::get_system_gpus;
 
 static VAAPI_CACHE: OnceLock<Option<String>> = OnceLock::new();
@@ -82,36 +80,29 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
 // Preview frame extraction
 // ---------------------------------------------------------------------------
 
-pub fn generate_preview(path: &str, time_sec: f64) -> Result<String, Box<dyn std::error::Error>> {
-    let tmp_dir = temp_dir();
-    std::fs::create_dir_all(&tmp_dir)?;
-
-    let rand_hex: String = {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.subsec_nanos();
-        format!("{:x}{:x}", nanos, std::process::id())
-    };
-    let tmp_path = tmp_dir.join(format!("preview_{rand_hex}.jpg"));
-
+pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
-    cmd.args(["-y", "-ss", &time_sec.to_string(), "-i", path, "-an", "-sn", "-frames:v", "1", "-q:v", "4", "-vf", "scale=320:-1:flags=fast_bilinear"])
-        .arg(tmp_path.to_str().ok_or("Invalid tmp path")?)
-        .envs(get_ffmpeg_env())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+    cmd.args([
+        "-y", "-ss", &time_sec.to_string(), "-i", path, 
+        "-an", "-sn", "-frames:v", "1", "-q:v", "4", 
+        "-vf", "scale=320:-1:flags=fast_bilinear",
+        "-f", "image2pipe", "-vcodec", "mjpeg", "-"
+    ])
+    .envs(get_ffmpeg_env())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null());
+
     #[cfg(target_os = "windows")]
     { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); }
 
-    let status = cmd.status()?;
+    let out = cmd.output()?;
 
-    if !status.success() {
+    if !out.status.success() {
         return Err("FFmpeg preview failed".into());
     }
 
-    let bytes = std::fs::read(&tmp_path)?;
-    let _ = std::fs::remove_file(&tmp_path);
-    Ok(B64.encode(&bytes))
+    Ok(out.stdout)
 }
 
 // ---------------------------------------------------------------------------
@@ -190,7 +181,7 @@ pub fn find_vaapi_device() -> Option<String> {
                 return None;
             }
 
-            let mut nodes: Vec<PathBuf> = std::fs::read_dir(dri)
+            let mut nodes: Vec<std::path::PathBuf> = std::fs::read_dir(dri)
                 .ok()?
                 .flatten()
                 .map(|e| e.path())
@@ -233,22 +224,3 @@ pub fn find_vaapi_device() -> Option<String> {
     }).clone()
 }
 
-// ---------------------------------------------------------------------------
-// Platform temp dir
-// ---------------------------------------------------------------------------
-
-fn temp_dir() -> PathBuf {
-    #[cfg(target_os = "windows")]
-    {
-        let base = std::env::var("APPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")));
-        base.join("vidcord")
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".vidcord")
-    }
-}
