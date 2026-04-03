@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.sha }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -56,7 +56,7 @@ jobs:
 
           - platform: macos-latest
             arch: universal
-            rust-target: aarch64-apple-darwin
+            rust-target: aarch64-apple-darwin,x86_64-apple-darwin
             artifact-name: vidcord-macos
             artifact-glob: src-tauri/target/release/bundle/pkg/*.pkg
 
@@ -82,7 +82,9 @@ jobs:
         uses: actions/cache@v4
         id: cache-ffmpeg-win-x64
         with:
-          path: C:\Windows\System32\ffmpeg.exe
+          path: |
+            C:\Windows\System32\ffmpeg.exe
+            C:\Windows\System32\ffprobe.exe
           key: ffmpeg-windows-x86_64-v1
 
       - name: Install FFmpeg (Windows x86_64)
@@ -102,7 +104,9 @@ jobs:
         uses: actions/cache@v4
         id: cache-ffmpeg-win-arm
         with:
-          path: C:\Windows\System32\ffmpeg.exe
+          path: |
+            C:\Windows\System32\ffmpeg.exe
+            C:\Windows\System32\ffprobe.exe
           key: ffmpeg-windows-aarch64-v1
 
       - name: Install FFmpeg (Windows aarch64)
@@ -113,18 +117,8 @@ jobs:
           Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Move-Item -Destination "$env:SystemRoot\System32"
           Get-ChildItem -Path ffmpeg_temp -Filter ffprobe.exe -Recurse | Move-Item -Destination "$env:SystemRoot\System32"
 
-      - name: Cache FFmpeg (macOS)
-        if: matrix.platform == 'macos-latest'
-        uses: actions/cache@v4
-        id: cache-ffmpeg-mac
-        with:
-          path: |
-            /usr/local/Cellar/ffmpeg
-            /opt/homebrew/Cellar/ffmpeg
-          key: brew-ffmpeg-${{ runner.os }}-${{ runner.arch }}-v1
-
       - name: Install FFmpeg (macOS)
-        if: matrix.platform == 'macos-latest' && steps.cache-ffmpeg-mac.outputs.cache-hit != 'true'
+        if: matrix.platform == 'macos-latest'
         run: brew install ffmpeg
 
       - name: Set up Node
@@ -138,15 +132,6 @@ jobs:
         with:
           targets: ${{ matrix.rust-target }}
 
-      - name: Add aarch64 Windows Rust target
-        if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
-        run: rustup target add aarch64-pc-windows-msvc
-
-      - name: Add macOS universal targets
-        if: matrix.platform == 'macos-latest'
-        run: |
-          rustup target add x86_64-apple-darwin
-          rustup target add aarch64-apple-darwin
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
