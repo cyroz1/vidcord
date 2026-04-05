@@ -28,7 +28,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Build the frontend once, reuse the dist/ output across all matrix jobs.
+  # This avoids running Vite 5× (once per platform) and surfaces TypeScript
+  # errors before any Rust compilation starts.
+  frontend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+          if-no-files-found: error
+
   build:
+    needs: frontend
     permissions:
       contents: read
     strategy:
@@ -69,6 +102,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
 
       - name: Install system dependencies (Linux)
         if: startsWith(matrix.platform, 'ubuntu')
@@ -169,12 +208,9 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Typecheck
-        run: npm run typecheck
-
       - name: Build (macOS universal)
         if: matrix.platform == 'macos-latest'
-        run: npx tauri build --target universal-apple-darwin --bundles app
+        run: npx tauri build --target universal-apple-darwin --bundles app --config '{"build":{"beforeBuildCommand":""}}'
 
       - name: Build macOS PKG installer
         if: matrix.platform == 'macos-latest'
@@ -182,11 +218,15 @@ jobs:
 
       - name: Build (Windows aarch64)
         if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
-        run: npx tauri build --target aarch64-pc-windows-msvc
+        run: npx tauri build --target aarch64-pc-windows-msvc --bundles nsis --config '{"build":{"beforeBuildCommand":""}}'
 
-      - name: Build (all other platforms)
-        if: "!(matrix.platform == 'macos-latest') && !(matrix.platform == 'windows-latest' && matrix.arch == 'aarch64')"
-        run: npx tauri build
+      - name: Build (Windows x86_64)
+        if: matrix.platform == 'windows-latest' && matrix.arch == 'x86_64'
+        run: npx tauri build --bundles nsis --config '{"build":{"beforeBuildCommand":""}}'
+
+      - name: Build (Linux)
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: npx tauri build --bundles appimage --config '{"build":{"beforeBuildCommand":""}}'
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
