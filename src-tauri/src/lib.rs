@@ -632,12 +632,11 @@ pub fn run() {
         .expect("error while running tauri application")
         .run(|app_handle, event| {
             // macOS Finder "Open with" delivers files via Apple Events, not CLI args.
-            // Tauri v2 surfaces these as RunEvent::Opened. This event exists on all
-            // platforms but only fires on macOS/iOS; Windows uses argv (handled in
-            // .setup() above). Take the first valid file path, consistent with
-            // the drag-drop handler.
+            // Tauri v2 surfaces these as RunEvent::Opened, which is a macOS-only variant.
+            // Windows uses argv instead (handled in .setup() above).
+            #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = event {
-                let first_path = urls.into_iter().find_map(|u| u.to_file_path().ok());
+                let first_path = urls.into_iter().find_map(|u: url::Url| u.to_file_path().ok());
                 if let Some(path) = first_path {
                     let path_str = path.to_string_lossy().to_string();
                     if let Some(win) = app_handle.get_webview_window("main") {
@@ -648,5 +647,7 @@ pub fn run() {
                     }
                 }
             }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app_handle, event);
         });
 }
