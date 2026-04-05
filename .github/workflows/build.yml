@@ -12,7 +12,7 @@ on:
       - '.gitignore'
       - 'screenshots/**'
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, rust ]
     paths-ignore:
       - 'README.md'
       - 'CHANGELOG.md'
@@ -26,6 +26,8 @@ concurrency:
 
 jobs:
   build:
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -34,13 +36,13 @@ jobs:
             arch: x86_64
             rust-target: x86_64-pc-windows-msvc
             artifact-name: vidcord-windows-x86_64
-            artifact-glob: src-tauri/target/release/bundle/**/*.exe
+            artifact-glob: src-tauri/target/release/bundle/nsis/*.exe
 
           - platform: windows-latest
             arch: aarch64
             rust-target: aarch64-pc-windows-msvc
             artifact-name: vidcord-windows-aarch64
-            artifact-glob: src-tauri/target/aarch64-pc-windows-msvc/release/bundle/**/*.exe
+            artifact-glob: src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*.exe
 
           - platform: ubuntu-22.04
             arch: x86_64
@@ -82,9 +84,7 @@ jobs:
         uses: actions/cache@v4
         id: cache-ffmpeg-win-x64
         with:
-          path: |
-            C:\Windows\System32\ffmpeg.exe
-            C:\Windows\System32\ffprobe.exe
+          path: C:\tools\ffmpeg-x64
           key: ffmpeg-windows-x86_64-v1
 
       - name: Install FFmpeg (Windows x86_64)
@@ -95,27 +95,52 @@ jobs:
           $expected = (Get-Content ffmpeg.zip.sha256 -Raw).Trim().ToLower()
           $actual = (Get-FileHash ffmpeg.zip -Algorithm SHA256).Hash.ToLower()
           if ($expected -ne $actual) { Write-Error "FFmpeg checksum mismatch: expected $expected, got $actual"; exit 1 }
-          powershell -Command "Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_temp"
-          Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Move-Item -Destination "$env:SystemRoot\System32"
-          Get-ChildItem -Path ffmpeg_temp -Filter ffprobe.exe -Recurse | Move-Item -Destination "$env:SystemRoot\System32"
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_extract
+          $binDir = Get-ChildItem -Path ffmpeg_extract -Filter bin -Recurse -Directory | Select-Object -First 1 -ExpandProperty FullName
+          New-Item -ItemType Directory -Force -Path C:\tools\ffmpeg-x64 | Out-Null
+          Copy-Item "$binDir\ffmpeg.exe" C:\tools\ffmpeg-x64\
+          Copy-Item "$binDir\ffprobe.exe" C:\tools\ffmpeg-x64\
+
+      - name: Add FFmpeg to PATH (Windows x86_64)
+        if: matrix.platform == 'windows-latest' && matrix.arch == 'x86_64'
+        run: echo "C:\tools\ffmpeg-x64" >> $env:GITHUB_PATH
 
       - name: Cache FFmpeg (Windows aarch64)
         if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
         uses: actions/cache@v4
         id: cache-ffmpeg-win-arm
         with:
-          path: |
-            C:\Windows\System32\ffmpeg.exe
-            C:\Windows\System32\ffprobe.exe
+          path: C:\tools\ffmpeg-arm64
           key: ffmpeg-windows-aarch64-v1
 
       - name: Install FFmpeg (Windows aarch64)
         if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64' && steps.cache-ffmpeg-win-arm.outputs.cache-hit != 'true'
         run: |
+          # NOTE: No official ARM64 FFmpeg Windows build exists from gyan.dev or ffmpeg.org.
+          # This uses a community build. A SHA256 checksum should be added here once a
+          # stable, verifiable upstream source for ARM64 Windows FFmpeg is available.
+          # Track: https://github.com/BtbN/FFmpeg-Builds for an official alternative.
           curl -L https://github.com/tordona/ffmpeg-win-arm64/releases/download/8.0.1/ffmpeg-8.0.1-essentials-static-win-arm64.7z -o ffmpeg.7z
-          7z x ffmpeg.7z -offmpeg_temp
-          Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Move-Item -Destination "$env:SystemRoot\System32"
-          Get-ChildItem -Path ffmpeg_temp -Filter ffprobe.exe -Recurse | Move-Item -Destination "$env:SystemRoot\System32"
+          7z x ffmpeg.7z -offmpeg_extract
+          $binDir = Get-ChildItem -Path ffmpeg_extract -Filter ffmpeg.exe -Recurse | Select-Object -First 1 -ExpandProperty DirectoryName
+          New-Item -ItemType Directory -Force -Path C:\tools\ffmpeg-arm64 | Out-Null
+          Copy-Item "$binDir\ffmpeg.exe" C:\tools\ffmpeg-arm64\
+          Copy-Item "$binDir\ffprobe.exe" C:\tools\ffmpeg-arm64\
+
+      - name: Add FFmpeg to PATH (Windows aarch64)
+        if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
+        run: echo "C:\tools\ffmpeg-arm64" >> $env:GITHUB_PATH
+
+      - name: Cache Homebrew packages (macOS)
+        if: matrix.platform == 'macos-latest'
+        uses: actions/cache@v4
+        id: cache-brew-ffmpeg
+        with:
+          path: |
+            ~/Library/Caches/Homebrew/ffmpeg--*
+            /usr/local/Cellar/ffmpeg
+            /opt/homebrew/Cellar/ffmpeg
+          key: brew-ffmpeg-${{ runner.arch }}-v1
 
       - name: Install FFmpeg (macOS)
         if: matrix.platform == 'macos-latest'
@@ -132,7 +157,6 @@ jobs:
         with:
           targets: ${{ matrix.rust-target }}
 
-
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -141,6 +165,9 @@ jobs:
 
       - name: Install npm dependencies
         run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
 
       - name: Build (macOS universal)
         if: matrix.platform == 'macos-latest'
