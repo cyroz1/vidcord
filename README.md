@@ -54,9 +54,9 @@ A fast, lightweight desktop app for compressing video files under Discord's size
 | Tool | Version | Notes |
 |------|---------|-------|
 | [Rust](https://rustup.rs) | stable | Install via `rustup` |
-| [Node.js](https://nodejs.org) | 18+ | For the React frontend |
+| [Node.js](https://nodejs.org) | 22 | For the React frontend |
 | [FFmpeg](https://ffmpeg.org/download.html) | any recent | Must be on `PATH` at runtime |
-| **Linux only** | | `libwebkit2gtk-4.1-dev`, `libgtk-3-dev` |
+| **Linux only** | | `libwebkit2gtk-4.1-dev`, `libappindicator3-dev`, `librsvg2-dev`, `patchelf` |
 | **Windows only** | | [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) (pre-installed on Win11) |
 
 ### Install and run (dev)
@@ -75,11 +75,11 @@ npm run tauri dev
 npm run tauri build
 ```
 
-The signed installer or `.AppImage` will be in `src-tauri/target/release/bundle/`.
+The installer or `.AppImage` will be in `src-tauri/target/release/bundle/`.
 
 ### CI / cross-platform releases
 
-GitHub Actions builds on Windows, macOS, and Linux via the [`tauri-apps/tauri-action`](https://github.com/tauri-apps/tauri-action) matrix. See [`.github/workflows/build.yml`](.github/workflows/build.yml).
+GitHub Actions builds on Windows (x86_64 + aarch64), macOS (universal), and Linux (x86_64 + aarch64) using a custom matrix that runs `npx tauri build` directly. See [`.github/workflows/build.yml`](.github/workflows/build.yml).
 
 ## Acknowledgements
 
