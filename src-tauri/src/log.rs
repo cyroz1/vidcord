@@ -9,9 +9,11 @@ static LOG_FILE: OnceLock<Mutex<Option<File>>> = OnceLock::new();
 
 fn log_path() -> &'static PathBuf {
     LOG_PATH.get_or_init(|| {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("vidcord_crash.log")
+        let base = dirs::data_local_dir()
+            .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")));
+        let dir = base.join("vidcord");
+        let _ = std::fs::create_dir_all(&dir);
+        dir.join("vidcord.log")
     })
 }
 
