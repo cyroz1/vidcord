@@ -136,7 +136,7 @@ async fn list_ffmpeg_video_encoders() -> Result<String, String> {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
         let re = LIST_ENCODER_RE.get_or_init(|| {
-            regex_lite::Regex::new(r"^\s*V[A-Z.]*\s+(\S+)\s+(.*)").unwrap()
+            regex_lite::Regex::new(r"^\s*V[A-Z.]*\s+(\S+)\s+(.*)").expect("invalid regex literal")
         });
         let mut lines: Vec<String> = Vec::new();
         for line in stdout.lines() {
@@ -326,6 +326,15 @@ async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<String,
 
     if cancelled {
         vidcord_log("Compression cancelled by user.");
+        // Process has exited at this point — safe to remove the partial output file.
+        let p = std::path::Path::new(&output_path);
+        if p.exists() {
+            if let Err(e) = std::fs::remove_file(p) {
+                vidcord_log(&format!("Failed to remove partial file {output_path}: {e}"));
+            } else {
+                vidcord_log(&format!("Cleaned up partial file: {output_path}"));
+            }
+        }
         let _ = app.emit("compress-done", serde_json::json!({"success": false, "cancelled": true, "message": "Cancelled."}));
         return Err("Cancelled".to_string());
     }
@@ -368,17 +377,9 @@ fn cancel_compression() {
         }
     }
 
-    // Clean up partial output file
-    if let Some(path) = output_path {
-        let p = std::path::Path::new(&path);
-        if p.exists() {
-            if let Err(e) = std::fs::remove_file(p) {
-                vidcord_log(&format!("Failed to remove partial file {path}: {e}"));
-            } else {
-                vidcord_log(&format!("Cleaned up partial file: {path}"));
-            }
-        }
-    }
+    // Partial file cleanup is handled by compress_video once the process has
+    // actually exited, avoiding a race between the kill signal and file removal.
+    let _ = output_path;
 }
 
 // ---------------------------------------------------------------------------
@@ -458,7 +459,9 @@ fn show_in_file_explorer(path: String) -> Result<(), String> {
         // the specific file. This works with Nautilus, Dolphin, Thunar, Nemo, etc.
         // and navigates to the correct folder even when a file manager window is
         // already open showing a different directory.
-        let file_uri = format!("file://{}", abs.display());
+        let file_uri = url::Url::from_file_path(&abs)
+            .map(|u| u.to_string())
+            .unwrap_or_else(|_| format!("file://{}", abs.display()));
         let dbus_ok = std::process::Command::new("dbus-send")
             .args([
                 "--session",

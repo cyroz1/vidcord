@@ -44,7 +44,7 @@ fn detect_gpus() -> Option<HashMap<String, bool>> {
         if text.contains("nvidia") { *gpus.get_mut("nvidia").unwrap() = true; }
         if text.contains("amd") || text.contains("radeon") { *gpus.get_mut("amd").unwrap() = true; }
         if text.contains("intel") { *gpus.get_mut("intel").unwrap() = true; }
-        let apple_re = regex_lite::Regex::new(r"\bm\d+\b").unwrap();
+        let apple_re = regex_lite::Regex::new(r"\bm\d+\b").expect("invalid regex literal");
         if text.contains("apple") || apple_re.is_match(&text) { *gpus.get_mut("apple").unwrap() = true; }
     }
 

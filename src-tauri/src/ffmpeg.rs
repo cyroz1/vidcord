@@ -126,7 +126,7 @@ pub fn get_available_encoders() -> Vec<(String, String)> {
     let system = std::env::consts::OS;
 
     let re = ENCODER_RE.get_or_init(|| {
-        regex_lite::Regex::new(r"^\s*V[A-Z.]*\s+([a-zA-Z0-9_]+)\s+").unwrap()
+        regex_lite::Regex::new(r"^\s*V[A-Z.]*\s+([a-zA-Z0-9_]+)\s+").expect("invalid regex literal")
     });
     let mut ffmpeg_encoders: std::collections::HashSet<String> = std::collections::HashSet::new();
     for line in text.lines() {
@@ -157,7 +157,7 @@ pub fn get_available_encoders() -> Vec<(String, String)> {
             *gpus.get(*gpu_key).unwrap_or(&false)
         };
 
-        if include && (*enc == "libx264" || *enc == "h264_vaapi" || ffmpeg_encoders.contains(*enc)) {
+        if include && (*enc == "libx264" || ffmpeg_encoders.contains(*enc)) {
             result.push((enc.to_string(), label.to_string()));
         }
     }

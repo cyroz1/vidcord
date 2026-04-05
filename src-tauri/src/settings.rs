@@ -6,19 +6,11 @@ static SETTINGS_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 fn settings_path() -> &'static PathBuf {
     SETTINGS_PATH.get_or_init(|| {
-        #[cfg(target_os = "windows")]
-        {
-            let base = std::env::var("APPDATA")
-                .map(PathBuf::from)
-                .unwrap_or_else(|_| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")));
-            base.join("vidcord_settings.json")
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".vidcord_settings.json")
-        }
+        let base = dirs::data_local_dir()
+            .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")));
+        let dir = base.join("vidcord");
+        let _ = std::fs::create_dir_all(&dir);
+        dir.join("settings.json")
     })
 }
 
@@ -42,7 +34,7 @@ impl SettingsManager {
         let dir = path.parent().ok_or("No parent directory")?;
 
         // Atomic write: write to temp file, then rename
-        let tmp = dir.join(format!(".vidcord_settings_{}.tmp", std::process::id()));
+        let tmp = dir.join(format!("settings_{}.tmp", std::process::id()));
         {
             let mut f = std::fs::File::create(&tmp)?;
             f.write_all(serde_json::to_string(data)?.as_bytes())?;
