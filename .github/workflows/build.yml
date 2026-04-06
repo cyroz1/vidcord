@@ -25,9 +25,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Build the frontend once, reuse the dist/ output across all matrix jobs.
-  # This avoids running Vite 5× (once per platform) and surfaces TypeScript
-  # errors before any Rust compilation starts.
+  # Lint, type-check, audit and build the frontend once, reuse the dist/ output
+  # across all matrix jobs. This avoids running Vite 5× (once per platform) and
+  # surfaces TypeScript / lint errors before any Rust compilation starts.
   frontend:
     runs-on: ubuntu-latest
     permissions:
@@ -44,6 +44,12 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+
+      - name: Lint
+        run: npm run lint
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -57,8 +63,49 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  # Run Rust quality checks: clippy, tests, and dependency audit.
+  # Runs on ubuntu-latest only — no need to repeat on all 5 platforms.
+  rust-checks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked --quiet
+
+      - name: Audit Rust dependencies
+        run: cargo audit --manifest-path src-tauri/Cargo.toml
+
   build:
-    needs: frontend
+    needs: [frontend, rust-checks]
     permissions:
       contents: read
     strategy:

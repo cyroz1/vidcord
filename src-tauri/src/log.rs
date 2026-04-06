@@ -17,8 +17,18 @@ fn log_path() -> &'static PathBuf {
     })
 }
 
+const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024; // 5 MB
+
 pub fn setup_crash_log() {
     let path = log_path();
+
+    // Rotate the log file if it has grown past MAX_LOG_BYTES.
+    if let Ok(meta) = std::fs::metadata(path) {
+        if meta.len() > MAX_LOG_BYTES {
+            let bak = path.with_extension("log.bak");
+            let _ = std::fs::rename(path, &bak);
+        }
+    }
 
     // Open (or create) the log file once; keep the handle alive for the process lifetime.
     let file = std::fs::OpenOptions::new()
