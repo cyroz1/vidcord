@@ -59,6 +59,25 @@ A fast, lightweight desktop app for compressing video files under Discord's size
 | **Linux only** | | `libwebkit2gtk-4.1-dev`, `libappindicator3-dev`, `librsvg2-dev`, `patchelf` |
 | **Windows only** | | [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) (pre-installed on Win11) |
 
+### Install FFmpeg
+
+FFmpeg must be installed and available on your `PATH` before running or building vidcord.
+
+**Windows**
+```sh
+winget install ffmpeg
+```
+
+**macOS**
+```sh
+brew install ffmpeg
+```
+
+**Linux (Debian/Ubuntu)**
+```sh
+sudo apt install ffmpeg
+```
+
 ### Install and run (dev)
 
 ```sh
