@@ -20,9 +20,7 @@ pub fn get_system_gpus() -> &'static HashMap<String, bool> {
             // Detection failed — enable all vendors so no valid encoder is hidden.
             // This means the encoder list may include options the system can't use;
             // FFmpeg will return a clear error if the user picks one that doesn't work.
-            crate::log::vidcord_log(
-                "GPU detection failed — enabling all vendors as fallback",
-            );
+            crate::log::vidcord_log("GPU detection failed — enabling all vendors as fallback");
             for v in gpus.values_mut() {
                 *v = true;
             }
@@ -46,11 +44,19 @@ fn detect_gpus() -> Option<HashMap<String, bool>> {
             .output()
             .ok()?;
         let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
-        if text.contains("nvidia") { *gpus.get_mut("nvidia").unwrap() = true; }
-        if text.contains("amd") || text.contains("radeon") { *gpus.get_mut("amd").unwrap() = true; }
-        if text.contains("intel") { *gpus.get_mut("intel").unwrap() = true; }
+        if text.contains("nvidia") {
+            *gpus.get_mut("nvidia").unwrap() = true;
+        }
+        if text.contains("amd") || text.contains("radeon") {
+            *gpus.get_mut("amd").unwrap() = true;
+        }
+        if text.contains("intel") {
+            *gpus.get_mut("intel").unwrap() = true;
+        }
         let apple_re = regex_lite::Regex::new(r"\bm\d+\b").expect("invalid regex literal");
-        if text.contains("apple") || apple_re.is_match(&text) { *gpus.get_mut("apple").unwrap() = true; }
+        if text.contains("apple") || apple_re.is_match(&text) {
+            *gpus.get_mut("apple").unwrap() = true;
+        }
     }
 
     #[cfg(target_os = "windows")]
@@ -58,7 +64,10 @@ fn detect_gpus() -> Option<HashMap<String, bool>> {
         use std::os::windows::process::CommandExt;
         // Primary: PowerShell Get-CimInstance (Windows 10+)
         let ps_result = std::process::Command::new("powershell")
-            .args(["-Command", "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"])
+            .args([
+                "-Command",
+                "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name",
+            ])
             .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .output();
 
@@ -79,22 +88,32 @@ fn detect_gpus() -> Option<HashMap<String, bool>> {
             }
         };
 
-        if text.contains("nvidia") { *gpus.get_mut("nvidia").unwrap() = true; }
-        if text.contains("amd") || text.contains("radeon") { *gpus.get_mut("amd").unwrap() = true; }
-        if text.contains("intel") { *gpus.get_mut("intel").unwrap() = true; }
+        if text.contains("nvidia") {
+            *gpus.get_mut("nvidia").unwrap() = true;
+        }
+        if text.contains("amd") || text.contains("radeon") {
+            *gpus.get_mut("amd").unwrap() = true;
+        }
+        if text.contains("intel") {
+            *gpus.get_mut("intel").unwrap() = true;
+        }
     }
 
     #[cfg(target_os = "linux")]
     {
-        let out = std::process::Command::new("lspci")
-            .output()
-            .ok()?;
+        let out = std::process::Command::new("lspci").output().ok()?;
         let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
         for line in text.lines() {
             if line.contains("vga") || line.contains("display") || line.contains("3d") {
-                if line.contains("nvidia") { *gpus.get_mut("nvidia").unwrap() = true; }
-                if line.contains("amd") || line.contains("radeon") { *gpus.get_mut("amd").unwrap() = true; }
-                if line.contains("intel") { *gpus.get_mut("intel").unwrap() = true; }
+                if line.contains("nvidia") {
+                    *gpus.get_mut("nvidia").unwrap() = true;
+                }
+                if line.contains("amd") || line.contains("radeon") {
+                    *gpus.get_mut("amd").unwrap() = true;
+                }
+                if line.contains("intel") {
+                    *gpus.get_mut("intel").unwrap() = true;
+                }
             }
         }
     }

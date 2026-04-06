@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 static SETTINGS_PATH: OnceLock<PathBuf> = OnceLock::new();
@@ -76,7 +76,10 @@ impl SettingsManager {
 
     /// Save to an explicit path (used in tests to avoid touching the real settings file).
     #[cfg(test)]
-    pub fn save_to(data: &serde_json::Value, path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save_to(
+        data: &serde_json::Value,
+        path: &std::path::Path,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let dir = path.parent().ok_or("No parent directory")?;
         let tmp = dir.join(format!("settings_test_{}.tmp", std::process::id()));
         {

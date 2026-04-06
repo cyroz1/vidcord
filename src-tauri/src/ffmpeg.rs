@@ -1,6 +1,6 @@
+use crate::gpu::get_system_gpus;
 use std::collections::HashMap;
 use std::sync::OnceLock;
-use crate::gpu::get_system_gpus;
 
 static VAAPI_CACHE: OnceLock<Option<String>> = OnceLock::new();
 // Cached once at first use — env doesn't change during an app session.
@@ -36,10 +36,21 @@ pub fn get_ffmpeg_env() -> &'static HashMap<String, String> {
 pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffprobe");
-    cmd.args(["-v", "quiet", "-print_format", "json", "-show_streams", "-show_format", path])
-        .envs(get_ffmpeg_env());
+    cmd.args([
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-show_streams",
+        "-show_format",
+        path,
+    ])
+    .envs(get_ffmpeg_env());
     #[cfg(target_os = "windows")]
-    { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); }
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
 
     let out = cmd.output()?;
 
@@ -49,23 +60,29 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
 
     let data: serde_json::Value = serde_json::from_slice(&out.stdout)?;
     let format = &data["format"];
-    let duration: f64 = format["duration"].as_str()
+    let duration: f64 = format["duration"]
+        .as_str()
         .and_then(|s| s.parse().ok())
         .unwrap_or(0.0);
 
     let streams = data["streams"].as_array().ok_or("No streams")?;
-    let video = streams.iter()
+    let video = streams
+        .iter()
         .find(|s| s["codec_type"].as_str() == Some("video"))
         .ok_or("No video stream")?;
 
     let width = video["width"].as_u64().unwrap_or(0);
     let height = video["height"].as_u64().unwrap_or(0);
-    let bitrate = video["bit_rate"].as_str()
+    let bitrate = video["bit_rate"]
+        .as_str()
         .and_then(|s| s.parse::<u64>().ok())
         .map(|b| b / 1000)
-        .or_else(|| format["bit_rate"].as_str()
-            .and_then(|s| s.parse::<u64>().ok())
-            .map(|b| b / 1000))
+        .or_else(|| {
+            format["bit_rate"]
+                .as_str()
+                .and_then(|s| s.parse::<u64>().ok())
+                .map(|b| b / 1000)
+        })
         .unwrap_or(0);
 
     Ok(serde_json::json!({
@@ -84,17 +101,34 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn st
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
     cmd.args([
-        "-y", "-ss", &time_sec.to_string(), "-i", path, 
-        "-an", "-sn", "-frames:v", "1", "-q:v", "4", 
-        "-vf", "scale=320:-1:flags=fast_bilinear",
-        "-f", "image2pipe", "-vcodec", "mjpeg", "-"
+        "-y",
+        "-ss",
+        &time_sec.to_string(),
+        "-i",
+        path,
+        "-an",
+        "-sn",
+        "-frames:v",
+        "1",
+        "-q:v",
+        "4",
+        "-vf",
+        "scale=320:-1:flags=fast_bilinear",
+        "-f",
+        "image2pipe",
+        "-vcodec",
+        "mjpeg",
+        "-",
     ])
     .envs(get_ffmpeg_env())
     .stdout(std::process::Stdio::piped())
     .stderr(std::process::Stdio::null());
 
     #[cfg(target_os = "windows")]
-    { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); }
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
 
     let out = cmd.output()?;
 
@@ -112,9 +146,13 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn st
 pub fn get_available_encoders() -> Vec<(String, String)> {
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
-    cmd.args(["-hide_banner", "-encoders"]).envs(get_ffmpeg_env());
+    cmd.args(["-hide_banner", "-encoders"])
+        .envs(get_ffmpeg_env());
     #[cfg(target_os = "windows")]
-    { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); }
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
 
     let out = match cmd.output() {
         Ok(o) => o,
@@ -143,7 +181,12 @@ pub fn get_available_encoders() -> Vec<(String, String)> {
         ("h264_amf", "AMD (h264_amf)", false, "amd"),
         ("h264_qsv", "Intel (h264_qsv)", false, "intel"),
         ("h264_vaapi", "Linux Hardware (h264_vaapi)", false, "vaapi"),
-        ("h264_videotoolbox", "Apple Silicon (h264_videotoolbox)", false, "apple"),
+        (
+            "h264_videotoolbox",
+            "Apple Silicon (h264_videotoolbox)",
+            false,
+            "apple",
+        ),
     ];
 
     for (enc, label, always, gpu_key) in &candidates {
@@ -173,54 +216,73 @@ pub fn get_available_encoders() -> Vec<(String, String)> {
 // ---------------------------------------------------------------------------
 
 pub fn find_vaapi_device() -> Option<String> {
-    VAAPI_CACHE.get_or_init(|| {
-        #[cfg(target_os = "linux")]
-        {
-            let dri = std::path::Path::new("/dev/dri");
-            if !dri.exists() {
-                return None;
-            }
-
-            let mut nodes: Vec<std::path::PathBuf> = std::fs::read_dir(dri)
-                .ok()?
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.file_name().and_then(|n| n.to_str()).map(|n| n.starts_with("renderD")).unwrap_or(false))
-                .collect();
-
-            // Prefer renderD128
-            nodes.sort_by_key(|p| if p.to_string_lossy().contains("renderD128") { 0 } else { 1 });
-
-            for node in &nodes {
-                let node_str = node.to_string_lossy().to_string();
-                let ok = std::process::Command::new("ffmpeg")
-                    .args([
-                        "-y", "-hide_banner",
-                        "-init_hw_device", &format!("vaapi=va:{node_str}"),
-                        "-filter_hw_device", "va",
-                        "-f", "lavfi",
-                        "-i", "nullsrc=s=64x64",
-                        "-frames:v", "1",
-                        "-f", "null",
-                        "-",
-                    ])
-                    .envs(get_ffmpeg_env())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status()
-                    .map(|s| s.success())
-                    .unwrap_or(false);
-
-                if ok {
-                    return Some(node_str);
+    VAAPI_CACHE
+        .get_or_init(|| {
+            #[cfg(target_os = "linux")]
+            {
+                let dri = std::path::Path::new("/dev/dri");
+                if !dri.exists() {
+                    return None;
                 }
-            }
-            None
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            None
-        }
-    }).clone()
-}
 
+                let mut nodes: Vec<std::path::PathBuf> = std::fs::read_dir(dri)
+                    .ok()?
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        p.file_name()
+                            .and_then(|n| n.to_str())
+                            .map(|n| n.starts_with("renderD"))
+                            .unwrap_or(false)
+                    })
+                    .collect();
+
+                // Prefer renderD128
+                nodes.sort_by_key(|p| {
+                    if p.to_string_lossy().contains("renderD128") {
+                        0
+                    } else {
+                        1
+                    }
+                });
+
+                for node in &nodes {
+                    let node_str = node.to_string_lossy().to_string();
+                    let ok = std::process::Command::new("ffmpeg")
+                        .args([
+                            "-y",
+                            "-hide_banner",
+                            "-init_hw_device",
+                            &format!("vaapi=va:{node_str}"),
+                            "-filter_hw_device",
+                            "va",
+                            "-f",
+                            "lavfi",
+                            "-i",
+                            "nullsrc=s=64x64",
+                            "-frames:v",
+                            "1",
+                            "-f",
+                            "null",
+                            "-",
+                        ])
+                        .envs(get_ffmpeg_env())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status()
+                        .map(|s| s.success())
+                        .unwrap_or(false);
+
+                    if ok {
+                        return Some(node_str);
+                    }
+                }
+                None
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                None
+            }
+        })
+        .clone()
+}

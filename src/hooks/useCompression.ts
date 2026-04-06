@@ -8,7 +8,7 @@ type Props = {
   onToast: (type: "success" | "error" | "warning" | "info", title: string, msg: string) => void;
 };
 
-export function useCompression({ onToast }: Props) {
+export function useCompression({ onToast: _onToast }: Props) {
   const [compressing, setCompressing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [eta, setEta] = useState("Ready");
