@@ -127,10 +127,6 @@ export default function App() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    invoke<string | null>("get_pending_file").then((path) => { if (path) loadVideo(path); }).catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
     const unlisten = listen<{ paths: string[] }>("tauri://drag-drop", (e) => {
       if (e.payload.paths.length > 0) loadVideo(e.payload.paths[0]);
     });

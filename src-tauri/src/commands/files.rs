@@ -6,11 +6,6 @@ use crate::log::vidcord_log;
 pub struct PendingFile(pub std::sync::Mutex<Option<String>>);
 
 #[tauri::command]
-pub fn get_pending_file(state: tauri::State<PendingFile>) -> Option<String> {
-    state.0.lock().unwrap().take()
-}
-
-#[tauri::command]
 pub fn show_in_file_explorer(path: String) -> Result<(), String> {
     let abs = std::fs::canonicalize(&path)
         .unwrap_or_else(|_| std::path::PathBuf::from(&path));
@@ -94,23 +89,3 @@ pub fn resolve_output_path(input_path: String) -> Result<String, String> {
     Ok(candidate.to_string_lossy().to_string())
 }
 
-/// Log and emit the path received from the OS (CLI arg or Apple Events),
-/// storing it in PendingFile state and optionally emitting to a window.
-pub fn handle_open_path(
-    path: String,
-    app_state: &std::sync::Mutex<Option<String>>,
-    window: Option<&tauri::WebviewWindow>,
-) {
-    vidcord_log(&format!("Received open-file path: {path}"));
-    if let Ok(mut guard) = app_state.lock() {
-        *guard = Some(path.clone());
-    }
-    if let Some(win) = window {
-        use tauri::Emitter;
-        let win = win.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            let _ = win.emit("open-file", &path);
-        });
-    }
-}
