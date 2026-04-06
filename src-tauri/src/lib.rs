@@ -450,8 +450,10 @@ fn show_in_file_explorer(path: String) -> Result<(), String> {
         // explorer.exe /select does not understand — strip the prefix.
         let path_str = abs.to_string_lossy().into_owned();
         let path_str = path_str.strip_prefix(r"\\?\").unwrap_or(&path_str).to_string();
+        // Use raw_arg so Rust doesn't re-quote the combined /select,path token;
+        // wrap the path in quotes ourselves to handle spaces in the path.
         std::process::Command::new("explorer")
-            .arg(format!("/select,{}", path_str))
+            .raw_arg(format!("/select,\"{}\"", path_str))
             .creation_flags(0x08000000)
             .spawn()
             .map_err(|e| e.to_string())?;
