@@ -20,9 +20,6 @@ on:
       - 'screenshots/**'
   workflow_dispatch:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -36,10 +33,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -54,7 +51,7 @@ jobs:
         run: npm run build
 
       - name: Upload dist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
           path: dist/
@@ -101,10 +98,10 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download frontend dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: frontend-dist
           path: dist/
@@ -123,7 +120,7 @@ jobs:
 
       - name: Cache FFmpeg (Windows x86_64)
         if: matrix.platform == 'windows-latest' && matrix.arch == 'x86_64'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         id: cache-ffmpeg-win-x64
         with:
           path: C:\tools\ffmpeg-x64
@@ -149,7 +146,7 @@ jobs:
 
       - name: Cache FFmpeg (Windows aarch64)
         if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         id: cache-ffmpeg-win-arm
         with:
           path: C:\tools\ffmpeg-arm64
@@ -175,7 +172,7 @@ jobs:
 
       - name: Cache Homebrew packages (macOS)
         if: matrix.platform == 'macos-latest'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         id: cache-brew-ffmpeg
         with:
           path: |
@@ -189,7 +186,7 @@ jobs:
         run: brew install ffmpeg
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -229,7 +226,7 @@ jobs:
         run: npx tauri build --bundles appimage --config '{"build":{"beforeBuildCommand":""}}'
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact-name }}
           path: ${{ matrix.artifact-glob }}
@@ -243,7 +240,7 @@ jobs:
       contents: write
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: release-artifacts
           merge-multiple: true
