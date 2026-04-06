@@ -84,13 +84,16 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
           cache-on-failure: true
+
+      - name: Rustfmt check
+        run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
 
       - name: Clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
