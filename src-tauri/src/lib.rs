@@ -1,5 +1,6 @@
 use std::sync::Mutex;
-use tauri::Manager;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::{Emitter, Manager};
 
 mod settings;
 mod ffmpeg;
@@ -15,9 +16,12 @@ use commands::encoders::{
     detect_encoders, check_ffmpeg_available, list_ffmpeg_video_encoders, get_vaapi_device,
 };
 use commands::files::{
-    PendingFile, get_pending_file, show_in_file_explorer, resolve_output_path,
-    handle_open_path,
+    PendingFile, show_in_file_explorer, resolve_output_path,
 };
+
+// Tracks whether the WebView has fully loaded and React has had time to mount.
+// Used to decide whether RunEvent::Opened should emit directly or defer to on_page_load.
+struct WebviewReady(AtomicBool);
 use commands::updates::check_for_updates;
 use log::vidcord_log;
 
@@ -77,6 +81,26 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(PendingFile(Mutex::new(None)))
+        .manage(WebviewReady(AtomicBool::new(false)))
+        .on_page_load(|webview, payload| {
+            // PageLoadEvent::Finished fires once the WebView has fully loaded the app.
+            // We wait 200ms for React to mount and register its open-file listener,
+            // then emit any file path that arrived before the frontend was ready.
+            if payload.event() == tauri::webview::PageLoadEvent::Finished {
+                let handle = webview.app_handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    handle.state::<WebviewReady>().0.store(true, Ordering::SeqCst);
+                    if let Ok(mut guard) = handle.state::<PendingFile>().0.lock() {
+                        if let Some(path) = guard.take() {
+                            if let Some(w) = handle.get_webview_window("main") {
+                                let _ = w.emit("open-file", &path);
+                            }
+                        }
+                    }
+                });
+            }
+        })
         .setup(|app| {
             // Handle CLI file argument: `vidcord myfile.mp4`
             let args: Vec<String> = std::env::args().collect();
@@ -85,9 +109,11 @@ pub fn run() {
                 let path = args[1].clone();
                 // Filter out macOS -psn_* pseudo-args and flag args
                 if !path.starts_with('-') && std::path::Path::new(&path).exists() {
+                    vidcord_log(&format!("Received open-file path: {path}"));
                     let state = app.state::<PendingFile>();
-                    let window = app.get_webview_window("main");
-                    handle_open_path(path, &state.0, window.as_ref());
+                    if let Ok(mut guard) = state.0.lock() {
+                        *guard = Some(path);
+                    }
                 }
             }
             Ok(())
@@ -106,7 +132,6 @@ pub fn run() {
             show_in_file_explorer,
             get_vaapi_device,
             resolve_output_path,
-            get_pending_file,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
@@ -118,9 +143,18 @@ pub fn run() {
                     urls.into_iter().find_map(|u: url::Url| u.to_file_path().ok());
                 if let Some(path) = first_path {
                     let path_str = path.to_string_lossy().to_string();
-                    let state = app_handle.state::<PendingFile>();
-                    let window = app_handle.get_webview_window("main");
-                    handle_open_path(path_str, &state.0, window.as_ref());
+                    vidcord_log(&format!("Received open-file path: {path_str}"));
+                    if app_handle.state::<WebviewReady>().0.load(Ordering::SeqCst) {
+                        // App already running — frontend listener is active, emit directly.
+                        if let Some(win) = app_handle.get_webview_window("main") {
+                            let _ = win.emit("open-file", &path_str);
+                        }
+                    } else {
+                        // Cold launch — store for on_page_load to emit once React is ready.
+                        if let Ok(mut guard) = app_handle.state::<PendingFile>().0.lock() {
+                            *guard = Some(path_str);
+                        }
+                    }
                 }
             }
             #[cfg(not(target_os = "macos"))]
