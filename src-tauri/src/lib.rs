@@ -37,6 +37,12 @@ fn compression_state() -> &'static Arc<Mutex<CompressionState>> {
 }
 
 // ---------------------------------------------------------------------------
+// Pending file state — holds a path delivered via Apple Events or CLI args
+// before the frontend has registered its listener.
+// ---------------------------------------------------------------------------
+struct PendingFile(Mutex<Option<String>>);
+
+// ---------------------------------------------------------------------------
 // Tauri commands — settings
 // ---------------------------------------------------------------------------
 
@@ -567,6 +573,15 @@ fn format_eta(secs: f64) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Tauri commands — pending file (macOS "Open With" / CLI startup handoff)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn get_pending_file(state: tauri::State<PendingFile>) -> Option<String> {
+    state.0.lock().unwrap().take()
+}
+
+// ---------------------------------------------------------------------------
 // App entry
 // ---------------------------------------------------------------------------
 
@@ -594,6 +609,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .manage(PendingFile(Mutex::new(None)))
         .setup(|app| {
             // Handle CLI file argument: `vidcord myfile.mp4`
             let args: Vec<String> = std::env::args().collect();
@@ -602,6 +618,11 @@ pub fn run() {
                 let path = args[1].clone();
                 // Filter out macOS -psn_* pseudo-args and flag args
                 if !path.starts_with('-') && std::path::Path::new(&path).exists() {
+                    // Store in state so frontend can pull it after mount,
+                    // in case it mounts after the delayed emit below.
+                    if let Ok(mut guard) = app.state::<PendingFile>().0.lock() {
+                        *guard = Some(path.clone());
+                    }
                     if let Some(win) = app.get_webview_window("main") {
                         // Delay slightly to let the frontend finish loading
                         std::thread::spawn(move || {
@@ -627,6 +648,7 @@ pub fn run() {
             show_in_file_explorer,
             get_vaapi_device,
             resolve_output_path,
+            get_pending_file,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
@@ -639,6 +661,12 @@ pub fn run() {
                 let first_path = urls.into_iter().find_map(|u: url::Url| u.to_file_path().ok());
                 if let Some(path) = first_path {
                     let path_str = path.to_string_lossy().to_string();
+                    // Store in state — the frontend's on-mount invoke("get_pending_file")
+                    // will pick this up even if the WebView hasn't loaded yet.
+                    if let Ok(mut guard) = app_handle.state::<PendingFile>().0.lock() {
+                        *guard = Some(path_str.clone());
+                    }
+                    // Also try a delayed emit to cover the "app already running" case.
                     if let Some(win) = app_handle.get_webview_window("main") {
                         std::thread::spawn(move || {
                             std::thread::sleep(std::time::Duration::from_millis(500));
