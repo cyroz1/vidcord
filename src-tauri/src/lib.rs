@@ -446,8 +446,12 @@ fn show_in_file_explorer(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
+        // canonicalize() returns \\?\ extended-length paths on Windows, which
+        // explorer.exe /select does not understand — strip the prefix.
+        let path_str = abs.to_string_lossy().into_owned();
+        let path_str = path_str.strip_prefix(r"\\?\").unwrap_or(&path_str).to_string();
         std::process::Command::new("explorer")
-            .arg(format!("/select,{}", abs.display()))
+            .arg(format!("/select,{}", path_str))
             .creation_flags(0x08000000)
             .spawn()
             .map_err(|e| e.to_string())?;
