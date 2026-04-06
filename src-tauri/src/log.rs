@@ -51,7 +51,9 @@ pub fn setup_crash_log() {
         env!("CARGO_PKG_VERSION"),
         std::process::id()
     ));
-    for key in &["LD_LIBRARY_PATH", "LIBVA_DRIVER_NAME", "PATH", "SHELL"] {
+    // Log only the variables vidcord actually uses — never PATH or SHELL, which can
+    // contain sensitive substrings from the user's environment.
+    for key in &["LD_LIBRARY_PATH", "LIBVA_DRIVER_NAME"] {
         if let Ok(val) = std::env::var(key) {
             vidcord_log(&format!("  env {key}={val}"));
         }

@@ -139,12 +139,18 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
 
     let mut child = cmd.spawn().map_err(|e| {
         vidcord_log(&format!("Failed to start ffmpeg: {e}"));
-        format!("Failed to start ffmpeg: {e}")
+        if e.kind() == std::io::ErrorKind::NotFound {
+            "FFmpeg not found on PATH. Install FFmpeg and restart vidcord.".to_string()
+        } else {
+            format!("Failed to start ffmpeg: {e}")
+        }
     })?;
 
     let pid = child.id();
     {
-        let mut state = compression_state().lock().unwrap();
+        let mut state = compression_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         state.pid = Some(pid);
         state.output_path = Some(output_path.clone());
         state.cancelled = false;
@@ -212,7 +218,9 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         .map_err(|e| e.to_string())?;
 
     let cancelled = {
-        let mut state = compression_state().lock().unwrap();
+        let mut state = compression_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let c = state.cancelled;
         state.pid = None;
         state.output_path = None;
@@ -264,7 +272,9 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
 #[tauri::command]
 pub fn cancel_compression() {
     let (pid, output_path) = {
-        let mut state = compression_state().lock().unwrap();
+        let mut state = compression_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         state.cancelled = true;
         (state.pid.take(), state.output_path.take())
     };

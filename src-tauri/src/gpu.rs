@@ -17,7 +17,12 @@ pub fn get_system_gpus() -> &'static HashMap<String, bool> {
                 gpus.insert(k, v);
             }
         } else {
-            // Detection failed — enable all to avoid hiding valid encoders
+            // Detection failed — enable all vendors so no valid encoder is hidden.
+            // This means the encoder list may include options the system can't use;
+            // FFmpeg will return a clear error if the user picks one that doesn't work.
+            crate::log::vidcord_log(
+                "GPU detection failed — enabling all vendors as fallback",
+            );
             for v in gpus.values_mut() {
                 *v = true;
             }
