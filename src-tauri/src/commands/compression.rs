@@ -45,7 +45,7 @@ pub async fn get_preview_frame(
 ) -> Result<tauri::ipc::Response, String> {
     tokio::task::spawn_blocking(move || {
         generate_preview(&path, time_sec)
-            .map(|bytes| tauri::ipc::Response::new(bytes))
+            .map(tauri::ipc::Response::new)
             .map_err(|e| e.to_string())
     })
     .await
