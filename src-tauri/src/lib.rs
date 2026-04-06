@@ -595,6 +595,16 @@ fn get_pending_file(state: tauri::State<PendingFile>) -> Option<String> {
 pub fn run() {
     log::setup_crash_log();
 
+    #[cfg(target_os = "linux")]
+    {
+        // Prevent GTK from loading system GVfs/GIO modules that may be compiled
+        // against a different GLib version (common on Debian/LXQt), causing
+        // "undefined symbol" errors and potential startup failures.
+        if std::env::var("GIO_USE_VFS").is_err() {
+            std::env::set_var("GIO_USE_VFS", "local");
+        }
+    }
+
     #[cfg(target_os = "macos")]
     {
         if let Ok(path) = std::env::var("PATH") {
@@ -610,6 +620,7 @@ pub fn run() {
             std::env::set_var("PATH", "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin");
         }
     }
+
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
