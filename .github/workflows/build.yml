@@ -105,7 +105,8 @@ jobs:
         run: cargo install cargo-audit --locked --quiet
 
       - name: Audit Rust dependencies
-        run: cargo audit --manifest-path src-tauri/Cargo.toml
+        run: cargo audit
+        working-directory: src-tauri
 
   build:
     needs: [frontend, rust-checks]
