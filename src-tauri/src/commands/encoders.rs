@@ -93,6 +93,6 @@ pub async fn list_ffmpeg_video_encoders() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn get_vaapi_device() -> Option<String> {
+pub fn get_vaapi_device() -> Option<String> {
     crate::ffmpeg::find_vaapi_device()
 }

@@ -269,13 +269,13 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             .iter()
             .rev()
             .take(5)
-            .map(|s| s.as_str())
+            .map(String::as_str)
             .collect();
         let err_msg = format!(
             "Compression failed.\n\nFFmpeg Error:\n{}",
             err_lines.join("\n")
         );
-        let all_lines: Vec<&str> = last_lines.iter().map(|s| s.as_str()).collect();
+        let all_lines: Vec<&str> = last_lines.iter().map(String::as_str).collect();
         vidcord_log(&format!(
             "Compression failed (rc={:?}):\n{}",
             exit_status.code(),
