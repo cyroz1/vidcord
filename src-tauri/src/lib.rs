@@ -109,8 +109,7 @@ pub fn run() {
                 // Filter out macOS -psn_* pseudo-args and flag args
                 if !path.starts_with('-') && std::path::Path::new(&path).exists() {
                     vidcord_log(&format!("Received open-file path: {path}"));
-                    let state = app.state::<PendingFile>();
-                    if let Ok(mut guard) = state.0.lock() {
+                    if let Ok(mut guard) = app.state::<PendingFile>().0.lock() {
                         *guard = Some(path);
                     }
                 }
