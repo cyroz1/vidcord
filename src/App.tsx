@@ -162,6 +162,16 @@ export default function App() {
     return () => { unsub.then(fn => fn()); };
   }, []); // loadVideo stable via useCallback, omitted to avoid re-subscribing
 
+  // On mount, pull any file stored during startup before this listener was registered.
+  // Fixes macOS "Open With" cold launch: RunEvent::Opened fires before the WebView
+  // is ready, so the delayed emit is missed. The backend stores the path in state;
+  // we retrieve it here once the frontend has fully mounted.
+  useEffect(() => {
+    invoke<string | null>("get_pending_file").then(path => {
+      if (path) loadVideo(path);
+    }).catch(() => {});
+  }, []); // loadVideo stable via useCallback
+
   // File drop via OS / drag-drop (Tauri v2: listen on 'tauri://drag-drop')
   useEffect(() => {
     const unlisten = listen<{ paths: string[] }>("tauri://drag-drop", e => {
