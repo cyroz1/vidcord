@@ -1,5 +1,5 @@
-use std::process::Stdio;
 use crate::log::vidcord_log;
+use std::process::Stdio;
 
 /// State bucket for a file received via Apple Events or CLI args before the
 /// frontend listener is registered.
@@ -7,8 +7,7 @@ pub struct PendingFile(pub std::sync::Mutex<Option<String>>);
 
 #[tauri::command]
 pub fn show_in_file_explorer(path: String) -> Result<(), String> {
-    let abs = std::fs::canonicalize(&path)
-        .unwrap_or_else(|_| std::path::PathBuf::from(&path));
+    let abs = std::fs::canonicalize(&path).unwrap_or_else(|_| std::path::PathBuf::from(&path));
 
     #[cfg(target_os = "windows")]
     {
@@ -16,7 +15,10 @@ pub fn show_in_file_explorer(path: String) -> Result<(), String> {
         // canonicalize() returns \\?\ extended-length paths on Windows, which
         // explorer.exe /select does not understand — strip the prefix.
         let path_str = abs.to_string_lossy().into_owned();
-        let path_str = path_str.strip_prefix(r"\\?\").unwrap_or(&path_str).to_string();
+        let path_str = path_str
+            .strip_prefix(r"\\?\")
+            .unwrap_or(&path_str)
+            .to_string();
         // Use raw_arg so Rust doesn't re-quote the combined /select,path token;
         // wrap the path in quotes ourselves to handle spaces in the path.
         std::process::Command::new("explorer")
@@ -88,4 +90,3 @@ pub fn resolve_output_path(input_path: String) -> Result<String, String> {
     }
     Ok(candidate.to_string_lossy().to_string())
 }
-

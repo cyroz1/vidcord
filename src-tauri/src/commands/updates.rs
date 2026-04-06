@@ -28,8 +28,7 @@ pub async fn check_for_updates(current_version: String) -> Result<serde_json::Va
 
     let cur = semver::Version::parse(current_version.trim_start_matches('v'))
         .map_err(|e| e.to_string())?;
-    let latest =
-        semver::Version::parse(tag.trim_start_matches('v')).map_err(|e| e.to_string())?;
+    let latest = semver::Version::parse(tag.trim_start_matches('v')).map_err(|e| e.to_string())?;
 
     if latest > cur {
         Ok(serde_json::json!({

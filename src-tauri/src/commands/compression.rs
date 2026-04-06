@@ -1,9 +1,9 @@
+use crate::ffmpeg::{generate_preview, get_ffmpeg_env, probe_video};
+use crate::log::vidcord_log;
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{AppHandle, Emitter};
-use crate::ffmpeg::{probe_video, generate_preview, get_ffmpeg_env};
-use crate::log::vidcord_log;
 
 // ---------------------------------------------------------------------------
 // Shared compression-process state (PID + output path for partial cleanup)
@@ -39,7 +39,10 @@ pub async fn probe(path: String) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub async fn get_preview_frame(path: String, time_sec: f64) -> Result<tauri::ipc::Response, String> {
+pub async fn get_preview_frame(
+    path: String,
+    time_sec: f64,
+) -> Result<tauri::ipc::Response, String> {
     tokio::task::spawn_blocking(move || {
         generate_preview(&path, time_sec)
             .map(|bytes| tauri::ipc::Response::new(bytes))
@@ -70,7 +73,10 @@ pub struct CompressOptions {
 pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<String, String> {
     // Validate encoder name: only alphanumeric characters and underscores are valid.
     if opts.encoder.is_empty()
-        || !opts.encoder.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        || !opts
+            .encoder
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
     {
         return Err(format!("Invalid encoder name: {}", opts.encoder));
     }
@@ -105,12 +111,18 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     };
 
     cmd_args.extend([
-        "-ss".into(), opts.start_time.to_string(),
-        "-to".into(), opts.end_time.to_string(),
-        "-i".into(), opts.input_path,
-        "-c:v".into(), opts.encoder,
-        "-b:v".into(), format!("{}k", opts.video_bitrate_k),
-        "-vf".into(), vf,
+        "-ss".into(),
+        opts.start_time.to_string(),
+        "-to".into(),
+        opts.end_time.to_string(),
+        "-i".into(),
+        opts.input_path,
+        "-c:v".into(),
+        opts.encoder,
+        "-b:v".into(),
+        format!("{}k", opts.video_bitrate_k),
+        "-vf".into(),
+        vf,
     ]);
 
     if opts.remove_audio {
@@ -253,8 +265,16 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         );
         Ok(output_path)
     } else {
-        let err_lines: Vec<&str> = last_lines.iter().rev().take(5).map(|s| s.as_str()).collect();
-        let err_msg = format!("Compression failed.\n\nFFmpeg Error:\n{}", err_lines.join("\n"));
+        let err_lines: Vec<&str> = last_lines
+            .iter()
+            .rev()
+            .take(5)
+            .map(|s| s.as_str())
+            .collect();
+        let err_msg = format!(
+            "Compression failed.\n\nFFmpeg Error:\n{}",
+            err_lines.join("\n")
+        );
         let all_lines: Vec<&str> = last_lines.iter().map(|s| s.as_str()).collect();
         vidcord_log(&format!(
             "Compression failed (rc={:?}):\n{}",

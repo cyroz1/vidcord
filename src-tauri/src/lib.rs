@@ -1,29 +1,25 @@
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
-mod settings;
+pub mod commands;
 mod ffmpeg;
 mod gpu;
 mod log;
-pub mod commands;
+mod settings;
 
-use settings::SettingsManager;
-use commands::compression::{
-    compress_video, cancel_compression, probe, get_preview_frame,
-};
+use commands::compression::{cancel_compression, compress_video, get_preview_frame, probe};
 use commands::encoders::{
-    detect_encoders, check_ffmpeg_available, list_ffmpeg_video_encoders, get_vaapi_device,
+    check_ffmpeg_available, detect_encoders, get_vaapi_device, list_ffmpeg_video_encoders,
 };
-use commands::files::{
-    PendingFile, show_in_file_explorer, resolve_output_path,
-};
+use commands::files::{resolve_output_path, show_in_file_explorer, PendingFile};
+use commands::updates::check_for_updates;
+use log::vidcord_log;
+use settings::SettingsManager;
 
 // Tracks whether the WebView has fully loaded and React has had time to mount.
 // Used to decide whether RunEvent::Opened should emit directly or defer to on_page_load.
 struct WebviewReady(AtomicBool);
-use commands::updates::check_for_updates;
-use log::vidcord_log;
 
 // ---------------------------------------------------------------------------
 // Tauri commands — settings
@@ -90,7 +86,10 @@ pub fn run() {
                 let handle = webview.app_handle().clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(200));
-                    handle.state::<WebviewReady>().0.store(true, Ordering::SeqCst);
+                    handle
+                        .state::<WebviewReady>()
+                        .0
+                        .store(true, Ordering::SeqCst);
                     if let Ok(mut guard) = handle.state::<PendingFile>().0.lock() {
                         if let Some(path) = guard.take() {
                             if let Some(w) = handle.get_webview_window("main") {
@@ -139,8 +138,9 @@ pub fn run() {
             // macOS Finder "Open with" delivers files via Apple Events, not CLI args.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = event {
-                let first_path =
-                    urls.into_iter().find_map(|u: url::Url| u.to_file_path().ok());
+                let first_path = urls
+                    .into_iter()
+                    .find_map(|u: url::Url| u.to_file_path().ok());
                 if let Some(path) = first_path {
                     let path_str = path.to_string_lossy().to_string();
                     vidcord_log(&format!("Received open-file path: {path_str}"));

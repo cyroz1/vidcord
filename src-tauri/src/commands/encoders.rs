@@ -1,6 +1,6 @@
+use crate::ffmpeg::{get_available_encoders, get_ffmpeg_env};
 use std::process::Stdio;
 use std::sync::OnceLock;
-use crate::ffmpeg::{get_available_encoders, get_ffmpeg_env};
 
 // Cached regex for the "show encoders" dialog — compiled once, reused on repeat calls.
 static LIST_ENCODER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
@@ -53,7 +53,8 @@ pub async fn list_ffmpeg_video_encoders() -> Result<String, String> {
     tokio::task::spawn_blocking(|| -> Result<String, String> {
         #[allow(unused_mut)]
         let mut cmd = std::process::Command::new("ffmpeg");
-        cmd.args(["-hide_banner", "-encoders"]).envs(get_ffmpeg_env());
+        cmd.args(["-hide_banner", "-encoders"])
+            .envs(get_ffmpeg_env());
 
         #[cfg(target_os = "windows")]
         {
@@ -61,7 +62,9 @@ pub async fn list_ffmpeg_video_encoders() -> Result<String, String> {
             cmd.creation_flags(0x08000000);
         }
 
-        let output = cmd.output().map_err(|e| format!("Failed to run ffmpeg: {e}"))?;
+        let output = cmd
+            .output()
+            .map_err(|e| format!("Failed to run ffmpeg: {e}"))?;
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
         let re = LIST_ENCODER_RE.get_or_init(|| {
