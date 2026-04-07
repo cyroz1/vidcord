@@ -59,12 +59,29 @@ pub fn run() {
             std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         }
 
-        // KDE Plasma injects its GTK integration modules (colorreload-gtk-module,
-        // window-decorations-gtk-module) via GTK_MODULES, but those modules are
-        // not present inside the AppImage bundle. Clear the variable so GTK
-        // doesn't attempt (and fail) to load them.
-        if std::env::var("GTK_MODULES").is_err() {
+        // Desktop environments (KDE Plasma, LXQt, etc.) inject their own GTK
+        // integration modules via GTK_MODULES, but those modules are not present
+        // inside the AppImage bundle and will fail to load. Always clear this
+        // variable so GTK doesn't attempt to load them.
+        if std::env::var("GTK_MODULES").map_or(true, |v| !v.is_empty()) {
             std::env::set_var("GTK_MODULES", "");
+        }
+
+        // Disable the AT-SPI accessibility bridge. On LXQt and other lightweight
+        // DEs, the AT-SPI2 daemon may not be running or may use an incompatible
+        // protocol version, causing "get_device_events_reply: unknown signature"
+        // warnings and GLib-GObject-CRITICAL assertion failures at startup.
+        if std::env::var("NO_AT_BRIDGE").is_err() {
+            std::env::set_var("NO_AT_BRIDGE", "1");
+        }
+
+        // Use an in-memory GSettings backend instead of dconf. Without this,
+        // GIO attempts to load libdconfsettings.so from the system's GIO module
+        // directory; on systems where that module was compiled against a newer
+        // GLib than the one bundled in the AppImage it fails with an
+        // "undefined symbol" error.
+        if std::env::var("GSETTINGS_BACKEND").is_err() {
+            std::env::set_var("GSETTINGS_BACKEND", "memory");
         }
     }
 
