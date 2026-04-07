@@ -160,75 +160,10 @@ jobs:
         if: startsWith(matrix.platform, 'ubuntu')
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf ffmpeg xdg-utils
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
           version: 1.0
 
-      - name: Cache FFmpeg (Windows x86_64)
-        if: matrix.platform == 'windows-latest' && matrix.arch == 'x86_64'
-        uses: actions/cache@v5
-        id: cache-ffmpeg-win-x64
-        with:
-          path: C:\tools\ffmpeg-x64
-          key: ffmpeg-windows-x86_64-v1
 
-      - name: Install FFmpeg (Windows x86_64)
-        if: matrix.platform == 'windows-latest' && matrix.arch == 'x86_64' && steps.cache-ffmpeg-win-x64.outputs.cache-hit != 'true'
-        run: |
-          curl -L https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -o ffmpeg.zip
-          curl -L https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip.sha256 -o ffmpeg.zip.sha256
-          $expected = (Get-Content ffmpeg.zip.sha256 -Raw).Trim().ToLower()
-          $actual = (Get-FileHash ffmpeg.zip -Algorithm SHA256).Hash.ToLower()
-          if ($expected -ne $actual) { Write-Error "FFmpeg checksum mismatch: expected $expected, got $actual"; exit 1 }
-          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_extract
-          $binDir = Get-ChildItem -Path ffmpeg_extract -Filter bin -Recurse -Directory | Select-Object -First 1 -ExpandProperty FullName
-          New-Item -ItemType Directory -Force -Path C:\tools\ffmpeg-x64 | Out-Null
-          Copy-Item "$binDir\ffmpeg.exe" C:\tools\ffmpeg-x64\
-          Copy-Item "$binDir\ffprobe.exe" C:\tools\ffmpeg-x64\
-
-      - name: Add FFmpeg to PATH (Windows x86_64)
-        if: matrix.platform == 'windows-latest' && matrix.arch == 'x86_64'
-        run: echo "C:\tools\ffmpeg-x64" >> $env:GITHUB_PATH
-
-      - name: Cache FFmpeg (Windows aarch64)
-        if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
-        uses: actions/cache@v5
-        id: cache-ffmpeg-win-arm
-        with:
-          path: C:\tools\ffmpeg-arm64
-          key: ffmpeg-windows-aarch64-v1
-
-      - name: Install FFmpeg (Windows aarch64)
-        if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64' && steps.cache-ffmpeg-win-arm.outputs.cache-hit != 'true'
-        run: |
-          # NOTE: No official ARM64 FFmpeg Windows build exists from gyan.dev or ffmpeg.org.
-          # This uses a community build. A SHA256 checksum should be added here once a
-          # stable, verifiable upstream source for ARM64 Windows FFmpeg is available.
-          # Track: https://github.com/BtbN/FFmpeg-Builds for an official alternative.
-          curl -L https://github.com/tordona/ffmpeg-win-arm64/releases/download/8.0.1/ffmpeg-8.0.1-essentials-static-win-arm64.7z -o ffmpeg.7z
-          7z x ffmpeg.7z -offmpeg_extract
-          $binDir = Get-ChildItem -Path ffmpeg_extract -Filter ffmpeg.exe -Recurse | Select-Object -First 1 -ExpandProperty DirectoryName
-          New-Item -ItemType Directory -Force -Path C:\tools\ffmpeg-arm64 | Out-Null
-          Copy-Item "$binDir\ffmpeg.exe" C:\tools\ffmpeg-arm64\
-          Copy-Item "$binDir\ffprobe.exe" C:\tools\ffmpeg-arm64\
-
-      - name: Add FFmpeg to PATH (Windows aarch64)
-        if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
-        run: echo "C:\tools\ffmpeg-arm64" >> $env:GITHUB_PATH
-
-      - name: Cache Homebrew packages (macOS)
-        if: matrix.platform == 'macos-latest'
-        uses: actions/cache@v5
-        id: cache-brew-ffmpeg
-        with:
-          path: |
-            ~/Library/Caches/Homebrew/ffmpeg--*
-            /usr/local/Cellar/ffmpeg
-            /opt/homebrew/Cellar/ffmpeg
-          key: brew-ffmpeg-${{ runner.arch }}-v1
-
-      - name: Install FFmpeg (macOS)
-        if: matrix.platform == 'macos-latest' && steps.cache-brew-ffmpeg.outputs.cache-hit != 'true'
-        run: brew install ffmpeg
 
       - name: Set up Node
         uses: actions/setup-node@v6
