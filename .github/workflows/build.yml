@@ -190,7 +190,7 @@ jobs:
         if: matrix.platform == 'macos-latest'
         run: |
           PROFILE=${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
-          npx tauri build --target universal-apple-darwin --bundles app --profile $PROFILE --config '{"build":{"beforeBuildCommand":""}}'
+          npx tauri build --target universal-apple-darwin --bundles app --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
 
       - name: Build macOS PKG installer
         if: matrix.platform == 'macos-latest'
@@ -200,19 +200,19 @@ jobs:
         if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
         run: |
           $PROFILE = "${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}"
-          npx tauri build --target aarch64-pc-windows-msvc --bundles nsis --profile $PROFILE --config '{"build":{"beforeBuildCommand":""}}'
+          npx tauri build --target aarch64-pc-windows-msvc --bundles nsis --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
 
       - name: Build (Windows x86_64)
         if: matrix.platform == 'windows-latest' && matrix.arch == 'x86_64'
         run: |
           $PROFILE = "${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}"
-          npx tauri build --bundles nsis --profile $PROFILE --config '{"build":{"beforeBuildCommand":""}}'
+          npx tauri build --bundles nsis --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
 
       - name: Build (Linux)
         if: startsWith(matrix.platform, 'ubuntu')
         run: |
           PROFILE=${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
-          npx tauri build --bundles appimage --profile $PROFILE --config '{"build":{"beforeBuildCommand":""}}'
+          npx tauri build --bundles appimage --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
