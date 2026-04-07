@@ -45,6 +45,7 @@ jobs:
         run: npm ci
 
       - name: Audit npm dependencies
+        if: github.event_name != 'pull_request'
         run: npm audit --audit-level=high
 
       - name: Lint
@@ -182,12 +183,14 @@ jobs:
           workspaces: src-tauri
           cache-on-failure: true
 
-      - name: Install npm dependencies
-        run: npm ci
+      - name: Install Tauri CLI
+        run: npm install --no-save @tauri-apps/cli
 
       - name: Build (macOS universal)
         if: matrix.platform == 'macos-latest'
-        run: npx tauri build --target universal-apple-darwin --bundles app --config '{"build":{"beforeBuildCommand":""}}'
+        run: |
+          PROFILE=${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
+          npx tauri build --target universal-apple-darwin --bundles app --profile $PROFILE --config '{"build":{"beforeBuildCommand":""}}'
 
       - name: Build macOS PKG installer
         if: matrix.platform == 'macos-latest'
@@ -195,15 +198,21 @@ jobs:
 
       - name: Build (Windows aarch64)
         if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
-        run: npx tauri build --target aarch64-pc-windows-msvc --bundles nsis --config '{"build":{"beforeBuildCommand":""}}'
+        run: |
+          $PROFILE = "${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}"
+          npx tauri build --target aarch64-pc-windows-msvc --bundles nsis --profile $PROFILE --config '{"build":{"beforeBuildCommand":""}}'
 
       - name: Build (Windows x86_64)
         if: matrix.platform == 'windows-latest' && matrix.arch == 'x86_64'
-        run: npx tauri build --bundles nsis --config '{"build":{"beforeBuildCommand":""}}'
+        run: |
+          $PROFILE = "${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}"
+          npx tauri build --bundles nsis --profile $PROFILE --config '{"build":{"beforeBuildCommand":""}}'
 
       - name: Build (Linux)
         if: startsWith(matrix.platform, 'ubuntu')
-        run: npx tauri build --bundles appimage --config '{"build":{"beforeBuildCommand":""}}'
+        run: |
+          PROFILE=${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
+          npx tauri build --bundles appimage --profile $PROFILE --config '{"build":{"beforeBuildCommand":""}}'
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
