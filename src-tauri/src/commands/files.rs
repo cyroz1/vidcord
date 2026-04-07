@@ -1,3 +1,4 @@
+#[cfg(target_os = "linux")]
 use std::process::Stdio;
 
 /// State bucket for a file received via Apple Events or CLI args before the
