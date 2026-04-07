@@ -51,6 +51,21 @@ pub fn run() {
         if std::env::var("GIO_USE_VFS").is_err() {
             std::env::set_var("GIO_USE_VFS", "local");
         }
+
+        // Disable WebKitGTK's DMABUF renderer. On KDE Plasma, DMA-BUF frame
+        // sharing between WebKit and the KWin compositor can fail silently on
+        // many GPU/driver combinations, leaving a white/blank window.
+        if std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").is_err() {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+
+        // KDE Plasma injects its GTK integration modules (colorreload-gtk-module,
+        // window-decorations-gtk-module) via GTK_MODULES, but those modules are
+        // not present inside the AppImage bundle. Clear the variable so GTK
+        // doesn't attempt (and fail) to load them.
+        if std::env::var("GTK_MODULES").is_err() {
+            std::env::set_var("GTK_MODULES", "");
+        }
     }
 
     #[cfg(target_os = "macos")]
