@@ -13,15 +13,24 @@ INSTALL_LOCATION="/Applications"
 TAURI_BUNDLE_DIR="$PROJECT_ROOT/src-tauri/target"
 
 # Try universal build first, then arch-specific
-if [ -d "$TAURI_BUNDLE_DIR/universal-apple-darwin/release/bundle/macos/$APP_NAME.app" ]; then
-    APP_PATH="$TAURI_BUNDLE_DIR/universal-apple-darwin/release/bundle/macos/$APP_NAME.app"
-elif [ -d "$TAURI_BUNDLE_DIR/aarch64-apple-darwin/release/bundle/macos/$APP_NAME.app" ]; then
-    APP_PATH="$TAURI_BUNDLE_DIR/aarch64-apple-darwin/release/bundle/macos/$APP_NAME.app"
-elif [ -d "$TAURI_BUNDLE_DIR/x86_64-apple-darwin/release/bundle/macos/$APP_NAME.app" ]; then
-    APP_PATH="$TAURI_BUNDLE_DIR/x86_64-apple-darwin/release/bundle/macos/$APP_NAME.app"
-elif [ -d "$TAURI_BUNDLE_DIR/release/bundle/macos/$APP_NAME.app" ]; then
-    APP_PATH="$TAURI_BUNDLE_DIR/release/bundle/macos/$APP_NAME.app"
-else
+APP_PATH=""
+for PROFILE in release ci debug; do
+    if [ -d "$TAURI_BUNDLE_DIR/universal-apple-darwin/$PROFILE/bundle/macos/$APP_NAME.app" ]; then
+        APP_PATH="$TAURI_BUNDLE_DIR/universal-apple-darwin/$PROFILE/bundle/macos/$APP_NAME.app"
+        break
+    elif [ -d "$TAURI_BUNDLE_DIR/aarch64-apple-darwin/$PROFILE/bundle/macos/$APP_NAME.app" ]; then
+        APP_PATH="$TAURI_BUNDLE_DIR/aarch64-apple-darwin/$PROFILE/bundle/macos/$APP_NAME.app"
+        break
+    elif [ -d "$TAURI_BUNDLE_DIR/x86_64-apple-darwin/$PROFILE/bundle/macos/$APP_NAME.app" ]; then
+        APP_PATH="$TAURI_BUNDLE_DIR/x86_64-apple-darwin/$PROFILE/bundle/macos/$APP_NAME.app"
+        break
+    elif [ -d "$TAURI_BUNDLE_DIR/$PROFILE/bundle/macos/$APP_NAME.app" ]; then
+        APP_PATH="$TAURI_BUNDLE_DIR/$PROFILE/bundle/macos/$APP_NAME.app"
+        break
+    fi
+done
+
+if [ -z "$APP_PATH" ]; then
     echo "Error: $APP_NAME.app not found in Tauri build output."
     echo "Run 'npx tauri build' first."
     exit 1
@@ -41,7 +50,8 @@ fi
 # Detect Architecture
 ARCH=$(uname -m)
 
-OUTPUT_DIR="$PROJECT_ROOT/src-tauri/target/release/bundle/pkg"
+BUNDLE_DIR=$(dirname "$(dirname "$APP_PATH")")
+OUTPUT_DIR="$BUNDLE_DIR/pkg"
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_PKG="$OUTPUT_DIR/vidcord_v${CLEAN_VERSION}_${ARCH}.pkg"
 
