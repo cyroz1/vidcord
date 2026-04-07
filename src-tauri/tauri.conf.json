@@ -45,9 +45,7 @@
     "windows": {
       "wix": {},
       "nsis": {
-        "installerIcon": "icons/icon.ico",
-        "headerImage": "icons/128x128.png",
-        "sidebarImage": "icons/128x128.png"
+        "installerIcon": "icons/icon.ico"
       }
     },
     "macOS": {
