@@ -98,11 +98,10 @@ jobs:
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
-      - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@v1
-
       - name: Install cargo-audit
-        run: cargo binstall cargo-audit --no-confirm --quiet
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
 
       - name: Audit Rust dependencies
         run: cargo audit
