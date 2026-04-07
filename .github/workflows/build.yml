@@ -73,13 +73,10 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          version: 1.0
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -101,8 +98,11 @@ jobs:
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@v1
+
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked --quiet
+        run: cargo binstall cargo-audit --no-confirm --quiet
 
       - name: Audit Rust dependencies
         run: cargo audit
@@ -159,15 +159,10 @@ jobs:
 
       - name: Install system dependencies (Linux)
         if: startsWith(matrix.platform, 'ubuntu')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            ffmpeg \
-            xdg-utils
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf ffmpeg xdg-utils
+          version: 1.0
 
       - name: Cache FFmpeg (Windows x86_64)
         if: matrix.platform == 'windows-latest' && matrix.arch == 'x86_64'
@@ -233,7 +228,7 @@ jobs:
           key: brew-ffmpeg-${{ runner.arch }}-v1
 
       - name: Install FFmpeg (macOS)
-        if: matrix.platform == 'macos-latest'
+        if: matrix.platform == 'macos-latest' && steps.cache-brew-ffmpeg.outputs.cache-hit != 'true'
         run: brew install ffmpeg
 
       - name: Set up Node
