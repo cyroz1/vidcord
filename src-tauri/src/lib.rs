@@ -12,7 +12,7 @@ use commands::compression::{cancel_compression, compress_video, get_preview_fram
 use commands::encoders::{
     check_ffmpeg_available, detect_encoders, get_vaapi_device, list_ffmpeg_video_encoders,
 };
-use commands::files::{resolve_output_path, show_in_file_explorer, PendingFile};
+use commands::files::{get_os, resolve_output_path, show_in_file_explorer, PendingFile};
 use commands::updates::check_for_updates;
 use log::vidcord_log;
 use settings::SettingsManager;
@@ -215,6 +215,7 @@ pub fn run() {
             show_in_file_explorer,
             get_vaapi_device,
             resolve_output_path,
+            get_os,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
