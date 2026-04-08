@@ -88,10 +88,11 @@ pub fn run() {
         // DISPLAY is unset. Without an explicit hint GTK3 may attempt the X11
         // backend and crash. Set GDK_BACKEND=wayland so GTK connects to the
         // Wayland socket directly.
-        if std::env::var("WAYLAND_DISPLAY").is_ok() && std::env::var("DISPLAY").is_err() {
-            if std::env::var("GDK_BACKEND").is_err() {
-                std::env::set_var("GDK_BACKEND", "wayland");
-            }
+        if std::env::var("WAYLAND_DISPLAY").is_ok()
+            && std::env::var("DISPLAY").is_err()
+            && std::env::var("GDK_BACKEND").is_err()
+        {
+            std::env::set_var("GDK_BACKEND", "wayland");
         }
 
         // Ensure XDG_RUNTIME_DIR is set. GTK, D-Bus, and the Wayland display
