@@ -133,11 +133,14 @@ pub fn run() {
             }
             // If the second instance was opened with a file (e.g. right-click → Open With),
             // forward that file path to the already-running frontend.
-            let path = argv.into_iter().skip(1).find(|a| {
-                !a.starts_with('-') && std::path::Path::new(a).exists()
-            });
+            let path = argv
+                .into_iter()
+                .skip(1)
+                .find(|a| !a.starts_with('-') && std::path::Path::new(a).exists());
             if let Some(path) = path {
-                vidcord_log(&format!("Single-instance: forwarding file from second instance: {path}"));
+                vidcord_log(&format!(
+                    "Single-instance: forwarding file from second instance: {path}"
+                ));
                 if let Some(win) = app.get_webview_window("main") {
                     std::thread::spawn(move || {
                         std::thread::sleep(std::time::Duration::from_millis(300));
