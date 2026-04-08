@@ -10,7 +10,9 @@ pub async fn detect_encoders() -> Vec<serde_json::Value> {
     tokio::task::spawn_blocking(|| {
         #[allow(unused_mut)]
         let mut cmd = std::process::Command::new("ffmpeg");
-        cmd.arg("-version").stdout(Stdio::null()).stderr(Stdio::null());
+        cmd.arg("-version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::process::CommandExt;
@@ -40,7 +42,9 @@ pub async fn check_ffmpeg_available() -> bool {
     tokio::task::spawn_blocking(|| {
         #[allow(unused_mut)]
         let mut cmd = std::process::Command::new("ffmpeg");
-        cmd.arg("-version").stdout(Stdio::null()).stderr(Stdio::null());
+        cmd.arg("-version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::process::CommandExt;
