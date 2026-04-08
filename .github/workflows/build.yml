@@ -120,31 +120,26 @@ jobs:
             arch: x86_64
             rust-target: x86_64-pc-windows-msvc
             artifact-name: vidcord-windows-x86_64
-            artifact-glob: src-tauri/target/**/bundle/nsis/*.exe
 
           - platform: windows-latest
             arch: aarch64
             rust-target: aarch64-pc-windows-msvc
             artifact-name: vidcord-windows-aarch64
-            artifact-glob: src-tauri/target/aarch64-pc-windows-msvc/**/bundle/nsis/*.exe
 
           - platform: ubuntu-22.04
             arch: x86_64
             rust-target: x86_64-unknown-linux-gnu
             artifact-name: vidcord-linux-x86_64
-            artifact-glob: src-tauri/target/**/bundle/**/*.AppImage
 
           - platform: ubuntu-24.04-arm
             arch: aarch64
             rust-target: aarch64-unknown-linux-gnu
             artifact-name: vidcord-linux-aarch64
-            artifact-glob: src-tauri/target/**/bundle/**/*.AppImage
 
           - platform: macos-latest
             arch: universal
             rust-target: aarch64-apple-darwin,x86_64-apple-darwin
             artifact-name: vidcord-macos
-            artifact-glob: src-tauri/target/**/bundle/pkg/*.pkg
 
     runs-on: ${{ matrix.platform }}
 
@@ -214,11 +209,26 @@ jobs:
           PROFILE=${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
           npx tauri build --bundles appimage --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
 
+      - name: Stage artifacts (Unix)
+        if: matrix.platform != 'windows-latest'
+        run: |
+          mkdir -p artifacts
+          find src-tauri/target \( -name "*.AppImage" -o -name "*.pkg" \) -exec cp {} artifacts/ \;
+
+      - name: Stage artifacts (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts
+          Get-ChildItem -Path src-tauri\target -Recurse -Filter *.exe |
+            Where-Object { $_.DirectoryName -like "*bundle\nsis*" } |
+            ForEach-Object { Copy-Item $_.FullName -Destination artifacts\ }
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact-name }}
-          path: ${{ matrix.artifact-glob }}
+          path: artifacts/
           if-no-files-found: error
 
   release:
