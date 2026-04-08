@@ -83,6 +83,25 @@ pub fn run() {
         if std::env::var("GSETTINGS_BACKEND").is_err() {
             std::env::set_var("GSETTINGS_BACKEND", "memory");
         }
+
+        // On Wayland-only compositors (Sway, Hyprland with XWayland disabled),
+        // DISPLAY is unset. Without an explicit hint GTK3 may attempt the X11
+        // backend and crash. Set GDK_BACKEND=wayland so GTK connects to the
+        // Wayland socket directly.
+        if std::env::var("WAYLAND_DISPLAY").is_ok() && std::env::var("DISPLAY").is_err() {
+            if std::env::var("GDK_BACKEND").is_err() {
+                std::env::set_var("GDK_BACKEND", "wayland");
+            }
+        }
+
+        // Ensure XDG_RUNTIME_DIR is set. GTK, D-Bus, and the Wayland display
+        // socket all rely on this directory. Lightweight WM sessions started
+        // from ~/.xinitrc or a bare TTY login often skip the login manager that
+        // would normally export it.
+        if std::env::var("XDG_RUNTIME_DIR").is_err() {
+            let uid = unsafe { libc::getuid() };
+            std::env::set_var("XDG_RUNTIME_DIR", format!("/run/user/{uid}"));
+        }
     }
 
     #[cfg(target_os = "macos")]
