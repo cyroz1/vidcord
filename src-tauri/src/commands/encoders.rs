@@ -8,13 +8,15 @@ static LIST_ENCODER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 #[tauri::command]
 pub async fn detect_encoders() -> Vec<serde_json::Value> {
     tokio::task::spawn_blocking(|| {
-        let ffmpeg_ok = std::process::Command::new("ffmpeg")
-            .arg("-version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
+        #[allow(unused_mut)]
+        let mut cmd = std::process::Command::new("ffmpeg");
+        cmd.arg("-version").stdout(Stdio::null()).stderr(Stdio::null());
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000);
+        }
+        let ffmpeg_ok = cmd.status().map(|s| s.success()).unwrap_or(false);
 
         if !ffmpeg_ok {
             return vec![serde_json::json!({
@@ -36,13 +38,15 @@ pub async fn detect_encoders() -> Vec<serde_json::Value> {
 #[tauri::command]
 pub async fn check_ffmpeg_available() -> bool {
     tokio::task::spawn_blocking(|| {
-        std::process::Command::new("ffmpeg")
-            .arg("-version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
+        #[allow(unused_mut)]
+        let mut cmd = std::process::Command::new("ffmpeg");
+        cmd.arg("-version").stdout(Stdio::null()).stderr(Stdio::null());
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000);
+        }
+        cmd.status().map(|s| s.success()).unwrap_or(false)
     })
     .await
     .unwrap_or(false)
