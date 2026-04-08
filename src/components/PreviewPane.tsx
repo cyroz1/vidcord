@@ -181,7 +181,6 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
       {/* Video element for playback */}
       <video
         ref={videoRef}
-        muted
         style={{
           display: playing ? "block" : "none",
           width: "100%",
