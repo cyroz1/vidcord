@@ -125,6 +125,27 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // A second instance was launched — focus the existing window.
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.show();
+                let _ = win.set_focus();
+            }
+            // If the second instance was opened with a file (e.g. right-click → Open With),
+            // forward that file path to the already-running frontend.
+            let path = argv.into_iter().skip(1).find(|a| {
+                !a.starts_with('-') && std::path::Path::new(a).exists()
+            });
+            if let Some(path) = path {
+                vidcord_log(&format!("Single-instance: forwarding file from second instance: {path}"));
+                if let Some(win) = app.get_webview_window("main") {
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(300));
+                        let _ = win.emit("open-file", &path);
+                    });
+                }
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
