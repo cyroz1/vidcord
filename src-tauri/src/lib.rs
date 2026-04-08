@@ -84,6 +84,15 @@ pub fn run() {
             std::env::set_var("GSETTINGS_BACKEND", "memory");
         }
 
+        // Prevent GIO (and GStreamer's GIO plugin scanner) from loading system
+        // GIO modules such as libgvfsdbus.so and libgioremote-volume-monitor.so.
+        // These modules are frequently compiled against a newer GLib than the one
+        // available on older distros and fail with "undefined symbol" errors.
+        // Pointing GIO_MODULE_DIR at an empty path disables the scan entirely.
+        if std::env::var("GIO_MODULE_DIR").is_err() {
+            std::env::set_var("GIO_MODULE_DIR", "");
+        }
+
         // On Wayland-only compositors (Sway, Hyprland with XWayland disabled),
         // DISPLAY is unset. Without an explicit hint GTK3 may attempt the X11
         // backend and crash. Set GDK_BACKEND=wayland so GTK connects to the
