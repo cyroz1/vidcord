@@ -72,6 +72,11 @@ pub fn show_in_file_explorer(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn get_os() -> &'static str {
+    std::env::consts::OS
+}
+
+#[tauri::command]
 pub fn resolve_output_path(input_path: String) -> Result<String, String> {
     let p = std::path::Path::new(&input_path);
     let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
