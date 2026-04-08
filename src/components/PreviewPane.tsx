@@ -87,11 +87,11 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
     }
     const vid = videoRef.current;
     if (vid) {
-      vid.oncanplay = null;
+      vid.onloadedmetadata = null;
       vid.onerror = null;
       vid.pause();
       vid.src = "";
-      vid.load(); // abort any in-flight load so stale canplay events don't fire
+      vid.load(); // abort any in-flight load
     }
     setPlaying(false);
   }, []);
@@ -101,30 +101,32 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
     const vid = videoRef.current;
     if (!vid) return;
 
-    // Clear any previous handlers before setting src
     vid.oncanplay = null;
     vid.onerror = null;
-
-    vid.oncanplay = () => {
-      vid.oncanplay = null; // fire only once
-      vid.currentTime = startTime;
-      vid.play().catch(() => stopPlayback());
-      setPlaying(true);
-
-      // Poll position and stop at endTime
-      if (stopTimerRef.current) clearInterval(stopTimerRef.current);
-      stopTimerRef.current = setInterval(() => {
-        if (vid.currentTime >= endTime || vid.ended) {
-          stopPlayback();
-        }
-      }, 100);
-    };
+    vid.onloadedmetadata = null;
 
     vid.onerror = () => stopPlayback();
 
-    const src = convertFileSrc(filePath);
-    vid.src = src;
-    vid.load();
+    // Seek to startTime once the browser knows the media duration.
+    vid.onloadedmetadata = () => {
+      vid.onloadedmetadata = null;
+      vid.currentTime = startTime;
+    };
+
+    vid.src = convertFileSrc(filePath);
+
+    // play() must be called synchronously inside the user-gesture handler.
+    // Calling it inside oncanplay (async) breaks WebView2/Chrome's autoplay
+    // policy — the promise is rejected and stopPlayback() fires immediately.
+    vid.play()
+      .then(() => {
+        setPlaying(true);
+        if (stopTimerRef.current) clearInterval(stopTimerRef.current);
+        stopTimerRef.current = setInterval(() => {
+          if (vid.currentTime >= endTime || vid.ended) stopPlayback();
+        }, 100);
+      })
+      .catch(() => stopPlayback());
   }, [filePath, probeData, startTime, endTime, stopPlayback]);
 
   // Stop playback when trim range changes
