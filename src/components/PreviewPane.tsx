@@ -113,12 +113,6 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
       vid.currentTime = startTime;
     };
 
-    // Make the element visible before play() — WebView2 on Windows drops
-    // frames or stalls when play() is called on a display:none element.
-    // React state updates are batched and won't flush until after this
-    // handler returns, so we imperatively show the element here and let
-    // the React re-render (triggered by setPlaying below) keep it in sync.
-    vid.style.display = "block";
     vid.src = convertFileSrc(filePath);
 
     // play() must be called synchronously inside the user-gesture handler.
@@ -191,8 +185,12 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
       ) : null}
 
       {/* Video element for playback */}
+      {/* muted: bypasses WebView2's autoplay policy for audio content.
+          Linux live playback is disabled entirely (GStreamer crash), so the
+          Linux restriction that motivated removing muted no longer applies. */}
       <video
         ref={videoRef}
+        muted
         style={{
           display: playing ? "block" : "none",
           width: "100%",
