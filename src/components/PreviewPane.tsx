@@ -113,6 +113,12 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
       vid.currentTime = startTime;
     };
 
+    // Make the element visible before play() — WebView2 on Windows drops
+    // frames or stalls when play() is called on a display:none element.
+    // React state updates are batched and won't flush until after this
+    // handler returns, so we imperatively show the element here and let
+    // the React re-render (triggered by setPlaying below) keep it in sync.
+    vid.style.display = "block";
     vid.src = convertFileSrc(filePath);
 
     // play() must be called synchronously inside the user-gesture handler.
