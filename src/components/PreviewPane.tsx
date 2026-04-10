@@ -88,6 +88,7 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
     const vid = videoRef.current;
     if (vid) {
       vid.onloadedmetadata = null;
+      vid.onseeked = null;
       vid.onerror = null;
       vid.pause();
       vid.src = "";
@@ -104,29 +105,42 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
     vid.oncanplay = null;
     vid.onerror = null;
     vid.onloadedmetadata = null;
+    vid.onseeked = null;
 
     vid.onerror = () => stopPlayback();
 
-    // Seek to startTime once the browser knows the media duration.
+    const doPlay = () => {
+      vid.play()
+        .then(() => {
+          setPlaying(true);
+          if (stopTimerRef.current) clearInterval(stopTimerRef.current);
+          stopTimerRef.current = setInterval(() => {
+            if (vid.currentTime >= endTime || vid.ended) stopPlayback();
+          }, 100);
+        })
+        .catch(() => stopPlayback());
+    };
+
+    // Seek to startTime once the browser knows the media duration, then play.
+    // play() is called after the seek completes so that WebView2/Chromium does
+    // not abort the pending play() when currentTime is changed mid-flight
+    // (WebKit handles this gracefully; Chromium rejects the promise).
+    // --autoplay-policy=no-user-gesture-required (tauri.conf.json) means the
+    // async play() call is not blocked by WebView2's autoplay policy.
     vid.onloadedmetadata = () => {
       vid.onloadedmetadata = null;
-      vid.currentTime = startTime;
+      if (startTime > 0) {
+        vid.onseeked = () => {
+          vid.onseeked = null;
+          doPlay();
+        };
+        vid.currentTime = startTime;
+      } else {
+        doPlay();
+      }
     };
 
     vid.src = convertFileSrc(filePath);
-
-    // play() must be called synchronously inside the user-gesture handler.
-    // Calling it inside oncanplay (async) breaks WebView2/Chrome's autoplay
-    // policy — the promise is rejected and stopPlayback() fires immediately.
-    vid.play()
-      .then(() => {
-        setPlaying(true);
-        if (stopTimerRef.current) clearInterval(stopTimerRef.current);
-        stopTimerRef.current = setInterval(() => {
-          if (vid.currentTime >= endTime || vid.ended) stopPlayback();
-        }, 100);
-      })
-      .catch(() => stopPlayback());
   }, [filePath, probeData, startTime, endTime, stopPlayback]);
 
   // Stop playback when trim range changes
