@@ -1,6 +1,6 @@
 # Changelog
 
-## v6.0.0
+## v6.0
 
 vidcord has been fully rewritten from Python + PyQt6 to **Tauri (Rust + React)**. This is a ground-up rebuild — not an incremental update.
 
