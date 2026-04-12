@@ -69,9 +69,39 @@ jobs:
           path: dist/
           if-no-files-found: error
 
-  # Run Rust quality checks: clippy, tests, and dependency audit.
-  # Runs on ubuntu-latest only — no need to repeat on all 5 platforms.
-  rust-checks:
+  # Fast Rust quality checks that don't require compilation: rustfmt and
+  # cargo-audit. These finish in ~1 minute and surface issues early, without
+  # waiting behind the clippy/test compile job.
+  rust-lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Rustfmt check
+        run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Audit Rust dependencies
+        run: cargo audit
+        working-directory: src-tauri
+
+  # Slow Rust quality checks that require compilation: clippy and tests.
+  # Runs in parallel with rust-lint so format/audit errors surface without
+  # waiting on compilation. The populated Rust cache is shared with the
+  # Linux x86_64 build job (same target, same shared-key) so that job
+  # doesn't have to recompile dependencies from scratch.
+  rust-compile-checks:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -87,34 +117,23 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
+          components: clippy
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
           cache-on-failure: true
-
-      - name: Rustfmt check
-        run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
+          shared-key: rust-linux
 
       - name: Clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings
 
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
-      - name: Install cargo-audit
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-audit
-
-      - name: Audit Rust dependencies
-        run: cargo audit
-        working-directory: src-tauri
-
   build:
-    needs: [frontend, rust-checks]
+    needs: [frontend, rust-lint, rust-compile-checks]
     permissions:
       contents: read
     strategy:
@@ -164,8 +183,6 @@ jobs:
           packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
           version: 1.0
 
-
-
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
@@ -177,14 +194,23 @@ jobs:
         with:
           targets: ${{ matrix.rust-target }}
 
+      - name: Cache Rust dependencies (Linux x86_64, shared with rust-compile-checks)
+        if: matrix.rust-target == 'x86_64-unknown-linux-gnu'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+          shared-key: rust-linux
+
       - name: Cache Rust dependencies
+        if: matrix.rust-target != 'x86_64-unknown-linux-gnu'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
           cache-on-failure: true
 
       - name: Install Tauri CLI
-        run: npm install --no-save @tauri-apps/cli
+        run: npm install --no-save @tauri-apps/cli --prefer-offline
 
       - name: Build (macOS universal)
         if: matrix.platform == 'macos-latest'
