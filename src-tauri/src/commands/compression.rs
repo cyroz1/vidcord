@@ -213,8 +213,11 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                     if last_lines.len() > 200 {
                         last_lines.pop_front();
                     }
-                    let lower = line.to_lowercase();
-                    if lower.contains("error") || lower.contains("warning") {
+                    // Case-insensitive ASCII scan without allocating a
+                    // lowercased copy for every progress line. FFmpeg emits
+                    // thousands of time= lines during a long encode and none
+                    // of them need lowercasing.
+                    if contains_ascii_ci(line, b"error") || contains_ascii_ci(line, b"warning") {
                         vidcord_log(&format!("FFMPEG: {line}"));
                     }
                     if line.contains("time=") {
@@ -340,6 +343,20 @@ pub fn cancel_compression() {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Case-insensitive ASCII substring search that avoids allocating a lowercased
+/// copy of the haystack. Hot path during FFmpeg progress parsing.
+pub fn contains_ascii_ci(haystack: &str, needle: &[u8]) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    let hb = haystack.as_bytes();
+    if hb.len() < needle.len() {
+        return false;
+    }
+    hb.windows(needle.len())
+        .any(|w| w.eq_ignore_ascii_case(needle))
+}
+
 pub fn parse_ffmpeg_time(line: &str) -> Option<f64> {
     let idx = line.find("time=")?;
     let rest = &line[idx + 5..];
@@ -444,5 +461,18 @@ mod tests {
         assert!(!valid("libx264; rm -rf /"));
         assert!(!valid("../../../bin/sh"));
         assert!(!valid("libx264 -vf evil"));
+    }
+
+    #[test]
+    fn test_contains_ascii_ci() {
+        assert!(contains_ascii_ci("frame=120 time=00:00:04", b"time"));
+        assert!(contains_ascii_ci("ERROR: something broke", b"error"));
+        assert!(contains_ascii_ci("WaRnInG: deprecated", b"warning"));
+        assert!(contains_ascii_ci("error", b"error"));
+        assert!(!contains_ascii_ci("nothing matches", b"error"));
+        assert!(!contains_ascii_ci("", b"error"));
+        assert!(!contains_ascii_ci("err", b"error"));
+        // Empty needle is vacuously contained
+        assert!(contains_ascii_ci("anything", b""));
     }
 }

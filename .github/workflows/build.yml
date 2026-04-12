@@ -34,6 +34,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
 
       - name: Set up Node
         uses: actions/setup-node@v6
@@ -78,6 +80,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -107,6 +111,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
 
       - name: Install system dependencies
         uses: awalsh128/cache-apt-pkgs-action@v1
@@ -133,7 +139,13 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
   build:
-    needs: [frontend, rust-lint, rust-compile-checks]
+    # Only gate on the frontend job (for the dist/ artifact). The Rust lint and
+    # compile-check jobs run in parallel with builds — their failures surface
+    # alongside build failures instead of blocking cross-platform compilation
+    # that doesn't depend on them. Linux x86_64 still shares the `rust-linux`
+    # cache key with rust-compile-checks; whichever job finishes first
+    # populates it for the next run.
+    needs: [frontend]
     permissions:
       contents: read
     strategy:
@@ -169,6 +181,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
 
       - name: Download frontend dist
         uses: actions/download-artifact@v7
@@ -202,8 +216,19 @@ jobs:
           cache-on-failure: true
           shared-key: rust-linux
 
+      # Both Windows matrix jobs (x86_64 and aarch64) compile on the same host
+      # toolchain and pull the same dependency sources — sharing a cache key
+      # keyed by target avoids two parallel cold compiles.
+      - name: Cache Rust dependencies (Windows)
+        if: startsWith(matrix.platform, 'windows-latest')
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+          shared-key: rust-windows-${{ matrix.rust-target }}
+
       - name: Cache Rust dependencies
-        if: matrix.rust-target != 'x86_64-unknown-linux-gnu'
+        if: matrix.rust-target != 'x86_64-unknown-linux-gnu' && !startsWith(matrix.platform, 'windows-latest')
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri

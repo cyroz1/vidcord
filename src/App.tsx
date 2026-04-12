@@ -252,27 +252,29 @@ export default function App() {
   }, []);
 
   // --- Derived values ---
-  const startTime = probeData ? (startVal / SLIDER_MAX) * probeData.duration : 0;
-  const endTime = probeData ? (endVal / SLIDER_MAX) * probeData.duration : 0;
-  const startPct = (startVal / SLIDER_MAX) * 100;
-  const endPct = (endVal / SLIDER_MAX) * 100;
-  
-  const lowerAdvEnc = useMemo(() => advEncoder.toLowerCase(), [advEncoder]);
-  
-  const normalizedEncoders = useMemo(
-    () => encoders.map(e => ({ ...e, lowerName: e.name.toLowerCase() })),
-    [encoders]
-  );
-  
+  // Memoized because these drive the trim slider overlay and time labels
+  // on every pointermove during scrub — recomputing on unrelated re-renders
+  // wastes cycles.
+  const duration = probeData?.duration ?? 0;
+  const startTime = useMemo(() => (startVal / SLIDER_MAX) * duration, [startVal, duration]);
+  const endTime = useMemo(() => (endVal / SLIDER_MAX) * duration, [endVal, duration]);
+  const startPct = useMemo(() => (startVal / SLIDER_MAX) * 100, [startVal]);
+  const endPct = useMemo(() => (endVal / SLIDER_MAX) * 100, [endVal]);
+
+  // Single memo computes the predicted encoder name. The prior
+  // implementation built a parallel array of { ...e, lowerName } on every
+  // `encoders` change (new object identity per entry), which defeated
+  // referential memoization for downstream consumers.
   const predictedEncoder = useMemo(() => {
     if (!advEncoder) return undefined;
-    return normalizedEncoders.find(enc => enc.lowerName.startsWith(lowerAdvEnc))?.name;
-  }, [advEncoder, normalizedEncoders, lowerAdvEnc]);
-  
-  const showPrediction = useMemo(
-    () => predictedEncoder && predictedEncoder !== advEncoder,
-    [predictedEncoder, advEncoder]
-  );
+    const lower = advEncoder.toLowerCase();
+    for (const enc of encoders) {
+      if (enc.name.toLowerCase().startsWith(lower)) return enc.name;
+    }
+    return undefined;
+  }, [advEncoder, encoders]);
+
+  const showPrediction = predictedEncoder !== undefined && predictedEncoder !== advEncoder;
 
   return (
     <div className="app">
