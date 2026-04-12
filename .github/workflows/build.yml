@@ -241,11 +241,7 @@ jobs:
         if: matrix.platform == 'macos-latest'
         run: |
           PROFILE=${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
-          npx tauri build --target universal-apple-darwin --bundles app --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
-
-      - name: Build macOS PKG installer
-        if: matrix.platform == 'macos-latest'
-        run: bash platforms/macos/build_pkg.sh
+          npx tauri build --target universal-apple-darwin --bundles dmg --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
 
       - name: Build (Windows aarch64)
         if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
@@ -269,7 +265,7 @@ jobs:
         if: matrix.platform != 'windows-latest'
         run: |
           mkdir -p artifacts
-          find src-tauri/target \( -name "*.AppImage" -o -name "*.pkg" \) -exec cp {} artifacts/ \;
+          find src-tauri/target \( -name "*.AppImage" -o -name "*.dmg" \) -exec cp {} artifacts/ \;
 
       - name: Stage artifacts (Windows)
         if: matrix.platform == 'windows-latest'
