@@ -460,7 +460,13 @@ export default function App() {
         </div>
 
         {/* Preview */}
-        <PreviewPane filePath={filePath} startTime={startTime} endTime={endTime} probeData={probeData} />
+        <PreviewPane
+          filePath={filePath}
+          startTime={startTime}
+          endTime={endTime}
+          probeData={probeData}
+          removeAudio={removeAudio}
+        />
 
         {/* Compress button */}
         <button
