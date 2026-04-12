@@ -6,7 +6,13 @@ type Props = {
   filePath: string | null;
   startTime: number;
   endTime: number;
-  probeData: { duration: number; width: number; height: number } | null;
+  probeData: {
+    duration: number;
+    width: number;
+    height: number;
+    display_width?: number;
+    display_height?: number;
+  } | null;
 };
 
 export default function PreviewPane({ filePath, startTime, endTime, probeData }: Props) {
@@ -28,8 +34,33 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeRef = useRef(false);
+  const prevStartTimeRef = useRef(startTime);
+  const prevEndTimeRef = useRef(endTime);
+  const prevFilePathRef = useRef<string | null>(filePath);
   const videoRef = useRef<HTMLVideoElement>(null);
   const stopTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const clipUrlRef = useRef<string | null>(null);
+
+  const buildPlaybackUrls = useCallback((path: string): string[] => {
+    const normalizedPath = path.replace(/\\/g, "/");
+    const urls = [convertFileSrc(path)];
+
+    if (normalizedPath !== path) {
+      urls.push(convertFileSrc(normalizedPath));
+    }
+
+    try {
+      if (/^[a-zA-Z]:\//.test(normalizedPath)) {
+        urls.push(new URL(`file:///${normalizedPath}`).toString());
+      } else if (normalizedPath.startsWith("/")) {
+        urls.push(new URL(`file://${normalizedPath}`).toString());
+      }
+    } catch {
+      // ignore malformed fallback URLs and continue with asset protocol URLs
+    }
+
+    return [...new Set(urls)];
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Frame preview (static JPEG)
@@ -66,16 +97,33 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
     }
     activeRef.current = false;
     stopPlayback();
+    const isNewFile = filePath !== prevFilePathRef.current;
+    const isInitialRange =
+      prevStartTimeRef.current === 0 &&
+      prevEndTimeRef.current === 0 &&
+      startTime === 0 &&
+      endTime > 0;
+    const startChanged = Math.abs(startTime - prevStartTimeRef.current) > 0.001;
+    const endChanged = Math.abs(endTime - prevEndTimeRef.current) > 0.001;
+    const frameTime =
+      isNewFile || isInitialRange
+        ? startTime
+        : endChanged && !startChanged
+          ? endTime
+          : startTime;
+    prevFilePathRef.current = filePath;
+    prevStartTimeRef.current = startTime;
+    prevEndTimeRef.current = endTime;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      fetchFrame(filePath, startTime);
+      fetchFrame(filePath, frameTime);
     }, 150);
     return () => {
       activeRef.current = false;
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filePath, startTime, fetchFrame, probeData]);
+  }, [filePath, startTime, endTime, fetchFrame, probeData]);
 
   // ---------------------------------------------------------------------------
   // Video playback
@@ -93,6 +141,10 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
       vid.src = "";
       vid.load(); // abort any in-flight load
     }
+    if (clipUrlRef.current) {
+      URL.revokeObjectURL(clipUrlRef.current);
+      clipUrlRef.current = null;
+    }
     setPlaying(false);
   }, []);
 
@@ -100,34 +152,87 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
     if (!filePath || !probeData) return;
     const vid = videoRef.current;
     if (!vid) return;
+    const sources = buildPlaybackUrls(filePath);
+    if (sources.length === 0) return;
+    let sourceIndex = 0;
+    let tryingGeneratedClip = false;
+    let usingGeneratedClip = false;
+
+    const ensureStopTimer = () => {
+      if (stopTimerRef.current) clearInterval(stopTimerRef.current);
+      stopTimerRef.current = setInterval(() => {
+        if (vid.currentTime >= endTime || vid.ended) stopPlayback();
+      }, 100);
+    };
+
+    const playGeneratedClip = async () => {
+      if (tryingGeneratedClip) return;
+      tryingGeneratedClip = true;
+      try {
+        const buffer = await invoke<Uint8Array>("get_preview_clip", {
+          path: filePath,
+          startTimeSec: startTime,
+          endTimeSec: endTime,
+        });
+        const blob = new Blob([new Uint8Array(buffer)], { type: "video/mp4" });
+        const clipUrl = URL.createObjectURL(blob);
+        if (clipUrlRef.current) URL.revokeObjectURL(clipUrlRef.current);
+        clipUrlRef.current = clipUrl;
+        usingGeneratedClip = true;
+        vid.src = clipUrl;
+        await vid.play();
+        setPlaying(true);
+        ensureStopTimer();
+      } catch {
+        stopPlayback();
+      }
+    };
 
     vid.oncanplay = null;
     vid.onerror = null;
     vid.onloadedmetadata = null;
 
-    vid.onerror = () => stopPlayback();
+    const beginPlayback = (index: number) => {
+      if (index >= sources.length) {
+        stopPlayback();
+        return;
+      }
+      sourceIndex = index;
+      usingGeneratedClip = false;
+      vid.src = sources[index];
+      vid.play()
+        .then(() => {
+          setPlaying(true);
+          ensureStopTimer();
+        })
+        .catch(() => {
+          if (index + 1 < sources.length) {
+            beginPlayback(index + 1);
+            return;
+          }
+          void playGeneratedClip();
+        });
+    };
+
+    vid.onerror = () => {
+      if (sourceIndex + 1 < sources.length) {
+        beginPlayback(sourceIndex + 1);
+        return;
+      }
+      void playGeneratedClip();
+    };
 
     // Seek to startTime once the browser knows the media duration.
     vid.onloadedmetadata = () => {
       vid.onloadedmetadata = null;
-      vid.currentTime = startTime;
+      vid.currentTime = usingGeneratedClip ? 0 : startTime;
     };
-
-    vid.src = convertFileSrc(filePath);
 
     // play() must be called synchronously inside the user-gesture handler.
     // Calling it inside oncanplay (async) breaks WebView2/Chrome's autoplay
     // policy — the promise is rejected and stopPlayback() fires immediately.
-    vid.play()
-      .then(() => {
-        setPlaying(true);
-        if (stopTimerRef.current) clearInterval(stopTimerRef.current);
-        stopTimerRef.current = setInterval(() => {
-          if (vid.currentTime >= endTime || vid.ended) stopPlayback();
-        }, 100);
-      })
-      .catch(() => stopPlayback());
-  }, [filePath, probeData, startTime, endTime, stopPlayback]);
+    beginPlayback(0);
+  }, [filePath, probeData, startTime, endTime, stopPlayback, buildPlaybackUrls]);
 
   // Stop playback when trim range changes
   useEffect(() => {
@@ -149,7 +254,7 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
-  const aspect = probeData ? probeData.width / probeData.height : 16 / 9;
+  const aspect = 16 / 9;
   const canPlay = !!filePath && !!probeData && endTime > startTime;
 
   return (
@@ -162,7 +267,6 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
         position: "relative",
         width: "100%",
         aspectRatio: `${aspect}`,
-        maxHeight: "220px",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -185,18 +289,13 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
       ) : null}
 
       {/* Video element for playback */}
-      {/* muted: bypasses WebView2's autoplay policy for audio content.
-          Linux live playback is disabled entirely (GStreamer crash), so the
-          Linux restriction that motivated removing muted no longer applies. */}
       <video
         ref={videoRef}
-        muted
         style={{
           display: playing ? "block" : "none",
           width: "100%",
           height: "100%",
           objectFit: "contain",
-          background: "#000",
         }}
         onEnded={stopPlayback}
       />
@@ -243,16 +342,6 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
           pointerEvents: "none",
         }}>
           {probeData.width}×{probeData.height} · {probeData.duration.toFixed(1)}s
-        </div>
-      )}
-      {probeData && probeData.duration > 0 && (
-        <div style={{
-          position: "absolute", bottom: "6px", left: "8px",
-          fontSize: "11px", color: "rgba(255,255,255,0.85)",
-          background: "rgba(0,0,0,0.58)", borderRadius: "var(--radius-xs)", padding: "2px 6px",
-          pointerEvents: "none",
-        }}>
-          {startTime.toFixed(1)}s → {endTime.toFixed(1)}s
         </div>
       )}
     </div>

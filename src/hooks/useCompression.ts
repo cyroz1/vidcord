@@ -2,7 +2,14 @@ import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-export type ProbeData = { duration: number; width: number; height: number; bitrate: number };
+export type ProbeData = {
+  duration: number;
+  width: number;
+  height: number;
+  display_width?: number;
+  display_height?: number;
+  bitrate: number;
+};
 
 type Props = {
   onToast: (type: "success" | "error" | "warning" | "info", title: string, msg: string) => void;

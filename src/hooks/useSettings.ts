@@ -5,6 +5,7 @@ type Settings = Record<string, unknown>;
 
 export function useSettings() {
   const settingsRef = useRef<Settings>({});
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   // Persisted settings values
@@ -31,7 +32,20 @@ export function useSettings() {
 
   const saveSettings = useCallback((patch: Settings) => {
     settingsRef.current = { ...settingsRef.current, ...patch };
-    invoke("save_settings", { settings: settingsRef.current }).catch(() => {});
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = setTimeout(() => {
+      invoke("save_settings", { settings: settingsRef.current }).catch(() => {});
+    }, 250);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    };
   }, []);
 
   return {
