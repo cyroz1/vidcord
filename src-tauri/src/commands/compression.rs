@@ -38,8 +38,8 @@ pub async fn probe(path: String) -> Result<serde_json::Value, String> {
         crate::ffmpeg::clear_preview_clip_cache();
         probe_video(&path).map_err(|e| e.to_string())
     })
-        .await
-        .map_err(|e| e.to_string())?
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

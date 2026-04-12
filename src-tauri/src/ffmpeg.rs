@@ -1,6 +1,6 @@
 use crate::gpu::get_system_gpus;
 use std::collections::HashMap;
-use std::sync::{OnceLock, Mutex};
+use std::sync::{Mutex, OnceLock};
 
 static VAAPI_CACHE: OnceLock<Option<String>> = OnceLock::new();
 // Cached once at first use — env doesn't change during an app session.
@@ -47,7 +47,8 @@ impl ClipCache {
 
         // Remove least recently used entries until it fits
         while self.total_size + clip_size > self.max_size && !self.clips.is_empty() {
-            if let Some((removed_key, _)) = self.clips
+            if let Some((removed_key, _)) = self
+                .clips
                 .iter()
                 .min_by_key(|(_, entry)| entry.last_used)
                 .map(|(k, v)| (*k, v.clone()))
@@ -61,10 +62,13 @@ impl ClipCache {
         // Only insert if it's not too large by itself
         if clip_size <= self.max_size {
             self.total_size += clip_size;
-            self.clips.insert(key, ClipCacheEntry {
-                data,
-                last_used: std::time::Instant::now(),
-            });
+            self.clips.insert(
+                key,
+                ClipCacheEntry {
+                    data,
+                    last_used: std::time::Instant::now(),
+                },
+            );
         }
     }
 
@@ -238,7 +242,7 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn st
         "-frames:v",
         "1",
         "-q:v",
-        "5",        // Optimized: was 4, now 5 for 10-15% faster with imperceptible quality difference on 320px
+        "5", // Optimized: was 4, now 5 for 10-15% faster with imperceptible quality difference on 320px
         "-vf",
         "scale=320:-2:flags=fast_bilinear,setsar=1",
         "-f",
@@ -277,9 +281,7 @@ pub fn generate_preview_clip(
     let cache_key = (start_ms, end_ms);
 
     {
-        let mut cache = get_clip_cache()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut cache = get_clip_cache().lock().unwrap_or_else(|e| e.into_inner());
         if let Some(cached) = cache.get(cache_key) {
             return Ok(cached);
         }
@@ -290,9 +292,7 @@ pub fn generate_preview_clip(
 
     // Store in cache
     {
-        let mut cache = get_clip_cache()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut cache = get_clip_cache().lock().unwrap_or_else(|e| e.into_inner());
         cache.insert(cache_key, clip.clone());
     }
 
