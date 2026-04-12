@@ -1,33 +1,57 @@
-# <img src="icon.ico" height="25"> vidcord  
+# <img src="public/icon.png" height="25"> vidcord
 
-This is a simple and fast Python GUI application for compressing video files under Discord's size limits using FFmpeg and PyQt6 in one-click. The application features a modern **Fluent Design** interface, and is available for **Windows, macOS, and Linux**.
+A fast, lightweight desktop app for compressing video files under Discord's size limits — powered by FFmpeg, built with **Tauri** (Rust + React). Available for **Windows, macOS, and Linux**.
 
 ## Download
 
 [Download latest release installer.](https://github.com/cyroz1/vidcord/releases/latest)
 
+## Prerequisites
+
+**FFmpeg must be installed on your system before running vidcord.** It is not bundled with the app.
+
+**Windows (x86_64)**
+```powershell
+winget install Gyan.FFmpeg
+```
+Then restart your PC to apply the PATH change.
+
+**Windows (ARM64 — Surface Pro X, Snapdragon PCs)**
+No official ARM64 FFmpeg build exists yet. See [FFMPEG_SETUP.md](FFMPEG_SETUP.md) for manual install steps.
+
+**macOS**
+```sh
+brew install ffmpeg
+```
+
+**Linux (Ubuntu/Debian)**
+```sh
+sudo apt install ffmpeg
+```
+
+For Fedora, Arch, and other distros, see [FFMPEG_SETUP.md](FFMPEG_SETUP.md).
+
 ## Features
 
-- **Modern UI**: Clean and responsive interface built with Fluent Design.
-- **Three methods to import videos**:
-  - File Explorer: Right click video files in File Explorer and choose "Compress with vidcord". (Windows only)
-  - Finder: Right click video files in Finder and choose "Open with..." -> "vidcord.app". (macOS only)
-  - Manual: Drag and drop or browse for video files in the application. 
+- **Modern UI**: Clean, responsive interface styled after Fluent Design.
+- **Three ways to import videos**:
+  - **File Explorer / Finder**: Right-click a video → "Open with vidcord" (Windows, macOS).
+  - **Drag and drop**: Drop a video file directly onto the window.
+  - **Browse**: Click "Browse File" to pick a file.
 - **Five quality presets**:
-  - 10MB, 480p (Free users)
-  - 25MB, 480p (Free users, old)
-  - 50MB, 720p (Nitro Basic or Level 2 Server Boost)
-  - 100MB, 1080p (Level 3 Server Boost or [Clips Bypass](https://github.com/riolubruh/YABDP4Nitro?tab=readme-ov-file#clips))
-  - 500MB, Native (Nitro Full)
-- **Advanced Mode**: Toggle custom target size, resolution, and encoder settings beyond the presets.
-- **Advanced Options**:
-  - **Remove Audio**: Strip audio tracks to save space or for silent clips.
-  - **Trimming**: Adjustable starting and ending points with live frame preview.
-- **Video Playback Preview**: Play/stop the selected trim segment in-app (where supported).
-- **Hardware Acceleration**: Support for NVIDIA (NVENC), AMD (AMF), Intel (QSV), and Apple Silicon encoders.
-- **Instant Startup**: Optimized with lazy-loading and background hardware detection for immediate responsiveness.
-- **Multi-Platform**: Native builds for Windows (.exe), macOS (.pkg), and Linux (.AppImage).
-- **Progress Tracking**: Real-time progress bar and ETA display.
+  - 10 MB, 480p — Discord free tier
+  - 25 MB, 480p — Discord free tier (legacy)
+  - 50 MB, 720p — Nitro Basic / Level 2 Server Boost
+  - 100 MB, 1080p — Level 3 Server Boost or [Clips Bypass](https://github.com/riolubruh/YABDP4Nitro?tab=readme-ov-file#clips)
+  - 500 MB, native — Nitro Full
+- **Advanced Mode**: Custom target size (MB), resolution, and any FFmpeg encoder string.
+- **Trim**: Adjustable start/end sliders with live frame preview.
+- **Video playback preview**: Play the selected trim segment in-app before compressing.
+- **Remove Audio**: Strip audio tracks to reclaim space.
+- **Hardware acceleration**: NVIDIA (NVENC), AMD (AMF), Intel (QSV), Linux VAAPI, Apple Silicon (VideoToolbox) — auto-detected at startup.
+- **Real-time progress**: Progress bar and ETA updated as FFmpeg runs.
+- **Auto output**: Saves to your Downloads folder with an auto-incremented filename, then opens it in the file explorer.
+- **Tiny binary**: ~10 MB installer (no bundled runtime — Tauri uses the system WebView).
 
 ## Screenshots
 
@@ -42,6 +66,7 @@ This is a simple and fast Python GUI application for compressing video files und
 ### Output file example
 
 ![Output file example](screenshots/file.png)
+
 ### Context menu integration
 
 ![Context menu integration](screenshots/context.png)
@@ -49,33 +74,60 @@ This is a simple and fast Python GUI application for compressing video files und
 
 ## Building
 
-1. **Install Prerequisites**
-   - Download and install [Python 3.10+](https://www.python.org/downloads/).
-   - **macOS**: Ensure Xcode Command Line Tools are installed (`xcode-select --install`).
+### Prerequisites
 
-2. **Setup Environment & Dependencies**
-   It's recommended to use a virtual environment:
-   ```sh
-   # Create and activate venv
-   python -m venv venv
-   source venv/bin/activate  # macOS/Linux
-   venv\Scripts\activate     # Windows
+| Tool | Version | Notes |
+|------|---------|-------|
+| [Rust](https://rustup.rs) | stable | Install via `rustup` |
+| [Node.js](https://nodejs.org) | 22.12+ | For the React frontend |
+| [FFmpeg](https://ffmpeg.org/download.html) | any recent | Must be on `PATH` at runtime |
+| **Linux only** | | `libwebkit2gtk-4.1-dev`, `libappindicator3-dev`, `librsvg2-dev`, `patchelf` |
+| **Windows only** | | [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) (pre-installed on Win11) |
 
-   # Install dependencies
-   pip install -r requirements.txt
-   pip install pyinstaller
-   ```
+### Install FFmpeg
 
-3. **Build the Application**
-   A unified build script handles platform-specific packaging (using PyInstaller, Inno Setup, or AppImage tools):
-   ```sh
-   python build.py
-   ```
-   The resulting installer/package will be located in the `dist/` directory.
+FFmpeg must be installed and available on your `PATH` before running or building vidcord.
+
+**Windows**
+```sh
+winget install ffmpeg
+```
+
+**macOS**
+```sh
+brew install ffmpeg
+```
+
+**Linux (Debian/Ubuntu)**
+```sh
+sudo apt install ffmpeg
+```
+
+### Install and run (dev)
+
+```sh
+# Install frontend dependencies
+npm install
+
+# Start the dev server with hot-reload
+npm run tauri dev
+```
+
+### Build a release binary
+
+```sh
+npm run tauri build
+```
+
+The installer or `.AppImage` will be in `src-tauri/target/release/bundle/`.
+
+### CI / cross-platform releases
+
+GitHub Actions builds on Windows (x86_64 + aarch64), macOS (universal), and Linux (x86_64 + aarch64) using a custom matrix that runs `npm run tauri build`. See [`.github/workflows/build.yml`](.github/workflows/build.yml).
 
 ## Acknowledgements
 
 - [FFmpeg](https://ffmpeg.org/)
-- [PyQt6](https://pypi.org/project/PyQt6/)
-- [PyQt6-Fluent-Widgets](https://github.com/zhiyiYo/PyQt-Fluent-Widgets)
-- [PyInstaller](https://www.pyinstaller.org/)
+- [Tauri](https://tauri.app/)
+- [React](https://react.dev/)
+- [Vite](https://vitejs.dev/)
