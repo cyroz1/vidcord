@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -256,11 +256,23 @@ export default function App() {
   const endTime = probeData ? (endVal / SLIDER_MAX) * probeData.duration : 0;
   const startPct = (startVal / SLIDER_MAX) * 100;
   const endPct = (endVal / SLIDER_MAX) * 100;
-  const lowerAdvEnc = advEncoder.toLowerCase();
-  const predictedEncoder = advEncoder
-    ? encoders.find((enc) => enc.name.toLowerCase().startsWith(lowerAdvEnc))?.name
-    : undefined;
-  const showPrediction = predictedEncoder && predictedEncoder.toLowerCase() !== lowerAdvEnc;
+  
+  const lowerAdvEnc = useMemo(() => advEncoder.toLowerCase(), [advEncoder]);
+  
+  const normalizedEncoders = useMemo(
+    () => encoders.map(e => ({ ...e, lowerName: e.name.toLowerCase() })),
+    [encoders]
+  );
+  
+  const predictedEncoder = useMemo(() => {
+    if (!advEncoder) return undefined;
+    return normalizedEncoders.find(enc => enc.lowerName.startsWith(lowerAdvEnc))?.name;
+  }, [advEncoder, normalizedEncoders, lowerAdvEnc]);
+  
+  const showPrediction = useMemo(
+    () => predictedEncoder && predictedEncoder !== advEncoder,
+    [predictedEncoder, advEncoder]
+  );
 
   return (
     <div className="app">

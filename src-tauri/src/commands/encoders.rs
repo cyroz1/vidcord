@@ -8,26 +8,6 @@ static LIST_ENCODER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 #[tauri::command]
 pub async fn detect_encoders() -> Vec<serde_json::Value> {
     tokio::task::spawn_blocking(|| {
-        #[allow(unused_mut)]
-        let mut cmd = std::process::Command::new("ffmpeg");
-        cmd.arg("-version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000);
-        }
-        let ffmpeg_ok = cmd.status().map(|s| s.success()).unwrap_or(false);
-
-        if !ffmpeg_ok {
-            return vec![serde_json::json!({
-                "name": "libx264",
-                "label": "CPU (libx264)",
-                "ffmpeg_missing": true
-            })];
-        }
-
         get_available_encoders()
             .into_iter()
             .map(|(name, label)| serde_json::json!({"name": name, "label": label}))

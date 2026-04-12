@@ -33,7 +33,11 @@ fn compression_state() -> &'static Arc<Mutex<CompressionState>> {
 
 #[tauri::command]
 pub async fn probe(path: String) -> Result<serde_json::Value, String> {
-    tokio::task::spawn_blocking(move || probe_video(&path).map_err(|e| e.to_string()))
+    tokio::task::spawn_blocking(move || {
+        // Clear preview cache when loading a new file
+        crate::ffmpeg::clear_preview_clip_cache();
+        probe_video(&path).map_err(|e| e.to_string())
+    })
         .await
         .map_err(|e| e.to_string())?
 }
@@ -191,8 +195,8 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             let mut reader = BufReader::new(stderr);
             let start_instant = std::time::Instant::now();
             let mut last_lines: std::collections::VecDeque<String> =
-                std::collections::VecDeque::new();
-            let mut chunk_buf = Vec::new();
+                std::collections::VecDeque::with_capacity(200);
+            let mut chunk_buf = Vec::with_capacity(4096);
 
             loop {
                 chunk_buf.clear();
