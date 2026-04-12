@@ -46,26 +46,43 @@ export default function PreviewPane({ filePath, startTime, endTime, removeAudio,
   const videoRef = useRef<HTMLVideoElement>(null);
   const stopTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const clipUrlRef = useRef<string | null>(null);
+  const urlCacheRef = useRef<Map<string, string[]>>(new Map());
 
   const buildPlaybackUrls = useCallback((path: string): string[] => {
+    // Check cache first
+    if (urlCacheRef.current.has(path)) {
+      return urlCacheRef.current.get(path)!;
+    }
+
     const normalizedPath = path.replace(/\\/g, "/");
-    const urls = [convertFileSrc(path)];
+    const urls: Set<string> = new Set([convertFileSrc(path)]);
 
     if (normalizedPath !== path) {
-      urls.push(convertFileSrc(normalizedPath));
+      urls.add(convertFileSrc(normalizedPath));
     }
 
     try {
       if (/^[a-zA-Z]:\//.test(normalizedPath)) {
-        urls.push(new URL(`file:///${normalizedPath}`).toString());
+        urls.add(new URL(`file:///${normalizedPath}`).toString());
       } else if (normalizedPath.startsWith("/")) {
-        urls.push(new URL(`file://${normalizedPath}`).toString());
+        urls.add(new URL(`file://${normalizedPath}`).toString());
       }
     } catch {
       // ignore malformed fallback URLs and continue with asset protocol URLs
     }
 
-    return [...new Set(urls)];
+    const result = Array.from(urls);
+    urlCacheRef.current.set(path, result);
+
+    // Keep cache size reasonable (max 10 paths)
+    if (urlCacheRef.current.size > 10) {
+      const firstKey = urlCacheRef.current.keys().next().value;
+      if (firstKey !== undefined) {
+        urlCacheRef.current.delete(firstKey);
+      }
+    }
+
+    return result;
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -123,7 +140,7 @@ export default function PreviewPane({ filePath, startTime, endTime, removeAudio,
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       fetchFrame(filePath, frameTime);
-    }, 150);
+    }, 200);  // Optimized: increased from 150ms to 200ms for fewer requests during rapid slider movement
     return () => {
       activeRef.current = false;
       if (debounceRef.current) clearTimeout(debounceRef.current);
