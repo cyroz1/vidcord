@@ -106,9 +106,13 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
     let rotation = video["side_data_list"]
         .as_array()
         .and_then(|items| {
-            items
-                .iter()
-                .find_map(|item| item["rotation"].as_i64().or_else(|| item["rotation"].as_str().and_then(|s| s.parse::<i64>().ok())))
+            items.iter().find_map(|item| {
+                item["rotation"].as_i64().or_else(|| {
+                    item["rotation"]
+                        .as_str()
+                        .and_then(|s| s.parse::<i64>().ok())
+                })
+            })
         })
         .unwrap_or(0)
         .rem_euclid(360);

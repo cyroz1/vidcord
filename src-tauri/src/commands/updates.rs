@@ -35,8 +35,8 @@ pub async fn check_for_updates(current_version: String) -> Result<serde_json::Va
         .as_str()
         .unwrap_or("https://github.com/cyroz1/vidcord/releases/latest");
 
-    let cur = semver::Version::parse(&normalize_semver(&current_version))
-        .map_err(|e| e.to_string())?;
+    let cur =
+        semver::Version::parse(&normalize_semver(&current_version)).map_err(|e| e.to_string())?;
     let latest = semver::Version::parse(&normalize_semver(tag)).map_err(|e| e.to_string())?;
 
     if latest > cur {
