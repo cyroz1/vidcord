@@ -1,0 +1,110 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "vidcord",
+  "version": "6.0.0",
+  "identifier": "com.cyroz1.vidcord",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "vidcord",
+        "width": 460,
+        "height": 630,
+        "minWidth": 460,
+        "minHeight": 630,
+        "maxWidth": 460,
+        "maxHeight": 630,
+        "resizable": false,
+        "maximizable": false,
+        "center": true,
+        "decorations": true,
+        "transparent": false,
+        "additionalBrowserArgs": "--autoplay-policy=no-user-gesture-required"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: https://asset.localhost http://asset.localhost file:; media-src 'self' blob: asset: https://asset.localhost http://asset.localhost file:; connect-src ipc: http://ipc.localhost",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$HOME/**",
+          "$DOWNLOAD/**",
+          "$DESKTOP/**",
+          "$DOCUMENT/**",
+          "$VIDEO/**",
+          "$PICTURE/**",
+          "$MUSIC/**",
+          "$TEMP/**",
+          "C:/**",
+          "D:/**",
+          "E:/**",
+          "F:/**",
+          "G:/**",
+          "H:/**",
+          "I:/**",
+          "J:/**",
+          "K:/**",
+          "L:/**",
+          "M:/**",
+          "N:/**",
+          "O:/**",
+          "P:/**",
+          "Q:/**",
+          "R:/**",
+          "S:/**",
+          "T:/**",
+          "U:/**",
+          "V:/**",
+          "W:/**",
+          "X:/**",
+          "Y:/**",
+          "Z:/**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "wix": {},
+      "nsis": {
+        "installerIcon": "icons/icon.ico"
+      }
+    },
+    "macOS": {
+      "entitlements": null,
+      "exceptionDomain": "",
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": null
+    },
+    "linux": {
+      "deb": {
+        "depends": ["ffmpeg"]
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    },
+    "fileAssociations": [
+      {
+        "name": "Video",
+        "ext": ["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"]
+      }
+    ]
+  }
+}

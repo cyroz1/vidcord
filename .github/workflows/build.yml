@@ -2,7 +2,7 @@ name: Multi-Platform Build
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, rust ]
     tags:
       - 'v*'
       - '[0-9]*'
@@ -12,7 +12,7 @@ on:
       - '.gitignore'
       - 'screenshots/**'
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, rust ]
     paths-ignore:
       - 'README.md'
       - 'CHANGELOG.md'
@@ -21,165 +21,289 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.sha }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-windows:
-    strategy:
-      matrix:
-        arch: [x86_64]
-    runs-on: windows-latest
+  # Lint, type-check, audit and build the frontend once, reuse the dist/ output
+  # across all matrix jobs. This avoids running Vite 5× (once per platform) and
+  # surfaces TypeScript / lint errors before any Rust compilation starts.
+  frontend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
         with:
-          python-version: '3.12'
-          cache: 'pip'
-          
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
-          
-      - name: Install FFmpeg for Windows (x86_64)
-        if: matrix.arch == 'x86_64'
-        run: |
-          curl -L https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -o ffmpeg.zip
-          powershell -Command "Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_temp"
-          Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Move-Item -Destination .
-          Get-ChildItem -Path ffmpeg_temp -Filter ffprobe.exe -Recurse | Move-Item -Destination .
+          fetch-depth: 1
 
-      - name: Install FFmpeg for Windows (ARM64)
-        if: matrix.arch == 'arm64'
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Audit npm dependencies
+        if: github.event_name != 'pull_request'
+        run: npm audit --audit-level=high
+
+      - name: Audit npm dependencies (PR advisory)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: dist/
+          if-no-files-found: error
+
+  # Fast Rust quality checks that don't require compilation: rustfmt and
+  # cargo-audit. These finish in ~1 minute and surface issues early, without
+  # waiting behind the clippy/test compile job.
+  rust-lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Rustfmt check
+        run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Audit Rust dependencies
+        run: cargo audit
+        working-directory: src-tauri
+
+  # Slow Rust quality checks that require compilation: clippy and tests.
+  # Runs in parallel with rust-lint so format/audit errors surface without
+  # waiting on compilation. The populated Rust cache is shared with the
+  # Linux x86_64 build job (same target, same shared-key) so that job
+  # doesn't have to recompile dependencies from scratch.
+  rust-compile-checks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Install system dependencies
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          version: 1.0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+          shared-key: rust-linux
+
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  build:
+    # Only gate on the frontend job (for the dist/ artifact). The Rust lint and
+    # compile-check jobs run in parallel with builds — their failures surface
+    # alongside build failures instead of blocking cross-platform compilation
+    # that doesn't depend on them. Linux x86_64 still shares the `rust-linux`
+    # cache key with rust-compile-checks; whichever job finishes first
+    # populates it for the next run.
+    needs: [frontend]
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            arch: x86_64
+            rust-target: x86_64-pc-windows-msvc
+            artifact-name: vidcord-windows-x86_64
+
+          - platform: windows-latest
+            arch: aarch64
+            rust-target: aarch64-pc-windows-msvc
+            artifact-name: vidcord-windows-aarch64
+
+          - platform: ubuntu-22.04
+            arch: x86_64
+            rust-target: x86_64-unknown-linux-gnu
+            artifact-name: vidcord-linux-x86_64
+
+          - platform: ubuntu-24.04-arm
+            arch: aarch64
+            rust-target: aarch64-unknown-linux-gnu
+            artifact-name: vidcord-linux-aarch64
+
+          - platform: macos-latest
+            arch: universal
+            rust-target: aarch64-apple-darwin,x86_64-apple-darwin
+            artifact-name: vidcord-macos
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v7
+        with:
+          name: frontend-dist
+          path: dist/
+
+      - name: Install system dependencies (Linux)
+        if: startsWith(matrix.platform, 'ubuntu')
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+          version: 1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Cache Rust dependencies (Linux x86_64, shared with rust-compile-checks)
+        if: matrix.rust-target == 'x86_64-unknown-linux-gnu'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+          shared-key: rust-linux
+
+      # Both Windows matrix jobs (x86_64 and aarch64) compile on the same host
+      # toolchain and pull the same dependency sources — sharing a cache key
+      # keyed by target avoids two parallel cold compiles.
+      - name: Cache Rust dependencies (Windows)
+        if: startsWith(matrix.platform, 'windows-latest')
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+          shared-key: rust-windows-${{ matrix.rust-target }}
+
+      - name: Cache Rust dependencies
+        if: matrix.rust-target != 'x86_64-unknown-linux-gnu' && !startsWith(matrix.platform, 'windows-latest')
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+
+      - name: Install Tauri CLI
+        run: npm install --no-save @tauri-apps/cli --prefer-offline
+
+      - name: Build (macOS universal)
+        if: matrix.platform == 'macos-latest'
         run: |
-          curl -L https://github.com/tordona/ffmpeg-win-arm64/releases/download/8.0.1/ffmpeg-8.0.1-essentials-static-win-arm64.7z -o ffmpeg.7z
-          7z x ffmpeg.7z -offmpeg_temp
-          Get-ChildItem -Path ffmpeg_temp -Filter ffmpeg.exe -Recurse | Move-Item -Destination .
-          Get-ChildItem -Path ffmpeg_temp -Filter ffprobe.exe -Recurse | Move-Item -Destination .
-          
-      - name: Build with PyInstaller
-        run: pyinstaller --noconfirm platforms/windows/vidcord.spec
-        
-      - name: Get Version
-        id: get_version
+          PROFILE=${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
+          npx tauri build --target universal-apple-darwin --bundles app --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
+
+      - name: Build macOS PKG installer
+        if: matrix.platform == 'macos-latest'
+        run: bash platforms/macos/build_pkg.sh
+
+      - name: Build (Windows aarch64)
+        if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
+        run: |
+          $PROFILE = "${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}"
+          npx tauri build --target aarch64-pc-windows-msvc --bundles nsis --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
+
+      - name: Build (Windows x86_64)
+        if: matrix.platform == 'windows-latest' && matrix.arch == 'x86_64'
+        run: |
+          $PROFILE = "${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}"
+          npx tauri build --bundles nsis --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
+
+      - name: Build (Linux)
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          PROFILE=${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
+          npx tauri build --bundles appimage --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
+
+      - name: Stage artifacts (Unix)
+        if: matrix.platform != 'windows-latest'
+        run: |
+          mkdir -p artifacts
+          find src-tauri/target \( -name "*.AppImage" -o -name "*.pkg" \) -exec cp {} artifacts/ \;
+
+      - name: Stage artifacts (Windows)
+        if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          python -c "import build, os; v = build.get_version(); print(f'Extracted: {v}'); open(os.environ['GITHUB_OUTPUT'], 'a').write(f'VERSION={v}\n')"
-          
-      - name: Debug Version
-        run: echo "VERSION=${{ steps.get_version.outputs.VERSION }}"
+          New-Item -ItemType Directory -Force -Path artifacts
+          Get-ChildItem -Path src-tauri\target -Recurse -Filter *.exe |
+            Where-Object { $_.DirectoryName -like "*bundle\nsis*" } |
+            ForEach-Object { Copy-Item $_.FullName -Destination artifacts\ }
 
-      - name: Install Inno Setup
-        run: choco install innosetup --no-progress
-
-      - name: Compile Inno Setup Installer
-        shell: cmd
-        run: |
-          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.get_version.outputs.VERSION }} /DMyArch=${{ matrix.arch }} /DMyOutputBaseFilename=vidcord_v${{ steps.get_version.outputs.VERSION }}_${{ matrix.arch }} platforms/windows/script.iss
-          
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
         with:
-          name: vidcord-windows-${{ matrix.arch }}
-          path: dist/*.exe
-
-  build-linux:
-    strategy:
-      matrix:
-        arch: [x86_64, aarch64]
-    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
-          
-      - name: Build with PyInstaller
-        run: pyinstaller --noconfirm platforms/linux/vidcord_linux.spec
-        
-      - name: Build AppImage
-        run: |
-          chmod +x platforms/linux/appimagetool-x86_64.AppImage
-          chmod +x platforms/linux/appimagetool-aarch64.AppImage
-          chmod +x platforms/linux/build_appimage.sh
-          ./platforms/linux/build_appimage.sh
-          
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: vidcord-linux-${{ matrix.arch }}
-          path: dist/*.appimage
-
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
-          
-      - name: Install FFmpeg for macOS
-        run: |
-          brew install ffmpeg
-          cp "$(which ffmpeg)"  platforms/macos/ffmpeg
-          cp "$(which ffprobe)" platforms/macos/ffprobe
-          
-      - name: Build with PyInstaller
-        run: pyinstaller --noconfirm platforms/macos/vidcord_mac.spec
-        
-      - name: Create component package
-        run: |
-          chmod +x platforms/macos/build_pkg.sh
-          ./platforms/macos/build_pkg.sh
-          
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: vidcord-macos
-          path: dist/*.pkg
+          name: ${{ matrix.artifact-name }}
+          path: artifacts/
+          if-no-files-found: error
 
   release:
-    needs: [build-windows, build-linux, build-macos]
+    needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
     steps:
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
+      - name: Download all artifacts
+        uses: actions/download-artifact@v7
         with:
           path: release-artifacts
           merge-multiple: true
 
-      - name: Create Release
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            release-artifacts/*.exe
-            release-artifacts/*.appimage
-            release-artifacts/*.pkg
+          files: release-artifacts/**/*
           draft: true
           generate_release_notes: true
         env:

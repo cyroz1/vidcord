@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # Determine project root relative to this script
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -8,26 +8,54 @@ PROJECT_ROOT="$SCRIPT_DIR/../.."
 APP_NAME="vidcord"
 IDENTIFIER="com.cyroz1.vidcord"
 INSTALL_LOCATION="/Applications"
-DIST_DIR="$PROJECT_ROOT/dist"
-APP_PATH="$DIST_DIR/$APP_NAME.app"
 
-# Extract version from vidcord.py
-VERSION_LINE=$(grep 'CURRENT_VERSION =' "$PROJECT_ROOT/vidcord.py")
-VERSION_STRING=$(echo "$VERSION_LINE" | sed -n 's/.*"\(.*\)".*/\1/p')
-CLEAN_VERSION="${VERSION_STRING#v}"
+# Tauri build output path (universal or arch-specific)
+TAURI_BUNDLE_DIR="$PROJECT_ROOT/src-tauri/target"
+
+# Try universal build first, then arch-specific
+APP_PATH=""
+for PROFILE in release ci debug; do
+    if [ -d "$TAURI_BUNDLE_DIR/universal-apple-darwin/$PROFILE/bundle/macos/$APP_NAME.app" ]; then
+        APP_PATH="$TAURI_BUNDLE_DIR/universal-apple-darwin/$PROFILE/bundle/macos/$APP_NAME.app"
+        break
+    elif [ -d "$TAURI_BUNDLE_DIR/aarch64-apple-darwin/$PROFILE/bundle/macos/$APP_NAME.app" ]; then
+        APP_PATH="$TAURI_BUNDLE_DIR/aarch64-apple-darwin/$PROFILE/bundle/macos/$APP_NAME.app"
+        break
+    elif [ -d "$TAURI_BUNDLE_DIR/x86_64-apple-darwin/$PROFILE/bundle/macos/$APP_NAME.app" ]; then
+        APP_PATH="$TAURI_BUNDLE_DIR/x86_64-apple-darwin/$PROFILE/bundle/macos/$APP_NAME.app"
+        break
+    elif [ -d "$TAURI_BUNDLE_DIR/$PROFILE/bundle/macos/$APP_NAME.app" ]; then
+        APP_PATH="$TAURI_BUNDLE_DIR/$PROFILE/bundle/macos/$APP_NAME.app"
+        break
+    fi
+done
+
+if [ -z "$APP_PATH" ]; then
+    echo "Error: $APP_NAME.app not found in Tauri build output."
+    echo "Run 'npx tauri build' first."
+    exit 1
+fi
+
+# Extract version from tauri.conf.json
+if command -v jq &>/dev/null; then
+    CLEAN_VERSION=$(jq -r '.version' "$PROJECT_ROOT/src-tauri/tauri.conf.json")
+else
+    CLEAN_VERSION=$(grep '"version"' "$PROJECT_ROOT/src-tauri/tauri.conf.json" | head -1 | sed -n 's/.*"\([0-9][0-9.]*\)".*/\1/p')
+fi
+if [[ -z "$CLEAN_VERSION" ]]; then
+    echo "Error: Could not extract version from tauri.conf.json" >&2
+    exit 1
+fi
 
 # Detect Architecture
 ARCH=$(uname -m)
 
-OUTPUT_PKG_NAME="vidcord_v${CLEAN_VERSION}_${ARCH}.pkg"
-OUTPUT_PKG="$DIST_DIR/$OUTPUT_PKG_NAME"
+BUNDLE_DIR=$(dirname "$(dirname "$APP_PATH")")
+OUTPUT_DIR="$BUNDLE_DIR/pkg"
+mkdir -p "$OUTPUT_DIR"
+OUTPUT_PKG="$OUTPUT_DIR/vidcord_v${CLEAN_VERSION}_${ARCH}.pkg"
 
-# Check if the app exists
-if [ ! -d "$APP_PATH" ]; then
-    echo "Error: $APP_PATH not found. Please run PyInstaller first."
-    exit 1
-fi
-
+echo "Using app bundle: $APP_PATH"
 echo "Building installer → $INSTALL_LOCATION/$APP_NAME.app"
 
 # Single-step: productbuild --component guarantees the install location.
