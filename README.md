@@ -6,6 +6,31 @@ A fast, lightweight desktop app for compressing video files under Discord's size
 
 [Download latest release installer.](https://github.com/cyroz1/vidcord/releases/latest)
 
+## Prerequisites
+
+**FFmpeg must be installed on your system before running vidcord.** It is not bundled with the app.
+
+**Windows (x86_64)**
+```powershell
+winget install Gyan.FFmpeg
+```
+Then restart your PC to apply the PATH change.
+
+**Windows (ARM64 — Surface Pro X, Snapdragon PCs)**
+No official ARM64 FFmpeg build exists yet. See [FFMPEG_SETUP.md](FFMPEG_SETUP.md) for manual install steps.
+
+**macOS**
+```sh
+brew install ffmpeg
+```
+
+**Linux (Ubuntu/Debian)**
+```sh
+sudo apt install ffmpeg
+```
+
+For Fedora, Arch, and other distros, see [FFMPEG_SETUP.md](FFMPEG_SETUP.md).
+
 ## Features
 
 - **Modern UI**: Clean, responsive interface styled after Fluent Design.
