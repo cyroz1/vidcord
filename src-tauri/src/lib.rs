@@ -8,7 +8,9 @@ mod gpu;
 mod log;
 mod settings;
 
-use commands::compression::{cancel_compression, compress_video, get_preview_frame, probe};
+use commands::compression::{
+    cancel_compression, compress_video, get_preview_clip, get_preview_frame, probe,
+};
 use commands::encoders::{
     check_ffmpeg_available, detect_encoders, get_vaapi_device, list_ffmpeg_video_encoders,
 };
@@ -158,7 +160,6 @@ pub fn run() {
                 }
             }
         }))
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(PendingFile(Mutex::new(None)))
@@ -206,6 +207,7 @@ pub fn run() {
             save_settings,
             probe,
             get_preview_frame,
+            get_preview_clip,
             detect_encoders,
             check_ffmpeg_available,
             list_ffmpeg_video_encoders,

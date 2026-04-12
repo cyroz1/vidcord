@@ -18,8 +18,13 @@ import {
   computeTargetDimensions,
   type ProbeData,
 } from "./hooks/useCompression";
+import pkg from "../package.json";
 
-const CURRENT_VERSION = "v5.6";
+const CURRENT_VERSION = pkg.version;
+const DISPLAY_VERSION = (() => {
+  const [major = "0", minor = "0"] = String(CURRENT_VERSION).split(".");
+  return `v${major}.${minor}`;
+})();
 
 const QUALITY_PRESETS = [
   { label: "10MB, 480p", size_mb: 10, target_h: 480 },
@@ -32,6 +37,7 @@ const QUALITY_PRESETS = [
 const RESOLUTION_OPTIONS = ["Native", "4K", "1440p", "1080p", "720p", "480p"];
 
 const SLIDER_MAX = 10000;
+const MIN_TRIM_GAP = 1;
 
 function buildScaleFilter(
   ow: number,
@@ -133,17 +139,27 @@ export default function App() {
     return () => { unlisten.then((fn: () => void) => fn()); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    const suppressContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("contextmenu", suppressContextMenu);
+    return () => {
+      window.removeEventListener("contextmenu", suppressContextMenu);
+    };
+  }, []);
+
   // --- Update check ---
   useEffect(() => {
     if (!settingsLoaded) return;
     const lastCheck = (settingsRef.current.update_last_check as number) ?? 0;
     if (Date.now() / 1000 - lastCheck < 6 * 3600) return;
-    saveSettings({ update_last_check: Date.now() / 1000 });
     invoke<{ update_available: boolean; latest_version?: string; release_url?: string }>(
       "check_for_updates",
       { currentVersion: CURRENT_VERSION }
     )
       .then((r) => {
+        saveSettings({ update_last_check: Date.now() / 1000 });
         if (r.update_available && r.latest_version && r.release_url)
           setUpdateInfo({ version: r.latest_version, url: r.release_url });
       })
@@ -238,6 +254,8 @@ export default function App() {
   // --- Derived values ---
   const startTime = probeData ? (startVal / SLIDER_MAX) * probeData.duration : 0;
   const endTime = probeData ? (endVal / SLIDER_MAX) * probeData.duration : 0;
+  const startPct = (startVal / SLIDER_MAX) * 100;
+  const endPct = (endVal / SLIDER_MAX) * 100;
   const lowerAdvEnc = advEncoder.toLowerCase();
   const predictedEncoder = advEncoder
     ? encoders.find((enc) => enc.name.toLowerCase().startsWith(lowerAdvEnc))?.name
@@ -246,12 +264,6 @@ export default function App() {
 
   return (
     <div className="app">
-      {/* Header */}
-      <div className="header">
-        <img src="/icon.png" className="app-icon" alt="vidcord" />
-        <h1 className="app-title">vidcord</h1>
-      </div>
-
       {/* Update banner */}
       {updateInfo && (
         <div className="update-banner">
@@ -300,17 +312,30 @@ export default function App() {
             </label>
             <label>
               Encoder
-              <select
-                value={encoderIdx}
-                onChange={(e) => {
-                  setEncoderIdx(+e.target.value);
-                  saveSettings({ encoder_index: +e.target.value, encoder_label: encoders[+e.target.value]?.label });
-                }}
-              >
-                {encoders.map((e, i) => (
-                  <option key={e.name} value={i}>{e.label}</option>
-                ))}
-              </select>
+              <div className="encoder-row">
+                <select
+                  value={encoderIdx}
+                  onChange={(e) => {
+                    setEncoderIdx(+e.target.value);
+                    saveSettings({ encoder_index: +e.target.value, encoder_label: encoders[+e.target.value]?.label });
+                  }}
+                >
+                  {encoders.map((e, i) => (
+                    <option key={e.name} value={i}>{e.label}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className={`mute-btn${removeAudio ? " active" : ""}`}
+                  onClick={() => {
+                    const next = !removeAudio;
+                    setRemoveAudio(next);
+                    saveSettings({ remove_audio: next });
+                  }}
+                >
+                  {removeAudio ? "Unmute" : "Mute"}
+                </button>
+              </div>
             </label>
           </div>
         )}
@@ -372,6 +397,17 @@ export default function App() {
                     }}
                   />
                 </div>
+                <button
+                  type="button"
+                  className={`mute-btn${removeAudio ? " active" : ""}`}
+                  onClick={() => {
+                    const next = !removeAudio;
+                    setRemoveAudio(next);
+                    saveSettings({ remove_audio: next });
+                  }}
+                >
+                  {removeAudio ? "Unmute" : "Mute"}
+                </button>
                 <button className="icon-btn" title="Show FFmpeg encoders" onClick={showEncoders}>
                   ℹ
                 </button>
@@ -380,46 +416,46 @@ export default function App() {
           </div>
         )}
 
-        {/* Remove audio */}
-        <div className="row options-row">
-          <label className="toggle-label">
-            <span>Remove Audio</span>
-            <span className="toggle-track">
-              <input
-                type="checkbox"
-                className="toggle-input"
-                checked={removeAudio}
-                onChange={(e) => { setRemoveAudio(e.target.checked); saveSettings({ remove_audio: e.target.checked }); }}
-              />
-              <span className="toggle-thumb" />
-            </span>
-          </label>
-        </div>
-
-        {/* Trim sliders */}
+        {/* Trim slider */}
         <div className="trim-section">
           <span className="section-title">Trim Video</span>
-          <div className="slider-row">
-            <span className="slider-label">Start</span>
-            <input
-              type="range"
-              min={0}
-              max={SLIDER_MAX}
-              value={startVal}
-              onChange={(e) => setStartVal(Math.min(+e.target.value, endVal))}
-            />
-            <span className="time-label">{startTime.toFixed(1)}s</span>
-          </div>
-          <div className="slider-row">
-            <span className="slider-label">End</span>
-            <input
-              type="range"
-              min={0}
-              max={SLIDER_MAX}
-              value={endVal}
-              onChange={(e) => setEndVal(Math.max(+e.target.value, startVal))}
-            />
-            <span className="time-label">{endTime.toFixed(1)}s</span>
+          <div className="slider-row trim-dual-row">
+            <span className="time-label time-label-left">{startTime.toFixed(1)}s</span>
+            <div className="trim-dual-wrap">
+              <div className="trim-dual-track" />
+              <div
+                className="trim-dual-range"
+                style={{
+                  left: `${startPct}%`,
+                  width: `${Math.max(endPct - startPct, 0)}%`,
+                }}
+              />
+              <input
+                className="trim-handle trim-start-handle"
+                type="range"
+                min={0}
+                max={SLIDER_MAX}
+                value={startVal}
+                onChange={(e) => {
+                  const next = +e.target.value;
+                  setStartVal(Math.min(next, endVal - MIN_TRIM_GAP));
+                }}
+                aria-label="Trim start"
+              />
+              <input
+                className="trim-handle trim-end-handle"
+                type="range"
+                min={0}
+                max={SLIDER_MAX}
+                value={endVal}
+                onChange={(e) => {
+                  const next = +e.target.value;
+                  setEndVal(Math.max(next, startVal + MIN_TRIM_GAP));
+                }}
+                aria-label="Trim end"
+              />
+            </div>
+            <span className="time-label time-label-right">{endTime.toFixed(1)}s</span>
           </div>
         </div>
 
@@ -440,13 +476,17 @@ export default function App() {
 
         {/* Footer */}
         <div className="footer">
-          <span className="version">{CURRENT_VERSION}</span>
+          <span className="version">{DISPLAY_VERSION}</span>
           <a
             href="https://github.com/cyroz1/vidcord"
             onClick={(e) => { e.preventDefault(); openUrl("https://github.com/cyroz1/vidcord"); }}
             className="gh-link"
+            aria-label="GitHub"
+            title="GitHub"
           >
-            GitHub
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+            </svg>
           </a>
           <label className="toggle-label footer-toggle advanced-toggle">
             <span>Advanced Mode</span>

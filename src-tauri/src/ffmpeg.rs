@@ -34,6 +34,17 @@ pub fn get_ffmpeg_env() -> &'static HashMap<String, String> {
 // ---------------------------------------------------------------------------
 
 pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    fn parse_ratio(ratio: &str) -> Option<(f64, f64)> {
+        let mut parts = ratio.split(':');
+        let num = parts.next()?.trim().parse::<f64>().ok()?;
+        let den = parts.next()?.trim().parse::<f64>().ok()?;
+        if num > 0.0 && den > 0.0 {
+            Some((num, den))
+        } else {
+            None
+        }
+    }
+
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffprobe");
     cmd.args([
@@ -73,6 +84,42 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
 
     let width = video["width"].as_u64().unwrap_or(0);
     let height = video["height"].as_u64().unwrap_or(0);
+
+    let mut display_width = width as f64;
+    let mut display_height = height as f64;
+
+    if let Some(sar) = video["sample_aspect_ratio"].as_str() {
+        if let Some((sar_num, sar_den)) = parse_ratio(sar) {
+            display_width *= sar_num / sar_den;
+        }
+    }
+
+    if let Some(dar) = video["display_aspect_ratio"].as_str() {
+        if let Some((dar_num, dar_den)) = parse_ratio(dar) {
+            let ratio = dar_num / dar_den;
+            if ratio > 0.0 && display_width > 0.0 {
+                display_height = display_width / ratio;
+            }
+        }
+    }
+
+    let rotation = video["side_data_list"]
+        .as_array()
+        .and_then(|items| {
+            items
+                .iter()
+                .find_map(|item| item["rotation"].as_i64().or_else(|| item["rotation"].as_str().and_then(|s| s.parse::<i64>().ok())))
+        })
+        .unwrap_or(0)
+        .rem_euclid(360);
+
+    if rotation == 90 || rotation == 270 {
+        std::mem::swap(&mut display_width, &mut display_height);
+    }
+
+    let display_width = display_width.max(1.0).round() as u64;
+    let display_height = display_height.max(1.0).round() as u64;
+
     let bitrate = video["bit_rate"]
         .as_str()
         .and_then(|s| s.parse::<u64>().ok())
@@ -89,6 +136,8 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
         "duration": duration,
         "width": width,
         "height": height,
+        "display_width": display_width,
+        "display_height": display_height,
         "bitrate": bitrate
     }))
 }
@@ -113,7 +162,7 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn st
         "-q:v",
         "4",
         "-vf",
-        "scale=320:-1:flags=fast_bilinear",
+        "scale=320:-2:flags=fast_bilinear,setsar=1",
         "-f",
         "image2pipe",
         "-vcodec",
@@ -134,6 +183,68 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn st
 
     if !out.status.success() {
         return Err("FFmpeg preview failed".into());
+    }
+
+    Ok(out.stdout)
+}
+
+pub fn generate_preview_clip(
+    path: &str,
+    start_time_sec: f64,
+    end_time_sec: f64,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let duration = (end_time_sec - start_time_sec).clamp(0.2, 12.0);
+
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new("ffmpeg");
+    cmd.args([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-ss",
+        &start_time_sec.to_string(),
+        "-t",
+        &duration.to_string(),
+        "-i",
+        path,
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-sn",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "30",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "96k",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "frag_keyframe+empty_moov",
+        "-f",
+        "mp4",
+        "-",
+    ])
+    .envs(get_ffmpeg_env())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+
+    let out = cmd.output()?;
+
+    if !out.status.success() || out.stdout.is_empty() {
+        return Err("FFmpeg preview clip failed".into());
     }
 
     Ok(out.stdout)

@@ -7,8 +7,6 @@
     "core:default",
     "dialog:default",
     "dialog:allow-open",
-    "opener:default",
-    "shell:allow-execute",
-    "shell:allow-kill"
+    "opener:default"
   ]
 }

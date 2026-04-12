@@ -1,4 +1,4 @@
-use crate::ffmpeg::{generate_preview, get_ffmpeg_env, probe_video};
+use crate::ffmpeg::{generate_preview, generate_preview_clip, get_ffmpeg_env, probe_video};
 use crate::log::vidcord_log;
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;
@@ -45,6 +45,21 @@ pub async fn get_preview_frame(
 ) -> Result<tauri::ipc::Response, String> {
     tokio::task::spawn_blocking(move || {
         generate_preview(&path, time_sec)
+            .map(tauri::ipc::Response::new)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn get_preview_clip(
+    path: String,
+    start_time_sec: f64,
+    end_time_sec: f64,
+) -> Result<tauri::ipc::Response, String> {
+    tokio::task::spawn_blocking(move || {
+        generate_preview_clip(&path, start_time_sec, end_time_sec)
             .map(tauri::ipc::Response::new)
             .map_err(|e| e.to_string())
     })
