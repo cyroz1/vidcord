@@ -1,6 +1,6 @@
 use crate::gpu::get_system_gpus;
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 static VAAPI_CACHE: OnceLock<Option<String>> = OnceLock::new();
 // Cached once at first use — env doesn't change during an app session.
@@ -12,10 +12,13 @@ static ENCODER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 // Preview clip cache - LRU-like cache with time-based keys
 // ---------------------------------------------------------------------------
 
-#[derive(Clone)]
 struct ClipCacheEntry {
-    data: Vec<u8>,
+    // Arc so cache hits return cheaply; the heavy Vec<u8> is never memcpy'd
+    // by the cache itself, and LRU eviction doesn't need to clone payloads
+    // just to pick a victim.
+    data: Arc<Vec<u8>>,
     last_used: std::time::Instant,
+    size: usize,
 }
 
 struct ClipCache {
@@ -34,28 +37,31 @@ impl ClipCache {
         }
     }
 
-    fn get(&mut self, key: (u64, u64)) -> Option<Vec<u8>> {
-        if let Some(entry) = self.clips.get_mut(&key) {
+    fn get(&mut self, key: (u64, u64)) -> Option<Arc<Vec<u8>>> {
+        self.clips.get_mut(&key).map(|entry| {
             entry.last_used = std::time::Instant::now();
-            return Some(entry.data.clone());
-        }
-        None
+            Arc::clone(&entry.data)
+        })
     }
 
-    fn insert(&mut self, key: (u64, u64), data: Vec<u8>) {
+    fn insert(&mut self, key: (u64, u64), data: Arc<Vec<u8>>) {
         let clip_size = data.len();
 
-        // Remove least recently used entries until it fits
+        // Remove least recently used entries until it fits. Pick the victim
+        // key first (without cloning the payload), then remove.
         while self.total_size + clip_size > self.max_size && !self.clips.is_empty() {
-            if let Some((removed_key, _)) = self
+            let oldest_key = self
                 .clips
                 .iter()
                 .min_by_key(|(_, entry)| entry.last_used)
-                .map(|(k, v)| (*k, v.clone()))
-            {
-                if let Some(removed) = self.clips.remove(&removed_key) {
-                    self.total_size = self.total_size.saturating_sub(removed.data.len());
+                .map(|(k, _)| *k);
+            match oldest_key {
+                Some(k) => {
+                    if let Some(removed) = self.clips.remove(&k) {
+                        self.total_size = self.total_size.saturating_sub(removed.size);
+                    }
                 }
+                None => break,
             }
         }
 
@@ -67,6 +73,7 @@ impl ClipCache {
                 ClipCacheEntry {
                     data,
                     last_used: std::time::Instant::now(),
+                    size: clip_size,
                 },
             );
         }
@@ -283,20 +290,23 @@ pub fn generate_preview_clip(
     {
         let mut cache = get_clip_cache().lock().unwrap_or_else(|e| e.into_inner());
         if let Some(cached) = cache.get(cache_key) {
-            return Ok(cached);
+            // Unwrap if we're the last holder (rare when cache keeps it),
+            // otherwise clone the inner Vec for the IPC owned-bytes contract.
+            return Ok(Arc::try_unwrap(cached).unwrap_or_else(|a| (*a).clone()));
         }
     }
 
     // Not in cache, generate it
     let clip = generate_preview_clip_internal(path, start_time_sec, end_time_sec)?;
+    let shared = Arc::new(clip);
 
-    // Store in cache
+    // Store in cache (refcount bump, no payload copy)
     {
         let mut cache = get_clip_cache().lock().unwrap_or_else(|e| e.into_inner());
-        cache.insert(cache_key, clip.clone());
+        cache.insert(cache_key, Arc::clone(&shared));
     }
 
-    Ok(clip)
+    Ok(Arc::try_unwrap(shared).unwrap_or_else(|a| (*a).clone()))
 }
 
 fn generate_preview_clip_internal(

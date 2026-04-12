@@ -44,7 +44,10 @@ export default function PreviewPane({ filePath, startTime, endTime, removeAudio,
   const prevEndTimeRef = useRef(endTime);
   const prevFilePathRef = useRef<string | null>(filePath);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const stopTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Listener reference so we can unbind on stop. Replaces the previous 100 ms
+  // setInterval polling of `currentTime`, which kept the main thread warm
+  // during every playback.
+  const timeUpdateHandlerRef = useRef<(() => void) | null>(null);
   const clipUrlRef = useRef<string | null>(null);
   const urlCacheRef = useRef<Map<string, string[]>>(new Map());
 
@@ -152,11 +155,11 @@ export default function PreviewPane({ filePath, startTime, endTime, removeAudio,
   // Video playback
   // ---------------------------------------------------------------------------
   const stopPlayback = useCallback(() => {
-    if (stopTimerRef.current) {
-      clearInterval(stopTimerRef.current);
-      stopTimerRef.current = null;
-    }
     const vid = videoRef.current;
+    if (vid && timeUpdateHandlerRef.current) {
+      vid.removeEventListener("timeupdate", timeUpdateHandlerRef.current);
+    }
+    timeUpdateHandlerRef.current = null;
     if (vid) {
       vid.onloadedmetadata = null;
       vid.onseeked = null;
@@ -183,11 +186,19 @@ export default function PreviewPane({ filePath, startTime, endTime, removeAudio,
     let tryingGeneratedClip = false;
     let usingGeneratedClip = false;
 
+    // Event-driven end-of-trim detection. `timeupdate` fires from the media
+    // pipeline (~4 Hz per the HTML spec), so we don't need a wall-clock timer
+    // waking the main thread every 100 ms. The video element's `onEnded`
+    // handler (JSX prop) covers natural end-of-stream.
     const ensureStopTimer = () => {
-      if (stopTimerRef.current) clearInterval(stopTimerRef.current);
-      stopTimerRef.current = setInterval(() => {
+      if (timeUpdateHandlerRef.current) {
+        vid.removeEventListener("timeupdate", timeUpdateHandlerRef.current);
+      }
+      const handler = () => {
         if (vid.currentTime >= endTime || vid.ended) stopPlayback();
-      }, 100);
+      };
+      timeUpdateHandlerRef.current = handler;
+      vid.addEventListener("timeupdate", handler);
     };
 
     const playGeneratedClip = async () => {
