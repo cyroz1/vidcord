@@ -6,6 +6,7 @@ type Props = {
   filePath: string | null;
   startTime: number;
   endTime: number;
+  removeAudio: boolean;
   probeData: {
     duration: number;
     width: number;
@@ -15,7 +16,7 @@ type Props = {
   } | null;
 };
 
-export default function PreviewPane({ filePath, startTime, endTime, probeData }: Props) {
+export default function PreviewPane({ filePath, startTime, endTime, removeAudio, probeData }: Props) {
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   // WebKitGTK on Linux initialises a GStreamer audio pipeline even for muted
   // video elements. When autoaudiosink is missing the pipeline returns a NULL
@@ -28,6 +29,11 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
   useEffect(() => {
     invoke<string>("get_os").then(os => setIsLinux(os === "linux"));
   }, []);
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = removeAudio;
+    }
+  }, [removeAudio]);
   const [loading, setLoading] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -153,6 +159,7 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
     if (!filePath || !probeData) return;
     const vid = videoRef.current;
     if (!vid) return;
+    vid.muted = removeAudio;
     const sources = buildPlaybackUrls(filePath);
     if (sources.length === 0) return;
     let sourceIndex = 0;
@@ -239,7 +246,7 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
     // Calling it inside oncanplay (async) breaks WebView2/Chrome's autoplay
     // policy — the promise is rejected and stopPlayback() fires immediately.
     beginPlayback(0);
-  }, [filePath, probeData, startTime, endTime, stopPlayback, buildPlaybackUrls]);
+  }, [filePath, probeData, startTime, endTime, removeAudio, stopPlayback, buildPlaybackUrls]);
 
   // Stop playback when trim range changes
   useEffect(() => {
@@ -298,6 +305,7 @@ export default function PreviewPane({ filePath, startTime, endTime, probeData }:
       {/* Video element for playback */}
       <video
         ref={videoRef}
+        muted={removeAudio}
         style={{
           display: playing ? "block" : "none",
           width: "100%",
