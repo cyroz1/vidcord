@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
@@ -16,7 +23,41 @@ type Props = {
   } | null;
 };
 
-export default function PreviewPane({ filePath, startTime, endTime, removeAudio, probeData }: Props) {
+export type PreviewHandle = {
+  startPlayback: () => void;
+  stopPlayback: () => void;
+  isPlaying: () => boolean;
+};
+
+// Split a concatenated JPEG byte stream into individual frame buffers.
+// FFmpeg's image2pipe/mjpeg output places JPEG frames back-to-back;
+// each frame begins with SOI (FF D8) and ends with EOI (FF D9).
+function splitJpegStream(data: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer>[] {
+  const frames: Uint8Array<ArrayBuffer>[] = [];
+  let i = 0;
+  while (i + 1 < data.length) {
+    if (data[i] === 0xff && data[i + 1] === 0xd8) {
+      const start = i;
+      i += 2;
+      while (i + 1 < data.length) {
+        if (data[i] === 0xff && data[i + 1] === 0xd9) {
+          frames.push(data.slice(start, i + 2) as Uint8Array<ArrayBuffer>);
+          i += 2;
+          break;
+        }
+        i += 1;
+      }
+    } else {
+      i += 1;
+    }
+  }
+  return frames;
+}
+
+const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
+  { filePath, startTime, endTime, removeAudio, probeData },
+  ref
+) {
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   // WebKitGTK on Linux initialises a GStreamer audio pipeline even for muted
   // video elements. When autoaudiosink is missing the pipeline returns a NULL
@@ -37,6 +78,14 @@ export default function PreviewPane({ filePath, startTime, endTime, removeAudio,
   const [loading, setLoading] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [playing, setPlaying] = useState(false);
+
+  // --- Filmstrip state ---
+  // Blob URLs for each pre-extracted filmstrip frame. Managed manually
+  // (not in React state) to avoid re-renders on every URL creation/revocation.
+  const filmstripUrlsRef = useRef<string[]>([]);
+  // Index into filmstripUrlsRef to display during scrubbing (null = use frameUrl)
+  const [filmstripIdx, setFilmstripIdx] = useState<number | null>(null);
+  const filmstripActiveRef = useRef(false); // cancels in-flight filmstrip fetch on file change
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeRef = useRef(false);
@@ -89,6 +138,45 @@ export default function PreviewPane({ filePath, startTime, endTime, removeAudio,
   }, []);
 
   // ---------------------------------------------------------------------------
+  // Filmstrip loading — fires once per file load, runs in the background
+  // ---------------------------------------------------------------------------
+  const clearFilmstrip = useCallback(() => {
+    filmstripUrlsRef.current.forEach(u => URL.revokeObjectURL(u));
+    filmstripUrlsRef.current = [];
+    setFilmstripIdx(null);
+  }, []);
+
+  useEffect(() => {
+    if (!filePath || !probeData || probeData.duration <= 0) {
+      clearFilmstrip();
+      return;
+    }
+    filmstripActiveRef.current = true;
+    invoke<Uint8Array>("get_filmstrip", {
+      path: filePath,
+      durationSec: probeData.duration,
+    })
+      .then(rawBytes => {
+        if (!filmstripActiveRef.current) return; // stale — file changed
+        const frames = splitJpegStream(new Uint8Array(rawBytes.buffer as ArrayBuffer));
+        if (frames.length === 0) return;
+        // Revoke previous strip's URLs before replacing
+        filmstripUrlsRef.current.forEach(u => URL.revokeObjectURL(u));
+        filmstripUrlsRef.current = frames.map(frame => {
+          const blob = new Blob([frame], { type: "image/jpeg" });
+          return URL.createObjectURL(blob);
+        });
+      })
+      .catch(() => {
+        // Filmstrip is optional — scrubbing falls back to on-demand frames
+      });
+
+    return () => {
+      filmstripActiveRef.current = false;
+    };
+  }, [filePath, probeData, clearFilmstrip]);
+
+  // ---------------------------------------------------------------------------
   // Frame preview (static JPEG)
   // ---------------------------------------------------------------------------
   const fetchFrame = useCallback(async (path: string, time: number) => {
@@ -97,15 +185,19 @@ export default function PreviewPane({ filePath, startTime, endTime, removeAudio,
     try {
       const buffer = await invoke<Uint8Array>("get_preview_frame", { path, timeSec: time });
       if (activeRef.current) {
-        const blob = new Blob([new Uint8Array(buffer)], { type: "image/jpeg" });
+        const blob = new Blob([buffer as Uint8Array<ArrayBuffer>], { type: "image/jpeg" });
         const url = URL.createObjectURL(blob);
+        setFilmstripIdx(null); // exact frame is ready — stop showing filmstrip
         setFrameUrl(prev => {
           if (prev) URL.revokeObjectURL(prev);
           return url;
         });
       }
     } catch {
-      if (activeRef.current) setFrameUrl(null);
+      if (activeRef.current) {
+        setFilmstripIdx(null);
+        setFrameUrl(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -140,10 +232,19 @@ export default function PreviewPane({ filePath, startTime, endTime, removeAudio,
     prevFilePathRef.current = filePath;
     prevStartTimeRef.current = startTime;
     prevEndTimeRef.current = endTime;
+
+    // --- Show filmstrip frame immediately while debounce waits ---
+    const strip = filmstripUrlsRef.current;
+    if (strip.length > 0 && probeData.duration > 0) {
+      const rawIdx = (frameTime / probeData.duration) * (strip.length - 1);
+      const idx = Math.max(0, Math.min(Math.round(rawIdx), strip.length - 1));
+      setFilmstripIdx(idx);
+    }
+
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       fetchFrame(filePath, frameTime);
-    }, 200);  // Optimized: increased from 150ms to 200ms for fewer requests during rapid slider movement
+    }, 80); // filmstrip covers the gap; on-demand frame refines after 80 ms
     return () => {
       activeRef.current = false;
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -276,6 +377,13 @@ export default function PreviewPane({ filePath, startTime, endTime, removeAudio,
     beginPlayback(0);
   }, [filePath, probeData, startTime, endTime, removeAudio, stopPlayback, buildPlaybackUrls]);
 
+  // Expose handle so App.tsx can drive playback from keyboard shortcuts
+  useImperativeHandle(ref, () => ({
+    startPlayback,
+    stopPlayback,
+    isPlaying: () => playing,
+  }), [startPlayback, stopPlayback, playing]);
+
   // Stop playback when trim range changes
   useEffect(() => {
     stopPlayback();
@@ -290,6 +398,8 @@ export default function PreviewPane({ filePath, startTime, endTime, removeAudio,
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
+    filmstripUrlsRef.current.forEach(u => URL.revokeObjectURL(u));
+    filmstripUrlsRef.current = [];
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -298,6 +408,13 @@ export default function PreviewPane({ filePath, startTime, endTime, removeAudio,
   // ---------------------------------------------------------------------------
   const aspect = 16 / 9;
   const canPlay = !!filePath && !!probeData && endTime > startTime;
+
+  // Filmstrip frame takes priority while the user is scrubbing; exact on-demand
+  // frame replaces it once the 80 ms debounce fires and the fetch completes.
+  const displayUrl =
+    filmstripIdx !== null && filmstripUrlsRef.current[filmstripIdx]
+      ? filmstripUrlsRef.current[filmstripIdx]
+      : frameUrl;
 
   return (
     <div
@@ -318,15 +435,19 @@ export default function PreviewPane({ filePath, startTime, endTime, removeAudio,
       onMouseLeave={() => setHovered(false)}
     >
       {/* Static frame preview */}
-      {frameUrl && !playing ? (
+      {displayUrl && !playing ? (
         <img
-          src={frameUrl}
+          src={displayUrl}
           alt="preview"
           style={{ width: "100%", height: "100%", objectFit: "contain" }}
         />
       ) : !playing ? (
         <span style={{ color: "var(--text-disabled)", fontSize: "13px" }}>
-          {loading ? "Loading preview…" : filePath ? "Preview" : "No file selected"}
+          {loading && filmstripUrlsRef.current.length === 0
+            ? "Loading preview…"
+            : filePath
+              ? "Preview"
+              : "No file selected"}
         </span>
       ) : null}
 
@@ -389,7 +510,9 @@ export default function PreviewPane({ filePath, startTime, endTime, removeAudio,
       )}
     </div>
   );
-}
+});
+
+export default PreviewPane;
 
 const overlayBtnStyle: React.CSSProperties = {
   background: "rgba(0, 0, 0, 0.55)",

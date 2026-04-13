@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, useMemo } from "react";
+import { useEffect, useCallback, useState, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -6,7 +6,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import "./App.css";
 import Toast from "./components/Toast";
 import ProgressSection from "./components/ProgressSection";
-import PreviewPane from "./components/PreviewPane";
+import PreviewPane, { type PreviewHandle } from "./components/PreviewPane";
 import EncodersDialog from "./components/EncodersDialog";
 import { useToasts } from "./hooks/useToasts";
 import { useSettings } from "./hooks/useSettings";
@@ -100,6 +100,8 @@ export default function App() {
   const { compressing, setCompressing, progress, eta, cancelCompress, resetProgress } =
     useCompression({ onToast: addToast });
 
+  const previewRef = useRef<PreviewHandle>(null);
+
   // --- File state ---
   const [filePath, setFilePath] = useState<string | null>(null);
   const [fileName, setFileName] = useState("Drag a video here or click Browse");
@@ -162,6 +164,40 @@ export default function App() {
       window.removeEventListener("contextmenu", suppressContextMenu);
     };
   }, []);
+
+  // Keyboard shortcuts (only when a file is loaded and focus is not in a text input)
+  useEffect(() => {
+    if (!filePath) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      if (e.key === " ") {
+        e.preventDefault();
+        if (previewRef.current?.isPlaying()) {
+          previewRef.current.stopPlayback();
+        } else {
+          previewRef.current?.startPlayback();
+        }
+        return;
+      }
+
+      const dur = probeData?.duration ?? 0;
+      if (!dur) return;
+      // Nudge trim handles by ~0.1 s, converted to slider units
+      const step = Math.max(1, Math.round((SLIDER_MAX * 0.1) / dur));
+      if (e.key === "[") {
+        setStartVal(v => Math.max(0, v - step));
+      } else if (e.key === "]") {
+        setEndVal(v => Math.min(SLIDER_MAX, v + step));
+      } else if (e.key === "r" || e.key === "R") {
+        setStartVal(0);
+        setEndVal(SLIDER_MAX);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [filePath, probeData]);
 
   // --- Update check ---
   useEffect(() => {
@@ -574,6 +610,7 @@ export default function App() {
 
         {/* Preview */}
         <PreviewPane
+          ref={previewRef}
           filePath={filePath}
           startTime={startTime}
           endTime={endTime}
