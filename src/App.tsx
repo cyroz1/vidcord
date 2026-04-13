@@ -39,6 +39,19 @@ const RESOLUTION_OPTIONS = ["Native", "4K", "1440p", "1080p", "720p", "480p"];
 const SLIDER_MAX = 10000;
 const MIN_TRIM_GAP = 1;
 
+type FfmpegInstallResult = {
+  status:
+    | "installed"
+    | "already_available"
+    | "failed"
+    | "unsupported"
+    | "requires_privileged"
+    | "needs_manual_download";
+  message: string;
+  hint_command?: string | null;
+  guide_url?: string | null;
+};
+
 function buildScaleFilter(
   ow: number,
   oh: number,
@@ -73,7 +86,7 @@ export default function App() {
     setRemoveAudio,
     saveSettings,
   } = useSettings();
-  const { encoders, encoderIdx, setEncoderIdx } = useEncoders({
+  const { encoders, encoderIdx, setEncoderIdx, ffmpegMissing, refreshEncoders } = useEncoders({
     settingsLoaded,
     savedEncoderLabel: settingsRef.current.encoder_label as string | undefined,
     savedEncoderIndex: (settingsRef.current.encoder_index as number) ?? 0,
@@ -97,6 +110,7 @@ export default function App() {
   // --- UI state ---
   const [updateInfo, setUpdateInfo] = useState<{ version: string; url: string } | null>(null);
   const [encodersDialogText, setEncodersDialogText] = useState<string | null>(null);
+  const [installingFfmpeg, setInstallingFfmpeg] = useState(false);
 
   // --- File loading ---
   const loadVideo = useCallback(async (path: string) => {
@@ -251,6 +265,71 @@ export default function App() {
     setEncodersDialogText(text);
   }, []);
 
+  const retryFfmpegDetection = useCallback(async () => {
+    await refreshEncoders().catch(() => {});
+    const available = await invoke<boolean>("check_ffmpeg_available").catch(() => false);
+    if (available) {
+      addToast("success", "FFmpeg Ready", "FFmpeg is now available.");
+    } else {
+      addToast("warning", "Still Missing", "FFmpeg is still not detected on PATH.");
+    }
+  }, [addToast, refreshEncoders]);
+
+  const installFfmpeg = useCallback(async () => {
+    setInstallingFfmpeg(true);
+    const os = await invoke<string>("get_os").catch(() => "unknown");
+
+    const showInstallResult = (result: FfmpegInstallResult) => {
+      if (result.status === "installed" || result.status === "already_available") {
+        addToast("success", "FFmpeg Setup", result.message);
+      } else if (result.status === "needs_manual_download") {
+        addToast("info", "Manual Download Needed", result.message);
+      } else if (result.status === "requires_privileged") {
+        addToast("info", "Admin Permission Needed", result.message);
+      } else if (result.status === "unsupported") {
+        addToast("info", "Manual Step Needed", result.message);
+      } else {
+        addToast("error", "Install Failed", result.message);
+      }
+      if (result.hint_command) {
+        addToast("info", "Install Command", result.hint_command);
+      }
+      if (result.guide_url) {
+        openUrl(result.guide_url).catch(() => {});
+      }
+    };
+
+    let result = await invoke<FfmpegInstallResult>("install_ffmpeg_dependency", {
+      opts: { allow_privileged: false },
+    }).catch((e) => ({
+      status: "failed" as const,
+      message: String(e),
+      hint_command: null,
+      guide_url: null,
+    }));
+
+    if (result.status === "requires_privileged" && os === "linux") {
+      const approved = window.confirm(
+        "Installing FFmpeg on Linux needs elevated privileges. Run the installer command now?"
+      );
+      if (approved) {
+        result = await invoke<FfmpegInstallResult>("install_ffmpeg_dependency", {
+          opts: { allow_privileged: true },
+        }).catch((e) => ({
+          status: "failed" as const,
+          message: String(e),
+          hint_command: null,
+          guide_url: null,
+        }));
+      }
+    }
+
+    await refreshEncoders().catch(() => {});
+    showInstallResult(result);
+
+    setInstallingFfmpeg(false);
+  }, [addToast, refreshEncoders]);
+
   // --- Derived values ---
   // Memoized because these drive the trim slider overlay and time labels
   // on every pointermove during scrub — recomputing on unrelated re-renders
@@ -289,6 +368,26 @@ export default function App() {
             Download
           </a>
           <button className="update-dismiss" onClick={() => setUpdateInfo(null)}>✕</button>
+        </div>
+      )}
+
+      {ffmpegMissing && (
+        <div className="ffmpeg-banner">
+          <span>FFmpeg is missing. Install it to enable compression.</span>
+          <button
+            className="ffmpeg-install-btn"
+            onClick={installFfmpeg}
+            disabled={installingFfmpeg}
+          >
+            {installingFfmpeg ? "Installing..." : "Install FFmpeg"}
+          </button>
+          <button className="ffmpeg-link-btn" onClick={retryFfmpegDetection}>Retry</button>
+          <button
+            className="ffmpeg-link-btn"
+            onClick={() => openUrl("https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md")}
+          >
+            Setup Guide
+          </button>
         </div>
       )}
 

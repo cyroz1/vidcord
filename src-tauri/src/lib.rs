@@ -12,7 +12,8 @@ use commands::compression::{
     cancel_compression, compress_video, get_preview_clip, get_preview_frame, probe,
 };
 use commands::encoders::{
-    check_ffmpeg_available, detect_encoders, get_vaapi_device, list_ffmpeg_video_encoders,
+    check_ffmpeg_available, detect_encoders, get_vaapi_device, install_ffmpeg_dependency,
+    list_ffmpeg_video_encoders,
 };
 use commands::files::{get_os, resolve_output_path, show_in_file_explorer, PendingFile};
 use commands::updates::check_for_updates;
@@ -210,6 +211,7 @@ pub fn run() {
             get_preview_clip,
             detect_encoders,
             check_ffmpeg_available,
+            install_ffmpeg_dependency,
             list_ffmpeg_video_encoders,
             compress_video,
             cancel_compression,
