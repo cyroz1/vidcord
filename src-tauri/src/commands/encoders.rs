@@ -44,6 +44,7 @@ fn ffmpeg_available() -> bool {
     cmd.status().map(|s| s.success()).unwrap_or(false)
 }
 
+#[cfg(target_os = "linux")]
 fn run_shell(command: &str) -> std::io::Result<std::process::ExitStatus> {
     std::process::Command::new("sh")
         .args(["-lc", command])
@@ -70,13 +71,9 @@ pub async fn check_ffmpeg_available() -> bool {
 }
 
 #[tauri::command]
+#[allow(unused_variables)]
 pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> FfmpegInstallResult {
     tokio::task::spawn_blocking(move || {
-        let allow_privileged = opts
-            .as_ref()
-            .and_then(|o| o.allow_privileged)
-            .unwrap_or(false);
-
         if ffmpeg_available() {
             return FfmpegInstallResult {
                 status: "already_available".to_string(),
@@ -209,6 +206,11 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
 
         #[cfg(target_os = "linux")]
         {
+            let allow_privileged = opts
+                .as_ref()
+                .and_then(|o| o.allow_privileged)
+                .unwrap_or(false);
+
             let install_cmd = if command_exists("apt") {
                 Some("apt install -y ffmpeg")
             } else if command_exists("dnf") {
