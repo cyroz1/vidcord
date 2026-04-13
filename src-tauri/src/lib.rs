@@ -9,7 +9,7 @@ mod log;
 mod settings;
 
 use commands::compression::{
-    cancel_compression, compress_video, get_preview_clip, get_preview_frame, probe,
+    cancel_compression, compress_video, get_filmstrip, get_preview_clip, get_preview_frame, probe,
 };
 use commands::encoders::{
     check_ffmpeg_available, detect_encoders, get_vaapi_device, install_ffmpeg_dependency,
@@ -137,6 +137,7 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // A second instance was launched — focus the existing window.
             if let Some(win) = app.get_webview_window("main") {
@@ -209,6 +210,7 @@ pub fn run() {
             probe,
             get_preview_frame,
             get_preview_clip,
+            get_filmstrip,
             detect_encoders,
             check_ffmpeg_available,
             install_ffmpeg_dependency,

@@ -232,14 +232,85 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
 }
 
 // ---------------------------------------------------------------------------
+// Preview frame cache — avoids re-spawning FFmpeg for recently-seen positions
+// ---------------------------------------------------------------------------
+
+use std::collections::VecDeque;
+use std::hash::{Hash, Hasher};
+
+struct FrameCache {
+    // (path_hash, time_100ms) → JPEG bytes
+    entries: std::collections::HashMap<(u64, u64), Vec<u8>>,
+    order: VecDeque<(u64, u64)>,
+    max_entries: usize,
+}
+
+impl FrameCache {
+    fn new(max_entries: usize) -> Self {
+        Self {
+            entries: std::collections::HashMap::new(),
+            order: VecDeque::new(),
+            max_entries,
+        }
+    }
+
+    fn get(&self, key: (u64, u64)) -> Option<&Vec<u8>> {
+        self.entries.get(&key)
+    }
+
+    fn insert(&mut self, key: (u64, u64), data: Vec<u8>) {
+        if self.entries.contains_key(&key) {
+            return;
+        }
+        if self.order.len() >= self.max_entries {
+            if let Some(oldest) = self.order.pop_front() {
+                self.entries.remove(&oldest);
+            }
+        }
+        self.entries.insert(key, data);
+        self.order.push_back(key);
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+    }
+}
+
+static PREVIEW_FRAME_CACHE: OnceLock<Mutex<FrameCache>> = OnceLock::new();
+
+fn get_frame_cache() -> &'static Mutex<FrameCache> {
+    PREVIEW_FRAME_CACHE.get_or_init(|| Mutex::new(FrameCache::new(20)))
+}
+
+fn path_hash(path: &str) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut h);
+    h.finish()
+}
+
+// ---------------------------------------------------------------------------
 // Preview frame extraction
 // ---------------------------------------------------------------------------
 
 pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    // Round to 0.1 s resolution for cache key
+    let time_100ms = (time_sec * 10.0) as u64;
+    let cache_key = (path_hash(path), time_100ms);
+
+    {
+        let cache = get_frame_cache().lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(cached) = cache.get(cache_key) {
+            return Ok(cached.clone());
+        }
+    }
+
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
     cmd.args([
         "-y",
+        "-hwaccel",
+        "auto",
         "-ss",
         &time_sec.to_string(),
         "-i",
@@ -249,7 +320,7 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn st
         "-frames:v",
         "1",
         "-q:v",
-        "5", // Optimized: was 4, now 5 for 10-15% faster with imperceptible quality difference on 320px
+        "5",
         "-vf",
         "scale=320:-2:flags=fast_bilinear,setsar=1",
         "-f",
@@ -270,8 +341,63 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn st
 
     let out = cmd.output()?;
 
-    if !out.status.success() {
+    if !out.status.success() || out.stdout.is_empty() {
         return Err("FFmpeg preview failed".into());
+    }
+
+    let frame = out.stdout;
+    {
+        let mut cache = get_frame_cache().lock().unwrap_or_else(|e| e.into_inner());
+        cache.insert(cache_key, frame.clone());
+    }
+    Ok(frame)
+}
+
+// ---------------------------------------------------------------------------
+// Filmstrip generation — extracts evenly-spaced frames in a single FFmpeg pass
+// ---------------------------------------------------------------------------
+
+/// Returns all frames as a single concatenated JPEG stream.
+/// The frontend splits it using JPEG SOI/EOI markers (FF D8 / FF D9).
+pub fn generate_filmstrip(path: &str, duration_sec: f64) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    // Target ~60 frames; for very short clips aim for ~1 fps.
+    let frame_count = (duration_sec.floor() as usize).clamp(2, 60);
+    let fps = frame_count as f64 / duration_sec;
+
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new("ffmpeg");
+    cmd.args([
+        "-y",
+        "-hwaccel",
+        "auto",
+        "-i",
+        path,
+        "-an",
+        "-sn",
+        "-vf",
+        &format!("fps={fps:.6},scale=320:-2:flags=fast_bilinear,setsar=1"),
+        "-q:v",
+        "7", // slightly lower quality than on-demand; fine for thumbnail strip
+        "-f",
+        "image2pipe",
+        "-vcodec",
+        "mjpeg",
+        "-",
+    ])
+    .envs(get_ffmpeg_env())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+
+    let out = cmd.output()?;
+
+    if !out.status.success() || out.stdout.is_empty() {
+        return Err("FFmpeg filmstrip failed".into());
     }
 
     Ok(out.stdout)
@@ -523,8 +649,11 @@ pub fn find_vaapi_device() -> Option<String> {
 // Cache management
 // ---------------------------------------------------------------------------
 
-pub fn clear_preview_clip_cache() {
+pub fn clear_preview_caches() {
     if let Ok(mut cache) = get_clip_cache().lock() {
+        cache.clear();
+    }
+    if let Ok(mut cache) = get_frame_cache().lock() {
         cache.clear();
     }
 }

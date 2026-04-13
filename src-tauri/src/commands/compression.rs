@@ -1,4 +1,7 @@
-use crate::ffmpeg::{generate_preview, generate_preview_clip, get_ffmpeg_env, probe_video};
+use crate::ffmpeg::{
+    clear_preview_caches, generate_filmstrip, generate_preview, generate_preview_clip,
+    get_ffmpeg_env, probe_video,
+};
 use crate::log::vidcord_log;
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;
@@ -34,8 +37,8 @@ fn compression_state() -> &'static Arc<Mutex<CompressionState>> {
 #[tauri::command]
 pub async fn probe(path: String) -> Result<serde_json::Value, String> {
     tokio::task::spawn_blocking(move || {
-        // Clear preview cache when loading a new file
-        crate::ffmpeg::clear_preview_clip_cache();
+        // Clear both preview caches when loading a new file
+        clear_preview_caches();
         probe_video(&path).map_err(|e| e.to_string())
     })
     .await
@@ -64,6 +67,22 @@ pub async fn get_preview_clip(
 ) -> Result<tauri::ipc::Response, String> {
     tokio::task::spawn_blocking(move || {
         generate_preview_clip(&path, start_time_sec, end_time_sec)
+            .map(tauri::ipc::Response::new)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Returns evenly-spaced JPEG frames as a single concatenated binary stream.
+/// The frontend splits frames by scanning for JPEG SOI (FF D8) / EOI (FF D9) markers.
+#[tauri::command]
+pub async fn get_filmstrip(
+    path: String,
+    duration_sec: f64,
+) -> Result<tauri::ipc::Response, String> {
+    tokio::task::spawn_blocking(move || {
+        generate_filmstrip(&path, duration_sec)
             .map(tauri::ipc::Response::new)
             .map_err(|e| e.to_string())
     })
