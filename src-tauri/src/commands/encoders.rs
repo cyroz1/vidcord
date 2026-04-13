@@ -65,8 +65,8 @@ pub async fn detect_encoders() -> Vec<serde_json::Value> {
 #[tauri::command]
 pub async fn check_ffmpeg_available() -> bool {
     tokio::task::spawn_blocking(ffmpeg_available)
-    .await
-    .unwrap_or(false)
+        .await
+        .unwrap_or(false)
 }
 
 #[tauri::command]
