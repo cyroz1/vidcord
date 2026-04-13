@@ -359,7 +359,10 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn st
 
 /// Returns all frames as a single concatenated JPEG stream.
 /// The frontend splits it using JPEG SOI/EOI markers (FF D8 / FF D9).
-pub fn generate_filmstrip(path: &str, duration_sec: f64) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+pub fn generate_filmstrip(
+    path: &str,
+    duration_sec: f64,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     // Target ~60 frames; for very short clips aim for ~1 fps.
     let frame_count = (duration_sec.floor() as usize).clamp(2, 60);
     let fps = frame_count as f64 / duration_sec;
