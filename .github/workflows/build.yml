@@ -43,8 +43,15 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Cache TypeScript incremental build
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.cache/
+          key: tsc-${{ hashFiles('src/**/*.ts', 'src/**/*.tsx', 'tsconfig.json') }}
+          restore-keys: tsc-
+
       - name: Install npm dependencies
-        run: npm ci
+        run: npm ci --prefer-offline
 
       - name: Audit npm dependencies
         if: github.event_name != 'pull_request'
@@ -60,6 +67,9 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Test
+        run: npm test
 
       - name: Build frontend
         run: npm run build

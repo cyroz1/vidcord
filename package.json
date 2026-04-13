@@ -13,6 +13,7 @@
     "lint": "eslint src",
     "format": "prettier --write src",
     "preview": "vite preview",
+    "test": "vitest run",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -34,6 +35,7 @@
     "eslint-plugin-react-hooks": "^5",
     "prettier": "^3",
     "typescript": "^5",
-    "vite": "^8.0.8"
+    "vite": "^8.0.8",
+    "vitest": "^4.1.4"
   }
 }

@@ -1,3 +1,17 @@
+use std::sync::OnceLock;
+
+static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn http_client() -> &'static reqwest::Client {
+    HTTP_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(6))
+            .user_agent("vidcord-update-check")
+            .build()
+            .expect("failed to build HTTP client")
+    })
+}
+
 #[tauri::command]
 pub async fn check_for_updates(current_version: String) -> Result<serde_json::Value, String> {
     fn normalize_semver(input: &str) -> String {
@@ -9,13 +23,7 @@ pub async fn check_for_updates(current_version: String) -> Result<serde_json::Va
         parts.into_iter().take(3).collect::<Vec<_>>().join(".")
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(6))
-        .user_agent("vidcord-update-check")
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let resp = client
+    let resp = http_client()
         .get("https://api.github.com/repos/cyroz1/vidcord/releases/latest")
         .header("Accept", "application/vnd.github+json")
         .send()
