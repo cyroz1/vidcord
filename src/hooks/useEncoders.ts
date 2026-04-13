@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 export type Encoder = { name: string; label: string };
@@ -18,13 +18,20 @@ export function useEncoders({
 }: Props) {
   const [encoders, setEncoders] = useState<Encoder[]>([{ name: "libx264", label: "CPU (libx264)" }]);
   const [encoderIdx, setEncoderIdx] = useState(0);
+  const [ffmpegMissing, setFfmpegMissing] = useState(false);
+  const missingNotifiedRef = useRef(false);
 
-  useEffect(() => {
-    if (!settingsLoaded) return;
-    invoke<Encoder[]>("detect_encoders").then((list) => {
+  const refreshEncoders = () => {
+    return invoke<Encoder[]>("detect_encoders").then((list) => {
       if (list.length > 0) {
-        if ((list[0] as Encoder & { ffmpeg_missing?: boolean }).ffmpeg_missing) {
+        const missing = Boolean((list[0] as Encoder & { ffmpeg_missing?: boolean }).ffmpeg_missing);
+        setFfmpegMissing(missing);
+        if (missing && !missingNotifiedRef.current) {
+          missingNotifiedRef.current = true;
           onFfmpegMissing();
+        }
+        if (!missing) {
+          missingNotifiedRef.current = false;
         }
         setEncoders(list.map(({ name, label }) => ({ name, label })));
         if (savedEncoderLabel) {
@@ -36,9 +43,14 @@ export function useEncoders({
         }
         setEncoderIdx(Math.min(savedEncoderIndex, list.length - 1));
       }
-    }).catch(() => {});
+    });
+  };
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    refreshEncoders().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsLoaded]);
 
-  return { encoders, encoderIdx, setEncoderIdx };
+  return { encoders, encoderIdx, setEncoderIdx, ffmpegMissing, refreshEncoders };
 }

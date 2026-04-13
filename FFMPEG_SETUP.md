@@ -2,6 +2,12 @@
 
 vidcord requires FFmpeg to be installed and available on your system PATH. Follow the steps for your platform below.
 
+If FFmpeg is missing, vidcord now shows an install banner in-app:
+- Windows: runs `winget install Gyan.FFmpeg`
+- Windows ARM64: opens guided community build download page
+- macOS: runs `brew install ffmpeg`
+- Linux: can run distro install commands with privilege confirmation
+
 ---
 
 ## Windows

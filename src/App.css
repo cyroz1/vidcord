@@ -70,6 +70,57 @@
   background: var(--surface-subtle);
 }
 
+/* ── FFmpeg banner ───────────────────────────────────────────────────── */
+.ffmpeg-banner {
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-xs);
+  margin: 8px 14px 0;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text);
+  flex-shrink: 0;
+  box-shadow: var(--shadow-card);
+}
+
+.ffmpeg-install-btn,
+.ffmpeg-link-btn {
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.ffmpeg-install-btn {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: transparent;
+  margin-left: auto;
+}
+
+.ffmpeg-install-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.ffmpeg-install-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.ffmpeg-link-btn {
+  background: var(--surface2);
+  color: var(--text);
+}
+
+.ffmpeg-link-btn:hover {
+  background: var(--surface-subtle);
+}
+
 /* ── Scroll area ─────────────────────────────────────────────────────── */
 .scroll-area {
   flex: 1;
