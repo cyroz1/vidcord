@@ -1,10 +1,16 @@
 use crate::ffmpeg::{get_available_encoders, get_ffmpeg_env};
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 // Cached regex for the "show encoders" dialog — compiled once, reused on repeat calls.
 static LIST_ENCODER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+
+// Cache the result of the ffmpeg availability probe for 30 seconds to avoid
+// spawning a new process on every call during startup / rapid re-checks.
+static FFMPEG_AVAIL_CACHE: OnceLock<Mutex<Option<(bool, Instant)>>> = OnceLock::new();
+const FFMPEG_CACHE_TTL: Duration = Duration::from_secs(30);
 
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -30,7 +36,7 @@ fn command_exists(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn ffmpeg_available() -> bool {
+fn ffmpeg_probe() -> bool {
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
     cmd.arg("-version")
@@ -42,6 +48,30 @@ fn ffmpeg_available() -> bool {
         cmd.creation_flags(0x08000000);
     }
     cmd.status().map(|s| s.success()).unwrap_or(false)
+}
+
+fn ffmpeg_available() -> bool {
+    let cache = FFMPEG_AVAIL_CACHE.get_or_init(|| Mutex::new(None));
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((result, checked_at)) = *guard {
+        if checked_at.elapsed() < FFMPEG_CACHE_TTL {
+            return result;
+        }
+    }
+    let result = ffmpeg_probe();
+    *guard = Some((result, Instant::now()));
+    result
+}
+
+// Used after an install attempt to bypass the TTL and get a fresh answer.
+// Called from platform-specific install branches (Windows, Linux).
+#[allow(dead_code)]
+fn ffmpeg_available_fresh() -> bool {
+    let cache = FFMPEG_AVAIL_CACHE.get_or_init(|| Mutex::new(None));
+    let result = ffmpeg_probe();
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    *guard = Some((result, Instant::now()));
+    result
 }
 
 #[cfg(target_os = "linux")]
@@ -127,7 +157,7 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
 
             match cmd.status() {
                 Ok(status) if status.success() => {
-                    if ffmpeg_available() {
+                    if ffmpeg_available_fresh() {
                         FfmpegInstallResult {
                             status: "installed".to_string(),
                             message: "FFmpeg installed successfully.".to_string(),
@@ -259,7 +289,7 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
 
             match status_result {
                 Ok(status) if status.success() => {
-                    if ffmpeg_available() {
+                    if ffmpeg_available_fresh() {
                         FfmpegInstallResult {
                             status: "installed".to_string(),
                             message: "FFmpeg installed successfully.".to_string(),
