@@ -415,6 +415,20 @@
   z-index: 1;
 }
 
+.trim-playhead {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  background: var(--accent-text);
+  border-radius: 2px;
+  pointer-events: none;
+  transform: translateX(-50%);
+  z-index: 2;
+  transition: left 80ms linear;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
+}
+
 .slider-label {
   font-size: 12px;
   color: var(--text-secondary);
@@ -438,7 +452,7 @@
   inset: 0;
   width: 100%;
   pointer-events: none;
-  z-index: 2;
+  z-index: 3;
   background: transparent;
 }
 
