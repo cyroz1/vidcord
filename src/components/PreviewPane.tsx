@@ -494,7 +494,18 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     // Calling it inside oncanplay (async) breaks WebView2/Chrome's autoplay
     // policy — the promise is rejected and stopPlayback() fires immediately.
     beginPlayback(0);
-  }, [filePath, probeData, startTime, endTime, removeAudio, stopPlayback, buildPlaybackUrls]);
+  }, [
+    filePath,
+    probeData,
+    startTime,
+    endTime,
+    removeAudio,
+    stopPlayback,
+    buildPlaybackUrls,
+    getPlaybackTime,
+    loopPlayback,
+    seekTo,
+  ]);
 
   // Expose handle so App.tsx can drive playback from keyboard shortcuts
   useImperativeHandle(ref, () => ({
