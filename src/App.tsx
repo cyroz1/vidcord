@@ -42,6 +42,10 @@ const RESOLUTION_OPTIONS = ["Native", "4K", "1440p", "1080p", "720p", "480p"];
 
 const SLIDER_MAX = 10000;
 const MIN_TRIM_GAP = 1;
+const UNDO_LIMIT = 200;
+const FRAME_STEP_SECONDS = 1 / 30;
+
+type SnapMode = "off" | "0.1" | "0.5" | "1.0";
 
 type FfmpegInstallResult = {
   status:
@@ -105,8 +109,19 @@ export default function App() {
     useCompression({ onToast: addToast });
 
   const previewRef = useRef<PreviewHandle>(null);
+  const trimWrapRef = useRef<HTMLDivElement>(null);
+  const activeHandleRef = useRef<"start" | "end">("start");
+  const startValRef = useRef(0);
+  const endValRef = useRef(SLIDER_MAX);
+  const pointerHistoryStartRef = useRef<{ start: number; end: number } | null>(null);
+  const undoStackRef = useRef<Array<{ start: number; end: number }>>([]);
+  const redoStackRef = useRef<Array<{ start: number; end: number }>>([]);
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const [previewCurrentTime, setPreviewCurrentTime] = useState(0);
+  const [loopPlayback, setLoopPlayback] = useState(false);
+  const [snapMode, setSnapMode] = useState<SnapMode>("off");
+  const [timelineZoom, setTimelineZoom] = useState(1);
+  const [timelineCenterVal, setTimelineCenterVal] = useState(SLIDER_MAX / 2);
 
   // --- File state ---
   const [filePath, setFilePath] = useState<string | null>(null);
@@ -120,6 +135,77 @@ export default function App() {
   const [encodersDialogText, setEncodersDialogText] = useState<string | null>(null);
   const [installingFfmpeg, setInstallingFfmpeg] = useState(false);
 
+  const duration = probeData?.duration ?? 0;
+
+  const pushUndoSnapshot = useCallback((snapshot: { start: number; end: number }) => {
+    undoStackRef.current.push(snapshot);
+    if (undoStackRef.current.length > UNDO_LIMIT) {
+      undoStackRef.current.shift();
+    }
+  }, []);
+
+  const snapSliderValue = useCallback((value: number) => {
+    if (snapMode === "off" || duration <= 0) return Math.round(value);
+    const snapSeconds = Number(snapMode);
+    if (!Number.isFinite(snapSeconds) || snapSeconds <= 0) return Math.round(value);
+    const snapSliderStep = Math.max(1, (snapSeconds / duration) * SLIDER_MAX);
+    return Math.round(value / snapSliderStep) * snapSliderStep;
+  }, [snapMode, duration]);
+
+  const normalizeTrim = useCallback((rawStart: number, rawEnd: number, anchor: "start" | "end" = "start") => {
+    let nextStart = Math.max(0, Math.min(rawStart, SLIDER_MAX));
+    let nextEnd = Math.max(0, Math.min(rawEnd, SLIDER_MAX));
+    nextStart = snapSliderValue(nextStart);
+    nextEnd = snapSliderValue(nextEnd);
+
+    if (nextEnd - nextStart < MIN_TRIM_GAP) {
+      if (anchor === "start") {
+        nextEnd = Math.min(SLIDER_MAX, nextStart + MIN_TRIM_GAP);
+        if (nextEnd - nextStart < MIN_TRIM_GAP) nextStart = nextEnd - MIN_TRIM_GAP;
+      } else {
+        nextStart = Math.max(0, nextEnd - MIN_TRIM_GAP);
+        if (nextEnd - nextStart < MIN_TRIM_GAP) nextEnd = nextStart + MIN_TRIM_GAP;
+      }
+    }
+
+    nextStart = Math.max(0, Math.min(nextStart, SLIDER_MAX - MIN_TRIM_GAP));
+    nextEnd = Math.max(MIN_TRIM_GAP, Math.min(nextEnd, SLIDER_MAX));
+    return {
+      start: Math.round(nextStart),
+      end: Math.round(nextEnd),
+    };
+  }, [snapSliderValue]);
+
+  const applyTrim = useCallback((rawStart: number, rawEnd: number, opts?: { record?: boolean; anchor?: "start" | "end" }) => {
+    const anchor = opts?.anchor ?? "start";
+    const record = opts?.record ?? true;
+    const prev = { start: startValRef.current, end: endValRef.current };
+    const next = normalizeTrim(rawStart, rawEnd, anchor);
+    if (next.start === prev.start && next.end === prev.end) return;
+    if (record) {
+      pushUndoSnapshot(prev);
+      redoStackRef.current = [];
+    }
+    setStartVal(next.start);
+    setEndVal(next.end);
+  }, [normalizeTrim, pushUndoSnapshot]);
+
+  const undoTrim = useCallback(() => {
+    const target = undoStackRef.current.pop();
+    if (!target) return;
+    redoStackRef.current.push({ start: startValRef.current, end: endValRef.current });
+    setStartVal(target.start);
+    setEndVal(target.end);
+  }, []);
+
+  const redoTrim = useCallback(() => {
+    const target = redoStackRef.current.pop();
+    if (!target) return;
+    pushUndoSnapshot({ start: startValRef.current, end: endValRef.current });
+    setStartVal(target.start);
+    setEndVal(target.end);
+  }, [pushUndoSnapshot]);
+
   // --- File loading ---
   const loadVideo = useCallback(async (path: string) => {
     if (!/\.(mp4|avi|mov|mkv|flv|wmv|webm)$/i.test(path)) {
@@ -130,6 +216,10 @@ export default function App() {
     setFileName(path.split(/[\\/]/).pop() ?? path);
     setStartVal(0);
     setEndVal(SLIDER_MAX);
+    setTimelineCenterVal(SLIDER_MAX / 2);
+    setTimelineZoom(1);
+    undoStackRef.current = [];
+    redoStackRef.current = [];
     resetProgress();
     try {
       const data = await invoke<ProbeData>("probe", { path });
@@ -139,6 +229,11 @@ export default function App() {
       setProbeData(null);
     }
   }, [resetProgress]);
+
+  useEffect(() => {
+    startValRef.current = startVal;
+    endValRef.current = endVal;
+  }, [startVal, endVal]);
 
   const browseFile = useCallback(async () => {
     const selected = await open({
@@ -174,9 +269,20 @@ export default function App() {
   // Keyboard shortcuts (only when a file is loaded and focus is not in a text input)
   useEffect(() => {
     if (!filePath) return;
+
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          redoTrim();
+        } else {
+          undoTrim();
+        }
+        return;
+      }
 
       if (e.key === " ") {
         e.preventDefault();
@@ -190,16 +296,32 @@ export default function App() {
 
       const dur = probeData?.duration ?? 0;
       if (!dur) return;
-      // Nudge trim handles by ~0.1 s, converted to slider units
-      const step = Math.max(1, Math.round((SLIDER_MAX * 0.1) / dur));
-      if (e.key === "[") {
-        setStartVal(v => Math.max(0, v - step));
+      const coarseStep = Math.max(1, Math.round((SLIDER_MAX * 0.1) / dur));
+      const fineStep = Math.max(1, Math.round((SLIDER_MAX * 0.02) / dur));
+
+      if (e.key === ",") {
+        e.preventDefault();
+        previewRef.current?.stepBy(-FRAME_STEP_SECONDS);
+      } else if (e.key === ".") {
+        e.preventDefault();
+        previewRef.current?.stepBy(FRAME_STEP_SECONDS);
+      } else if (e.key === "j" || e.key === "J") {
+        e.preventDefault();
+        previewRef.current?.seekTo(startTime);
+      } else if (e.key === "k" || e.key === "K") {
+        e.preventDefault();
+        previewRef.current?.seekTo(endTime);
+      } else if (e.key === "[") {
+        e.preventDefault();
+        applyTrim(startValRef.current - coarseStep, endValRef.current, { anchor: "start" });
       } else if (e.key === "]") {
-        setEndVal(v => Math.min(SLIDER_MAX, v + step));
-      } else if (e.key === "r" || e.key === "R") {
-        setStartVal(0);
-        setEndVal(SLIDER_MAX);
+        e.preventDefault();
+        applyTrim(startValRef.current, endValRef.current + coarseStep, { anchor: "end" });
+      } else if (e.key === "r" || e.key === "R" || e.key === "u" || e.key === "U") {
+        e.preventDefault();
+        applyTrim(0, SLIDER_MAX, { anchor: "end" });
       } else if (e.key === "i" || e.key === "I") {
+        e.preventDefault();
         const handle = previewRef.current;
         if (!handle?.isPlaying()) return;
         const currentTime = handle.getCurrentTime();
@@ -207,8 +329,9 @@ export default function App() {
           0,
           Math.min(SLIDER_MAX, Math.round((currentTime / dur) * SLIDER_MAX))
         );
-        setStartVal(() => Math.min(currentVal, endVal - MIN_TRIM_GAP));
+        applyTrim(currentVal, endValRef.current, { anchor: "start" });
       } else if (e.key === "o" || e.key === "O") {
+        e.preventDefault();
         const handle = previewRef.current;
         if (!handle?.isPlaying()) return;
         const currentTime = handle.getCurrentTime();
@@ -216,12 +339,27 @@ export default function App() {
           0,
           Math.min(SLIDER_MAX, Math.round((currentTime / dur) * SLIDER_MAX))
         );
-        setEndVal(() => Math.max(currentVal, startVal + MIN_TRIM_GAP));
+        applyTrim(startValRef.current, currentVal, { anchor: "end" });
+      } else if (e.shiftKey && e.key === "ArrowLeft") {
+        e.preventDefault();
+        if (activeHandleRef.current === "start") {
+          applyTrim(startValRef.current - fineStep, endValRef.current, { anchor: "start" });
+        } else {
+          applyTrim(startValRef.current, endValRef.current - fineStep, { anchor: "end" });
+        }
+      } else if (e.shiftKey && e.key === "ArrowRight") {
+        e.preventDefault();
+        if (activeHandleRef.current === "start") {
+          applyTrim(startValRef.current + fineStep, endValRef.current, { anchor: "start" });
+        } else {
+          applyTrim(startValRef.current, endValRef.current + fineStep, { anchor: "end" });
+        }
       }
     };
+
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [filePath, probeData, startVal, endVal]);
+  }, [filePath, probeData, redoTrim, undoTrim, startTime, endTime, applyTrim]);
 
   // --- Update check ---
   useEffect(() => {
@@ -394,11 +532,33 @@ export default function App() {
   // Memoized because these drive the trim slider overlay and time labels
   // on every pointermove during scrub — recomputing on unrelated re-renders
   // wastes cycles.
-  const duration = probeData?.duration ?? 0;
   const startTime = useMemo(() => (startVal / SLIDER_MAX) * duration, [startVal, duration]);
   const endTime = useMemo(() => (endVal / SLIDER_MAX) * duration, [endVal, duration]);
-  const startPct = useMemo(() => (startVal / SLIDER_MAX) * 100, [startVal]);
-  const endPct = useMemo(() => (endVal / SLIDER_MAX) * 100, [endVal]);
+  const selectedDuration = useMemo(() => Math.max(0, endTime - startTime), [startTime, endTime]);
+  const selectedDurationPct = useMemo(() => {
+    if (duration <= 0) return 0;
+    return Math.max(0, Math.min(100, (selectedDuration / duration) * 100));
+  }, [duration, selectedDuration]);
+
+  const viewSpan = useMemo(
+    () => Math.max(MIN_TRIM_GAP, SLIDER_MAX / Math.max(1, timelineZoom)),
+    [timelineZoom]
+  );
+
+  const viewStartVal = useMemo(() => {
+    const half = viewSpan / 2;
+    return Math.max(0, Math.min(timelineCenterVal - half, SLIDER_MAX - viewSpan));
+  }, [timelineCenterVal, viewSpan]);
+
+  const viewEndVal = useMemo(() => viewStartVal + viewSpan, [viewStartVal, viewSpan]);
+
+  const toViewPct = useCallback((value: number) => {
+    if (viewEndVal <= viewStartVal) return 0;
+    return Math.max(0, Math.min(100, ((value - viewStartVal) / (viewEndVal - viewStartVal)) * 100));
+  }, [viewStartVal, viewEndVal]);
+
+  const startPct = useMemo(() => toViewPct(startVal), [startVal, toViewPct]);
+  const endPct = useMemo(() => toViewPct(endVal), [endVal, toViewPct]);
 
   // Single memo computes the predicted encoder name. The prior
   // implementation built a parallel array of { ...e, lowerName } on every
@@ -444,6 +604,78 @@ export default function App() {
     const rangeProgress = (clampedTime - startTime) / (endTime - startTime);
     return startPct + rangeProgress * (endPct - startPct);
   }, [previewPlaying, previewCurrentTime, startTime, endTime, startPct, endPct]);
+
+  useEffect(() => {
+    if (timelineZoom <= 1) return;
+    const center = (startVal + endVal) / 2;
+    if (center < viewStartVal || center > viewEndVal) {
+      setTimelineCenterVal(center);
+    }
+  }, [timelineZoom, startVal, endVal, viewStartVal, viewEndVal]);
+
+  const beginPointerTrimChange = useCallback(() => {
+    pointerHistoryStartRef.current = {
+      start: startValRef.current,
+      end: endValRef.current,
+    };
+  }, []);
+
+  const commitPointerTrimChange = useCallback(() => {
+    const started = pointerHistoryStartRef.current;
+    pointerHistoryStartRef.current = null;
+    if (!started) return;
+    const now = { start: startValRef.current, end: endValRef.current };
+    if (started.start === now.start && started.end === now.end) return;
+    pushUndoSnapshot(started);
+    redoStackRef.current = [];
+  }, [pushUndoSnapshot]);
+
+  const handleRangeDragStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const wrap = trimWrapRef.current;
+    if (!wrap) return;
+    e.preventDefault();
+
+    const rect = wrap.getBoundingClientRect();
+    if (rect.width <= 0) return;
+
+    beginPointerTrimChange();
+    const originX = e.clientX;
+    const originStart = startValRef.current;
+    const originEnd = endValRef.current;
+    const span = originEnd - originStart;
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const deltaPx = moveEvent.clientX - originX;
+      const deltaVal = (deltaPx / rect.width) * (viewEndVal - viewStartVal);
+      let nextStart = originStart + deltaVal;
+      nextStart = Math.max(0, Math.min(nextStart, SLIDER_MAX - span));
+      applyTrim(nextStart, nextStart + span, { record: false, anchor: "start" });
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      commitPointerTrimChange();
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [applyTrim, beginPointerTrimChange, commitPointerTrimChange, viewStartVal, viewEndVal]);
+
+  const handleTrimWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey) {
+      const zoomDelta = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      setTimelineZoom((prev) => Math.max(1, Math.min(20, prev * zoomDelta)));
+      return;
+    }
+
+    const panStep = (viewEndVal - viewStartVal) * 0.08;
+    setTimelineCenterVal((prev) => {
+      const next = prev + (e.deltaY > 0 ? panStep : -panStep);
+      return Math.max(0, Math.min(SLIDER_MAX, next));
+    });
+  }, [viewStartVal, viewEndVal]);
 
   return (
     <div className="app">
@@ -621,10 +853,70 @@ export default function App() {
 
         {/* Trim slider */}
         <div className="trim-section">
-          <span className="section-title">Trim Video</span>
+          <div className="trim-header">
+            <span className="section-title">Trim Video</span>
+            <span className="trim-selection-meta">
+              {selectedDuration.toFixed(2)}s selected ({selectedDurationPct.toFixed(1)}%)
+            </span>
+            <label className="trim-inline-control">
+              Snap
+              <select value={snapMode} onChange={(e) => setSnapMode(e.target.value as SnapMode)}>
+                <option value="off">Off</option>
+                <option value="0.1">0.1s</option>
+                <option value="0.5">0.5s</option>
+                <option value="1.0">1.0s</option>
+              </select>
+            </label>
+            <div className="trim-zoom-controls">
+              <button
+                type="button"
+                className="trim-mini-btn"
+                onClick={() => setTimelineZoom((prev) => Math.max(1, prev / 1.25))}
+              >
+                -
+              </button>
+              <button
+                type="button"
+                className="trim-mini-btn"
+                onClick={() => {
+                  setTimelineZoom(1);
+                  setTimelineCenterVal((startValRef.current + endValRef.current) / 2);
+                }}
+                title="Reset zoom"
+              >
+                {timelineZoom.toFixed(1)}x
+              </button>
+              <button
+                type="button"
+                className="trim-mini-btn"
+                onClick={() => setTimelineZoom((prev) => Math.min(20, prev * 1.25))}
+              >
+                +
+              </button>
+            </div>
+            <button type="button" className="trim-mini-btn" onClick={undoTrim} title="Undo trim (Cmd/Ctrl+Z)">
+              Undo
+            </button>
+            <button type="button" className="trim-mini-btn" onClick={redoTrim} title="Redo trim (Cmd/Ctrl+Shift+Z)">
+              Redo
+            </button>
+            <label className="trim-loop-toggle">
+              <input
+                type="checkbox"
+                checked={loopPlayback}
+                onChange={(e) => setLoopPlayback(e.target.checked)}
+              />
+              Loop
+            </label>
+          </div>
           <div className="slider-row trim-dual-row">
             <span className="time-label time-label-left">{startTime.toFixed(1)}s</span>
-            <div className="trim-dual-wrap">
+            <div
+              ref={trimWrapRef}
+              className="trim-dual-wrap"
+              onWheel={handleTrimWheel}
+              title="Wheel to pan timeline. Ctrl/Cmd + wheel to zoom."
+            >
               <div className="trim-dual-track" />
               <div
                 className="trim-dual-range"
@@ -632,6 +924,7 @@ export default function App() {
                   left: `${startPct}%`,
                   width: `${Math.max(endPct - startPct, 0)}%`,
                 }}
+                onMouseDown={handleRangeDragStart}
               />
               {trimPlayheadLeftPct !== null && (
                 <div
@@ -642,24 +935,34 @@ export default function App() {
               <input
                 className="trim-handle trim-start-handle"
                 type="range"
-                min={0}
-                max={SLIDER_MAX}
+                min={Math.round(viewStartVal)}
+                max={Math.round(viewEndVal)}
                 value={startVal}
+                onPointerDown={() => {
+                  activeHandleRef.current = "start";
+                  beginPointerTrimChange();
+                }}
+                onPointerUp={commitPointerTrimChange}
                 onChange={(e) => {
                   const next = +e.target.value;
-                  setStartVal(Math.min(next, endVal - MIN_TRIM_GAP));
+                  applyTrim(next, endValRef.current, { record: false, anchor: "start" });
                 }}
                 aria-label="Trim start"
               />
               <input
                 className="trim-handle trim-end-handle"
                 type="range"
-                min={0}
-                max={SLIDER_MAX}
+                min={Math.round(viewStartVal)}
+                max={Math.round(viewEndVal)}
                 value={endVal}
+                onPointerDown={() => {
+                  activeHandleRef.current = "end";
+                  beginPointerTrimChange();
+                }}
+                onPointerUp={commitPointerTrimChange}
                 onChange={(e) => {
                   const next = +e.target.value;
-                  setEndVal(Math.max(next, startVal + MIN_TRIM_GAP));
+                  applyTrim(startValRef.current, next, { record: false, anchor: "end" });
                 }}
                 aria-label="Trim end"
               />
@@ -674,6 +977,7 @@ export default function App() {
           filePath={filePath}
           startTime={startTime}
           endTime={endTime}
+          loopPlayback={loopPlayback}
           probeData={probeData}
           removeAudio={removeAudio}
         />
