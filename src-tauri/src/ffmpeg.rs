@@ -235,13 +235,18 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
 // Preview frame cache — avoids re-spawning FFmpeg for recently-seen positions
 // ---------------------------------------------------------------------------
 
-use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
+
+struct FrameCacheEntry {
+    // Arc so cache hits return cheaply; a 15–30 KB JPEG is never memcpy'd
+    // when the frontend re-scrubs over the same timecode during a debounce.
+    data: Arc<Vec<u8>>,
+    last_used: std::time::Instant,
+}
 
 struct FrameCache {
     // (path_hash, time_100ms) → JPEG bytes
-    entries: std::collections::HashMap<(u64, u64), Vec<u8>>,
-    order: VecDeque<(u64, u64)>,
+    entries: std::collections::HashMap<(u64, u64), FrameCacheEntry>,
     max_entries: usize,
 }
 
@@ -249,38 +254,54 @@ impl FrameCache {
     fn new(max_entries: usize) -> Self {
         Self {
             entries: std::collections::HashMap::new(),
-            order: VecDeque::new(),
             max_entries,
         }
     }
 
-    fn get(&self, key: (u64, u64)) -> Option<&Vec<u8>> {
-        self.entries.get(&key)
+    fn get(&mut self, key: (u64, u64)) -> Option<Arc<Vec<u8>>> {
+        self.entries.get_mut(&key).map(|entry| {
+            entry.last_used = std::time::Instant::now();
+            Arc::clone(&entry.data)
+        })
     }
 
-    fn insert(&mut self, key: (u64, u64), data: Vec<u8>) {
+    fn insert(&mut self, key: (u64, u64), data: Arc<Vec<u8>>) {
         if self.entries.contains_key(&key) {
             return;
         }
-        if self.order.len() >= self.max_entries {
-            if let Some(oldest) = self.order.pop_front() {
-                self.entries.remove(&oldest);
+        // LRU eviction: pick the least-recently-used entry (not just the
+        // oldest inserted) so re-scrubbed frames survive longer.
+        while self.entries.len() >= self.max_entries {
+            let oldest_key = self
+                .entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.last_used)
+                .map(|(k, _)| *k);
+            match oldest_key {
+                Some(k) => {
+                    self.entries.remove(&k);
+                }
+                None => break,
             }
         }
-        self.entries.insert(key, data);
-        self.order.push_back(key);
+        self.entries.insert(
+            key,
+            FrameCacheEntry {
+                data,
+                last_used: std::time::Instant::now(),
+            },
+        );
     }
 
     fn clear(&mut self) {
         self.entries.clear();
-        self.order.clear();
     }
 }
 
 static PREVIEW_FRAME_CACHE: OnceLock<Mutex<FrameCache>> = OnceLock::new();
 
 fn get_frame_cache() -> &'static Mutex<FrameCache> {
-    PREVIEW_FRAME_CACHE.get_or_init(|| Mutex::new(FrameCache::new(20)))
+    PREVIEW_FRAME_CACHE.get_or_init(|| Mutex::new(FrameCache::new(60)))
 }
 
 fn path_hash(path: &str) -> u64 {
@@ -299,11 +320,19 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn st
     let cache_key = (path_hash(path), time_100ms);
 
     {
-        let cache = get_frame_cache().lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = get_frame_cache().lock().unwrap_or_else(|e| e.into_inner());
         if let Some(cached) = cache.get(cache_key) {
-            return Ok(cached.clone());
+            // Unwrap if we're the last holder, otherwise clone the inner
+            // Vec for the IPC owned-bytes contract (same pattern as
+            // generate_preview_clip).
+            return Ok(Arc::try_unwrap(cached).unwrap_or_else(|a| (*a).clone()));
         }
     }
+
+    // 3-decimal precision is millisecond-accurate — ffmpeg's -ss seek doesn't
+    // need more than that and Rust's default `f64::to_string()` can emit a
+    // long tail (e.g. 4.800000000000001) that yields a larger allocation.
+    let ss = format!("{time_sec:.3}");
 
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
@@ -312,7 +341,7 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn st
         "-hwaccel",
         "auto",
         "-ss",
-        &time_sec.to_string(),
+        ss.as_str(),
         "-i",
         path,
         "-an",
@@ -345,12 +374,12 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn st
         return Err("FFmpeg preview failed".into());
     }
 
-    let frame = out.stdout;
+    let shared = Arc::new(out.stdout);
     {
         let mut cache = get_frame_cache().lock().unwrap_or_else(|e| e.into_inner());
-        cache.insert(cache_key, frame.clone());
+        cache.insert(cache_key, Arc::clone(&shared));
     }
-    Ok(frame)
+    Ok(Arc::try_unwrap(shared).unwrap_or_else(|a| (*a).clone()))
 }
 
 // ---------------------------------------------------------------------------
