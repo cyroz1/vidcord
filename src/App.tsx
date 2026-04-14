@@ -105,6 +105,8 @@ export default function App() {
     useCompression({ onToast: addToast });
 
   const previewRef = useRef<PreviewHandle>(null);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [previewCurrentTime, setPreviewCurrentTime] = useState(0);
 
   // --- File state ---
   const [filePath, setFilePath] = useState<string | null>(null);
@@ -197,11 +199,29 @@ export default function App() {
       } else if (e.key === "r" || e.key === "R") {
         setStartVal(0);
         setEndVal(SLIDER_MAX);
+      } else if (e.key === "i" || e.key === "I") {
+        const handle = previewRef.current;
+        if (!handle?.isPlaying()) return;
+        const currentTime = handle.getCurrentTime();
+        const currentVal = Math.max(
+          0,
+          Math.min(SLIDER_MAX, Math.round((currentTime / dur) * SLIDER_MAX))
+        );
+        setStartVal(() => Math.min(currentVal, endVal - MIN_TRIM_GAP));
+      } else if (e.key === "o" || e.key === "O") {
+        const handle = previewRef.current;
+        if (!handle?.isPlaying()) return;
+        const currentTime = handle.getCurrentTime();
+        const currentVal = Math.max(
+          0,
+          Math.min(SLIDER_MAX, Math.round((currentTime / dur) * SLIDER_MAX))
+        );
+        setEndVal(() => Math.max(currentVal, startVal + MIN_TRIM_GAP));
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [filePath, probeData]);
+  }, [filePath, probeData, startVal, endVal]);
 
   // --- Update check ---
   useEffect(() => {
@@ -395,6 +415,36 @@ export default function App() {
 
   const showPrediction = predictedEncoder !== undefined && predictedEncoder !== advEncoder;
 
+  useEffect(() => {
+    if (!filePath) {
+      setPreviewPlaying(false);
+      setPreviewCurrentTime(0);
+      return;
+    }
+
+    const tick = () => {
+      const handle = previewRef.current;
+      const playing = handle?.isPlaying() ?? false;
+      setPreviewPlaying((prev) => (prev === playing ? prev : playing));
+
+      if (!playing) return;
+
+      const next = handle?.getCurrentTime() ?? 0;
+      setPreviewCurrentTime((prev) => (Math.abs(prev - next) < 0.02 ? prev : next));
+    };
+
+    tick();
+    const intervalId = window.setInterval(tick, 80);
+    return () => window.clearInterval(intervalId);
+  }, [filePath, startTime, endTime]);
+
+  const trimPlayheadLeftPct = useMemo(() => {
+    if (!previewPlaying || endTime <= startTime) return null;
+    const clampedTime = Math.max(startTime, Math.min(previewCurrentTime, endTime));
+    const rangeProgress = (clampedTime - startTime) / (endTime - startTime);
+    return startPct + rangeProgress * (endPct - startPct);
+  }, [previewPlaying, previewCurrentTime, startTime, endTime, startPct, endPct]);
+
   return (
     <div className="app">
       {/* Update banner */}
@@ -583,6 +633,12 @@ export default function App() {
                   width: `${Math.max(endPct - startPct, 0)}%`,
                 }}
               />
+              {trimPlayheadLeftPct !== null && (
+                <div
+                  className="trim-playhead"
+                  style={{ left: `${trimPlayheadLeftPct}%` }}
+                />
+              )}
               <input
                 className="trim-handle trim-start-handle"
                 type="range"

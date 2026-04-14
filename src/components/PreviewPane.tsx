@@ -66,11 +66,24 @@ const infoOverlayStyle: React.CSSProperties = {
   pointerEvents: "none",
 };
 
+const currentTimeOverlayStyle: React.CSSProperties = {
+  position: "absolute",
+  bottom: "6px",
+  left: "8px",
+  fontSize: "11px",
+  color: "rgba(255,255,255,0.85)",
+  background: "rgba(0,0,0,0.58)",
+  borderRadius: "var(--radius-xs)",
+  padding: "2px 6px",
+  pointerEvents: "none",
+};
+
 type Props = {
   filePath: string | null;
   startTime: number;
   endTime: number;
   removeAudio: boolean;
+  loopPlayback: boolean;
   probeData: {
     duration: number;
     width: number;
@@ -84,6 +97,9 @@ export type PreviewHandle = {
   startPlayback: () => void;
   stopPlayback: () => void;
   isPlaying: () => boolean;
+  getCurrentTime: () => number;
+  seekTo: (timeSec: number) => void;
+  stepBy: (deltaSec: number) => void;
 };
 
 // Split a concatenated JPEG byte stream into individual frame buffers.
@@ -112,7 +128,7 @@ function splitJpegStream(data: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer>
 }
 
 const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
-  { filePath, startTime, endTime, removeAudio, probeData },
+  { filePath, startTime, endTime, removeAudio, loopPlayback, probeData },
   ref
 ) {
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
@@ -135,6 +151,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const [loading, setLoading] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0);
 
   // --- Filmstrip state ---
   // Blob URLs for each pre-extracted filmstrip frame. Managed manually
@@ -155,7 +172,39 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // during every playback.
   const timeUpdateHandlerRef = useRef<(() => void) | null>(null);
   const clipUrlRef = useRef<string | null>(null);
+  const playbackOffsetRef = useRef(0);
+  const usingGeneratedClipRef = useRef(false);
   const urlCacheRef = useRef<Map<string, string[]>>(new Map());
+
+  const getPlaybackTime = useCallback(() => {
+    const raw = (videoRef.current?.currentTime ?? 0) + playbackOffsetRef.current;
+    const min = Math.min(startTime, endTime);
+    const max = Math.max(startTime, endTime);
+    if (raw < min) return min;
+    if (raw > max) return max;
+    return raw;
+  }, [startTime, endTime]);
+
+  const seekTo = useCallback((timeSec: number) => {
+    const min = Math.min(startTime, endTime);
+    const max = Math.max(startTime, endTime);
+    const clamped = Math.max(min, Math.min(timeSec, max));
+    const vid = videoRef.current;
+
+    setCurrentPlaybackTime(clamped);
+    if (!vid) return;
+
+    const mediaTime = usingGeneratedClipRef.current
+      ? Math.max(0, clamped - playbackOffsetRef.current)
+      : clamped;
+
+    if (!Number.isFinite(mediaTime)) return;
+    vid.currentTime = mediaTime;
+  }, [startTime, endTime]);
+
+  const stepBy = useCallback((deltaSec: number) => {
+    seekTo(getPlaybackTime() + deltaSec);
+  }, [seekTo, getPlaybackTime]);
 
   const buildPlaybackUrls = useCallback((path: string): string[] => {
     // Check cache first
@@ -326,6 +375,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       vid.src = "";
       vid.load(); // abort any in-flight load
     }
+    playbackOffsetRef.current = 0;
+    usingGeneratedClipRef.current = false;
+    setCurrentPlaybackTime(0);
     if (clipUrlRef.current) {
       URL.revokeObjectURL(clipUrlRef.current);
       clipUrlRef.current = null;
@@ -338,11 +390,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const vid = videoRef.current;
     if (!vid) return;
     vid.muted = removeAudio;
+    setCurrentPlaybackTime(startTime);
     const sources = buildPlaybackUrls(filePath);
     if (sources.length === 0) return;
     let sourceIndex = 0;
     let tryingGeneratedClip = false;
-    let usingGeneratedClip = false;
 
     // Event-driven end-of-trim detection. `timeupdate` fires from the media
     // pipeline (~4 Hz per the HTML spec), so we don't need a wall-clock timer
@@ -353,7 +405,15 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         vid.removeEventListener("timeupdate", timeUpdateHandlerRef.current);
       }
       const handler = () => {
-        if (vid.currentTime >= endTime || vid.ended) stopPlayback();
+        const playbackTime = getPlaybackTime();
+        setCurrentPlaybackTime(playbackTime);
+        if (playbackTime >= endTime || vid.ended) {
+          if (loopPlayback && endTime > startTime && !vid.ended) {
+            seekTo(startTime);
+            return;
+          }
+          stopPlayback();
+        }
       };
       timeUpdateHandlerRef.current = handler;
       vid.addEventListener("timeupdate", handler);
@@ -372,7 +432,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         const clipUrl = URL.createObjectURL(blob);
         if (clipUrlRef.current) URL.revokeObjectURL(clipUrlRef.current);
         clipUrlRef.current = clipUrl;
-        usingGeneratedClip = true;
+        usingGeneratedClipRef.current = true;
+        playbackOffsetRef.current = startTime;
         vid.src = clipUrl;
         await vid.play();
         setPlaying(true);
@@ -393,7 +454,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         return;
       }
       sourceIndex = index;
-      usingGeneratedClip = false;
+      usingGeneratedClipRef.current = false;
+      playbackOffsetRef.current = 0;
       vid.src = sources[index];
       vid.play()
         .then(() => {
@@ -425,7 +487,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     // async play() call is not blocked by WebView2's autoplay policy.
     vid.onloadedmetadata = () => {
       vid.onloadedmetadata = null;
-      vid.currentTime = usingGeneratedClip ? 0 : startTime;
+      vid.currentTime = usingGeneratedClipRef.current ? 0 : startTime;
     };
 
     // play() must be called synchronously inside the user-gesture handler.
@@ -439,7 +501,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     startPlayback,
     stopPlayback,
     isPlaying: () => playing,
-  }), [startPlayback, stopPlayback, playing]);
+    getCurrentTime: () => getPlaybackTime(),
+    seekTo,
+    stepBy,
+  }), [startPlayback, stopPlayback, playing, getPlaybackTime, seekTo, stepBy]);
 
   // Stop playback when trim range changes
   useEffect(() => {
@@ -531,6 +596,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         <div style={infoOverlayStyle}>
           {probeData.width}×{probeData.height} · {probeData.duration.toFixed(1)}s
         </div>
+      )}
+
+      {playing && (
+        <div style={currentTimeOverlayStyle}>{currentPlaybackTime.toFixed(1)}s</div>
       )}
     </div>
   );
