@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, useMemo, useRef } from "react";
+import { useEffect, useCallback, useState, useMemo, useRef, lazy, Suspense } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -7,7 +7,6 @@ import "./App.css";
 import Toast from "./components/Toast";
 import ProgressSection from "./components/ProgressSection";
 import PreviewPane, { type PreviewHandle } from "./components/PreviewPane";
-import EncodersDialog from "./components/EncodersDialog";
 import { useToasts } from "./hooks/useToasts";
 import { useSettings } from "./hooks/useSettings";
 import { useEncoders } from "./hooks/useEncoders";
@@ -19,6 +18,11 @@ import {
   type ProbeData,
 } from "./hooks/useCompression";
 import pkg from "../package.json";
+
+// EncodersDialog is only shown after an explicit user click from Advanced
+// Mode; lazy-loading it keeps the initial JS bundle smaller and is rendered
+// under a <Suspense> boundary below.
+const EncodersDialog = lazy(() => import("./components/EncodersDialog"));
 
 const CURRENT_VERSION = pkg.version;
 const DISPLAY_VERSION = (() => {
@@ -659,9 +663,11 @@ export default function App() {
         </div>
       </div>
 
-      {/* Encoders dialog */}
+      {/* Encoders dialog — lazy-loaded, only rendered after user opens it */}
       {encodersDialogText !== null && (
-        <EncodersDialog text={encodersDialogText} onClose={() => setEncodersDialogText(null)} />
+        <Suspense fallback={null}>
+          <EncodersDialog text={encodersDialogText} onClose={() => setEncodersDialogText(null)} />
+        </Suspense>
       )}
 
       {/* Toasts */}

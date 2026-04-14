@@ -22,6 +22,13 @@ export default defineConfig(async () => ({
           if (id.includes("node_modules/react") || id.includes("node_modules/react-dom")) {
             return "react";
           }
+          // Split Tauri plugin code out of the entry chunk so the initial
+          // paint ships less JS. plugin-dialog/plugin-opener are only used
+          // on-demand (after a user gesture) and the core API is lightweight
+          // enough to keep separate from the main app logic.
+          if (id.includes("node_modules/@tauri-apps/")) {
+            return "tauri";
+          }
         },
       },
     },

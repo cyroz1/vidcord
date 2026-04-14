@@ -228,18 +228,26 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                     if line.is_empty() {
                         continue;
                     }
-                    last_lines.push_back(line.to_string());
-                    if last_lines.len() > 200 {
-                        last_lines.pop_front();
-                    }
                     // Case-insensitive ASCII scan without allocating a
-                    // lowercased copy for every progress line. FFmpeg emits
-                    // thousands of time= lines during a long encode and none
-                    // of them need lowercasing.
-                    if contains_ascii_ci(line, b"error") || contains_ascii_ci(line, b"warning") {
+                    // lowercased copy for every progress line. Fold the
+                    // previous two scans (error + warning) into one pass so
+                    // we only walk the line once.
+                    let is_progress = line.contains("time=");
+                    let line_has_issue =
+                        !is_progress && contains_ascii_ci_any(line, &[b"error", b"warning"]);
+                    if line_has_issue {
                         vidcord_log(&format!("FFMPEG: {line}"));
                     }
-                    if line.contains("time=") {
+                    // Retain non-progress lines for failure context.
+                    // Progress ("time=...") lines are by far the most common
+                    // and we don't need to heap-allocate a String for each.
+                    if !is_progress {
+                        last_lines.push_back(line.to_string());
+                        if last_lines.len() > 200 {
+                            last_lines.pop_front();
+                        }
+                    }
+                    if is_progress {
                         if let Some(time_str) = parse_ffmpeg_time(line) {
                             let pct = ((time_str / clip_duration) * 100.0).min(100.0);
                             let elapsed = start_instant.elapsed().as_secs_f64();
@@ -376,6 +384,27 @@ pub fn contains_ascii_ci(haystack: &str, needle: &[u8]) -> bool {
         .any(|w| w.eq_ignore_ascii_case(needle))
 }
 
+/// Case-insensitive ASCII substring search against multiple needles in a
+/// single pass. Returns true if ANY needle is found. This avoids walking the
+/// same line twice when checking for both "error" and "warning".
+pub fn contains_ascii_ci_any(haystack: &str, needles: &[&[u8]]) -> bool {
+    let hb = haystack.as_bytes();
+    for i in 0..hb.len() {
+        for needle in needles {
+            if needle.is_empty() {
+                return true;
+            }
+            if hb.len() - i < needle.len() {
+                continue;
+            }
+            if hb[i..i + needle.len()].eq_ignore_ascii_case(needle) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub fn parse_ffmpeg_time(line: &str) -> Option<f64> {
     let idx = line.find("time=")?;
     let rest = &line[idx + 5..];
@@ -384,15 +413,16 @@ pub fn parse_ffmpeg_time(line: &str) -> Option<f64> {
     if t == "N/A" {
         return None;
     }
-    let parts: Vec<&str> = t.split(':').collect();
-    if parts.len() == 3 {
-        let h: f64 = parts[0].parse().ok()?;
-        let m: f64 = parts[1].parse().ok()?;
-        let s: f64 = parts[2].parse().ok()?;
-        Some(h * 3600.0 + m * 60.0 + s)
-    } else {
-        None
+    // Avoid the per-line Vec<&str> allocation from `.split(':').collect()`.
+    // FFmpeg emits dozens of progress lines per second; this runs on every one.
+    let mut it = t.split(':');
+    let h: f64 = it.next()?.parse().ok()?;
+    let m: f64 = it.next()?.parse().ok()?;
+    let s: f64 = it.next()?.parse().ok()?;
+    if it.next().is_some() {
+        return None;
     }
+    Some(h * 3600.0 + m * 60.0 + s)
 }
 
 pub fn format_eta(secs: f64) -> String {
@@ -480,6 +510,29 @@ mod tests {
         assert!(!valid("libx264; rm -rf /"));
         assert!(!valid("../../../bin/sh"));
         assert!(!valid("libx264 -vf evil"));
+    }
+
+    #[test]
+    fn test_contains_ascii_ci_any() {
+        assert!(contains_ascii_ci_any(
+            "ERROR: something broke",
+            &[b"error", b"warning"]
+        ));
+        assert!(contains_ascii_ci_any(
+            "WaRnInG: deprecated",
+            &[b"error", b"warning"]
+        ));
+        assert!(contains_ascii_ci_any("warning only", &[b"warning"]));
+        assert!(!contains_ascii_ci_any(
+            "nothing matches",
+            &[b"error", b"warning"]
+        ));
+        assert!(!contains_ascii_ci_any("", &[b"error", b"warning"]));
+        assert!(!contains_ascii_ci_any("err", &[b"error"]));
+        // Empty needle is vacuously contained
+        assert!(contains_ascii_ci_any("anything", &[b""]));
+        // No needles
+        assert!(!contains_ascii_ci_any("anything", &[]));
     }
 
     #[test]

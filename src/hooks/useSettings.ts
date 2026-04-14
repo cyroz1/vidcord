@@ -43,7 +43,12 @@ export function useSettings() {
   useEffect(() => {
     return () => {
       if (saveTimerRef.current) {
+        // Flush any pending write so a change made within the 250 ms debounce
+        // window isn't lost if the component unmounts (or the window closes)
+        // before the timer fires. Settings payload is tiny — no perf concern.
         clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+        invoke("save_settings", { settings: settingsRef.current }).catch(() => {});
       }
     };
   }, []);

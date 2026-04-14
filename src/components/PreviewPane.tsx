@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  memo,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -8,6 +9,62 @@ import {
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
+
+// Module-scope static style objects. Hoisted so React doesn't allocate a
+// fresh object literal per render — PreviewPane re-renders on every
+// trim-slider move during scrubbing, so this is a measurable win.
+const containerStyle: React.CSSProperties = {
+  background: "var(--surface)",
+  border: "1px solid var(--border-subtle)",
+  borderRadius: "var(--radius)",
+  overflow: "hidden",
+  position: "relative",
+  width: "100%",
+  aspectRatio: `${16 / 9}`,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  boxShadow: "var(--shadow-card)",
+};
+
+const imgStyle: React.CSSProperties = {
+  width: "100%",
+  height: "100%",
+  objectFit: "contain",
+};
+
+const placeholderStyle: React.CSSProperties = {
+  color: "var(--text-disabled)",
+  fontSize: "13px",
+};
+
+const videoBaseStyle: React.CSSProperties = {
+  width: "100%",
+  height: "100%",
+  objectFit: "contain",
+};
+const videoVisibleStyle: React.CSSProperties = { ...videoBaseStyle, display: "block" };
+const videoHiddenStyle: React.CSSProperties = { ...videoBaseStyle, display: "none" };
+
+const overlayGroupStyle: React.CSSProperties = {
+  position: "absolute",
+  display: "flex",
+  gap: "12px",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const infoOverlayStyle: React.CSSProperties = {
+  position: "absolute",
+  bottom: "6px",
+  right: "8px",
+  fontSize: "11px",
+  color: "rgba(255,255,255,0.85)",
+  background: "rgba(0,0,0,0.58)",
+  borderRadius: "var(--radius-xs)",
+  padding: "2px 6px",
+  pointerEvents: "none",
+};
 
 type Props = {
   filePath: string | null;
@@ -406,7 +463,6 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
-  const aspect = 16 / 9;
   const canPlay = !!filePath && !!probeData && endTime > startTime;
 
   // Filmstrip frame takes priority while the user is scrubbing; exact on-demand
@@ -418,31 +474,15 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   return (
     <div
-      style={{
-        background: "var(--surface)",
-        border: "1px solid var(--border-subtle)",
-        borderRadius: "var(--radius)",
-        overflow: "hidden",
-        position: "relative",
-        width: "100%",
-        aspectRatio: `${aspect}`,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        boxShadow: "var(--shadow-card)",
-      }}
+      style={containerStyle}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       {/* Static frame preview */}
       {displayUrl && !playing ? (
-        <img
-          src={displayUrl}
-          alt="preview"
-          style={{ width: "100%", height: "100%", objectFit: "contain" }}
-        />
+        <img src={displayUrl} alt="preview" style={imgStyle} />
       ) : !playing ? (
-        <span style={{ color: "var(--text-disabled)", fontSize: "13px" }}>
+        <span style={placeholderStyle}>
           {loading && filmstripUrlsRef.current.length === 0
             ? "Loading preview…"
             : filePath
@@ -455,24 +495,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       <video
         ref={videoRef}
         muted={removeAudio}
-        style={{
-          display: playing ? "block" : "none",
-          width: "100%",
-          height: "100%",
-          objectFit: "contain",
-        }}
+        style={playing ? videoVisibleStyle : videoHiddenStyle}
         onEnded={stopPlayback}
       />
 
       {/* Play/Stop overlay — shown on hover; disabled on Linux (GStreamer crash) */}
       {canPlay && hovered && !isLinux && (
-        <div style={{
-          position: "absolute",
-          display: "flex",
-          gap: "12px",
-          alignItems: "center",
-          justifyContent: "center",
-        }}>
+        <div style={overlayGroupStyle}>
           {!playing ? (
             <button
               onClick={startPlayback}
@@ -499,12 +528,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
       {/* Info overlay */}
       {probeData && (
-        <div style={{
-          position: "absolute", bottom: "6px", right: "8px",
-          fontSize: "11px", color: "rgba(255,255,255,0.85)",
-          background: "rgba(0,0,0,0.58)", borderRadius: "var(--radius-xs)", padding: "2px 6px",
-          pointerEvents: "none",
-        }}>
+        <div style={infoOverlayStyle}>
           {probeData.width}×{probeData.height} · {probeData.duration.toFixed(1)}s
         </div>
       )}
@@ -512,7 +536,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   );
 });
 
-export default PreviewPane;
+export default memo(PreviewPane);
 
 const overlayBtnStyle: React.CSSProperties = {
   background: "rgba(0, 0, 0, 0.55)",
