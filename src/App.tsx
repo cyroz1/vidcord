@@ -359,7 +359,7 @@ export default function App() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [filePath, probeData, redoTrim, undoTrim, startTime, endTime, applyTrim]);
+  }, [filePath, probeData, redoTrim, undoTrim, startVal, endVal, duration, applyTrim]);
 
   // --- Update check ---
   useEffect(() => {
