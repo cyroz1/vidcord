@@ -1,0 +1,25 @@
+[advisories]
+# Advisories that are not actionable from this repo. Most come from Tauri's
+# upstream dep graph (GTK3 bindings, glib, proc-macro-error, rand via quinn).
+# Revisit when Tauri/wry migrate off the affected crates.
+ignore = [
+    "RUSTSEC-2024-0370", # proc-macro-error (via gtk3-macros) — unmaintained
+    "RUSTSEC-2024-0411", # gdkwayland-sys — unmaintained (tauri/wry)
+    "RUSTSEC-2024-0412", # gdk — unmaintained (tauri/wry)
+    "RUSTSEC-2024-0413", # atk — unmaintained (tauri/wry)
+    "RUSTSEC-2024-0414", # gdkx11-sys — unmaintained (tauri/wry)
+    "RUSTSEC-2024-0415", # gtk — unmaintained (tauri/wry)
+    "RUSTSEC-2024-0416", # atk-sys — unmaintained (tauri/wry)
+    "RUSTSEC-2024-0417", # gdkx11 — unmaintained (tauri/wry)
+    "RUSTSEC-2024-0418", # gdk-sys — unmaintained (tauri/wry)
+    "RUSTSEC-2024-0419", # gtk3-macros — unmaintained (tauri/wry)
+    "RUSTSEC-2024-0420", # gtk-sys — unmaintained (tauri/wry)
+    "RUSTSEC-2024-0429", # glib — unsoundness (tauri upstream)
+    "RUSTSEC-2025-0057", # fxhash — unmaintained (transitive)
+    "RUSTSEC-2025-0075", # unic-char-range — unmaintained (transitive)
+    "RUSTSEC-2025-0080", # unic-common — unmaintained (transitive)
+    "RUSTSEC-2025-0081", # unic-char-property — unmaintained (transitive)
+    "RUSTSEC-2025-0098", # unic-ucd-version — unmaintained (transitive)
+    "RUSTSEC-2025-0100", # unic-ucd-ident — unmaintained (transitive)
+    "RUSTSEC-2026-0097", # rand unsoundness — waiting on tauri/quinn bump
+]
