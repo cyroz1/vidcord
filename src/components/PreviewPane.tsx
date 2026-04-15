@@ -152,6 +152,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const [hovered, setHovered] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0);
+  // Mirror of currentPlaybackTime so startPlayback can read the latest user-
+  // scrubbed position without re-creating the callback on every tick.
+  const currentPlaybackTimeRef = useRef(0);
+  useEffect(() => { currentPlaybackTimeRef.current = currentPlaybackTime; }, [currentPlaybackTime]);
 
   // --- Filmstrip state ---
   // Blob URLs for each pre-extracted filmstrip frame. Managed manually
@@ -316,8 +320,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         if (prev) URL.revokeObjectURL(prev);
         return null;
       });
+      setCurrentPlaybackTime(0);
       stopPlayback();
       return;
+    }
+    // When the user opens a new file, the prior scrub position is stale.
+    if (filePath !== prevFilePathRef.current) {
+      setCurrentPlaybackTime(0);
     }
     activeRef.current = false;
     stopPlayback();
@@ -377,7 +386,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     }
     playbackOffsetRef.current = 0;
     usingGeneratedClipRef.current = false;
-    setCurrentPlaybackTime(0);
+    // Keep currentPlaybackTime intact so the playhead persists across
+    // play/stop cycles and play can resume from where the user scrubbed.
     if (clipUrlRef.current) {
       URL.revokeObjectURL(clipUrlRef.current);
       clipUrlRef.current = null;
@@ -390,7 +400,12 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const vid = videoRef.current;
     if (!vid) return;
     vid.muted = removeAudio;
-    setCurrentPlaybackTime(startTime);
+    // Resume from the last scrubbed/paused position if it falls within the
+    // trim range; otherwise start at trim-in.
+    const scrubbed = currentPlaybackTimeRef.current;
+    const resumeTime =
+      scrubbed >= startTime && scrubbed < endTime ? scrubbed : startTime;
+    setCurrentPlaybackTime(resumeTime);
     const sources = buildPlaybackUrls(filePath);
     if (sources.length === 0) return;
     let sourceIndex = 0;
@@ -435,6 +450,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         usingGeneratedClipRef.current = true;
         playbackOffsetRef.current = startTime;
         vid.src = clipUrl;
+        // Resume within the generated clip — clip media time = resumeTime - startTime.
+        vid.currentTime = Math.max(0, resumeTime - startTime);
         await vid.play();
         setPlaying(true);
         ensureStopTimer();
@@ -487,7 +504,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     // async play() call is not blocked by WebView2's autoplay policy.
     vid.onloadedmetadata = () => {
       vid.onloadedmetadata = null;
-      vid.currentTime = usingGeneratedClipRef.current ? 0 : startTime;
+      vid.currentTime = usingGeneratedClipRef.current
+        ? Math.max(0, resumeTime - startTime)
+        : resumeTime;
     };
 
     // play() must be called synchronously inside the user-gesture handler.
@@ -517,9 +536,30 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     stepBy,
   }), [startPlayback, stopPlayback, playing, getPlaybackTime, seekTo, stepBy]);
 
-  // Stop playback when trim range changes
+  // React to trim-range changes. We used to hard-stop playback here, but that
+  // made pressing I/O mid-playback jarring — the video would halt the instant
+  // the trim bounds moved. Now:
+  //
+  //   • If we're using a generated preview clip, the clip was encoded for the
+  //     *previous* range and is stale, so we must stop and regenerate.
+  //   • Otherwise (direct-source playback) the timeupdate handler bound by
+  //     startPlayback has already captured the prior endTime in its closure,
+  //     so playback continues uninterrupted past the trim change. That's the
+  //     "keep playing when pressing I/O" behavior.
+  //
+  // In both cases, clamp the stored playhead so the UI marker never sits
+  // outside the new window while paused.
   useEffect(() => {
-    stopPlayback();
+    if (usingGeneratedClipRef.current) {
+      stopPlayback();
+    }
+    setCurrentPlaybackTime(prev => {
+      const min = Math.min(startTime, endTime);
+      const max = Math.max(startTime, endTime);
+      if (prev < min) return min;
+      if (prev > max) return max;
+      return prev;
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startTime, endTime]);
 
