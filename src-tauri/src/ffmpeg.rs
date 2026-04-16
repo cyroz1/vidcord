@@ -11,7 +11,8 @@ static ENCODER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 // start; the set of installed encoders cannot change within a session, so
 // memoise after the first successful probe. Wrapped in a Mutex<Option> (not
 // OnceLock) so the FFmpeg-install retry path can invalidate and re-detect.
-static ENCODER_CACHE: OnceLock<Mutex<Option<Vec<(String, String)>>>> = OnceLock::new();
+type EncoderList = Vec<(String, String)>;
+static ENCODER_CACHE: OnceLock<Mutex<Option<EncoderList>>> = OnceLock::new();
 
 // ---------------------------------------------------------------------------
 // Preview clip cache - LRU-like cache with time-based keys
