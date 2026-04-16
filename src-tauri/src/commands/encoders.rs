@@ -1,4 +1,4 @@
-use crate::ffmpeg::{get_available_encoders, get_ffmpeg_env};
+use crate::ffmpeg::{get_available_encoders, get_ffmpeg_env, invalidate_encoder_cache};
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use std::sync::{Mutex, OnceLock};
@@ -71,6 +71,11 @@ fn ffmpeg_available_fresh() -> bool {
     let result = ffmpeg_probe();
     let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     *guard = Some((result, Instant::now()));
+    // A fresh ffmpeg install may expose new hardware encoders; drop the
+    // encoder-list cache so `detect_encoders` re-probes on next call.
+    if result {
+        invalidate_encoder_cache();
+    }
     result
 }
 
@@ -210,12 +215,16 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
                 .args(["install", "ffmpeg"])
                 .status()
             {
-                Ok(status) if status.success() => FfmpegInstallResult {
-                    status: "installed".to_string(),
-                    message: "FFmpeg installed successfully with Homebrew.".to_string(),
-                    hint_command: None,
-                    guide_url: None,
-                },
+                Ok(status) if status.success() => {
+                    // Drop the encoder-list cache so a retry picks up the new install.
+                    invalidate_encoder_cache();
+                    FfmpegInstallResult {
+                        status: "installed".to_string(),
+                        message: "FFmpeg installed successfully with Homebrew.".to_string(),
+                        hint_command: None,
+                        guide_url: None,
+                    }
+                }
                 Ok(status) => FfmpegInstallResult {
                     status: "failed".to_string(),
                     message: format!(

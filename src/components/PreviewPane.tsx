@@ -91,6 +91,11 @@ type Props = {
     display_width?: number;
     display_height?: number;
   } | null;
+  // Fired whenever the playback position changes (timeupdate / seek / stop).
+  // Replaces the App-level 80 ms polling loop — the media element already
+  // emits timeupdate at ~4 Hz, so we just forward that instead of waking the
+  // main thread on a wall-clock interval even while the video is paused.
+  onTimeUpdate?: (timeSec: number) => void;
 };
 
 export type PreviewHandle = {
@@ -128,9 +133,14 @@ function splitJpegStream(data: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer>
 }
 
 const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
-  { filePath, startTime, endTime, removeAudio, loopPlayback, probeData },
+  { filePath, startTime, endTime, removeAudio, loopPlayback, probeData, onTimeUpdate },
   ref
 ) {
+  // Stash the latest onTimeUpdate in a ref so the playback callbacks don't
+  // need it in their dep arrays — otherwise every parent render recreating
+  // the handler would invalidate startPlayback and re-bind listeners.
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+  useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; }, [onTimeUpdate]);
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   // WebKitGTK on Linux initialises a GStreamer audio pipeline even for muted
   // video elements. When autoaudiosink is missing the pipeline returns a NULL
@@ -196,6 +206,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const vid = videoRef.current;
 
     setCurrentPlaybackTime(clamped);
+    onTimeUpdateRef.current?.(clamped);
     if (!vid) return;
 
     const mediaTime = usingGeneratedClipRef.current
@@ -406,6 +417,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const resumeTime =
       scrubbed >= startTime && scrubbed < endTime ? scrubbed : startTime;
     setCurrentPlaybackTime(resumeTime);
+    onTimeUpdateRef.current?.(resumeTime);
     const sources = buildPlaybackUrls(filePath);
     if (sources.length === 0) return;
     let sourceIndex = 0;
@@ -422,6 +434,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       const handler = () => {
         const playbackTime = getPlaybackTime();
         setCurrentPlaybackTime(playbackTime);
+        onTimeUpdateRef.current?.(playbackTime);
         if (playbackTime >= endTime || vid.ended) {
           if (loopPlayback && endTime > startTime && !vid.ended) {
             seekTo(startTime);
