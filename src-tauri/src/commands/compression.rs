@@ -107,6 +107,29 @@ pub struct CompressOptions {
     pub vaapi_device: Option<String>,
 }
 
+/// Returns encoder-specific preset arguments. Without these, software encoders
+/// (libx264/libx265) default to "medium" / "slow" and hardware encoders use
+/// conservative built-in defaults — measurably slower than "fast" / "p4" for
+/// the same target bitrate. Empty vec falls back to the encoder's default.
+fn encoder_preset_args(encoder: &str) -> Vec<String> {
+    match encoder {
+        "libx264" | "libx265" => vec!["-preset".into(), "fast".into()],
+        // NVENC uses p1 (fastest) .. p7 (slowest). p4 is a balanced default
+        // that's still significantly faster than the old "medium" preset.
+        "h264_nvenc" | "hevc_nvenc" | "av1_nvenc" => {
+            vec!["-preset".into(), "p4".into(), "-tune".into(), "hq".into()]
+        }
+        // QSV / AMF expose libx264-style named presets.
+        "h264_qsv" | "hevc_qsv" | "av1_qsv" => vec!["-preset".into(), "veryfast".into()],
+        "h264_amf" | "hevc_amf" | "av1_amf" => {
+            vec!["-quality".into(), "speed".into()]
+        }
+        // VAAPI and videotoolbox don't expose a meaningful -preset; their
+        // hardware path is already fast. Leave defaults.
+        _ => Vec::new(),
+    }
+}
+
 #[tauri::command]
 pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<String, String> {
     // Validate encoder name: only alphanumeric characters and underscores are valid.
@@ -148,6 +171,8 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             .unwrap_or_else(|| "scale=trunc(iw/2)*2:trunc(ih/2)*2".into())
     };
 
+    let preset_args = encoder_preset_args(&opts.encoder);
+
     cmd_args.extend([
         "-ss".into(),
         opts.start_time.to_string(),
@@ -156,12 +181,13 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         "-i".into(),
         opts.input_path,
         "-c:v".into(),
-        opts.encoder,
+        opts.encoder.clone(),
         "-b:v".into(),
         format!("{}k", opts.video_bitrate_k),
         "-vf".into(),
         vf,
     ]);
+    cmd_args.extend(preset_args);
 
     if opts.remove_audio {
         cmd_args.push("-an".into());
