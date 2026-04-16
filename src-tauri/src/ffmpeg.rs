@@ -7,6 +7,11 @@ static VAAPI_CACHE: OnceLock<Option<String>> = OnceLock::new();
 static FFMPEG_ENV: OnceLock<HashMap<String, String>> = OnceLock::new();
 // Cached regex for encoder list parsing.
 static ENCODER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
+// Cached encoder list. Spawning `ffmpeg -encoders` costs 50–150 ms on a cold
+// start; the set of installed encoders cannot change within a session, so
+// memoise after the first successful probe. Wrapped in a Mutex<Option> (not
+// OnceLock) so the FFmpeg-install retry path can invalidate and re-detect.
+static ENCODER_CACHE: OnceLock<Mutex<Option<Vec<(String, String)>>>> = OnceLock::new();
 
 // ---------------------------------------------------------------------------
 // Preview clip cache - LRU-like cache with time-based keys
@@ -534,6 +539,13 @@ fn generate_preview_clip_internal(
 // ---------------------------------------------------------------------------
 
 pub fn get_available_encoders() -> Vec<(String, String)> {
+    let cache = ENCODER_CACHE.get_or_init(|| Mutex::new(None));
+    if let Ok(guard) = cache.lock() {
+        if let Some(cached) = guard.as_ref() {
+            return cached.clone();
+        }
+    }
+
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
     cmd.args(["-hide_banner", "-encoders"])
@@ -546,6 +558,8 @@ pub fn get_available_encoders() -> Vec<(String, String)> {
 
     let out = match cmd.output() {
         Ok(o) => o,
+        // Don't cache the fallback: ffmpeg might not be installed *yet*.
+        // If the user installs it and retries, we want a fresh probe.
         Err(_) => return vec![("libx264".to_string(), "CPU (libx264)".to_string())],
     };
 
@@ -598,7 +612,25 @@ pub fn get_available_encoders() -> Vec<(String, String)> {
     if result.is_empty() {
         result.push(("libx264".to_string(), "CPU (libx264)".to_string()));
     }
+
+    // Memoise so repeat invocations (initial load + Advanced-mode open +
+    // post-install retry) don't re-spawn ffmpeg.
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some(result.clone());
+    }
+
     result
+}
+
+/// Drop the cached encoder list so the next call re-probes ffmpeg. Called
+/// after a successful FFmpeg install so the app picks up newly-available
+/// hardware encoders without requiring a restart.
+pub fn invalidate_encoder_cache() {
+    if let Some(cache) = ENCODER_CACHE.get() {
+        if let Ok(mut guard) = cache.lock() {
+            *guard = None;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

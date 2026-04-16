@@ -246,17 +246,24 @@ export default function App() {
   }, [loadVideo]);
 
   // --- OS file-open integrations ---
+  // Route listener callbacks through a ref so we subscribe exactly once per
+  // mount while always invoking the latest loadVideo. Previously the empty
+  // dep array + eslint-disable meant a stale loadVideo closure would be
+  // retained if its identity ever changed.
+  const loadVideoRef = useRef(loadVideo);
+  useEffect(() => { loadVideoRef.current = loadVideo; }, [loadVideo]);
+
   useEffect(() => {
-    const unsub = listen<string>("open-file", (e) => loadVideo(e.payload));
+    const unsub = listen<string>("open-file", (e) => loadVideoRef.current(e.payload));
     return () => { unsub.then((fn) => fn()); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const unlisten = listen<{ paths: string[] }>("tauri://drag-drop", (e) => {
-      if (e.payload.paths.length > 0) loadVideo(e.payload.paths[0]);
+      if (e.payload.paths.length > 0) loadVideoRef.current(e.payload.paths[0]);
     });
     return () => { unlisten.then((fn: () => void) => fn()); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const suppressContextMenu = (event: MouseEvent) => {
@@ -333,7 +340,13 @@ export default function App() {
     let videoBitrate = calculateBitrate(targetSize, clipDuration, removeAudio);
     if (probeData.bitrate > 0 && videoBitrate > probeData.bitrate) videoBitrate = probeData.bitrate;
 
-    const resolvedOutput = await invoke<string>("resolve_output_path", { inputPath: filePath }).catch(() => null);
+    // resolve_output_path and get_vaapi_device are independent — run them in
+    // parallel so we save one round-trip latency before the encode starts.
+    const isVaapi = encoderName.endsWith("_vaapi");
+    const [resolvedOutput, vaapiDevice] = await Promise.all([
+      invoke<string>("resolve_output_path", { inputPath: filePath }).catch(() => null),
+      isVaapi ? invoke<string | null>("get_vaapi_device").catch(() => null) : Promise.resolve(null),
+    ]);
     if (!resolvedOutput) {
       addToast("error", "Error", "Could not resolve output path.");
       setCompressing(false);
@@ -350,9 +363,7 @@ export default function App() {
         end_time: endTime,
         remove_audio: removeAudio,
         scale_filter: buildScaleFilter(probeData.width, probeData.height, targetH, targetShort, encoderName),
-        vaapi_device: encoderName.endsWith("_vaapi")
-          ? await invoke<string | null>("get_vaapi_device")
-          : null,
+        vaapi_device: vaapiDevice,
       },
     }).catch((e) => { addToast("error", "Error", String(e)); return null; });
 
@@ -482,23 +493,13 @@ export default function App() {
 
   const showPrediction = predictedEncoder !== undefined && predictedEncoder !== advEncoder;
 
-  useEffect(() => {
-    if (!filePath) {
-      setPlayheadTime(0);
-      return;
-    }
-
-    const tick = () => {
-      const handle = previewRef.current;
-      if (!handle?.isPlaying()) return;
-      const next = handle.getCurrentTime();
-      setPlayheadTime((prev) => (Math.abs(prev - next) < 0.02 ? prev : next));
-    };
-
-    tick();
-    const intervalId = window.setInterval(tick, 80);
-    return () => window.clearInterval(intervalId);
-  }, [filePath, startTime, endTime]);
+  // Playhead time is now pushed from PreviewPane via the onTimeUpdate prop
+  // (driven by the media element's `timeupdate` event and explicit seeks)
+  // instead of an 80 ms wall-clock poll. The 0.02 s threshold below keeps
+  // React re-renders from firing on sub-frame noise from the media pipeline.
+  const handlePreviewTimeUpdate = useCallback((next: number) => {
+    setPlayheadTime((prev) => (Math.abs(prev - next) < 0.02 ? prev : next));
+  }, []);
 
   // Keep the playhead clamped inside the trim window whenever it changes.
   useEffect(() => {
@@ -1254,6 +1255,7 @@ export default function App() {
           loopPlayback={loopPlayback}
           probeData={probeData}
           removeAudio={removeAudio}
+          onTimeUpdate={handlePreviewTimeUpdate}
         />
 
         {/* Compress button */}
