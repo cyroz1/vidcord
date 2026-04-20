@@ -1,81 +1,84 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 :root {
-  /* WinUI 3 Dark — surface & background */
-  --bg: #202020;
-  --surface: #2B2B2B;
-  --surface2: #333333;
-  --surface-subtle: rgba(255, 255, 255, 0.0412);
+  /* Liquid Glass Dark — base surfaces */
+  --bg: rgba(16, 16, 20, 0.82);
+  --surface: rgba(255, 255, 255, 0.07);
+  --surface2: rgba(255, 255, 255, 0.11);
+  --surface-subtle: rgba(255, 255, 255, 0.05);
 
-  /* Strokes */
-  --border: rgba(255, 255, 255, 0.1578);
-  --border-subtle: rgba(255, 255, 255, 0.0837);
-  --border-focus: #60CDFF;
+  /* Borders — glass edge */
+  --border: rgba(255, 255, 255, 0.13);
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-focus: #0A84FF;
 
-  /* Accent — Windows 11 dark-mode tint */
-  --accent: #60CDFF;
-  --accent-hover: #78D5FF;
-  --accent-pressed: #4AC8FC;
-  --accent-glow: rgba(96, 205, 255, 0.22);
-  --accent-text: #000000;
+  /* Accent — macOS blue */
+  --accent: #0A84FF;
+  --accent-hover: #409CFF;
+  --accent-pressed: #0071E3;
+  --accent-glow: rgba(10, 132, 255, 0.32);
+  --accent-text: #FFFFFF;
 
   /* Text */
-  --text: rgba(255, 255, 255, 0.8956);
-  --text-secondary: rgba(255, 255, 255, 0.6063);
-  --text-disabled: rgba(255, 255, 255, 0.3614);
+  --text: rgba(255, 255, 255, 0.92);
+  --text-secondary: rgba(255, 255, 255, 0.52);
+  --text-disabled: rgba(255, 255, 255, 0.26);
 
   /* Semantic */
-  --success: #6CCB5F;
-  --error: #FF99A4;
-  --warning: #FCE100;
+  --success: #30D158;
+  --error: #FF453A;
+  --warning: #FF9F0A;
 
-  /* Elevation — WinUI 3 uses very subtle shadows */
-  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.36), 0 0 0 1px rgba(255, 255, 255, 0.0412);
-  --shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.52);
-  --shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.44);
+  /* Glass shadows */
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.50), 0 1px 4px rgba(0, 0, 0, 0.28);
+  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.70), 0 4px 12px rgba(0, 0, 0, 0.40);
+  --shadow-hover: 0 6px 28px rgba(0, 0, 0, 0.60);
 
-  /* Radii — WinUI 3 values */
-  --radius: 8px;
-  --radius-sm: 6px;
-  --radius-xs: 4px;
+  /* Radii — macOS Tahoe: rounder */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-xs: 6px;
 
-  /* Control highlight (top edge on cards) */
-  --card-top: inset 0 1px 0 rgba(255, 255, 255, 0.085);
+  /* Glass card highlight — top edge shine */
+  --card-top: inset 0 1px 0 rgba(255, 255, 255, 0.18), inset 0 -1px 0 rgba(0, 0, 0, 0.14);
 
-  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  /* Backdrop blur shorthand */
+  --blur: blur(20px) saturate(180%);
+
+  font-family: -apple-system, "SF Pro Text", system-ui, sans-serif;
   font-size: 14px;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #F3F3F3;
-    --surface: #FFFFFF;
-    --surface2: #F9F9F9;
-    --surface-subtle: rgba(0, 0, 0, 0.025);
+    --bg: rgba(236, 236, 240, 0.80);
+    --surface: rgba(255, 255, 255, 0.55);
+    --surface2: rgba(255, 255, 255, 0.72);
+    --surface-subtle: rgba(0, 0, 0, 0.04);
 
-    --border: rgba(0, 0, 0, 0.0578);
-    --border-subtle: rgba(0, 0, 0, 0.0373);
-    --border-focus: #0067C0;
+    --border: rgba(0, 0, 0, 0.09);
+    --border-subtle: rgba(0, 0, 0, 0.05);
+    --border-focus: #007AFF;
 
-    --accent: #0067C0;
-    --accent-hover: #1975C4;
-    --accent-pressed: #005AA3;
-    --accent-glow: rgba(0, 103, 192, 0.18);
+    --accent: #007AFF;
+    --accent-hover: #0071E3;
+    --accent-pressed: #005FCC;
+    --accent-glow: rgba(0, 122, 255, 0.28);
     --accent-text: #FFFFFF;
 
-    --text: rgba(0, 0, 0, 0.8956);
-    --text-secondary: rgba(0, 0, 0, 0.6063);
-    --text-disabled: rgba(0, 0, 0, 0.3614);
+    --text: rgba(0, 0, 0, 0.88);
+    --text-secondary: rgba(0, 0, 0, 0.48);
+    --text-disabled: rgba(0, 0, 0, 0.26);
 
-    --success: #0F7B0F;
-    --error: #C42B1C;
-    --warning: #9D5D00;
+    --success: #28CD41;
+    --error: #FF3B30;
+    --warning: #FF9500;
 
-    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.0412);
-    --shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.16);
-    --shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.12);
+    --shadow-card: 0 2px 16px rgba(0, 0, 0, 0.10), 0 1px 3px rgba(0, 0, 0, 0.07);
+    --shadow-overlay: 0 8px 40px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.10);
+    --shadow-hover: 0 4px 20px rgba(0, 0, 0, 0.14);
 
-    --card-top: inset 0 1px 0 rgba(255, 255, 255, 0.70);
+    --card-top: inset 0 1px 0 rgba(255, 255, 255, 0.92), inset 0 -1px 0 rgba(0, 0, 0, 0.04);
   }
 }
 
@@ -91,10 +94,10 @@ html, body, #root {
 #root {
   display: flex;
   flex-direction: column;
+  /* Liquid glass window — blurs the desktop wallpaper behind the window */
   background: var(--bg);
-  /* Simulate Mica material — OS will layer its own effect on Windows 11 */
-  backdrop-filter: blur(40px) saturate(120%);
-  -webkit-backdrop-filter: blur(40px) saturate(120%);
+  backdrop-filter: blur(40px) saturate(160%);
+  -webkit-backdrop-filter: blur(40px) saturate(160%);
 }
 
 button {
@@ -111,9 +114,9 @@ input, select {
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(128, 128, 128, 0.45);
+  background: rgba(128, 128, 128, 0.30);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(128, 128, 128, 0.65);
+  background: rgba(128, 128, 128, 0.50);
 }

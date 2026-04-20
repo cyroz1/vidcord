@@ -24,7 +24,7 @@
         "maximizable": false,
         "center": true,
         "decorations": true,
-        "transparent": false,
+        "transparent": true,
         "additionalBrowserArgs": "--autoplay-policy=no-user-gesture-required"
       }
     ],

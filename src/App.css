@@ -11,9 +11,18 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 16px 20px 10px;
+  padding: 14px 20px 10px;
   flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.04);
   border-bottom: 1px solid var(--border-subtle);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+@media (prefers-color-scheme: light) {
+  .header {
+    background: rgba(255, 255, 255, 0.18);
+  }
 }
 
 .app-icon {
@@ -28,15 +37,17 @@
   font-weight: 600;
   margin: 0;
   color: var(--text);
-  letter-spacing: 0;
+  letter-spacing: -0.01em;
 }
 
 /* ── Update banner ───────────────────────────────────────────────────── */
 .update-banner {
   background: var(--surface);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   border: 1px solid var(--border-subtle);
   border-left: 3px solid var(--accent);
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   margin: 8px 14px 0;
   padding: 8px 12px;
   display: flex;
@@ -44,7 +55,7 @@
   gap: 10px;
   font-size: 13px;
   flex-shrink: 0;
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-card), var(--card-top);
 }
 
 .update-banner a {
@@ -62,7 +73,7 @@
   padding: 2px 4px;
   margin-left: auto;
   border-radius: var(--radius-xs);
-  transition: color 0.1s, background 0.1s;
+  transition: color 0.15s, background 0.15s;
   line-height: 1;
 }
 .update-dismiss:hover {
@@ -73,9 +84,11 @@
 /* ── FFmpeg banner ───────────────────────────────────────────────────── */
 .ffmpeg-banner {
   background: var(--surface);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   border: 1px solid var(--border-subtle);
   border-left: 3px solid var(--warning);
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   margin: 8px 14px 0;
   padding: 8px 12px;
   display: flex;
@@ -85,7 +98,7 @@
   font-size: 13px;
   color: var(--text);
   flex-shrink: 0;
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-card), var(--card-top);
 }
 
 .ffmpeg-install-btn,
@@ -101,24 +114,28 @@
   color: var(--accent-text);
   border-color: transparent;
   margin-left: auto;
+  box-shadow: 0 2px 8px var(--accent-glow);
 }
 
 .ffmpeg-install-btn:hover:not(:disabled) {
-  filter: brightness(1.08);
+  filter: brightness(1.10);
 }
 
 .ffmpeg-install-btn:disabled {
-  opacity: 0.7;
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
 .ffmpeg-link-btn {
   background: var(--surface2);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   color: var(--text);
 }
 
 .ffmpeg-link-btn:hover {
   background: var(--surface-subtle);
+  filter: brightness(1.08);
 }
 
 /* ── Scroll area ─────────────────────────────────────────────────────── */
@@ -134,6 +151,8 @@
 /* ── Drop zone ───────────────────────────────────────────────────────── */
 .drop-zone {
   background: var(--surface);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   border: 1px dashed var(--border);
   border-radius: var(--radius);
   padding: 20px 16px;
@@ -143,12 +162,13 @@
   gap: 10px;
   cursor: pointer;
   box-shadow: var(--shadow-card), var(--card-top);
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
 }
 
 .drop-zone:hover {
   border-color: var(--accent);
   background: var(--surface2);
+  box-shadow: var(--shadow-hover), var(--card-top);
 }
 
 .drop-zone.has-file {
@@ -166,19 +186,24 @@
 
 .drop-zone.has-file .drop-label { color: var(--text); }
 
-/* ── Browse button (secondary Fluent button) ─────────────────────────── */
+/* ── Browse button ───────────────────────────────────────────────────── */
 .browse-btn {
   background: var(--surface2);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   color: var(--text);
   padding: 6px 16px;
   font-size: 13px;
-  transition: background 0.1s;
+  transition: background 0.15s, box-shadow 0.15s;
   box-shadow: var(--card-top);
 }
-.browse-btn:hover { background: var(--surface-subtle); filter: brightness(1.1); }
-.browse-btn:active { filter: brightness(0.95); }
+.browse-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  box-shadow: var(--card-top), 0 2px 8px rgba(0, 0, 0, 0.20);
+}
+.browse-btn:active { filter: brightness(0.92); }
 
 /* ── Settings rows ───────────────────────────────────────────────────── */
 .row { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -193,18 +218,20 @@
   min-width: 110px;
 }
 
-/* ── Fluent ComboBox / TextBox ───────────────────────────────────────── */
+/* ── Glass ComboBox / TextBox ────────────────────────────────────────── */
 .settings-row select,
 .settings-row input[type="number"],
 .settings-row input[type="text"] {
   background: var(--surface);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   color: var(--text);
   padding: 6px 28px 6px 10px;
   font-size: 13px;
   width: 100%;
-  transition: border-color 0.1s;
+  transition: border-color 0.15s, background 0.15s;
   box-shadow: var(--card-top);
 }
 
@@ -218,27 +245,28 @@
   -webkit-appearance: none;
   appearance: none;
   cursor: pointer;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='rgba(255%2C255%2C255%2C0.55)' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='rgba(255%2C255%2C255%2C0.50)' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
 }
 
 @media (prefers-color-scheme: light) {
   .settings-row select {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='rgba(0%2C0%2C0%2C0.55)' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='rgba(0%2C0%2C0%2C0.45)' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
 }
 
 .settings-row select:hover,
 .settings-row input:hover {
-  border-color: var(--border-focus);
+  border-color: var(--accent);
+  background: var(--surface2);
 }
 
 .settings-row select:focus,
 .settings-row input:focus {
   outline: none;
   border-color: var(--border-focus);
-  box-shadow: 0 0 0 1px var(--border-focus), var(--card-top);
+  box-shadow: 0 0 0 3px var(--accent-glow), var(--card-top);
 }
 
 .advanced .encoder-label { flex: 2; }
@@ -249,6 +277,8 @@
 
 .mute-btn {
   background: var(--surface);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   color: var(--text-secondary);
@@ -257,7 +287,7 @@
   font-size: 12px;
   line-height: 1;
   box-shadow: var(--card-top);
-  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
 .mute-btn:hover {
@@ -267,25 +297,28 @@
 
 .mute-btn.active {
   color: var(--error);
-  border-color: rgba(255, 69, 58, 0.35);
+  border-color: rgba(255, 69, 58, 0.38);
+  background: rgba(255, 69, 58, 0.08);
 }
 
-/* ── Icon button (info btn next to encoder input) ────────────────────── */
+/* ── Icon button ─────────────────────────────────────────────────────── */
 .icon-btn {
   background: var(--surface);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   color: var(--text-secondary);
   padding: 0 9px;
   font-size: 14px;
   flex-shrink: 0;
-  transition: background 0.1s, color 0.1s;
+  transition: background 0.15s, color 0.15s;
   box-shadow: var(--card-top);
 }
 .icon-btn:hover { color: var(--text); background: var(--surface2); }
-.icon-btn:active { filter: brightness(0.95); }
+.icon-btn:active { filter: brightness(0.90); }
 
-/* ── Fluent ToggleSwitch ─────────────────────────────────────────────── */
+/* ── macOS-style Toggle Switch ───────────────────────────────────────── */
 .options-row { align-items: center; }
 
 .toggle-label {
@@ -308,7 +341,7 @@
 .toggle-track {
   position: relative;
   width: 40px;
-  height: 20px;
+  height: 22px;
   flex-shrink: 0;
 }
 
@@ -319,28 +352,29 @@
   height: 0;
 }
 
-/* WinUI 3 ToggleSwitch track */
+/* macOS-style pill track */
 .toggle-thumb {
   position: absolute;
   inset: 0;
-  background: transparent;
-  border: 2px solid var(--border);
+  background: rgba(255, 255, 255, 0.14);
+  border: 1.5px solid var(--border);
   border-radius: 20px;
-  transition: background 0.18s, border-color 0.18s;
+  transition: background 0.20s, border-color 0.20s;
 }
 
-/* WinUI 3 thumb circle */
+/* thumb circle */
 .toggle-thumb::after {
   content: '';
   position: absolute;
   top: 50%;
-  left: 4px;
+  left: 3px;
   transform: translateY(-50%);
-  width: 10px;
-  height: 10px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background: var(--text-secondary);
-  transition: transform 0.18s cubic-bezier(.4, 0, .2, 1), background 0.18s, left 0.18s;
+  background: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  transition: left 0.20s cubic-bezier(.4, 0, .2, 1), background 0.20s;
 }
 
 .toggle-input:checked + .toggle-thumb {
@@ -348,18 +382,19 @@
   border-color: var(--accent);
 }
 .toggle-input:checked + .toggle-thumb::after {
-  background: var(--accent-text);
+  background: #FFFFFF;
   left: auto;
-  right: 4px;
-  transform: translateY(-50%);
+  right: 3px;
 }
 .toggle-input:focus-visible + .toggle-thumb {
-  box-shadow: 0 0 0 2px var(--accent-glow);
+  box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
-/* ── Trim section (Card) ─────────────────────────────────────────────── */
+/* ── Trim section (Glass Card) ───────────────────────────────────────── */
 .trim-section {
   background: var(--surface);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
   padding: 12px 14px;
@@ -370,10 +405,11 @@
 }
 
 .section-title {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .trim-header {
@@ -399,6 +435,8 @@
 
 .trim-inline-control select {
   background: var(--surface2);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   color: var(--text);
@@ -414,17 +452,20 @@
 
 .trim-mini-btn {
   background: var(--surface2);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   color: var(--text-secondary);
   padding: 2px 8px;
   font-size: 12px;
   line-height: 1.4;
+  transition: background 0.15s, color 0.15s;
 }
 
 .trim-mini-btn:hover {
   color: var(--text);
-  background: var(--surface-subtle);
+  background: rgba(255, 255, 255, 0.16);
 }
 
 .trim-loop-toggle {
@@ -449,7 +490,7 @@
 .trim-dual-wrap {
   position: relative;
   flex: 1;
-  height: 24px;
+  height: 20px;
   display: flex;
   align-items: center;
 }
@@ -458,39 +499,28 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: 0;
-  bottom: 0;
-  background: transparent;
-  cursor: pointer;
-  pointer-events: auto;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+  pointer-events: none;
   z-index: 0;
 }
 
-/* Visible track bar drawn inside the clickable area. */
-.trim-dual-track::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 4px;
-  background: var(--border);
-  border-radius: 2px;
-  transform: translateY(-50%);
-  pointer-events: none;
+@media (prefers-color-scheme: light) {
+  .trim-dual-track {
+    background: rgba(0, 0, 0, 0.10);
+  }
 }
 
 .trim-dual-range {
   position: absolute;
-  top: 50%;
-  height: 6px;
+  height: 4px;
   background: var(--accent);
-  border-radius: 3px;
+  border-radius: 2px;
   pointer-events: auto;
   z-index: 1;
   cursor: grab;
-  transform: translateY(-50%);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 8px var(--accent-glow);
 }
 
 .trim-dual-range:active {
@@ -499,74 +529,22 @@
 
 .trim-playhead {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: 2px;
+  bottom: 2px;
   width: 2px;
-  background: var(--accent-text);
+  background: rgba(255, 255, 255, 0.90);
   border-radius: 2px;
   pointer-events: none;
   transform: translateX(-50%);
   z-index: 2;
   transition: left 80ms linear;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.50);
 }
 
-/* A small triangle on top of the playhead makes the current scrub position
-   obvious even when the line overlaps the trim range fill. */
-.trim-playhead::before {
-  content: '';
-  position: absolute;
-  top: -3px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 0;
-  height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 5px solid var(--accent-text);
-  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.45));
-}
-
-/* Snap-tick marks: thin vertical lines showing where handles will snap to. */
-.trim-snap-tick {
-  position: absolute;
-  top: 50%;
-  width: 1px;
-  height: 10px;
-  background: var(--text-disabled);
-  opacity: 0.55;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-  z-index: 1;
-}
-
-/* Live time chip floating above the active handle while dragging. */
-.trim-drag-tooltip {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  transform: translateX(-50%);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-card);
-  border-radius: var(--radius-xs);
-  padding: 3px 7px;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 4;
-}
-
-.trim-drag-tooltip::after {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 4px solid var(--border);
+@media (prefers-color-scheme: light) {
+  .trim-playhead {
+    background: rgba(0, 0, 0, 0.70);
+  }
 }
 
 .slider-label {
@@ -576,7 +554,7 @@
   flex-shrink: 0;
 }
 
-/* ── Fluent Slider ───────────────────────────────────────────────────── */
+/* ── Glass Slider ────────────────────────────────────────────────────── */
 .slider-row input[type="range"] {
   flex: 1;
   -webkit-appearance: none;
@@ -610,50 +588,24 @@
 
 .trim-dual-wrap .trim-handle::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: var(--accent);
-  border: 2px solid var(--accent-text);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.40);
-  margin-top: -7px;
+  border: 1.5px solid rgba(255, 255, 255, 0.30);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35), 0 0 0 2px var(--accent-glow);
+  margin-top: -6px;
   opacity: 1;
-  transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
 .trim-dual-wrap .trim-handle::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: var(--accent);
-  border: 2px solid var(--accent-text);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.40);
+  border: 1.5px solid rgba(255, 255, 255, 0.30);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35), 0 0 0 2px var(--accent-glow);
   opacity: 1;
-  transition: transform 0.1s ease, box-shadow 0.1s ease;
-}
-
-/* Hover feedback — scale up slightly so a small target becomes obviously
-   grabbable when the cursor is over it. */
-.trim-dual-wrap .trim-handle:hover::-webkit-slider-thumb,
-.trim-dual-wrap .trim-handle:active::-webkit-slider-thumb {
-  transform: scale(1.15);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
-}
-.trim-dual-wrap .trim-handle:hover::-moz-range-thumb,
-.trim-dual-wrap .trim-handle:active::-moz-range-thumb {
-  transform: scale(1.15);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
-}
-
-/* Active-handle state — the one that Shift+Arrow / Shift+,/. will nudge.
-   A soft accent ring makes the current keyboard target visible. */
-.trim-dual-wrap[data-active-handle="start"] .trim-start-handle::-webkit-slider-thumb,
-.trim-dual-wrap[data-active-handle="end"] .trim-end-handle::-webkit-slider-thumb {
-  box-shadow: 0 0 0 3px var(--accent-glow), 0 1px 4px rgba(0, 0, 0, 0.40);
-}
-.trim-dual-wrap[data-active-handle="start"] .trim-start-handle::-moz-range-thumb,
-.trim-dual-wrap[data-active-handle="end"] .trim-end-handle::-moz-range-thumb {
-  box-shadow: 0 0 0 3px var(--accent-glow), 0 1px 4px rgba(0, 0, 0, 0.40);
 }
 
 .trim-dual-wrap input[type="range"]::-webkit-slider-thumb {
@@ -667,8 +619,14 @@
 /* Track */
 .slider-row input[type="range"]::-webkit-slider-runnable-track {
   height: 4px;
-  background: var(--border);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 2px;
+}
+
+@media (prefers-color-scheme: light) {
+  .slider-row input[type="range"]::-webkit-slider-runnable-track {
+    background: rgba(0, 0, 0, 0.10);
+  }
 }
 
 /* Thumb */
@@ -678,10 +636,10 @@
   height: 16px;
   border-radius: 50%;
   background: var(--accent);
-  border: none;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.30);
+  border: 1.5px solid rgba(255, 255, 255, 0.30);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.30), 0 0 0 2px var(--accent-glow);
   margin-top: -6px;
-  transition: transform 0.1s;
+  transition: transform 0.12s;
 }
 
 .slider-row input[type="range"]::-webkit-slider-thumb:hover {
@@ -689,12 +647,12 @@
 }
 
 .slider-row input[type="range"]:active::-webkit-slider-thumb {
-  transform: scale(1.05);
+  transform: scale(1.06);
 }
 
 .slider-row input[type="range"]::-moz-range-track {
   height: 4px;
-  background: var(--border);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 2px;
   border: none;
 }
@@ -704,8 +662,8 @@
   height: 16px;
   border-radius: 50%;
   background: var(--accent);
-  border: none;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.30);
+  border: 1.5px solid rgba(255, 255, 255, 0.30);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.30);
 }
 
 .slider-row input[type="range"]::-moz-range-progress {
@@ -716,7 +674,7 @@
 
 .slider-row input[type="range"]:focus { outline: none; }
 .slider-row input[type="range"]:focus-visible::-webkit-slider-thumb {
-  box-shadow: 0 0 0 3px var(--accent-glow);
+  box-shadow: 0 0 0 4px var(--accent-glow);
 }
 
 .time-label {
@@ -736,35 +694,44 @@
   text-align: right;
 }
 
-/* ── Accent (primary) Compress button ───────────────────────────────── */
+/* ── Compress button (liquid glass primary) ──────────────────────────── */
 .compress-btn {
-  background: var(--accent);
-  border: none;
-  border-radius: var(--radius-xs);
-  color: var(--accent-text);
+  background: linear-gradient(180deg, var(--accent-hover) 0%, var(--accent) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: var(--radius);
+  color: #FFFFFF;
   font-size: 14px;
   font-weight: 600;
   padding: 10px;
   width: 100%;
-  letter-spacing: 0;
-  transition: background 0.1s, opacity 0.1s, filter 0.1s;
+  letter-spacing: -0.01em;
+  box-shadow: 0 4px 16px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  transition: filter 0.15s, box-shadow 0.15s;
 }
 
 .compress-btn:hover {
-  filter: brightness(1.08);
+  filter: brightness(1.10);
+  box-shadow: 0 6px 22px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
 .compress-btn:active:not(:disabled) {
   filter: brightness(0.92);
+  box-shadow: 0 2px 8px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.20);
 }
 
 .compress-btn.cancel {
   background: var(--surface);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   color: var(--error);
   border: 1px solid rgba(255, 69, 58, 0.35);
+  box-shadow: var(--card-top);
 }
-.compress-btn.cancel:hover { background: var(--surface2); }
-.compress-btn:disabled { opacity: 0.40; cursor: not-allowed; }
+.compress-btn.cancel:hover {
+  background: rgba(255, 69, 58, 0.08);
+  box-shadow: 0 4px 16px rgba(255, 69, 58, 0.18), var(--card-top);
+}
+.compress-btn:disabled { opacity: 0.36; cursor: not-allowed; }
 
 /* ── Footer ──────────────────────────────────────────────────────────── */
 .footer {
@@ -783,11 +750,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent);
+  color: var(--text-secondary);
   text-decoration: none;
-  opacity: 0.95;
+  opacity: 0.80;
+  transition: opacity 0.15s, color 0.15s;
 }
-.gh-link:hover { opacity: 1; }
+.gh-link:hover { opacity: 1; color: var(--accent); }
 
 .advanced-toggle { margin-left: auto; }
 
@@ -805,185 +773,3 @@
 }
 
 .toast-container > * { pointer-events: auto; }
-
-/* ── In / Out buttons ────────────────────────────────────────────────── */
-.in-out-btn {
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
-  color: var(--text-secondary);
-  padding: 3px 9px;
-  font-size: 11px;
-  line-height: 1.3;
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-  transition: background 0.1s, color 0.1s, border-color 0.1s;
-}
-
-.in-out-btn:hover:not(:disabled) {
-  color: var(--text);
-  background: var(--surface-subtle);
-  border-color: var(--border-focus);
-}
-
-.in-out-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ── Minimap ─────────────────────────────────────────────────────────── */
-.trim-minimap {
-  position: relative;
-  height: 10px;
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
-  cursor: pointer;
-  margin-left: 44px;
-  margin-right: 44px;
-  overflow: hidden;
-}
-
-.trim-minimap-range {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  background: var(--accent);
-  opacity: 0.55;
-  pointer-events: none;
-}
-
-.trim-minimap-viewport {
-  position: absolute;
-  top: -1px;
-  bottom: -1px;
-  border: 1px solid var(--text);
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 2px;
-  pointer-events: none;
-}
-
-.trim-minimap-playhead {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--accent-text);
-  transform: translateX(-0.5px);
-  pointer-events: none;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
-}
-
-/* ── Shortcuts overlay ───────────────────────────────────────────────── */
-.shortcuts-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(2px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1200;
-  padding: 24px;
-}
-
-.shortcuts-modal {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-card);
-  padding: 16px 18px;
-  min-width: 320px;
-  max-width: 440px;
-  max-height: 80vh;
-  overflow-y: auto;
-  color: var(--text);
-  font-size: 13px;
-}
-
-.shortcuts-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.shortcuts-close {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  padding: 2px 6px;
-  font-size: 14px;
-  border-radius: var(--radius-xs);
-  line-height: 1;
-}
-.shortcuts-close:hover {
-  color: var(--text);
-  background: var(--surface-subtle);
-}
-
-.shortcuts-list {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  column-gap: 14px;
-  row-gap: 7px;
-  margin: 0;
-}
-
-.shortcuts-list dt {
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
-  display: flex;
-  gap: 3px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.shortcuts-list dd {
-  margin: 0;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.shortcuts-list kbd {
-  display: inline-block;
-  padding: 1px 6px;
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 500;
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-bottom-width: 2px;
-  border-radius: 3px;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-  min-width: 14px;
-  text-align: center;
-}
-
-/* Keyboard-shortcuts button in the footer. Round, compact, styled to match
-   the GitHub link next to it. */
-.shortcuts-btn {
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--surface2);
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: color 0.1s, background 0.1s, border-color 0.1s;
-}
-
-.shortcuts-btn:hover {
-  color: var(--text);
-  background: var(--surface-subtle);
-  border-color: var(--border-focus);
-}
