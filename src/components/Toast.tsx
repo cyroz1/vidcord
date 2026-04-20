@@ -19,13 +19,15 @@ const COLORS: Record<string, string> = {
 // trim-slider scrubs) don't allocate fresh style objects per toast.
 const wrapperBaseStyle: React.CSSProperties = {
   background: "var(--surface)",
+  backdropFilter: "var(--blur)",
+  WebkitBackdropFilter: "var(--blur)",
   border: "1px solid var(--border-subtle)",
   borderRadius: "var(--radius)",
   padding: "10px 12px",
   display: "flex",
   flexDirection: "column",
   gap: "4px",
-  boxShadow: "var(--shadow-overlay)",
+  boxShadow: "var(--shadow-overlay), var(--card-top)",
   animation: "toast-in 0.18s ease",
   maxWidth: "340px",
   wordBreak: "break-word",
