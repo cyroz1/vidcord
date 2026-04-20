@@ -1,5 +1,59 @@
 # Changelog
 
+## v6.1
+
+### macOS Tahoe Liquid Glass UI
+
+- Restyled the entire interface to match the macOS Tahoe liquid glass design language: semi-transparent surfaces with `backdrop-filter` blur + saturation, white glass-edge borders, inset top-highlight, and layered shadows.
+- Window is now transparent so the OS desktop wallpaper shows through the frosted glass shell.
+- Accent color updated to macOS blue (`#0A84FF` dark / `#007AFF` light); font switched to `-apple-system / SF Pro Text`.
+- Larger border radii (12 / 8 / 6 px) throughout; toggle switches match the macOS pill style.
+- Compress button gets a gradient blue fill with ambient glow; cancel state gets a red-tinted glass treatment.
+- Video preview container, overlay play/stop buttons, time badges, and toast notifications all carry the glass `backdrop-filter` treatment.
+
+### Trim UX overhaul
+
+- **Scrubbing**: click or drag anywhere on the timeline to move the playhead; click inside the selected range without dragging seeks rather than no-ops.
+- **Persistent playhead**: playhead is visible whenever a video is loaded, not only during playback. Resuming picks up from the last scrubbed position.
+- **Handle polish**: handles bumped to 18 px with hover/active scale-up and accent glow on the focused handle. Double-click a handle to snap it to 0 % / 100 %.
+- **Floating time chip**: a live timestamp floats above the handle being dragged.
+- **In / Out buttons**: next to the time labels; work whether playing or paused since I / O operate on the persistent playhead.
+- **Snap tick marks**: render on the track when snap is active; auto-hide when the view is too dense to be useful.
+- **Minimap**: appears above the main timeline when zoomed in — shows the full video with trim range, viewport window, and playhead. Click or drag to pan.
+- **Shortcuts overlay**: press `?` or click the footer button to open a cheat-sheet of every keybinding; `Esc` or backdrop-click dismisses.
+- Timeline zoom up to 20×; Shift + `,` / `.` nudges the active handle by one frame.
+
+### Keyboard shortcuts (new / expanded)
+
+| Key | Action |
+|-----|--------|
+| `Space` | Toggle play / stop |
+| `,` / `.` | Step one frame backward / forward |
+| `J` / `K` | Jump playhead to trim start / end |
+| `[` / `]` | Nudge trim start / end |
+| `I` / `O` | Set trim in / out to current playhead |
+| `Shift + Arrow` | Fine-nudge active handle by one frame |
+| `R` | Reset trim to full duration |
+| `?` | Open shortcuts overlay |
+
+### Performance
+
+- **Filmstrip pre-generation**: on file load a single FFmpeg pass extracts ~60 evenly-spaced JPEG frames. Scrubbing shows the nearest filmstrip frame instantly (0 ms) instead of spawning a new FFmpeg process per seek; the exact frame is fetched as a refinement after 80 ms.
+- **Frame cache**: 20-entry LRU cache in the backend so scrubbing back over recently-seen positions returns immediately.
+- **Hardware decode for previews**: `-hwaccel auto` added to single-frame extraction and filmstrip generation, activating VideoToolbox / DXVA2 / VAAPI where available.
+- **Encoder presets**: encoder-specific `-preset` flags now set at compression time (`libx264/libx265 → fast`, `nvenc → p4/hq`, `qsv → veryfast`, `amf → quality=speed`). Previously the backend used encoder defaults (medium / slow), which was slower than necessary at a fixed target bitrate.
+- **Encoder detection cache**: `get_available_encoders()` is now memoised behind a `Mutex<Option<Vec>>`. Skips re-running `ffmpeg -encoders` on every call; invalidated automatically after a successful FFmpeg install.
+- **Playhead polling eliminated**: replaced the 80 ms `setInterval` poll with a `PreviewPane → onTimeUpdate` callback driven by the media element's native `timeupdate` event, stopping the main thread from waking ~12.5× / s while paused.
+- **IPC parallelism**: `resolve_output_path` and `get_vaapi_device` now run in `Promise.all` on compression start, saving one round-trip.
+- **Probe caching**: FFmpeg probe results are cached per file path to avoid redundant re-probes.
+- **Window state persistence**: window position and size are restored between launches via `tauri-plugin-window-state`.
+
+### Dependencies
+
+- `rustls-webpki` bumped; Tauri-upstream advisories added to audit ignore list.
+
+---
+
 ## v6.0
 
 vidcord has been fully rewritten from Python + PyQt6 to **Tauri (Rust + React)**. This is a ground-up rebuild — not an incremental update.
