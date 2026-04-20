@@ -56,6 +56,21 @@ const overlayGroupStyle: React.CSSProperties = {
   justifyContent: "center",
 };
 
+const overlayBtnStyle: React.CSSProperties = {
+  background: "rgba(0, 0, 0, 0.38)",
+  backdropFilter: "blur(12px) saturate(160%)",
+  WebkitBackdropFilter: "blur(12px) saturate(160%)",
+  border: "1px solid rgba(255, 255, 255, 0.22)",
+  borderRadius: "50%",
+  width: "44px",
+  height: "44px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+  boxShadow: "0 4px 16px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.18)",
+};
+
 const infoOverlayStyle: React.CSSProperties = {
   position: "absolute",
   bottom: "6px",
@@ -649,18 +664,3 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 });
 
 export default memo(PreviewPane);
-
-const overlayBtnStyle: React.CSSProperties = {
-  background: "rgba(0, 0, 0, 0.38)",
-  backdropFilter: "blur(12px) saturate(160%)",
-  WebkitBackdropFilter: "blur(12px) saturate(160%)",
-  border: "1px solid rgba(255, 255, 255, 0.22)",
-  borderRadius: "50%",
-  width: "44px",
-  height: "44px",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  cursor: "pointer",
-  boxShadow: "0 4px 16px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.18)",
-};
