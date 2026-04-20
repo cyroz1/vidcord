@@ -179,6 +179,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const [filmstripIdx, setFilmstripIdx] = useState<number | null>(null);
   const filmstripActiveRef = useRef(false); // cancels in-flight filmstrip fetch on file change
 
+  const currentPlaybackTimeRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeRef = useRef(false);
   const prevStartTimeRef = useRef(startTime);
@@ -209,6 +210,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const clamped = Math.max(min, Math.min(timeSec, max));
     const vid = videoRef.current;
 
+    currentPlaybackTimeRef.current = clamped;
     setCurrentPlaybackTime(clamped);
     onTimeUpdateRef.current?.(clamped);
     if (!vid) return;
@@ -396,6 +398,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     }
     playbackOffsetRef.current = 0;
     usingGeneratedClipRef.current = false;
+    currentPlaybackTimeRef.current = 0;
     setCurrentPlaybackTime(0);
     if (clipUrlRef.current) {
       URL.revokeObjectURL(clipUrlRef.current);
@@ -415,6 +418,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const scrubbed = currentPlaybackTimeRef.current;
     const resumeTime =
       scrubbed >= startTime && scrubbed < endTime ? scrubbed : startTime;
+    currentPlaybackTimeRef.current = resumeTime;
     setCurrentPlaybackTime(resumeTime);
     onTimeUpdateRef.current?.(resumeTime);
     const sources = buildPlaybackUrls(filePath);
@@ -432,6 +436,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       }
       const handler = () => {
         const playbackTime = getPlaybackTime();
+        currentPlaybackTimeRef.current = playbackTime;
         setCurrentPlaybackTime(playbackTime);
         onTimeUpdateRef.current?.(playbackTime);
         if (playbackTime >= endTime || vid.ended) {

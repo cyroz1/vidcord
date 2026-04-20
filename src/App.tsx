@@ -313,10 +313,10 @@ export default function App() {
         previewRef.current?.stepBy(FRAME_STEP_SECONDS);
       } else if (e.key === "j" || e.key === "J") {
         e.preventDefault();
-        previewRef.current?.seekTo(startTime);
+        previewRef.current?.seekTo((startVal / SLIDER_MAX) * duration);
       } else if (e.key === "k" || e.key === "K") {
         e.preventDefault();
-        previewRef.current?.seekTo(endTime);
+        previewRef.current?.seekTo((endVal / SLIDER_MAX) * duration);
       } else if (e.key === "[") {
         e.preventDefault();
         applyTrim(startValRef.current - coarseStep, endValRef.current, { anchor: "start" });
@@ -365,7 +365,7 @@ export default function App() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [filePath, probeData, redoTrim, undoTrim, startVal, endVal, duration, applyTrim, startTime, endTime]);
+  }, [filePath, probeData, redoTrim, undoTrim, startVal, endVal, duration, applyTrim]);
 
   // --- Update check ---
   useEffect(() => {
