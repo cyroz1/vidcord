@@ -116,8 +116,7 @@ export default function App() {
   const pointerHistoryStartRef = useRef<{ start: number; end: number } | null>(null);
   const undoStackRef = useRef<Array<{ start: number; end: number }>>([]);
   const redoStackRef = useRef<Array<{ start: number; end: number }>>([]);
-  const [previewPlaying, setPreviewPlaying] = useState(false);
-  const [previewCurrentTime, setPreviewCurrentTime] = useState(0);
+  const [playheadTime, setPlayheadTime] = useState<number | null>(null);
   const [loopPlayback, setLoopPlayback] = useState(false);
   const [snapMode, setSnapMode] = useState<SnapMode>("off");
   const [timelineZoom, setTimelineZoom] = useState(1);
@@ -366,7 +365,7 @@ export default function App() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [filePath, probeData, redoTrim, undoTrim, startVal, endVal, duration, applyTrim]);
+  }, [filePath, probeData, redoTrim, undoTrim, startVal, endVal, duration, applyTrim, startTime, endTime]);
 
   // --- Update check ---
   useEffect(() => {
@@ -590,16 +589,17 @@ export default function App() {
   // (driven by the media element's `timeupdate` event and explicit seeks)
   // instead of an 80 ms wall-clock poll. The 0.02 s threshold below keeps
   // React re-renders from firing on sub-frame noise from the media pipeline.
-  const handlePreviewTimeUpdate = useCallback((next: number) => {
-    setPlayheadTime((prev) => (Math.abs(prev - next) < 0.02 ? prev : next));
+  const handlePreviewTimeUpdate = useCallback((next: number | null) => {
+    if (next === null) { setPlayheadTime(null); return; }
+    setPlayheadTime((prev) => (prev !== null && Math.abs(prev - next) < 0.02 ? prev : next));
   }, []);
 
   const trimPlayheadLeftPct = useMemo(() => {
-    if (!previewPlaying || endTime <= startTime) return null;
-    const clampedTime = Math.max(startTime, Math.min(previewCurrentTime, endTime));
+    if (playheadTime === null || endTime <= startTime) return null;
+    const clampedTime = Math.max(startTime, Math.min(playheadTime, endTime));
     const rangeProgress = (clampedTime - startTime) / (endTime - startTime);
     return startPct + rangeProgress * (endPct - startPct);
-  }, [previewPlaying, previewCurrentTime, startTime, endTime, startPct, endPct]);
+  }, [playheadTime, startTime, endTime, startPct, endPct]);
 
   useEffect(() => {
     if (timelineZoom <= 1) return;
