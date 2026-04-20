@@ -103,7 +103,7 @@ type Props = {
   // Replaces the App-level 80 ms polling loop — the media element already
   // emits timeupdate at ~4 Hz, so we just forward that instead of waking the
   // main thread on a wall-clock interval even while the video is paused.
-  onTimeUpdate?: (timeSec: number) => void;
+  onTimeUpdate?: (timeSec: number | null) => void;
 };
 
 export type PreviewHandle = {
@@ -402,6 +402,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       clipUrlRef.current = null;
     }
     setPlaying(false);
+    onTimeUpdateRef.current?.(null);
   }, []);
 
   const startPlayback = useCallback(() => {
