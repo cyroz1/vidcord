@@ -300,17 +300,27 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download all artifacts
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Extract release notes
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          awk -v tag="## $TAG" 'found && /^## /{exit} $0==tag{found=1;next} found' CHANGELOG.md > release_notes.md
+
+      - name: Download release artifacts
         uses: actions/download-artifact@v7
         with:
           path: release-artifacts
           merge-multiple: true
+          pattern: vidcord-*
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: release-artifacts/**/*
           draft: true
-          generate_release_notes: true
+          body_path: release_notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
