@@ -39,7 +39,7 @@ For Fedora, Arch, and other distros, see [FFMPEG_SETUP.md](FFMPEG_SETUP.md).
 
 ## Features
 
-- **Modern UI**: Clean, responsive interface styled after Fluent Design.
+- **Modern UI**: Clean, responsive interface.
 - **Three ways to import videos**:
   - **File Explorer / Finder**: Right-click a video → "Open with vidcord" (Windows, macOS).
   - **Drag and drop**: Drop a video file directly onto the window.
