@@ -220,9 +220,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   }, [startTime, endTime]);
 
   const seekTo = useCallback((timeSec: number) => {
-    const min = Math.min(startTime, endTime);
-    const max = Math.max(startTime, endTime);
-    const clamped = Math.max(min, Math.min(timeSec, max));
+    const dur = probeData?.duration ?? 0;
+    // Clamp to the full clip, not the trim range — the trim handles define the
+    // export region only. Scrubbing outside the trim region is intentional
+    // (Premiere Pro model): the playhead roams freely; playback enforces bounds.
+    const clamped = dur > 0 ? Math.max(0, Math.min(timeSec, dur)) : Math.max(0, timeSec);
     const vid = videoRef.current;
 
     currentPlaybackTimeRef.current = clamped;
@@ -236,7 +238,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
     if (!Number.isFinite(mediaTime)) return;
     vid.currentTime = mediaTime;
-  }, [startTime, endTime]);
+  }, [probeData]);
 
   const stepBy = useCallback((deltaSec: number) => {
     seekTo(getPlaybackTime() + deltaSec);

@@ -133,6 +133,7 @@ export default function App() {
   const [updateInfo, setUpdateInfo] = useState<{ version: string; url: string } | null>(null);
   const [encodersDialogText, setEncodersDialogText] = useState<string | null>(null);
   const [installingFfmpeg, setInstallingFfmpeg] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
 
   const duration = probeData?.duration ?? 0;
 
@@ -185,6 +186,10 @@ export default function App() {
       pushUndoSnapshot(prev);
       redoStackRef.current = [];
     }
+    // Update refs synchronously so any same-frame read (commitPointerTrimChange,
+    // rapid undo/redo) sees the new values rather than waiting for useEffect.
+    startValRef.current = next.start;
+    endValRef.current = next.end;
     setStartVal(next.start);
     setEndVal(next.end);
   }, [normalizeTrim, pushUndoSnapshot]);
@@ -193,6 +198,8 @@ export default function App() {
     const target = undoStackRef.current.pop();
     if (!target) return;
     redoStackRef.current.push({ start: startValRef.current, end: endValRef.current });
+    startValRef.current = target.start;
+    endValRef.current = target.end;
     setStartVal(target.start);
     setEndVal(target.end);
   }, []);
@@ -201,9 +208,28 @@ export default function App() {
     const target = redoStackRef.current.pop();
     if (!target) return;
     pushUndoSnapshot({ start: startValRef.current, end: endValRef.current });
+    startValRef.current = target.start;
+    endValRef.current = target.end;
     setStartVal(target.start);
     setEndVal(target.end);
   }, [pushUndoSnapshot]);
+
+  const playheadTimeRef = useRef<number | null>(null);
+  useEffect(() => { playheadTimeRef.current = playheadTime; }, [playheadTime]);
+
+  const setInPoint = useCallback(() => {
+    const pt = playheadTimeRef.current;
+    if (pt === null || duration <= 0) return;
+    const val = Math.round((pt / duration) * SLIDER_MAX);
+    applyTrim(val, endValRef.current, { anchor: "start" });
+  }, [duration, applyTrim]);
+
+  const setOutPoint = useCallback(() => {
+    const pt = playheadTimeRef.current;
+    if (pt === null || duration <= 0) return;
+    const val = Math.round((pt / duration) * SLIDER_MAX);
+    applyTrim(startValRef.current, val, { anchor: "end" });
+  }, [duration, applyTrim]);
 
   // --- File loading ---
   const loadVideo = useCallback(async (path: string) => {
@@ -328,23 +354,15 @@ export default function App() {
         applyTrim(0, SLIDER_MAX, { anchor: "end" });
       } else if (e.key === "i" || e.key === "I") {
         e.preventDefault();
-        const handle = previewRef.current;
-        if (!handle?.isPlaying()) return;
-        const currentTime = handle.getCurrentTime();
-        const currentVal = Math.max(
-          0,
-          Math.min(SLIDER_MAX, Math.round((currentTime / dur) * SLIDER_MAX))
-        );
+        const pt = playheadTimeRef.current;
+        if (pt === null) return;
+        const currentVal = Math.max(0, Math.min(SLIDER_MAX, Math.round((pt / dur) * SLIDER_MAX)));
         applyTrim(currentVal, endValRef.current, { anchor: "start" });
       } else if (e.key === "o" || e.key === "O") {
         e.preventDefault();
-        const handle = previewRef.current;
-        if (!handle?.isPlaying()) return;
-        const currentTime = handle.getCurrentTime();
-        const currentVal = Math.max(
-          0,
-          Math.min(SLIDER_MAX, Math.round((currentTime / dur) * SLIDER_MAX))
-        );
+        const pt = playheadTimeRef.current;
+        if (pt === null) return;
+        const currentVal = Math.max(0, Math.min(SLIDER_MAX, Math.round((pt / dur) * SLIDER_MAX)));
         applyTrim(startValRef.current, currentVal, { anchor: "end" });
       } else if (e.shiftKey && e.key === "ArrowLeft") {
         e.preventDefault();
@@ -590,16 +608,22 @@ export default function App() {
   // instead of an 80 ms wall-clock poll. The 0.02 s threshold below keeps
   // React re-renders from firing on sub-frame noise from the media pipeline.
   const handlePreviewTimeUpdate = useCallback((next: number | null) => {
-    if (next === null) { setPlayheadTime(null); return; }
+    if (next === null) {
+      playheadTimeRef.current = null;
+      setPlayheadTime(null);
+      return;
+    }
+    playheadTimeRef.current = next;
     setPlayheadTime((prev) => (prev !== null && Math.abs(prev - next) < 0.02 ? prev : next));
   }, []);
 
+  // Playhead tracks absolute position across the full clip, like Premiere Pro.
+  // It is independent of the trim handles and can appear outside the selected range.
   const trimPlayheadLeftPct = useMemo(() => {
-    if (playheadTime === null || endTime <= startTime) return null;
-    const clampedTime = Math.max(startTime, Math.min(playheadTime, endTime));
-    const rangeProgress = (clampedTime - startTime) / (endTime - startTime);
-    return startPct + rangeProgress * (endPct - startPct);
-  }, [playheadTime, startTime, endTime, startPct, endPct]);
+    if (playheadTime === null || duration <= 0) return null;
+    const val = (playheadTime / duration) * SLIDER_MAX;
+    return toViewPct(val);
+  }, [playheadTime, duration, toViewPct]);
 
   useEffect(() => {
     if (timelineZoom <= 1) return;
@@ -672,6 +696,37 @@ export default function App() {
       return Math.max(0, Math.min(SLIDER_MAX, next));
     });
   }, [viewStartVal, viewEndVal]);
+
+  const seekToTimelineClick = useCallback((clientX: number) => {
+    const wrap = trimWrapRef.current;
+    if (!wrap || !probeData || duration <= 0) return;
+    const rect = wrap.getBoundingClientRect();
+    const fraction = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const viewVal = viewStartVal + fraction * (viewEndVal - viewStartVal);
+    const time = Math.max(0, Math.min((viewVal / SLIDER_MAX) * duration, duration));
+    previewRef.current?.seekTo(time);
+    playheadTimeRef.current = time;
+    setPlayheadTime(time);
+  }, [probeData, duration, viewStartVal, viewEndVal]);
+
+  const handleTimelineClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).tagName === "INPUT") return;
+    seekToTimelineClick(e.clientX);
+  }, [seekToTimelineClick]);
+
+  const handlePlayheadDragStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!probeData || duration <= 0) return;
+    seekToTimelineClick(e.clientX);
+    const onMove = (mv: MouseEvent) => seekToTimelineClick(mv.clientX);
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [probeData, duration, seekToTimelineClick]);
 
   return (
     <div className="app">
@@ -854,6 +909,24 @@ export default function App() {
             <span className="trim-selection-meta">
               {selectedDuration.toFixed(2)}s selected ({selectedDurationPct.toFixed(1)}%)
             </span>
+            <button
+              type="button"
+              className="trim-mini-btn"
+              onClick={setInPoint}
+              disabled={playheadTime === null}
+              title="Set in point to playhead (I)"
+            >
+              In
+            </button>
+            <button
+              type="button"
+              className="trim-mini-btn"
+              onClick={setOutPoint}
+              disabled={playheadTime === null}
+              title="Set out point to playhead (O)"
+            >
+              Out
+            </button>
             <label className="trim-inline-control">
               Snap
               <select value={snapMode} onChange={(e) => setSnapMode(e.target.value as SnapMode)}>
@@ -904,14 +977,40 @@ export default function App() {
               />
               Loop
             </label>
+            <button
+              type="button"
+              className={`trim-mini-btn trim-shortcuts-btn${showShortcuts ? " active" : ""}`}
+              onClick={() => setShowShortcuts((v) => !v)}
+              title="Keyboard shortcuts"
+            >
+              ?
+            </button>
           </div>
+          {showShortcuts && (
+            <div className="trim-shortcuts-panel">
+              <div className="trim-shortcuts-grid">
+                <span className="sc-key">Space</span><span>Play / Pause</span>
+                <span className="sc-key">, / .</span><span>Step frame back / forward</span>
+                <span className="sc-key">I</span><span>Set in point to playhead</span>
+                <span className="sc-key">O</span><span>Set out point to playhead</span>
+                <span className="sc-key">J</span><span>Seek to in point</span>
+                <span className="sc-key">K</span><span>Seek to out point</span>
+                <span className="sc-key">[ / ]</span><span>Expand in / out point</span>
+                <span className="sc-key">R / U</span><span>Reset trim to full clip</span>
+                <span className="sc-key">⇧ ← / →</span><span>Nudge active handle</span>
+                <span className="sc-key">⌘Z / ⇧⌘Z</span><span>Undo / Redo trim</span>
+              </div>
+            </div>
+          )}
           <div className="slider-row trim-dual-row">
             <span className="time-label time-label-left">{startTime.toFixed(1)}s</span>
             <div
               ref={trimWrapRef}
               className="trim-dual-wrap"
               onWheel={handleTrimWheel}
-              title="Wheel to pan timeline. Ctrl/Cmd + wheel to zoom."
+              onClick={handleTimelineClick}
+              title="Click to seek · Wheel to pan · Ctrl+Wheel to zoom"
+              style={{ cursor: filePath ? "crosshair" : undefined }}
             >
               <div className="trim-dual-track" />
               <div
@@ -926,6 +1025,7 @@ export default function App() {
                 <div
                   className="trim-playhead"
                   style={{ left: `${trimPlayheadLeftPct}%` }}
+                  onMouseDown={handlePlayheadDragStart}
                 />
               )}
               <input
