@@ -529,22 +529,66 @@
 
 .trim-playhead {
   position: absolute;
-  top: 2px;
-  bottom: 2px;
+  top: -4px;
+  bottom: -4px;
   width: 2px;
   background: rgba(255, 255, 255, 0.90);
   border-radius: 2px;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: ew-resize;
   transform: translateX(-50%);
-  z-index: 2;
+  z-index: 4;
   transition: left 80ms linear;
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.50);
+}
+
+.trim-playhead::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid rgba(255, 255, 255, 0.90);
 }
 
 @media (prefers-color-scheme: light) {
   .trim-playhead {
     background: rgba(0, 0, 0, 0.70);
   }
+  .trim-playhead::before {
+    border-top-color: rgba(0, 0, 0, 0.70);
+  }
+}
+
+.trim-shortcuts-btn.active {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.trim-shortcuts-panel {
+  margin-top: 6px;
+  background: var(--surface2);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 8px 10px;
+}
+
+.trim-shortcuts-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.sc-key {
+  font-family: ui-monospace, monospace;
+  color: var(--text);
+  white-space: nowrap;
 }
 
 .slider-label {
