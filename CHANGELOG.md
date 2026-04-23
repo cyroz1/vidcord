@@ -1,5 +1,21 @@
 # Changelog
 
+## v6.2
+
+### Trim UX improvements
+
+- **Draggable playhead**: the playhead can now be grabbed and dragged directly on the timeline in addition to click-to-seek.
+- **Free-roam playhead**: playhead is no longer clamped to the trim range — it moves freely across the full clip duration, matching Premiere Pro's model. Trim handles define the export region only.
+- **I / O shortcuts**: press `I` or `O` to stamp the trim start or end handle to the current playhead position; dedicated In / Out buttons flank the time labels for mouse users.
+- **Shortcuts panel**: press `?` to open a full cheat-sheet of every keybinding; `Esc` or backdrop-click dismisses.
+- Fixed ref-staleness bug where rapid undo/redo and pointer drags could read stale `startTime` / `endTime` values during scrubbing.
+
+### Visual
+
+- Removed `backdrop-filter` blur / saturation from the app window (`#root`). The liquid-glass Mica effect has been stripped; the window now renders with a solid background.
+
+---
+
 ## v6.1
 
 ### macOS Tahoe Liquid Glass UI
