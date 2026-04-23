@@ -94,10 +94,7 @@ html, body, #root {
 #root {
   display: flex;
   flex-direction: column;
-  /* Liquid glass window — blurs the desktop wallpaper behind the window */
   background: var(--bg);
-  backdrop-filter: blur(40px) saturate(160%);
-  -webkit-backdrop-filter: blur(40px) saturate(160%);
 }
 
 button {
