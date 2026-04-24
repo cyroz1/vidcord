@@ -1,8 +1,15 @@
-# <img src="public/icon.png" height="28" align="left"> vidcord
+# <img src="public/icon.png" height="28" align="left"> vidcord — video compressor for Discord
 
-A fast, lightweight desktop app that compresses videos under Discord's upload
-limits — powered by system FFmpeg, built with [Tauri 2](https://tauri.app)
-(Rust + React).
+**vidcord** is a free, open-source **video compressor for Discord** on
+**Windows, macOS, and Linux**. It shrinks **MP4, MOV, MKV, AVI, WebM, FLV,
+and WMV** files under Discord's upload size limits — **10 MB (free),
+25 MB (legacy), 50 MB (Nitro Basic / Server Boost Level 2), 100 MB (Boost
+Level 3), and 500 MB (Nitro Full)** — by wrapping the system
+[FFmpeg](https://ffmpeg.org) binary with a trim timeline, hardware-accelerated
+encoding (NVIDIA NVENC, AMD AMF, Intel Quick Sync, Linux VAAPI, Apple
+VideoToolbox), and a ~10 MB installer. Built with
+[Tauri 2](https://tauri.app) (Rust + React). 100% local — no accounts,
+no uploads, no telemetry.
 
 <p>
   <img alt="Platforms"    src="https://img.shields.io/badge/platforms-windows%20%7C%20macos%20%7C%20linux-3b82f6">
@@ -14,7 +21,14 @@ limits — powered by system FFmpeg, built with [Tauri 2](https://tauri.app)
   <img alt="License"      src="https://img.shields.io/badge/license-MIT-blue">
 </p>
 
-![Program window](screenshots/window.png)
+![vidcord main window: loaded video with preset picker and compress button](screenshots/window.png)
+
+> **At a glance** — Cross-platform desktop app (Windows 10/11, macOS 11+,
+> Linux) · x86_64 + aarch64 · ~10 MB installer · Compresses MP4, MOV, MKV,
+> AVI, WebM, FLV, WMV to `.mp4` · Targets Discord's 10 / 25 / 50 / 100 /
+> 500 MB limits · Hardware-accelerated (NVENC / AMF / QSV / VAAPI /
+> VideoToolbox) · Requires system FFmpeg on `PATH` · MIT licensed ·
+> Works fully offline.
 
 ---
 
@@ -31,6 +45,7 @@ limits — powered by system FFmpeg, built with [Tauri 2](https://tauri.app)
 - [Building from source](#building-from-source)
 - [Project layout](#project-layout)
 - [Troubleshooting](#troubleshooting)
+- [FAQ](#faq)
 - [Contributing](#contributing)
 - [License](#license)
 - [Acknowledgements](#acknowledgements)
@@ -82,15 +97,22 @@ folder — under the size limit you asked for, on the first try.
 - **Cross-platform installers:** Windows NSIS (x86_64 + aarch64), macOS
   universal `.dmg`, Linux `.AppImage` (x86_64 + aarch64).
 
+### Supported input formats
+
+MP4, MOV, MKV, AVI, WebM, FLV, WMV, and any other container / codec
+combination your system FFmpeg can demux. Output is always `.mp4` — H.264
+(AVC) by default, H.265 (HEVC) if you pick an `hevc_*` encoder in Advanced
+mode.
+
 ## Screenshots
 
 | Main window | Advanced mode |
 |---|---|
-| ![Main window](screenshots/window.png) | ![Advanced mode](screenshots/advancedmode.png) |
+| ![vidcord main window with trim timeline, size preset picker, and progress bar](screenshots/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](screenshots/advancedmode.png) |
 
 | Output file | Windows context menu | macOS Finder |
 |---|---|---|
-| ![Output file](screenshots/file.png) | ![Windows context menu](screenshots/context.png) | ![Finder context menu](screenshots/finder.png) |
+| ![Compressed video saved to the Downloads folder as name-vidcord.mp4](screenshots/file.png) | ![Windows File Explorer right-click menu with Open with vidcord entry on a video file](screenshots/context.png) | ![macOS Finder right-click menu with Open with vidcord entry on a video file](screenshots/finder.png) |
 
 ## Install
 
@@ -310,6 +332,85 @@ Shouldn't happen — every FFmpeg invocation sets `CREATE_NO_WINDOW`
 
 Logs live alongside `settings.json` as `vidcord.log` (rotated at 5 MB).
 
+## FAQ
+
+### Is vidcord free and open-source?
+
+Yes. vidcord is released under the [MIT License](LICENSE) with the full
+source on GitHub. There are no paid tiers, accounts, or trials.
+
+### Does vidcord upload my videos anywhere?
+
+No. vidcord runs entirely on your computer — no server, no account,
+no telemetry. The only network call is an optional background check
+against the GitHub Releases API for new versions, which you can disable
+in settings.
+
+### What are Discord's video upload size limits?
+
+- **Free accounts:** 10 MB per file (was 8 MB before late 2022; 25 MB
+  is a legacy value still applied to some accounts).
+- **Server Boost Level 2 / Nitro Basic uploads:** 50 MB.
+- **Server Boost Level 3 uploads:** 100 MB (also the ceiling for the
+  [Clips Bypass](https://github.com/riolubruh/YABDP4Nitro?tab=readme-ov-file#clips)
+  trick).
+- **Nitro Full:** 500 MB per file.
+
+vidcord ships one preset per tier and picks a resolution cap that usually
+still looks reasonable at that bitrate.
+
+### Which video formats does vidcord support?
+
+Any container your system FFmpeg can demux: **MP4, MOV, MKV, AVI, WebM,
+FLV, WMV**, and more. Output is always `.mp4` (H.264 by default, H.265
+if you pick an `hevc_*` encoder in Advanced mode).
+
+### Does vidcord require Discord Nitro?
+
+No. The 10 MB and 25 MB presets target free Discord accounts
+specifically; the 50 / 100 / 500 MB presets are there for boosted
+servers and Nitro subscribers.
+
+### How is vidcord different from using FFmpeg directly?
+
+vidcord calculates the right target bitrate for your clip length and
+size limit, picks the best hardware encoder for your GPU, streams
+progress and ETA back while FFmpeg runs, handles visual trimming, and
+writes to a predictable, auto-incremented path in your Downloads folder.
+Under the hood it's still FFmpeg — Advanced mode exposes the encoder
+string so you can override any of it.
+
+### Can vidcord compress a video without re-encoding?
+
+Not currently. Hitting a specific target size under Discord's limits
+requires re-encoding at a calculated bitrate; stream-copy wouldn't
+guarantee the output fits.
+
+### Does vidcord work on Linux and Wayland?
+
+Yes. vidcord ships as an `.AppImage` for x86_64 and aarch64 and is
+tested on GNOME, KDE Plasma, LXQt, Sway, and Hyprland on both X11 and
+Wayland. Hardware-accelerated encoding uses VAAPI via `/dev/dri/renderD*`.
+
+### Is there a CLI version?
+
+No — vidcord is a GUI app. For scripted workflows, call FFmpeg directly;
+the presets in vidcord are just wrappers around standard FFmpeg arguments.
+
+### Does vidcord work offline?
+
+Yes. Once vidcord and FFmpeg are installed, no internet connection is
+needed to compress a video.
+
+### What are the system requirements?
+
+- Windows 10 or 11 (x86_64 or aarch64) with the WebView2 Runtime
+  (pre-installed on Windows 11).
+- macOS 11 (Big Sur) or newer, Intel or Apple Silicon.
+- Linux with `glibc` and WebKit2GTK 4.1 (almost every modern desktop
+  distribution).
+- ~50 MB disk for the app, plus whatever FFmpeg needs (~100 MB).
+
 ## Contributing
 
 Issues and PRs are welcome. Before opening a PR:
@@ -341,3 +442,14 @@ redistribute them.
 - [React](https://react.dev/) + [Vite](https://vitejs.dev/) — frontend.
 - [YABDP4Nitro](https://github.com/riolubruh/YABDP4Nitro) — documented the
   Discord Clips size-limit quirk that the 100 MB preset targets.
+
+---
+
+<sub>
+Keywords: Discord video compressor, compress video for Discord, Discord
+10 MB limit, Discord 25 MB limit, Discord 50 MB upload, Discord 100 MB
+upload, Discord 500 MB Nitro, shrink MP4 for Discord, FFmpeg GUI,
+FFmpeg frontend, cross-platform video compressor, Windows video
+compressor, macOS video compressor, Linux video compressor, open-source
+video compressor, free video compressor.
+</sub>
