@@ -11,6 +11,7 @@ limits — powered by system FFmpeg, built with [Tauri 2](https://tauri.app)
   <img alt="Downloads"    src="https://img.shields.io/github/downloads/cyroz1/vidcord/total">
   <img alt="Build"        src="https://img.shields.io/github/actions/workflow/status/cyroz1/vidcord/build.yml?branch=main">
   <img alt="Installer"    src="https://img.shields.io/badge/installer-~10%20MB-16a34a">
+  <img alt="License"      src="https://img.shields.io/badge/license-MIT-blue">
 </p>
 
 ![Program window](screenshots/window.png)
@@ -31,6 +32,7 @@ limits — powered by system FFmpeg, built with [Tauri 2](https://tauri.app)
 - [Project layout](#project-layout)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
+- [License](#license)
 - [Acknowledgements](#acknowledgements)
 
 ---
@@ -324,6 +326,13 @@ Read [CLAUDE.md](CLAUDE.md) for the architectural invariants you're
 expected not to break (Tauri command registration, blocking work and
 `spawn_blocking`, the three file-open delivery paths, Linux env shims for
 KDE / LXQt / Sway / Hyprland, cache invalidation rules).
+
+## License
+
+vidcord is released under the [MIT License](LICENSE). FFmpeg is a separate
+dependency and is licensed under the LGPL/GPL by its own authors — vidcord
+invokes the `ffmpeg` and `ffprobe` binaries on your system but does not
+redistribute them.
 
 ## Acknowledgements
 
