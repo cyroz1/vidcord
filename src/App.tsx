@@ -60,6 +60,10 @@ type FfmpegInstallResult = {
   guide_url?: string | null;
 };
 
+function isH265Encoder(name: string): boolean {
+  return name === "libx265" || name.startsWith("hevc_");
+}
+
 function buildScaleFilter(
   ow: number,
   oh: number,
@@ -822,9 +826,16 @@ export default function App() {
                     saveSettings({ encoder_index: +e.target.value, encoder_label: encoders[+e.target.value]?.label });
                   }}
                 >
-                  {encoders.map((e, i) => (
-                    <option key={e.name} value={i}>{e.label}</option>
-                  ))}
+                  <optgroup label="H.264 — universally compatible">
+                    {encoders.map((e, i) => !isH265Encoder(e.name) && (
+                      <option key={e.name} value={i}>{e.label}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="H.265 — more efficient, may not play for all recipients">
+                    {encoders.map((e, i) => isH265Encoder(e.name) && (
+                      <option key={e.name} value={i}>{e.label}</option>
+                    ))}
+                  </optgroup>
                 </select>
                 <button
                   type="button"
@@ -838,6 +849,14 @@ export default function App() {
                   {removeAudio ? "Unmute" : "Mute"}
                 </button>
               </div>
+              {isH265Encoder(encoders[encoderIdx]?.name ?? "") && (
+                <div className="encoder-warning">
+                  ⚠ H.265 compresses more efficiently (better quality at the
+                  same target size), but isn't supported on all devices,
+                  browsers, or older Discord clients — recipients may see a
+                  black screen or audio-only playback.
+                </div>
+              )}
             </label>
           </div>
         )}
