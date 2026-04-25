@@ -120,14 +120,14 @@ mod tests {
     fn semver_compare_equal_no_update() {
         let cur = semver::Version::parse(&normalize_semver("6.2.0")).unwrap();
         let latest = semver::Version::parse(&normalize_semver("v6.2.0")).unwrap();
-        assert!(!(latest > cur));
+        assert!(latest <= cur);
     }
 
     #[test]
     fn semver_compare_older_no_update() {
         let cur = semver::Version::parse(&normalize_semver("6.3.0")).unwrap();
         let latest = semver::Version::parse(&normalize_semver("v6.2.5")).unwrap();
-        assert!(!(latest > cur));
+        assert!(latest <= cur);
     }
 
     #[test]
