@@ -28,6 +28,8 @@ pub struct Settings {
     pub encoder_label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub update_last_check: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_dismissed_version: Option<String>,
 }
 
 fn settings_path() -> &'static PathBuf {
