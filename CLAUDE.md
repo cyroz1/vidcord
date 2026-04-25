@@ -193,6 +193,7 @@ The app re-renders on every trim-slider move. Established patterns:
 
 ### Commits / PRs
 
+- **Run the relevant quality gates before every commit.** If Rust changed: `cargo fmt --check --manifest-path src-tauri/Cargo.toml`, `cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings`, `cargo test --manifest-path src-tauri/Cargo.toml`. If frontend changed: `npm run lint`, `npm run typecheck`, `npm test`. Fix failures before committing — never push and let CI catch it.
 - Don't bump `version` in `package.json` + `Cargo.toml` + `tauri.conf.json` casually. A version bump implies a release; only do it when explicitly requested.
 - Add CHANGELOG entries under a new `## vX.Y` heading — the release workflow extracts that section as the GitHub release body.
 
