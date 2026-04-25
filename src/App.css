@@ -269,6 +269,21 @@
   box-shadow: 0 0 0 3px var(--accent-glow), var(--card-top);
 }
 
+/* Native dropdown popup — backdrop-filter doesn't apply to the OS popup,
+   so options need an explicit opaque background or Windows renders them
+   with white-on-white system colours. */
+select option {
+  background-color: rgb(28, 28, 32);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+@media (prefers-color-scheme: light) {
+  select option {
+    background-color: rgb(248, 248, 250);
+    color: rgba(0, 0, 0, 0.88);
+  }
+}
+
 .advanced .encoder-label { flex: 2; }
 
 .encoder-row { display: flex; gap: 4px; }
