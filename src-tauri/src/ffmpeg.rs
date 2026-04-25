@@ -582,13 +582,29 @@ pub fn get_available_encoders() -> Vec<(String, String)> {
 
     let candidates = [
         ("libx264", "CPU (libx264)", true, ""),
+        ("libx265", "CPU H.265 (libx265)", true, ""),
         ("h264_nvenc", "NVIDIA (h264_nvenc)", false, "nvidia"),
+        ("hevc_nvenc", "NVIDIA H.265 (hevc_nvenc)", false, "nvidia"),
         ("h264_amf", "AMD (h264_amf)", false, "amd"),
+        ("hevc_amf", "AMD H.265 (hevc_amf)", false, "amd"),
         ("h264_qsv", "Intel (h264_qsv)", false, "intel"),
+        ("hevc_qsv", "Intel H.265 (hevc_qsv)", false, "intel"),
         ("h264_vaapi", "Linux Hardware (h264_vaapi)", false, "vaapi"),
+        (
+            "hevc_vaapi",
+            "Linux Hardware H.265 (hevc_vaapi)",
+            false,
+            "vaapi",
+        ),
         (
             "h264_videotoolbox",
             "Apple Silicon (h264_videotoolbox)",
+            false,
+            "apple",
+        ),
+        (
+            "hevc_videotoolbox",
+            "Apple Silicon H.265 (hevc_videotoolbox)",
             false,
             "apple",
         ),
