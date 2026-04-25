@@ -395,11 +395,19 @@ export default function App() {
       { currentVersion: CURRENT_VERSION }
     )
       .then((r) => {
-        saveSettings({ update_last_check: Date.now() / 1000 });
-        if (r.update_available && r.latest_version && r.release_url)
-          setUpdateInfo({ version: r.latest_version, url: r.release_url });
+        if (r.update_available && r.latest_version && r.release_url) {
+          const dismissed = settingsRef.current.update_dismissed_version as string | undefined;
+          if (dismissed !== r.latest_version) {
+            setUpdateInfo({ version: r.latest_version, url: r.release_url });
+          }
+        }
       })
-      .catch(() => {});
+      // Advance the throttle timestamp on both success and failure so a
+      // transient network error doesn't cause every subsequent app launch to
+      // re-fire the request immediately.
+      .finally(() => {
+        saveSettings({ update_last_check: Date.now() / 1000 });
+      });
   }, [saveSettings, settingsLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Compression ---
@@ -740,7 +748,15 @@ export default function App() {
           >
             Download
           </a>
-          <button className="update-dismiss" onClick={() => setUpdateInfo(null)}>✕</button>
+          <button
+            className="update-dismiss"
+            onClick={() => {
+              saveSettings({ update_dismissed_version: updateInfo.version });
+              setUpdateInfo(null);
+            }}
+          >
+            ✕
+          </button>
         </div>
       )}
 
