@@ -1,6 +1,6 @@
 [package]
 name = "vidcord"
-version = "6.2.0"
+version = "6.3.0"
 description = "Compress videos for Discord"
 authors = ["cyroz1"]
 edition = "2021"

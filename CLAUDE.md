@@ -207,7 +207,7 @@ When the user asks to change the version, update **every** reference in one comm
    - `src-tauri/Cargo.toml` (`version`, full semver)
    - `src-tauri/Cargo.lock` (run `cargo check --manifest-path src-tauri/Cargo.toml` so the lockfile updates)
    - `src-tauri/tauri.conf.json` (`version`, full semver)
-2. **Source code**: grep for the **previous** full semver and `vX.Y` short form across the repo (`README.md`, `CHANGELOG.md`, `src/**`, `src-tauri/src/**`, docs). Update test fixtures (e.g. `src-tauri/src/commands/updates.rs` semver-comparison tests), inline copy, and any hard-coded version strings. The frontend's `DISPLAY_VERSION` is derived from `package.json` and does not need a manual edit.
+2. **Source code**: grep for the **previous** full semver and `vX.Y` short form across the repo (`README.md`, `src/**`, `src-tauri/src/**`, docs). Update inline copy and any hard-coded version strings that declare or display the current app version. The frontend's `DISPLAY_VERSION` is derived from `package.json` and does not need a manual edit. **Skip** test fixtures that use semver strings as arbitrary inputs (e.g. `src-tauri/src/commands/updates.rs` semver-comparison tests) — those exercise comparison invariants, not the current version.
 3. **Verify**: `git grep -E "<old-semver>|v<old-major>\.<old-minor>"` should return zero hits before committing (excluding `Cargo.lock`/`package-lock.json` entries for unrelated dependencies that share the version string — read each match before assuming).
 4. Run the relevant quality gates (above) before committing.
 
