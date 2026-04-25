@@ -1,5 +1,31 @@
 # Changelog
 
+## v6.3
+
+### Encoders
+
+- **H.265 / HEVC support**: `libx265` (CPU) and the hardware variants `hevc_nvenc`, `hevc_amf`, `hevc_qsv`, `hevc_vaapi`, and `hevc_videotoolbox` now appear directly in the normal-mode encoder dropdown. Hardware encoders are gated on the same vendor / VAAPI-device detection as their H.264 counterparts and are only listed when the installed FFmpeg actually exposes them.
+
+### Visual
+
+- **Dropdown readability on Windows**: option lists in the encoder, target, snap, and resolution dropdowns now render with an explicit opaque background and text colour. The native popup ignores `backdrop-filter`, so on Windows the transparent select previously fell back to system colours and rendered options as white-on-white.
+- **Solid window background**: `--bg` is now fully opaque and the body no longer carries a transparent background, eliminating desktop bleed-through after the v6.2 transparency fix.
+
+### Update checker
+
+- The 6-hour throttle now advances on update-check failure as well as success, so a transient network error no longer causes every subsequent app launch to refire the request immediately.
+- Banner dismissal persists across launches: dismissing the "Version X available" banner skips it until a newer release appears.
+- Update-check failures are routed through the rotating log so opaque "no banner" reports are diagnosable.
+- The GitHub API request now includes `CARGO_PKG_VERSION` in its User-Agent.
+
+### Documentation
+
+- Rewrote `README.md` to production standards: badges, table of contents, hero screenshot, feature list grouped by capability, per-platform install table, FFmpeg setup, usage walkthrough, keyboard shortcuts, hardware-encoder matrix, build-from-source and CI notes, troubleshooting, and contributing guidelines.
+- README also tuned for search and LLM retrieval: keyword-rich H1, "At a glance" facts block, supported-input-formats list, FAQ section, and descriptive screenshot alt text.
+- Added MIT license at the repo root with a corresponding README section noting that FFmpeg remains a separate system dependency under its own terms.
+
+---
+
 ## v6.2
 
 ### Trim UX improvements
