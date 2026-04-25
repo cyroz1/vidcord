@@ -6,7 +6,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 
 **vidcord** is a cross-platform desktop app that compresses video files under Discord's size limits. It is built with **Tauri 2** (Rust backend + React/TypeScript frontend) and shells out to the system **FFmpeg** binary for all video work. It does **not** bundle FFmpeg — the system `ffmpeg`/`ffprobe` must be on `PATH`.
 
-- **App version**: `6.1.0` (both `package.json` and `src-tauri/Cargo.toml` should stay in sync)
+- **App version**: kept in sync across `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and any `vX.Y` references in source/docs (see "Bumping the version" below)
 - **Window**: fixed-size 460×630, non-resizable, transparent (macOS Tahoe "liquid glass" styling)
 - **Supported OS/arch**: Windows (x86_64 + aarch64), macOS (universal), Linux (x86_64 + aarch64)
 - **Node**: `^20.19.0 || >=22.12.0` (see `package.json` engines)
@@ -194,8 +194,34 @@ The app re-renders on every trim-slider move. Established patterns:
 ### Commits / PRs
 
 - **Run the relevant quality gates before every commit.** If Rust changed: `cargo fmt --check --manifest-path src-tauri/Cargo.toml`, `cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings`, `cargo test --manifest-path src-tauri/Cargo.toml`. If frontend changed: `npm run lint`, `npm run typecheck`, `npm test`. Fix failures before committing — never push and let CI catch it.
-- Don't bump `version` in `package.json` + `Cargo.toml` + `tauri.conf.json` casually. A version bump implies a release; only do it when explicitly requested.
+- Don't bump the version casually. A version bump implies a release; only do it when explicitly requested. Follow the "Bumping the version" steps below — partial bumps cause CI/release mismatches.
 - Add CHANGELOG entries under a new `## vX.Y` heading — the release workflow extracts that section as the GitHub release body.
+
+### Bumping the version
+
+When the user asks to change the version, update **every** reference in one commit so semver and `vX.Y` references stay aligned. There is no single source of truth — these all need to match:
+
+1. **Packaging / source**:
+   - `package.json` (`version`, full semver e.g. `6.3.0`)
+   - `package-lock.json` (run `npm install` after editing `package.json` so the lockfile picks up the new version — don't hand-edit)
+   - `src-tauri/Cargo.toml` (`version`, full semver)
+   - `src-tauri/Cargo.lock` (run `cargo check --manifest-path src-tauri/Cargo.toml` so the lockfile updates)
+   - `src-tauri/tauri.conf.json` (`version`, full semver)
+2. **Source code**: grep for the **previous** full semver and `vX.Y` short form across the repo (`README.md`, `CHANGELOG.md`, `src/**`, `src-tauri/src/**`, docs). Update test fixtures (e.g. `src-tauri/src/commands/updates.rs` semver-comparison tests), inline copy, and any hard-coded version strings. The frontend's `DISPLAY_VERSION` is derived from `package.json` and does not need a manual edit.
+3. **Verify**: `git grep -E "<old-semver>|v<old-major>\.<old-minor>"` should return zero hits before committing (excluding `Cargo.lock`/`package-lock.json` entries for unrelated dependencies that share the version string — read each match before assuming).
+4. Run the relevant quality gates (above) before committing.
+
+### Tagging and pushing a release
+
+When the user asks to tag and push `vX.Y`:
+
+1. **Confirm version alignment**: every reference listed under "Bumping the version" must already match the requested version. If anything lags, fix it in a preparatory commit first — never tag a tree where the source disagrees with the tag.
+2. **Update `CHANGELOG.md`**: add a `## vX.Y` section at the top with all user-visible changes since the previous tag. Source the list from `git log <previous-tag>..HEAD --no-merges --pretty=format:"%s"` and rewrite as user-facing release notes (drop refactor/chore/test-only commits unless they affect behaviour). The release workflow extracts this section verbatim as the GitHub release body, so it is the public changelog.
+3. **Commit** the CHANGELOG (and any version edits, if step 1 needed them).
+4. **Tag with the `vX.Y` short form** (matching existing tags — see `git tag --list`): `git tag vX.Y`. Do **not** use `vX.Y.Z` — the existing tag history is short-form and the release workflow's CHANGELOG extraction matches `## vX.Y`.
+5. **Push** the commit and the tag to `main`: `git push origin main` then `git push origin vX.Y`. Pushing the tag triggers the release workflow (`build.yml` → `release` job) which builds the `release` profile and drafts a GitHub release.
+
+Confirm with the user before pushing the tag — tag pushes are hard to reverse and trigger the public release pipeline.
 
 ## CI reference
 
