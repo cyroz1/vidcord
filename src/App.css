@@ -289,6 +289,13 @@ select option {
 .encoder-row { display: flex; gap: 4px; }
 .encoder-row input { flex: 1; }
 .encoder-row select { flex: 1; }
+.encoder-warning {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--warning);
+  font-weight: 400;
+}
 
 .mute-btn {
   background: var(--surface);
