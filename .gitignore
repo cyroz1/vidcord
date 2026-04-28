@@ -2,6 +2,7 @@
 node_modules/
 dist/
 dist-ssr/
+.tsbuildinfo
 *.local
 
 # Tauri / Rust Backend
