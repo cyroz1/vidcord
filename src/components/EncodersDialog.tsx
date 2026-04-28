@@ -11,8 +11,7 @@ export default function EncodersDialog({ text, onClose }: Props) {
       }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div style={{
-        background: "var(--surface)",
+      <div className="encoders-dialog" style={{
         border: "1px solid var(--border-subtle)",
         borderRadius: "var(--radius)",
         width: "min(720px, 95vw)",

@@ -64,6 +64,15 @@ function isH265Encoder(name: string): boolean {
   return name === "libx265" || name.startsWith("hevc_");
 }
 
+function parseListedEncoderNames(text: string): string[] {
+  const names = new Set<string>();
+  for (const line of text.split(/\r?\n/)) {
+    const name = line.trim().split(/\s+/)[0] ?? "";
+    if (/^[A-Za-z0-9_]+$/.test(name)) names.add(name);
+  }
+  return Array.from(names);
+}
+
 function buildScaleFilter(
   ow: number,
   oh: number,
@@ -136,6 +145,7 @@ export default function App() {
   // --- UI state ---
   const [updateInfo, setUpdateInfo] = useState<{ version: string; url: string } | null>(null);
   const [encodersDialogText, setEncodersDialogText] = useState<string | null>(null);
+  const [listedEncoderNames, setListedEncoderNames] = useState<string[]>([]);
   const [installingFfmpeg, setInstallingFfmpeg] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
 
@@ -498,10 +508,21 @@ export default function App() {
     advEncoder, qualityIdx, encoderIdx, encoders, removeAudio, addToast, setCompressing,
   ]);
 
-  const showEncoders = useCallback(async () => {
+  const loadListedEncoders = useCallback(async () => {
     const text = await invoke<string>("list_ffmpeg_video_encoders").catch((e) => `Error: ${e}`);
-    setEncodersDialogText(text);
+    setListedEncoderNames(parseListedEncoderNames(text));
+    return text;
   }, []);
+
+  const showEncoders = useCallback(async () => {
+    const text = await loadListedEncoders();
+    setEncodersDialogText(text);
+  }, [loadListedEncoders]);
+
+  useEffect(() => {
+    if (!settingsLoaded || !advancedMode || listedEncoderNames.length > 0) return;
+    loadListedEncoders().catch(() => {});
+  }, [advancedMode, listedEncoderNames.length, loadListedEncoders, settingsLoaded]);
 
   const retryFfmpegDetection = useCallback(async () => {
     await refreshEncoders().catch(() => {});
@@ -610,10 +631,18 @@ export default function App() {
     for (const enc of encoders) {
       if (enc.name.toLowerCase().startsWith(lower)) return enc.name;
     }
+    for (const name of listedEncoderNames) {
+      if (name.toLowerCase().startsWith(lower)) return name;
+    }
     return undefined;
-  }, [advEncoder, encoders]);
+  }, [advEncoder, encoders, listedEncoderNames]);
 
   const showPrediction = predictedEncoder !== undefined && predictedEncoder !== advEncoder;
+
+  const encoderAutocompleteOptions = useMemo(
+    () => Array.from(new Set([...encoders.map((enc) => enc.name), ...listedEncoderNames])),
+    [encoders, listedEncoderNames]
+  );
 
   // Playhead time is now pushed from PreviewPane via the onTimeUpdate prop
   // (driven by the media element's `timeupdate` event and explicit seeks)
@@ -905,18 +934,25 @@ export default function App() {
                   )}
                   <input
                     type="text"
+                    list="encoder-autocomplete-options"
+                    autoComplete="off"
                     placeholder="e.g. libx264"
                     value={advEncoder}
                     style={{ position: "relative", zIndex: 1, backgroundColor: "transparent", width: "100%" }}
                     onChange={(e) => { setAdvEncoder(e.target.value); saveSettings({ advanced_encoder: e.target.value }); }}
                     onKeyDown={(e) => {
-                      if (e.key === "Tab" && showPrediction) {
+                      if ((e.key === "Tab" || e.key === "ArrowRight") && showPrediction) {
                         e.preventDefault();
                         setAdvEncoder(predictedEncoder!);
                         saveSettings({ advanced_encoder: predictedEncoder! });
                       }
                     }}
                   />
+                  <datalist id="encoder-autocomplete-options">
+                    {encoderAutocompleteOptions.map((option) => (
+                      <option key={option} value={option} />
+                    ))}
+                  </datalist>
                 </div>
                 <button
                   type="button"
