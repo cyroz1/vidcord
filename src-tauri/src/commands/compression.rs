@@ -196,6 +196,10 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     }
 
     let output_path = opts.output_path;
+    cmd_args.extend([
+        "-metadata".into(),
+        "comment=Compressed with vidcord - cyroz.net/vidcord".into(),
+    ]);
     cmd_args.push(output_path.clone());
 
     vidcord_log(&format!("FFmpeg command: ffmpeg {}", cmd_args.join(" ")));

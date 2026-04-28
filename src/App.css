@@ -277,10 +277,20 @@ select option {
   color: rgba(255, 255, 255, 0.92);
 }
 
+select optgroup {
+  background-color: rgb(28, 28, 32);
+  color: rgba(255, 255, 255, 0.62);
+}
+
 @media (prefers-color-scheme: light) {
   select option {
     background-color: rgb(248, 248, 250);
     color: rgba(0, 0, 0, 0.88);
+  }
+
+  select optgroup {
+    background-color: rgb(248, 248, 250);
+    color: rgba(0, 0, 0, 0.58);
   }
 }
 
@@ -339,6 +349,16 @@ select option {
 }
 .icon-btn:hover { color: var(--text); background: var(--surface2); }
 .icon-btn:active { filter: brightness(0.90); }
+
+.encoders-dialog {
+  background: rgb(28, 28, 32);
+}
+
+@media (prefers-color-scheme: light) {
+  .encoders-dialog {
+    background: rgb(248, 248, 250);
+  }
+}
 
 /* ── macOS-style Toggle Switch ───────────────────────────────────────── */
 .options-row { align-items: center; }
