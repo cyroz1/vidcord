@@ -192,11 +192,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const filmstripUrlsRef = useRef<string[]>([]);
   // Index into filmstripUrlsRef to display during scrubbing (null = use frameUrl)
   const [filmstripIdx, setFilmstripIdx] = useState<number | null>(null);
-  const filmstripActiveRef = useRef(false); // cancels in-flight filmstrip fetch on file change
+  const filmstripRequestIdRef = useRef(0);
 
   const currentPlaybackTimeRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const activeRef = useRef(false);
+  const frameRequestIdRef = useRef(0);
   const prevStartTimeRef = useRef(startTime);
   const prevEndTimeRef = useRef(endTime);
   const prevFilePathRef = useRef<string | null>(filePath);
@@ -292,16 +292,18 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   useEffect(() => {
     if (!filePath || !probeData || probeData.duration <= 0) {
+      filmstripRequestIdRef.current += 1;
       clearFilmstrip();
       return;
     }
-    filmstripActiveRef.current = true;
+    const requestId = filmstripRequestIdRef.current + 1;
+    filmstripRequestIdRef.current = requestId;
     invoke<Uint8Array>("get_filmstrip", {
       path: filePath,
       durationSec: probeData.duration,
     })
       .then(rawBytes => {
-        if (!filmstripActiveRef.current) return; // stale — file changed
+        if (filmstripRequestIdRef.current !== requestId) return;
         const frames = splitJpegStream(new Uint8Array(rawBytes.buffer as ArrayBuffer));
         if (frames.length === 0) return;
         // Revoke previous strip's URLs before replacing
@@ -316,40 +318,43 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       });
 
     return () => {
-      filmstripActiveRef.current = false;
+      if (filmstripRequestIdRef.current === requestId) {
+        filmstripRequestIdRef.current += 1;
+      }
     };
   }, [filePath, probeData, clearFilmstrip]);
 
   // ---------------------------------------------------------------------------
   // Frame preview (static JPEG)
   // ---------------------------------------------------------------------------
-  const fetchFrame = useCallback(async (path: string, time: number) => {
-    activeRef.current = true;
+  const fetchFrame = useCallback(async (path: string, time: number, requestId: number) => {
+    if (frameRequestIdRef.current !== requestId) return;
     setLoading(true);
     try {
       const buffer = await invoke<Uint8Array>("get_preview_frame", { path, timeSec: time });
-      if (activeRef.current) {
-        const blob = new Blob([buffer as Uint8Array<ArrayBuffer>], { type: "image/jpeg" });
-        const url = URL.createObjectURL(blob);
-        setFilmstripIdx(null); // exact frame is ready — stop showing filmstrip
-        setFrameUrl(prev => {
-          if (prev) URL.revokeObjectURL(prev);
-          return url;
-        });
-      }
+      if (frameRequestIdRef.current !== requestId) return;
+      const blob = new Blob([buffer as Uint8Array<ArrayBuffer>], { type: "image/jpeg" });
+      const url = URL.createObjectURL(blob);
+      setFilmstripIdx(null); // exact frame is ready — stop showing filmstrip
+      setFrameUrl(prev => {
+        if (prev) URL.revokeObjectURL(prev);
+        return url;
+      });
     } catch {
-      if (activeRef.current) {
-        setFilmstripIdx(null);
-        setFrameUrl(null);
-      }
+      if (frameRequestIdRef.current !== requestId) return;
+      setFilmstripIdx(null);
+      setFrameUrl(null);
     } finally {
-      setLoading(false);
+      if (frameRequestIdRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     if (!filePath || !probeData) {
-      activeRef.current = false;
+      frameRequestIdRef.current += 1;
+      setLoading(false);
       setFrameUrl(prev => {
         if (prev) URL.revokeObjectURL(prev);
         return null;
@@ -357,7 +362,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       stopPlayback();
       return;
     }
-    activeRef.current = false;
+    const requestId = frameRequestIdRef.current + 1;
+    frameRequestIdRef.current = requestId;
     stopPlayback();
     const isNewFile = filePath !== prevFilePathRef.current;
     const isInitialRange =
@@ -387,10 +393,12 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      fetchFrame(filePath, frameTime);
+      void fetchFrame(filePath, frameTime, requestId);
     }, 80); // filmstrip covers the gap; on-demand frame refines after 80 ms
     return () => {
-      activeRef.current = false;
+      if (frameRequestIdRef.current === requestId) {
+        frameRequestIdRef.current += 1;
+      }
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

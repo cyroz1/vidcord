@@ -14,7 +14,7 @@
     "strict": true,
     "noFallthroughCasesInSwitch": true,
     "incremental": true,
-    "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo"
+    "tsBuildInfoFile": ".tsbuildinfo"
   },
   "include": ["src"]
 }
