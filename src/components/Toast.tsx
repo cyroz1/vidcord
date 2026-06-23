@@ -76,7 +76,9 @@ function Toast({ type, title, message, onClose }: ToastProps) {
     <div style={wrapperStyle}>
       <div style={headerStyle}>
         <span style={titleStyle}>{title}</span>
-        <button onClick={onClose} style={closeBtnStyle}>✕</button>
+        <button onClick={onClose} style={closeBtnStyle}>
+          ✕
+        </button>
       </div>
       {message && <span style={messageStyle}>{message}</span>}
       <style>{KEYFRAMES}</style>

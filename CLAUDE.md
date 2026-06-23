@@ -115,8 +115,8 @@ All Rust→Frontend IO flows through `#[tauri::command]` functions registered in
 4. Heavy/blocking work (`ffmpeg`, `ffprobe`, `lspci`, `winget`, etc.) must run inside `tokio::task::spawn_blocking` — Tauri's command runtime uses a small async pool and blocking work there stalls the UI.
 
 Events flow the other direction via `AppHandle::emit` → `listen()` in the frontend:
-- `compress-progress` — percent, eta, status (emitted per FFmpeg stderr `time=` line)
-- `compress-done` — success/cancelled/message/output_path
+- `compress-progress` — percent, eta, status, attempt number, encoder, bitrate (emitted per FFmpeg stderr `time=` line and at retry boundaries)
+- `compress-done` — success/cancelled/message/output_path plus output/target size metadata when available
 - `open-file` — path from single-instance forwarding, macOS Apple Events, or CLI args
 - `tauri://drag-drop` — built-in Tauri event for drops on the window
 
@@ -202,7 +202,7 @@ The app re-renders on every trim-slider move. Established patterns:
 When the user asks to change the version, update **every** reference in one commit so semver and `vX.Y` references stay aligned. There is no single source of truth — these all need to match:
 
 1. **Packaging / source**:
-   - `package.json` (`version`, full semver e.g. `6.3.0`)
+   - `package.json` (`version`, full semver e.g. `6.4.0`)
    - `package-lock.json` (run `npm install` after editing `package.json` so the lockfile picks up the new version — don't hand-edit)
    - `src-tauri/Cargo.toml` (`version`, full semver)
    - `src-tauri/Cargo.lock` (run `cargo check --manifest-path src-tauri/Cargo.toml` so the lockfile updates)

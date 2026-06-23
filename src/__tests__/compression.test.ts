@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   calculateBitrate,
   computeTargetDimensions,
+  formatCompressionDone,
+  formatCompressionProgress,
+  formatSizeMb,
   resolutionToShortSide,
 } from "../hooks/useCompression";
 
@@ -27,6 +30,59 @@ describe("calculateBitrate", () => {
     const small = calculateBitrate(10, 60, true);
     const large = calculateBitrate(100, 60, true);
     expect(large).toBeCloseTo(small * 10, -2);
+  });
+});
+
+describe("compression status formatting", () => {
+  it("formats attempt metadata for progress updates", () => {
+    expect(
+      formatCompressionProgress({
+        percent: 42,
+        eta: "1m 12s",
+        status: "Retrying with CPU encoder at 80% size safety...",
+        attempt: 2,
+        attempt_total: 10,
+        encoder: "libx264",
+        video_bitrate_k: 720,
+      })
+    ).toBe("Attempt 2 · libx264 · 720 kbps · ETA: 1m 12s");
+  });
+
+  it("falls back to status text for legacy progress payloads", () => {
+    expect(
+      formatCompressionProgress({
+        percent: 10,
+        eta: "Calculating...",
+        status: "Compressing...",
+      })
+    ).toBe("Compressing... ETA: Calculating...");
+  });
+
+  it("formats final output size against the selected target", () => {
+    expect(
+      formatCompressionDone({
+        success: true,
+        message: "Compression complete!",
+        output_size_bytes: 23.7 * 1024 * 1024,
+        target_size_bytes: 25 * 1024 * 1024,
+      })
+    ).toBe("Compressed to 23.7 MB (target 25.0 MB).");
+  });
+
+  it("formats the smallest oversized result after target-size failure", () => {
+    expect(
+      formatCompressionDone({
+        success: false,
+        message: "Compression failed.",
+        smallest_output_size_bytes: 27.4 * 1024 * 1024,
+        target_size_bytes: 25 * 1024 * 1024,
+      })
+    ).toBe("Smallest result was 27.4 MB, above target 25.0 MB.");
+  });
+
+  it("formats small and large byte values", () => {
+    expect(formatSizeMb(5.25 * 1024 * 1024)).toBe("5.25 MB");
+    expect(formatSizeMb(500 * 1024 * 1024)).toBe("500 MB");
   });
 });
 

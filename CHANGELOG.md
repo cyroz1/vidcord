@@ -1,5 +1,29 @@
 # Changelog
 
+## v6.4
+
+### Compression
+
+- **Strict target-size verification**: finished outputs are measured against the selected size limit. Oversized results are removed and retried automatically.
+- **Smarter retry order**: if the first attempt misses the target, vidcord now tries `libx264` CPU encoding at the original bitrate before stepping down through 80%, 70%, and lower safety levels with the original encoder and CPU fallback.
+- **Clearer progress and results**: progress now shows the current attempt number, encoder, bitrate, and ETA. Success reports the final output size; failure reports the smallest oversized result.
+
+### Encoders
+
+- **Advanced encoder autocomplete**: replaced the browser datalist with a keyboard-friendly menu that filters installed encoders, keeps inline completion, and avoids horizontal overflow in the fixed-size window.
+- **H.265 grouping**: normal-mode encoder choices now group H.264 and H.265 options separately, with a compatibility warning when an HEVC encoder is selected.
+
+### Preview
+
+- Fixed preview race conditions so stale frame loads are ignored when switching files or scrubbing quickly.
+
+### Build
+
+- Tightened TypeScript and CI configuration for cleaner release checks.
+- Updated frontend and Rust transitive dependencies to clear release audit advisories.
+
+---
+
 ## v6.3
 
 ### Encoders

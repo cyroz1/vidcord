@@ -58,7 +58,9 @@ Discord caps uploads at 10 MB (free), 25 MB (legacy), 50 MB (Nitro Basic /
 Boost Level 2), 100 MB (Boost Level 3), and 500 MB (Nitro). vidcord picks a
 target bitrate for the clip length you want, runs FFmpeg with the right
 hardware encoder for your GPU, and drops the result in your **Downloads**
-folder — under the size limit you asked for, on the first try.
+folder. It verifies the finished file against your selected size limit and
+automatically retries with CPU encoding and safer bitrates when FFmpeg's
+first pass lands too large.
 
 - **~10 MB installer.** Tauri uses the system WebView (Edge on Windows,
   WebKit on macOS/Linux) instead of bundling Chromium.
@@ -76,7 +78,8 @@ folder — under the size limit you asked for, on the first try.
     [Clips Bypass](https://github.com/riolubruh/YABDP4Nitro?tab=readme-ov-file#clips)
   - 500 MB @ native — Nitro Full
 - **Advanced mode** — custom target size (MB), output resolution, and any
-  FFmpeg video encoder string.
+  FFmpeg video encoder string, with autocomplete from the encoders your
+  installed FFmpeg exposes.
 - **Trim timeline** with frame-accurate handles, draggable playhead,
   snap tick marks, and a minimap when zoomed in.
 - **In-app preview** of the trimmed segment before you commit to a compress.
@@ -84,12 +87,16 @@ folder — under the size limit you asked for, on the first try.
   - NVIDIA NVENC (`h264_nvenc`, `hevc_nvenc`)
   - AMD AMF (`h264_amf`, `hevc_amf`)
   - Intel Quick Sync (`h264_qsv`, `hevc_qsv`)
-  - Linux VAAPI (`h264_vaapi`)
-  - Apple Silicon VideoToolbox (`h264_videotoolbox`)
+  - Linux VAAPI (`h264_vaapi`, `hevc_vaapi`)
+  - Apple Silicon VideoToolbox (`h264_videotoolbox`, `hevc_videotoolbox`)
 - **Three ways to open a video:** drag-and-drop onto the window, "Open with
   vidcord" from Explorer/Finder, or the in-app **Browse** button.
 - **Remove audio** — strip the audio track to reclaim space.
-- **Real-time progress** with ETA parsed from FFmpeg's stderr.
+- **Strict size checks** — finished files are measured against the selected
+  target; oversized results are retried with `libx264` and lower safety
+  bitrates before reporting the smallest result.
+- **Real-time progress** with ETA, current attempt number, encoder, and
+  bitrate parsed from FFmpeg's stderr.
 - **Auto-increment output** — saves `name-vidcord.mp4` and bumps `-1`, `-2`,
   … if the filename is taken, never overwriting.
 - **In-app FFmpeg install banner** when it's missing — `winget` on Windows,
@@ -176,7 +183,8 @@ For more distros, manual installs, or troubleshooting, read
 3. **Trim** (optional) — drag the handles or use `I` / `O` to stamp the
    playhead. `Space` plays the selected range.
 4. **Toggle Remove Audio** to strip audio if you need more video bitrate.
-5. **Click Compress.** Progress and ETA update live. When it's done vidcord
+5. **Click Compress.** Progress shows the current attempt, encoder, bitrate,
+   and ETA. When it's done, vidcord reports the final output size and
    highlights the file in your file explorer.
 
 Output goes to `~/Downloads/<original-name>-vidcord.mp4` by default, with
@@ -207,8 +215,8 @@ hardware encoder for the GPU it detects. You can override this from the
 | NVIDIA | `h264_nvenc`, `hevc_nvenc` | Maxwell 2nd-gen and newer |
 | AMD | `h264_amf`, `hevc_amf` | Windows only; Linux uses VAAPI |
 | Intel | `h264_qsv`, `hevc_qsv` | HD Graphics 500-series and newer |
-| Linux (any GPU) | `h264_vaapi` | Requires a working `/dev/dri/renderD*` |
-| Apple Silicon | `h264_videotoolbox` | Native on M-series Macs |
+| Linux (any GPU) | `h264_vaapi`, `hevc_vaapi` | Requires a working `/dev/dri/renderD*` |
+| Apple Silicon | `h264_videotoolbox`, `hevc_videotoolbox` | Native on M-series Macs |
 | Fallback (CPU) | `libx264`, `libx265` | Always available |
 
 On Linux, vidcord probes `/dev/dri/renderD*` once per session to pick the
@@ -308,9 +316,11 @@ cache layout, settings migration — lives in [CLAUDE.md](CLAUDE.md).
 that doesn't help.
 
 **The output file exceeds the target size.**
-vidcord reserves a small overhead for container + audio. If you're still
-over, try **Remove audio**, drop to a lower resolution in Advanced mode,
-or pick `hevc_*` (H.265) if your recipient can decode it.
+vidcord now retries oversized outputs automatically, first with CPU encoding
+and then with lower safety bitrates. If it still cannot hit the requested
+limit, the status line reports the smallest oversized result. Try **Remove
+audio**, drop to a lower resolution in Advanced mode, or pick `hevc_*`
+(H.265) if your recipient can decode it.
 
 **Preview is blank on Linux.**
 WebKit2GTK's `<video>` element has spotty codec coverage. Install
@@ -374,9 +384,10 @@ servers and Nitro subscribers.
 ### How is vidcord different from using FFmpeg directly?
 
 vidcord calculates the right target bitrate for your clip length and
-size limit, picks the best hardware encoder for your GPU, streams
-progress and ETA back while FFmpeg runs, handles visual trimming, and
-writes to a predictable, auto-incremented path in your Downloads folder.
+size limit, picks the best hardware encoder for your GPU, streams attempt
+details and ETA back while FFmpeg runs, verifies the final file size, retries
+oversized results, handles visual trimming, and writes to a predictable,
+auto-incremented path in your Downloads folder.
 Under the hood it's still FFmpeg — Advanced mode exposes the encoder
 string so you can override any of it.
 

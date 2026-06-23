@@ -1,4 +1,8 @@
-*, *::before, *::after { box-sizing: border-box; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 
 :root {
   /* Base surfaces */
@@ -10,14 +14,14 @@
   /* Borders — glass edge */
   --border: rgba(255, 255, 255, 0.13);
   --border-subtle: rgba(255, 255, 255, 0.07);
-  --border-focus: #0A84FF;
+  --border-focus: #0a84ff;
 
   /* Accent — macOS blue */
-  --accent: #0A84FF;
-  --accent-hover: #409CFF;
-  --accent-pressed: #0071E3;
+  --accent: #0a84ff;
+  --accent-hover: #409cff;
+  --accent-pressed: #0071e3;
   --accent-glow: rgba(10, 132, 255, 0.32);
-  --accent-text: #FFFFFF;
+  --accent-text: #ffffff;
 
   /* Text */
   --text: rgba(255, 255, 255, 0.92);
@@ -25,14 +29,14 @@
   --text-disabled: rgba(255, 255, 255, 0.26);
 
   /* Semantic */
-  --success: #30D158;
-  --error: #FF453A;
-  --warning: #FF9F0A;
+  --success: #30d158;
+  --error: #ff453a;
+  --warning: #ff9f0a;
 
   /* Glass shadows */
-  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.50), 0 1px 4px rgba(0, 0, 0, 0.28);
-  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.70), 0 4px 12px rgba(0, 0, 0, 0.40);
-  --shadow-hover: 0 6px 28px rgba(0, 0, 0, 0.60);
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.5), 0 1px 4px rgba(0, 0, 0, 0.28);
+  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.7), 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-hover: 0 6px 28px rgba(0, 0, 0, 0.6);
 
   /* Radii — macOS Tahoe: rounder */
   --radius: 12px;
@@ -58,31 +62,33 @@
 
     --border: rgba(0, 0, 0, 0.09);
     --border-subtle: rgba(0, 0, 0, 0.05);
-    --border-focus: #007AFF;
+    --border-focus: #007aff;
 
-    --accent: #007AFF;
-    --accent-hover: #0071E3;
-    --accent-pressed: #005FCC;
+    --accent: #007aff;
+    --accent-hover: #0071e3;
+    --accent-pressed: #005fcc;
     --accent-glow: rgba(0, 122, 255, 0.28);
-    --accent-text: #FFFFFF;
+    --accent-text: #ffffff;
 
     --text: rgba(0, 0, 0, 0.88);
     --text-secondary: rgba(0, 0, 0, 0.48);
     --text-disabled: rgba(0, 0, 0, 0.26);
 
-    --success: #28CD41;
-    --error: #FF3B30;
-    --warning: #FF9500;
+    --success: #28cd41;
+    --error: #ff3b30;
+    --warning: #ff9500;
 
-    --shadow-card: 0 2px 16px rgba(0, 0, 0, 0.10), 0 1px 3px rgba(0, 0, 0, 0.07);
-    --shadow-overlay: 0 8px 40px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.10);
+    --shadow-card: 0 2px 16px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.07);
+    --shadow-overlay: 0 8px 40px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.1);
     --shadow-hover: 0 4px 20px rgba(0, 0, 0, 0.14);
 
     --card-top: inset 0 1px 0 rgba(255, 255, 255, 0.92), inset 0 -1px 0 rgba(0, 0, 0, 0.04);
   }
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   margin: 0;
   padding: 0;
@@ -102,17 +108,22 @@ button {
   font-size: 14px;
 }
 
-input, select {
+input,
+select {
   font-family: inherit;
   font-size: 14px;
 }
 
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
 ::-webkit-scrollbar-thumb {
-  background: rgba(128, 128, 128, 0.30);
+  background: rgba(128, 128, 128, 0.3);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(128, 128, 128, 0.50);
+  background: rgba(128, 128, 128, 0.5);
 }

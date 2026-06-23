@@ -35,10 +35,13 @@ export function useToasts() {
     timersRef.current.set(id, handle);
   }, []);
 
-  const removeToast = useCallback((id: number) => {
-    clearTimer(id);
-    setToasts((t) => t.filter((x) => x.id !== id));
-  }, [clearTimer]);
+  const removeToast = useCallback(
+    (id: number) => {
+      clearTimer(id);
+      setToasts((t) => t.filter((x) => x.id !== id));
+    },
+    [clearTimer]
+  );
 
   useEffect(() => {
     const timers = timersRef.current;

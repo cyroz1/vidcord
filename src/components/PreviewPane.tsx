@@ -163,7 +163,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // need it in their dep arrays — otherwise every parent render recreating
   // the handler would invalidate startPlayback and re-bind listeners.
   const onTimeUpdateRef = useRef(onTimeUpdate);
-  useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; }, [onTimeUpdate]);
+  useEffect(() => {
+    onTimeUpdateRef.current = onTimeUpdate;
+  }, [onTimeUpdate]);
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   // WebKitGTK on Linux initialises a GStreamer audio pipeline even for muted
   // video elements. When autoaudiosink is missing the pipeline returns a NULL
@@ -174,7 +176,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // the backend for the actual OS.
   const [isLinux, setIsLinux] = useState(false);
   useEffect(() => {
-    invoke<string>("get_os").then(os => setIsLinux(os === "linux"));
+    invoke<string>("get_os").then((os) => setIsLinux(os === "linux"));
   }, []);
   useEffect(() => {
     if (videoRef.current) {
@@ -219,30 +221,36 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     return raw;
   }, [startTime, endTime]);
 
-  const seekTo = useCallback((timeSec: number) => {
-    const dur = probeData?.duration ?? 0;
-    // Clamp to the full clip, not the trim range — the trim handles define the
-    // export region only. Scrubbing outside the trim region is intentional
-    // (Premiere Pro model): the playhead roams freely; playback enforces bounds.
-    const clamped = dur > 0 ? Math.max(0, Math.min(timeSec, dur)) : Math.max(0, timeSec);
-    const vid = videoRef.current;
+  const seekTo = useCallback(
+    (timeSec: number) => {
+      const dur = probeData?.duration ?? 0;
+      // Clamp to the full clip, not the trim range — the trim handles define the
+      // export region only. Scrubbing outside the trim region is intentional
+      // (Premiere Pro model): the playhead roams freely; playback enforces bounds.
+      const clamped = dur > 0 ? Math.max(0, Math.min(timeSec, dur)) : Math.max(0, timeSec);
+      const vid = videoRef.current;
 
-    currentPlaybackTimeRef.current = clamped;
-    setCurrentPlaybackTime(clamped);
-    onTimeUpdateRef.current?.(clamped);
-    if (!vid) return;
+      currentPlaybackTimeRef.current = clamped;
+      setCurrentPlaybackTime(clamped);
+      onTimeUpdateRef.current?.(clamped);
+      if (!vid) return;
 
-    const mediaTime = usingGeneratedClipRef.current
-      ? Math.max(0, clamped - playbackOffsetRef.current)
-      : clamped;
+      const mediaTime = usingGeneratedClipRef.current
+        ? Math.max(0, clamped - playbackOffsetRef.current)
+        : clamped;
 
-    if (!Number.isFinite(mediaTime)) return;
-    vid.currentTime = mediaTime;
-  }, [probeData]);
+      if (!Number.isFinite(mediaTime)) return;
+      vid.currentTime = mediaTime;
+    },
+    [probeData]
+  );
 
-  const stepBy = useCallback((deltaSec: number) => {
-    seekTo(getPlaybackTime() + deltaSec);
-  }, [seekTo, getPlaybackTime]);
+  const stepBy = useCallback(
+    (deltaSec: number) => {
+      seekTo(getPlaybackTime() + deltaSec);
+    },
+    [seekTo, getPlaybackTime]
+  );
 
   const buildPlaybackUrls = useCallback((path: string): string[] => {
     // Check cache first
@@ -285,7 +293,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // Filmstrip loading — fires once per file load, runs in the background
   // ---------------------------------------------------------------------------
   const clearFilmstrip = useCallback(() => {
-    filmstripUrlsRef.current.forEach(u => URL.revokeObjectURL(u));
+    filmstripUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
     filmstripUrlsRef.current = [];
     setFilmstripIdx(null);
   }, []);
@@ -302,13 +310,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       path: filePath,
       durationSec: probeData.duration,
     })
-      .then(rawBytes => {
+      .then((rawBytes) => {
         if (filmstripRequestIdRef.current !== requestId) return;
         const frames = splitJpegStream(new Uint8Array(rawBytes.buffer as ArrayBuffer));
         if (frames.length === 0) return;
         // Revoke previous strip's URLs before replacing
-        filmstripUrlsRef.current.forEach(u => URL.revokeObjectURL(u));
-        filmstripUrlsRef.current = frames.map(frame => {
+        filmstripUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+        filmstripUrlsRef.current = frames.map((frame) => {
           const blob = new Blob([frame], { type: "image/jpeg" });
           return URL.createObjectURL(blob);
         });
@@ -336,7 +344,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       const blob = new Blob([buffer as Uint8Array<ArrayBuffer>], { type: "image/jpeg" });
       const url = URL.createObjectURL(blob);
       setFilmstripIdx(null); // exact frame is ready — stop showing filmstrip
-      setFrameUrl(prev => {
+      setFrameUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
         return url;
       });
@@ -355,7 +363,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     if (!filePath || !probeData) {
       frameRequestIdRef.current += 1;
       setLoading(false);
-      setFrameUrl(prev => {
+      setFrameUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
         return null;
       });
@@ -374,11 +382,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const startChanged = Math.abs(startTime - prevStartTimeRef.current) > 0.001;
     const endChanged = Math.abs(endTime - prevEndTimeRef.current) > 0.001;
     const frameTime =
-      isNewFile || isInitialRange
-        ? startTime
-        : endChanged && !startChanged
-          ? endTime
-          : startTime;
+      isNewFile || isInitialRange ? startTime : endChanged && !startChanged ? endTime : startTime;
     prevFilePathRef.current = filePath;
     prevStartTimeRef.current = startTime;
     prevEndTimeRef.current = endTime;
@@ -401,7 +405,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       }
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filePath, startTime, endTime, fetchFrame, probeData]);
 
   // ---------------------------------------------------------------------------
@@ -441,8 +445,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     // Resume from the last scrubbed/paused position if it falls within the
     // trim range; otherwise start at trim-in.
     const scrubbed = currentPlaybackTimeRef.current;
-    const resumeTime =
-      scrubbed >= startTime && scrubbed < endTime ? scrubbed : startTime;
+    const resumeTime = scrubbed >= startTime && scrubbed < endTime ? scrubbed : startTime;
     currentPlaybackTimeRef.current = resumeTime;
     setCurrentPlaybackTime(resumeTime);
     onTimeUpdateRef.current?.(resumeTime);
@@ -514,7 +517,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       usingGeneratedClipRef.current = false;
       playbackOffsetRef.current = 0;
       vid.src = sources[index];
-      vid.play()
+      vid
+        .play()
         .then(() => {
           setPlaying(true);
           ensureStopTimer();
@@ -565,33 +569,38 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   ]);
 
   // Expose handle so App.tsx can drive playback from keyboard shortcuts
-  useImperativeHandle(ref, () => ({
-    startPlayback,
-    stopPlayback,
-    isPlaying: () => playing,
-    getCurrentTime: () => getPlaybackTime(),
-    seekTo,
-    stepBy,
-  }), [startPlayback, stopPlayback, playing, getPlaybackTime, seekTo, stepBy]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      startPlayback,
+      stopPlayback,
+      isPlaying: () => playing,
+      getCurrentTime: () => getPlaybackTime(),
+      seekTo,
+      stepBy,
+    }),
+    [startPlayback, stopPlayback, playing, getPlaybackTime, seekTo, stepBy]
+  );
 
   // Stop playback when trim range changes
   useEffect(() => {
     stopPlayback();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startTime, endTime]);
+  }, [startTime, endTime, stopPlayback]);
 
   // Cleanup on unmount
-  useEffect(() => () => {
-    stopPlayback();
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    setFrameUrl(prev => {
-      if (prev) URL.revokeObjectURL(prev);
-      return null;
-    });
-    filmstripUrlsRef.current.forEach(u => URL.revokeObjectURL(u));
-    filmstripUrlsRef.current = [];
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(
+    () => () => {
+      stopPlayback();
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      setFrameUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      filmstripUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+      filmstripUrlsRef.current = [];
+    },
+    [stopPlayback]
+  );
 
   // ---------------------------------------------------------------------------
   // Render
@@ -636,21 +645,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       {canPlay && hovered && !isLinux && (
         <div style={overlayGroupStyle}>
           {!playing ? (
-            <button
-              onClick={startPlayback}
-              title="Play trim segment"
-              style={overlayBtnStyle}
-            >
+            <button onClick={startPlayback} title="Play trim segment" style={overlayBtnStyle}>
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                 <polygon points="5,3 17,10 5,17" fill="white" />
               </svg>
             </button>
           ) : (
-            <button
-              onClick={stopPlayback}
-              title="Stop playback"
-              style={overlayBtnStyle}
-            >
+            <button onClick={stopPlayback} title="Stop playback" style={overlayBtnStyle}>
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                 <rect x="4" y="4" width="12" height="12" rx="2" fill="white" />
               </svg>
@@ -666,9 +667,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         </div>
       )}
 
-      {playing && (
-        <div style={currentTimeOverlayStyle}>{currentPlaybackTime.toFixed(1)}s</div>
-      )}
+      {playing && <div style={currentTimeOverlayStyle}>{currentPlaybackTime.toFixed(1)}s</div>}
     </div>
   );
 });
