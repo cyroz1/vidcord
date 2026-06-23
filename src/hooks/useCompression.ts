@@ -15,6 +15,25 @@ type Props = {
   onToast: (type: "success" | "error" | "warning" | "info", title: string, msg: string) => void;
 };
 
+export type CompressProgressPayload = {
+  percent: number;
+  eta: string;
+  status: string;
+  attempt?: number;
+  attempt_total?: number;
+  encoder?: string;
+  video_bitrate_k?: number;
+};
+
+export type CompressDonePayload = {
+  success: boolean;
+  cancelled?: boolean;
+  message: string;
+  output_size_bytes?: number;
+  target_size_bytes?: number;
+  smallest_output_size_bytes?: number;
+};
+
 export function useCompression({ onToast: _onToast }: Props) {
   const [compressing, setCompressing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -22,17 +41,14 @@ export function useCompression({ onToast: _onToast }: Props) {
 
   // Subscribe to backend compression events
   useEffect(() => {
-    const unsub1 = listen<{ percent: number; eta: string; status: string }>(
-      "compress-progress",
-      (e) => {
-        setProgress(e.payload.percent);
-        setEta(`${e.payload.status} ETA: ${e.payload.eta}`);
-      }
-    );
-    const unsub2 = listen<{ success: boolean; message: string }>("compress-done", (e) => {
+    const unsub1 = listen<CompressProgressPayload>("compress-progress", (e) => {
+      setProgress(e.payload.percent);
+      setEta(formatCompressionProgress(e.payload));
+    });
+    const unsub2 = listen<CompressDonePayload>("compress-done", (e) => {
       setCompressing(false);
       setProgress(e.payload.success ? 100 : 0);
-      setEta(e.payload.message);
+      setEta(formatCompressionDone(e.payload));
     });
     return () => {
       unsub1.then((fn) => fn());
@@ -65,7 +81,56 @@ export function useCompression({ onToast: _onToast }: Props) {
 // Pure calculation helpers (exported for reuse and testability)
 // ---------------------------------------------------------------------------
 
-export function calculateBitrate(sizeMb: number, durationSec: number, removeAudio: boolean): number {
+export function formatSizeMb(bytes: number): string {
+  const mb = bytes / (1024 * 1024);
+  if (!Number.isFinite(mb) || mb < 0) return "0 MB";
+  if (mb >= 100) return `${mb.toFixed(0)} MB`;
+  if (mb >= 10) return `${mb.toFixed(1)} MB`;
+  return `${mb.toFixed(2)} MB`;
+}
+
+export function formatCompressionProgress(payload: CompressProgressPayload): string {
+  const details: string[] = [];
+  if (
+    typeof payload.attempt === "number" &&
+    typeof payload.attempt_total === "number" &&
+    payload.attempt_total > 1
+  ) {
+    details.push(`Attempt ${payload.attempt}`);
+  }
+  if (payload.encoder) details.push(payload.encoder);
+  if (typeof payload.video_bitrate_k === "number") {
+    details.push(`${payload.video_bitrate_k} kbps`);
+  }
+  if (details.length > 0) return `${details.join(" · ")} · ETA: ${payload.eta}`;
+  return `${payload.status} ETA: ${payload.eta}`;
+}
+
+export function formatCompressionDone(payload: CompressDonePayload): string {
+  if (payload.success && typeof payload.output_size_bytes === "number") {
+    const target =
+      typeof payload.target_size_bytes === "number"
+        ? ` (target ${formatSizeMb(payload.target_size_bytes)})`
+        : "";
+    return `Compressed to ${formatSizeMb(payload.output_size_bytes)}${target}.`;
+  }
+  if (
+    !payload.success &&
+    typeof payload.smallest_output_size_bytes === "number" &&
+    typeof payload.target_size_bytes === "number"
+  ) {
+    return `Smallest result was ${formatSizeMb(
+      payload.smallest_output_size_bytes
+    )}, above target ${formatSizeMb(payload.target_size_bytes)}.`;
+  }
+  return payload.message;
+}
+
+export function calculateBitrate(
+  sizeMb: number,
+  durationSec: number,
+  removeAudio: boolean
+): number {
   const totalKbits = sizeMb * 1024 * 8;
   const audioKbits = removeAudio ? 0 : 128 * durationSec;
   const videoBitrate = (totalKbits - audioKbits) / durationSec;

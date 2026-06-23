@@ -16,7 +16,9 @@ export function useEncoders({
   savedEncoderIndex,
   onFfmpegMissing,
 }: Props) {
-  const [encoders, setEncoders] = useState<Encoder[]>([{ name: "libx264", label: "CPU (libx264)" }]);
+  const [encoders, setEncoders] = useState<Encoder[]>([
+    { name: "libx264", label: "CPU (libx264)" },
+  ]);
   const [encoderIdx, setEncoderIdx] = useState(0);
   const [ffmpegMissing, setFfmpegMissing] = useState(false);
   const missingNotifiedRef = useRef(false);
