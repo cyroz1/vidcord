@@ -1,15 +1,21 @@
-# <img src="public/icon.png" height="28" align="left"> vidcord — video compressor for Discord
+# vidcord - Free Discord Video Compressor for Windows, macOS, and Linux
 
-**vidcord** is a free, open-source **video compressor for Discord** on
-**Windows, macOS, and Linux**. It shrinks **MP4, MOV, MKV, AVI, WebM, FLV,
-and WMV** files under Discord's upload size limits — **10 MB (free),
-25 MB (legacy), 50 MB (Nitro Basic / Server Boost Level 2), 100 MB (Boost
-Level 3), and 500 MB (Nitro Full)** — by wrapping the system
-[FFmpeg](https://ffmpeg.org) binary with a trim timeline, hardware-accelerated
-encoding (NVIDIA NVENC, AMD AMF, Intel Quick Sync, Linux VAAPI, Apple
-VideoToolbox), and a ~10 MB installer. Built with
-[Tauri 2](https://tauri.app) (Rust + React). 100% local — no accounts,
-no uploads, no telemetry.
+<p>
+  <img src="public/icon.png" height="64" alt="vidcord app icon">
+</p>
+
+**vidcord** is a free, open-source **Discord video compressor** for
+**Windows, macOS, and Linux**. Compress videos for Discord's upload size
+limits without uploading them to a website: choose a **10 MB, 25 MB, 50 MB,
+100 MB, or 500 MB** target, trim the clip, and export a Discord-ready `.mp4`
+from your desktop.
+
+vidcord supports **MP4, MOV, MKV, AVI, WebM, FLV, WMV**, and other formats
+handled by your system [FFmpeg](https://ffmpeg.org) install. It wraps FFmpeg
+with hardware-accelerated encoding (NVIDIA NVENC, AMD AMF, Intel Quick Sync,
+Linux VAAPI, Apple VideoToolbox), automatic bitrate calculation, strict output
+size checks, and a ~10 MB installer. Built with [Tauri 2](https://tauri.app)
+(Rust + React). 100% local - no accounts, no uploads, no telemetry.
 
 <p>
   <img alt="Platforms"    src="https://img.shields.io/badge/platforms-windows%20%7C%20macos%20%7C%20linux-3b82f6">
@@ -23,8 +29,8 @@ no uploads, no telemetry.
 
 ![vidcord main window: loaded video with preset picker and compress button](screenshots/window.png)
 
-> **At a glance** — Cross-platform desktop app (Windows 10/11, macOS 11+,
-> Linux) · x86_64 + aarch64 · ~10 MB installer · Compresses MP4, MOV, MKV,
+> **At a glance** — Free Discord video compressor for Windows 10/11, macOS 11+,
+> and Linux · x86_64 + aarch64 · ~10 MB installer · Compresses MP4, MOV, MKV,
 > AVI, WebM, FLV, WMV to `.mp4` · Targets Discord's 10 / 25 / 50 / 100 /
 > 500 MB limits · Hardware-accelerated (NVENC / AMF / QSV / VAAPI /
 > VideoToolbox) · Requires system FFmpeg on `PATH` · MIT licensed ·
@@ -35,9 +41,10 @@ no uploads, no telemetry.
 ## Contents
 
 - [Why vidcord](#why-vidcord)
+- [Best for](#best-for)
 - [Features](#features)
 - [Screenshots](#screenshots)
-- [Install](#install)
+- [Download vidcord](#download-vidcord)
 - [FFmpeg setup](#ffmpeg-setup)
 - [Usage](#usage)
 - [Keyboard shortcuts](#keyboard-shortcuts)
@@ -67,6 +74,16 @@ first pass lands too large.
 - **Native-speed encoding.** Hardware encoders auto-detected: NVENC, AMF,
   QSV, VAAPI, VideoToolbox.
 - **No telemetry, no accounts, no uploads.** Files never leave your machine.
+
+## Best for
+
+| Need | How vidcord helps |
+|---|---|
+| Compress a video for Discord free upload limits | Use the 10 MB preset, trim the clip, and remove audio if needed. |
+| Compress large MP4, MOV, MKV, AVI, or WebM files | FFmpeg handles the input format and vidcord exports a Discord-friendly `.mp4`. |
+| Make a video fit Discord Nitro or boosted server limits | Pick 50 MB, 100 MB, or 500 MB presets without calculating bitrates by hand. |
+| Keep video compression private | Everything runs locally on your computer; no web upload step. |
+| Use GPU video encoding from a simple GUI | vidcord auto-detects NVENC, AMF, QSV, VAAPI, and VideoToolbox encoders. |
 
 ## Features
 
@@ -121,7 +138,7 @@ mode.
 |---|---|---|
 | ![Compressed video saved to the Downloads folder as name-vidcord.mp4](screenshots/file.png) | ![Windows File Explorer right-click menu with Open with vidcord entry on a video file](screenshots/context.png) | ![macOS Finder right-click menu with Open with vidcord entry on a video file](screenshots/finder.png) |
 
-## Install
+## Download vidcord
 
 Grab the latest installer for your platform from the releases page:
 
@@ -344,6 +361,21 @@ Logs live alongside `settings.json` as `vidcord.log` (rotated at 5 MB).
 
 ## FAQ
 
+### What is the best free Discord video compressor?
+
+vidcord is built specifically for Discord uploads. It offers one-click
+presets for Discord's 10 MB, 25 MB, 50 MB, 100 MB, and 500 MB limits, runs
+locally on Windows, macOS, and Linux, and uses FFmpeg instead of uploading
+your video to a third-party compression website.
+
+### How do I compress a video for Discord under 10 MB?
+
+Open the video in vidcord, choose the **10 MB** preset, trim to the part you
+want to share, optionally enable **Remove Audio**, and click **Compress**.
+vidcord calculates the target bitrate from the clip length, verifies the
+finished file size, and retries with safer settings if the output is too
+large.
+
 ### Is vidcord free and open-source?
 
 Yes. vidcord is released under the [MIT License](LICENSE) with the full
@@ -374,6 +406,12 @@ still looks reasonable at that bitrate.
 Any container your system FFmpeg can demux: **MP4, MOV, MKV, AVI, WebM,
 FLV, WMV**, and more. Output is always `.mp4` (H.264 by default, H.265
 if you pick an `hevc_*` encoder in Advanced mode).
+
+### Can vidcord compress MP4 files for Discord?
+
+Yes. MP4 is the main output format and one of the common supported input
+formats. You can open an existing `.mp4`, trim it, choose a Discord size
+limit, and export a smaller `.mp4` ready to upload.
 
 ### Does vidcord require Discord Nitro?
 
