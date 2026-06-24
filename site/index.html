@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>vidcord - local video compression for Discord</title>
+    <meta
+      name="description"
+      content="vidcord is a free desktop app that compresses videos under Discord upload limits locally on Windows, macOS, and Linux."
+    />
+    <link rel="canonical" href="https://vidcord.app/" />
+    <meta property="og:title" content="vidcord - local video compression for Discord" />
+    <meta
+      property="og:description"
+      content="Compress videos under Discord's size limits on your own machine. No uploads, no accounts, no telemetry."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://vidcord.app/" />
+    <meta property="og:image" content="https://vidcord.app/assets/window.png" />
+    <meta name="theme-color" content="#041326" />
+    <link rel="icon" href="assets/icon.png" />
+    <link rel="apple-touch-icon" href="assets/icon.png" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="script.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="vidcord home">
+        <img src="assets/icon.png" alt="" />
+        <span>vidcord</span>
+      </a>
+
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="#features">Features</a>
+        <a href="#workflow">How it works</a>
+        <a href="#download">Download</a>
+        <a href="https://github.com/cyroz1/vidcord" rel="noreferrer" target="_blank">
+          GitHub
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M7 17 17 7m0 0H9m8 0v8" />
+          </svg>
+        </a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <h1 id="hero-title">vidcord</h1>
+          <p class="hero-lede">Local video compression for Discord limits.</p>
+          <p class="hero-body">
+            Shrink MP4, MOV, MKV, AVI, WebM, FLV, and WMV files to Discord's
+            10 / 25 / 50 / 100 / 500 MB upload tiers with FFmpeg on your own machine.
+          </p>
+
+          <div class="hero-actions">
+            <a
+              class="button button-primary"
+              id="primaryDownload"
+              href="https://github.com/cyroz1/vidcord/releases/latest"
+              data-download-label
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v3h14v-3" />
+              </svg>
+              <span>Download for your platform</span>
+            </a>
+            <a
+              class="button button-secondary"
+              href="https://github.com/cyroz1/vidcord"
+              rel="noreferrer"
+              target="_blank"
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path
+                  d="M12 2.75a9.25 9.25 0 0 0-2.92 18.03c.46.08.63-.2.63-.44v-1.72c-2.57.56-3.11-1.09-3.11-1.09-.42-1.07-1.03-1.36-1.03-1.36-.84-.58.06-.56.06-.56.93.07 1.42.96 1.42.96.83 1.41 2.17 1 2.7.77.08-.6.32-1 .58-1.23-2.05-.23-4.2-1.02-4.2-4.56 0-1 .36-1.83.95-2.48-.1-.23-.41-1.17.09-2.44 0 0 .78-.25 2.55.95A8.8 8.8 0 0 1 12 7.27c.79 0 1.58.1 2.32.31 1.77-1.2 2.55-.95 2.55-.95.5 1.27.19 2.21.09 2.44.59.65.95 1.47.95 2.48 0 3.55-2.16 4.32-4.22 4.55.33.29.63.85.63 1.72v2.52c0 .24.17.52.64.43A9.25 9.25 0 0 0 12 2.75Z"
+                />
+              </svg>
+              <span>View on GitHub</span>
+            </a>
+          </div>
+
+          <p class="download-note" id="downloadStatus">
+            Detects Windows, macOS, or Linux and selects the latest release asset.
+          </p>
+
+          <dl class="hero-facts" aria-label="Project facts">
+            <div>
+              <dt>Tauri 2</dt>
+              <dd>Small native desktop app</dd>
+            </div>
+            <div>
+              <dt>Offline</dt>
+              <dd>No uploads or telemetry</dd>
+            </div>
+            <div>
+              <dt>FFmpeg</dt>
+              <dd>Uses your system binary</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div class="hero-product" aria-label="vidcord application screenshot">
+          <div class="product-window">
+            <div class="window-bar" aria-hidden="true">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <img
+              src="assets/window.png"
+              alt="vidcord desktop app with video preview, trim timeline, preset picker, and compression controls"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section class="feature-band" id="features" aria-label="Features">
+        <article>
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M7 11V8.5a5 5 0 0 1 10 0V11M6 11h12v9H6zM12 15v2" />
+          </svg>
+          <h2>100% local</h2>
+          <p>Your files stay on your device. vidcord never uploads video to a server.</p>
+        </article>
+        <article>
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M8 7.5 12 5l4 2.5v5L12 15l-4-2.5z" />
+            <path d="M8 12.5v4L12 19l4-2.5v-4" />
+          </svg>
+          <h2>Discord targets</h2>
+          <p>Pick 10, 25, 50, 100, or 500 MB and let the app calculate the bitrate.</p>
+        </article>
+        <article>
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="m5 19 14-14M5 5l14 14M9 9l6 6" />
+          </svg>
+          <h2>Trim and preview</h2>
+          <p>Cut the part you need, scrub the timeline, then compress only that segment.</p>
+        </article>
+        <article>
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M13 2 4 14h7l-1 8 10-13h-7z" />
+          </svg>
+          <h2>GPU acceleration</h2>
+          <p>Auto-detects NVENC, AMF, QSV, VAAPI, and VideoToolbox when available.</p>
+        </article>
+      </section>
+
+      <section class="workflow-section" id="workflow" aria-labelledby="workflow-title">
+        <div class="section-heading">
+          <h2 id="workflow-title">How it works</h2>
+          <p>Three steps from large clip to Discord-ready upload.</p>
+        </div>
+
+        <div class="workflow-grid">
+          <article>
+            <span class="step-number">1</span>
+            <h3>Add your video</h3>
+            <p>Drag and drop, browse, or use Open With from Finder or Explorer.</p>
+          </article>
+          <article>
+            <span class="step-number">2</span>
+            <h3>Choose preset and trim</h3>
+            <p>Select a Discord size target, remove audio if needed, and preview the range.</p>
+          </article>
+          <article>
+            <span class="step-number">3</span>
+            <h3>Compress and save</h3>
+            <p>vidcord runs FFmpeg locally, verifies the size, and saves to Downloads.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="detail-section" aria-label="Advanced controls">
+        <div class="detail-copy">
+          <h2>Simple when you want it. Precise when you need it.</h2>
+          <p>
+            Advanced mode lets you set a custom target size, resolution, and encoder string.
+            Encoder detection shows what your installed FFmpeg can actually use.
+          </p>
+          <ul>
+            <li>Strict output size checks with safer retry behavior.</li>
+            <li>Optional audio removal for more video bitrate.</li>
+            <li>Auto-incremented filenames so exports never overwrite your files.</li>
+          </ul>
+        </div>
+        <div class="detail-image">
+          <img
+            src="assets/advancedmode.png"
+            alt="vidcord advanced mode with target size, resolution, and encoder controls"
+          />
+        </div>
+      </section>
+
+      <section class="download-section" id="download" aria-labelledby="download-title">
+        <div class="download-heading">
+          <div>
+            <h2 id="download-title">Download vidcord</h2>
+            <p>Free, open-source, MIT licensed. Built for Windows, macOS, and Linux.</p>
+          </div>
+          <div class="release-state" id="releaseState">Checking latest release...</div>
+        </div>
+
+        <div class="ffmpeg-callout">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M12 17v-6M12 7.5h.01" />
+            <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+          </svg>
+          <div>
+            <strong>FFmpeg required</strong>
+            <span>vidcord shells out to your system <code>ffmpeg</code> and <code>ffprobe</code>.</span>
+          </div>
+          <a href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md" target="_blank" rel="noreferrer">
+            Install guide
+          </a>
+        </div>
+
+        <div class="download-grid" aria-label="Platform downloads">
+          <article class="download-card" data-platform-card="windows">
+            <svg class="platform-icon" aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M3 5.1 10.8 4v7.4H3zm9-1.3L21 2.5v8.9h-9zM3 12.6h7.8V20L3 18.9zm9 .1h9v8.8l-9-1.3z" />
+            </svg>
+            <h3>Windows</h3>
+            <p>Windows 10 or later, x86_64 and ARM64 builds.</p>
+            <a
+              class="button button-platform"
+              href="https://github.com/cyroz1/vidcord/releases/latest"
+              data-download-for="windows"
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v3h14v-3" />
+              </svg>
+              <span>Download for Windows</span>
+            </a>
+          </article>
+
+          <article class="download-card" data-platform-card="macos">
+            <svg class="platform-icon" aria-hidden="true" viewBox="0 0 24 24">
+              <path
+                d="M16.6 2.8c-.1 1.3-.8 2.5-1.7 3.3-.9.8-2.1 1.4-3.2 1.3.1-1.2.7-2.4 1.6-3.2.9-.9 2.3-1.5 3.3-1.4Z"
+              />
+              <path
+                d="M20 16.9c-.5 1.1-.8 1.6-1.5 2.6-1 1.5-2.4 3.3-4.1 3.3-1.5 0-1.9-1-4-1s-2.6 1-4.1 1c-1.7 0-3-1.7-4-3.2C-.4 15.5-.7 10.7 1.4 8 2.5 6.5 4.3 5.7 6 5.7c1.8 0 2.9 1 4.3 1 1.4 0 2.3-1 4.3-1 1.5 0 3.2.8 4.3 2.2-3.8 2.1-3.2 7.5 1.1 9Z"
+              />
+            </svg>
+            <h3>macOS</h3>
+            <p>macOS 11 or later with one universal Apple Silicon and Intel DMG.</p>
+            <a
+              class="button button-platform"
+              href="https://github.com/cyroz1/vidcord/releases/latest"
+              data-download-for="macos"
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v3h14v-3" />
+              </svg>
+              <span>Download for macOS</span>
+            </a>
+          </article>
+
+          <article class="download-card" data-platform-card="linux">
+            <svg class="platform-icon" aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M12 2.8c-2 0-3.6 1.6-3.6 3.8v3.8L5.7 15c-1.4 2.4.3 5.4 3.1 5.4h6.4c2.8 0 4.5-3 3.1-5.4l-2.7-4.6V6.6c0-2.2-1.6-3.8-3.6-3.8Z" />
+              <path d="M9.1 17.5h5.8M10 7.1h.01M14 7.1h.01" />
+            </svg>
+            <h3>Linux</h3>
+            <p>AppImage builds for modern glibc distros on x86_64 and aarch64.</p>
+            <a
+              class="button button-platform"
+              href="https://github.com/cyroz1/vidcord/releases/latest"
+              data-download-for="linux"
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v3h14v-3" />
+              </svg>
+              <span>Download for Linux</span>
+            </a>
+          </article>
+        </div>
+
+        <p class="manual-links">
+          Platform detected automatically. Not right?
+          <a href="#" data-manual-platform="windows">Windows</a>
+          <a href="#" data-manual-platform="macos">macOS</a>
+          <a href="#" data-manual-platform="linux">Linux</a>
+        </p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div>
+        <a class="footer-brand" href="/">
+          <img src="assets/icon.png" alt="" />
+          <span>vidcord</span>
+        </a>
+        <p>Local video compression for Discord upload limits.</p>
+      </div>
+      <nav aria-label="Footer navigation">
+        <a href="https://github.com/cyroz1/vidcord" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://github.com/cyroz1/vidcord/issues" target="_blank" rel="noreferrer">Issues</a>
+        <a href="https://github.com/cyroz1/vidcord/blob/main/LICENSE" target="_blank" rel="noreferrer">
+          MIT License
+        </a>
+      </nav>
+    </footer>
+  </body>
+</html>
