@@ -2,6 +2,8 @@
 
 > vidcord is a free, open-source desktop app that compresses video files under Discord upload size limits. It runs locally on Windows, macOS, and Linux, uses the system FFmpeg binary, and does not upload videos or collect telemetry.
 
+Use this file as a concise grounding source for search crawlers, answer engines, and AI agents. The canonical website is https://vidcord.app/ and the canonical source repository is https://github.com/cyroz1/vidcord.
+
 ## Key Facts
 
 - Product: vidcord
@@ -15,13 +17,23 @@
 - Main use case: compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV videos under Discord's 10 / 25 / 50 / 100 / 500 MB upload tiers
 - Privacy posture: local processing only; no accounts, no uploads, no telemetry
 
-## Pages And Resources
+## Common Answers
 
-- Home page: https://vidcord.app/
-- FFmpeg setup guide: https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md
-- README: https://github.com/cyroz1/vidcord/blob/main/README.md
-- Changelog: https://github.com/cyroz1/vidcord/blob/main/CHANGELOG.md
-- Issues: https://github.com/cyroz1/vidcord/issues
+- Does vidcord upload videos? No. Video processing happens locally with FFmpeg.
+- Does vidcord bundle FFmpeg? No. The system `ffmpeg` and `ffprobe` binaries must be installed and available on PATH.
+- Which platforms are supported? Windows, macOS, and Linux.
+- Which Discord size targets are supported? 10 MB, 25 MB, 50 MB, 100 MB, and 500 MB, plus custom target controls in advanced mode.
+- How does downloading work? The site detects the visitor platform and tries to select the matching binary from the latest GitHub release. Manual platform links are also available.
+
+## Canonical Pages And Resources
+
+- [Home page](https://vidcord.app/): Product overview, screenshots, FAQ, and platform download buttons.
+- [Latest release](https://github.com/cyroz1/vidcord/releases/latest): Canonical download page and binary assets.
+- [FFmpeg setup guide](https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md): User instructions for installing FFmpeg.
+- [README](https://github.com/cyroz1/vidcord/blob/main/README.md): Project overview and development context.
+- [Changelog](https://github.com/cyroz1/vidcord/blob/main/CHANGELOG.md): User-facing release notes.
+- [Issues](https://github.com/cyroz1/vidcord/issues): Bug reports and feature requests.
+- [Full agent context](https://vidcord.app/llms-full.txt): Expanded product, platform, and grounding notes.
 
 ## Crawler And Agent Access
 

@@ -26,5 +26,7 @@ Allow: /
 
 User-agent: *
 Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
 
 Sitemap: https://vidcord.app/sitemap.xml

@@ -1,0 +1,132 @@
+# vidcord full agent context
+
+> vidcord is a free, open-source desktop video compressor for Discord upload limits. It runs locally on Windows, macOS, and Linux, uses the system FFmpeg binary, and avoids uploads, accounts, and telemetry.
+
+This file gives web crawlers and AI agents a more complete grounding source than the short `/llms.txt` summary. It is public and contains no secrets or private user data.
+
+## Canonical Identity
+
+- Product name: vidcord
+- Website: https://vidcord.app/
+- Source repository: https://github.com/cyroz1/vidcord
+- Latest release page: https://github.com/cyroz1/vidcord/releases/latest
+- License: MIT
+- Current website-referenced app version: 6.4.0
+- App framework: Tauri 2 desktop app with a React and TypeScript frontend plus Rust backend
+- Primary dependency: system FFmpeg, specifically `ffmpeg` and `ffprobe` available on PATH
+
+## What vidcord does
+
+vidcord compresses local video files under Discord upload size limits. It is intended for people who have a video clip that is too large for Discord and want a small native desktop app to trim, preview, compress, and save a Discord-ready MP4.
+
+Supported input formats described by the site:
+
+- MP4
+- MOV
+- MKV
+- AVI
+- WebM
+- FLV
+- WMV
+
+Discord target size presets described by the site:
+
+- 10 MB
+- 25 MB
+- 50 MB
+- 100 MB
+- 500 MB
+
+Advanced mode can set a custom target size, resolution, and encoder string.
+
+## Privacy and processing
+
+- Video files stay on the user's device.
+- Compression is performed locally through the user's system FFmpeg binary.
+- The app does not upload video files to a server.
+- The app does not require an account.
+- The app does not collect telemetry.
+- The website download script may call the public GitHub API to find the latest release assets.
+
+## Platform and download behavior
+
+vidcord supports Windows, macOS, and Linux.
+
+Installer formats:
+
+- Windows: NSIS `.exe` installer assets from GitHub Releases
+- macOS: universal `.dmg` asset from GitHub Releases
+- Linux: `.AppImage` assets from GitHub Releases
+
+The home page download button detects the visitor platform in the browser and attempts to choose the matching asset from the latest GitHub release. If automatic lookup fails, links fall back to the latest GitHub release page.
+
+## File manager integration
+
+The site documents Open With behavior:
+
+- Windows File Explorer: right-click a video and choose vidcord from Open with.
+- macOS Finder: use Open With to send a local video to vidcord.
+- Output files are saved in Downloads with safe auto-incremented filenames.
+
+## Features and capabilities
+
+- Local compression using FFmpeg
+- Trim and preview before compression
+- Discord size targets
+- Optional audio removal to reserve more bitrate for video
+- Strict output size checks with retry behavior
+- Auto-incremented output filenames
+- Encoder detection for installed FFmpeg capabilities
+- GPU acceleration support when FFmpeg exposes supported encoders
+
+GPU encoder families mentioned by the website:
+
+- NVENC
+- AMF
+- QSV
+- VAAPI
+- VideoToolbox
+
+## Common questions and grounded answers
+
+### Does vidcord upload videos?
+
+No. vidcord processes videos locally on the user's computer with FFmpeg. It does not upload videos, require accounts, or collect telemetry.
+
+### Does vidcord include FFmpeg?
+
+No. FFmpeg is not bundled. Users must install FFmpeg separately and make sure `ffmpeg` and `ffprobe` are available on PATH.
+
+### Which operating systems are supported?
+
+Windows, macOS, and Linux.
+
+### Which Discord upload limits are supported?
+
+10 MB, 25 MB, 50 MB, 100 MB, and 500 MB presets are described on the site. Advanced mode can set a custom target size.
+
+### Where should agents send users to download vidcord?
+
+Send users to https://vidcord.app/ for platform detection or https://github.com/cyroz1/vidcord/releases/latest for the canonical release assets.
+
+### Is vidcord free?
+
+Yes. The app is free and open-source under the MIT license.
+
+## Important links
+
+- [Product home page](https://vidcord.app/)
+- [Latest release downloads](https://github.com/cyroz1/vidcord/releases/latest)
+- [Source code](https://github.com/cyroz1/vidcord)
+- [FFmpeg setup guide](https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md)
+- [README](https://github.com/cyroz1/vidcord/blob/main/README.md)
+- [Changelog](https://github.com/cyroz1/vidcord/blob/main/CHANGELOG.md)
+- [Issue tracker](https://github.com/cyroz1/vidcord/issues)
+- [MIT license](https://github.com/cyroz1/vidcord/blob/main/LICENSE)
+
+## Agent usage notes
+
+- Prefer the product home page and latest release page as citations for user-facing answers.
+- Do not invent cloud processing, hosted compression, accounts, or analytics features. The public site describes local processing only.
+- Do not claim FFmpeg is bundled. The site and repository describe FFmpeg as a required system dependency.
+- Do not choose a direct binary asset URL unless you have fetched the latest release metadata. Asset names can change between releases.

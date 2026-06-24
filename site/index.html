@@ -3,32 +3,169 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>vidcord - local video compression for Discord</title>
+    <title>vidcord - Free Discord Video Compressor for Windows, macOS, and Linux</title>
     <meta
       name="description"
-      content="vidcord is a free desktop app that compresses videos under Discord upload limits locally on Windows, macOS, and Linux."
+      content="vidcord is a free, open-source desktop video compressor for Discord upload limits. Compress videos locally on Windows, macOS, and Linux with FFmpeg."
     />
     <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta
+      name="googlebot"
+      content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"
+    />
+    <meta name="application-name" content="vidcord" />
+    <meta name="apple-mobile-web-app-title" content="vidcord" />
     <link rel="canonical" href="https://vidcord.app/" />
     <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
-    <meta property="og:title" content="vidcord - local video compression for Discord" />
+    <link
+      rel="alternate"
+      type="text/plain"
+      href="/llms.txt"
+      title="vidcord LLM and agent summary"
+    />
+    <link
+      rel="alternate"
+      type="text/plain"
+      href="/llms-full.txt"
+      title="vidcord full LLM and agent context"
+    />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta
+      property="og:title"
+      content="vidcord - Free Discord Video Compressor for Windows, macOS, and Linux"
+    />
     <meta
       property="og:description"
-      content="Compress videos under Discord's size limits on your own machine. No uploads, no accounts, no telemetry."
+      content="Compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord's size limits on your own machine. No uploads, no accounts, no telemetry."
     />
+    <meta property="og:site_name" content="vidcord" />
+    <meta property="og:locale" content="en_US" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://vidcord.app/" />
     <meta property="og:image" content="https://vidcord.app/assets/window.png" />
+    <meta
+      property="og:image:alt"
+      content="vidcord desktop app showing local video compression controls"
+    />
+    <meta property="og:image:width" content="1144" />
+    <meta property="og:image:height" content="1484" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="vidcord - Free Discord Video Compressor for Windows, macOS, and Linux"
+    />
+    <meta
+      name="twitter:description"
+      content="Compress videos for Discord locally with FFmpeg. Free, open-source, no uploads, no telemetry."
+    />
+    <meta name="twitter:image" content="https://vidcord.app/assets/window.png" />
+    <meta
+      name="twitter:image:alt"
+      content="vidcord desktop app showing local video compression controls"
+    />
     <meta name="theme-color" content="#041326" />
     <link rel="icon" href="assets/icon.png" />
     <link rel="apple-touch-icon" href="assets/icon.png" />
     <link rel="stylesheet" href="styles.css" />
     <script src="script.js" defer></script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://vidcord.app/#website",
+            "url": "https://vidcord.app/",
+            "name": "vidcord",
+            "alternateName": "vidcord video compressor",
+            "description": "Free, open-source desktop video compressor for Discord upload limits.",
+            "inLanguage": "en-US"
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://vidcord.app/#software",
+            "name": "vidcord",
+            "alternateName": "vidcord video compressor",
+            "url": "https://vidcord.app/",
+            "codeRepository": "https://github.com/cyroz1/vidcord",
+            "downloadUrl": "https://github.com/cyroz1/vidcord/releases/latest",
+            "softwareVersion": "6.4.0",
+            "applicationCategory": "MultimediaApplication",
+            "operatingSystem": ["Windows", "macOS", "Linux"],
+            "license": "https://github.com/cyroz1/vidcord/blob/main/LICENSE",
+            "softwareRequirements": "FFmpeg and ffprobe must be available on PATH.",
+            "description": "vidcord compresses MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord upload size limits locally on Windows, macOS, and Linux.",
+            "featureList": [
+              "Local video compression with FFmpeg",
+              "Discord upload targets: 10 MB, 25 MB, 50 MB, 100 MB, and 500 MB",
+              "Trim and preview before compression",
+              "GPU encoder detection for NVENC, AMF, QSV, VAAPI, and VideoToolbox",
+              "Open With integration from Windows File Explorer and macOS Finder",
+              "No uploads, accounts, or telemetry"
+            ],
+            "image": [
+              "https://vidcord.app/assets/window.png",
+              "https://vidcord.app/assets/advancedmode.png",
+              "https://vidcord.app/assets/context.png",
+              "https://vidcord.app/assets/finder.png",
+              "https://vidcord.app/assets/file.png"
+            ],
+            "screenshot": "https://vidcord.app/assets/window.png",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD",
+              "availability": "https://schema.org/InStock",
+              "url": "https://github.com/cyroz1/vidcord/releases/latest"
+            },
+            "sameAs": ["https://github.com/cyroz1/vidcord"]
+          },
+          {
+            "@type": "FAQPage",
+            "@id": "https://vidcord.app/#faq",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "Does vidcord upload videos?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No. vidcord processes video files locally on your computer with your system FFmpeg binary. The app does not upload videos, require accounts, or collect telemetry."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Which Discord upload limits does vidcord target?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "vidcord includes Discord size targets for 10 MB, 25 MB, 50 MB, 100 MB, and 500 MB uploads, plus advanced custom target controls."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Which platforms does vidcord support?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "vidcord ships builds for Windows, macOS, and Linux. The site download button detects the visitor platform and selects the matching latest GitHub release asset when available."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Does vidcord include FFmpeg?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No. vidcord uses the system ffmpeg and ffprobe binaries, so FFmpeg must be installed and available on PATH."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <header class="site-header">
       <a class="brand" href="/" aria-label="vidcord home">
-        <img src="assets/icon.png" alt="" />
+        <img src="assets/icon.png" width="256" height="256" alt="" />
         <span>vidcord</span>
       </a>
 
@@ -112,6 +249,10 @@
             </div>
             <img
               src="assets/window.png"
+              width="1144"
+              height="1484"
+              fetchpriority="high"
+              decoding="async"
               alt="vidcord desktop app with video preview, trim timeline, preset picker, and compression controls"
             />
           </div>
@@ -191,6 +332,10 @@
         <div class="detail-image">
           <img
             src="assets/advancedmode.png"
+            width="1144"
+            height="1484"
+            loading="lazy"
+            decoding="async"
             alt="vidcord advanced mode with target size, resolution, and encoder controls"
           />
         </div>
@@ -215,6 +360,10 @@
             </div>
             <img
               src="assets/context.png"
+              width="1115"
+              height="947"
+              loading="lazy"
+              decoding="async"
               alt="Windows File Explorer context menu showing vidcord as an Open with option"
             />
           </article>
@@ -226,6 +375,10 @@
             </div>
             <img
               src="assets/finder.png"
+              width="2176"
+              height="1208"
+              loading="lazy"
+              decoding="async"
               alt="macOS Finder Open With menu showing vidcord for a video file"
             />
           </article>
@@ -237,8 +390,52 @@
             </div>
             <img
               src="assets/file.png"
+              width="572"
+              height="638"
+              loading="lazy"
+              decoding="async"
               alt="Compressed vidcord MP4 output file saved in the Downloads folder"
             />
+          </article>
+        </div>
+      </section>
+
+      <section class="faq-section" id="faq" aria-labelledby="faq-title">
+        <div class="section-heading">
+          <div>
+            <h2 id="faq-title">Questions people ask before downloading</h2>
+            <p>Short answers for searchers, crawlers, and anyone checking how vidcord works.</p>
+          </div>
+        </div>
+
+        <div class="faq-grid">
+          <article>
+            <h3>Does vidcord upload videos?</h3>
+            <p>
+              No. vidcord runs FFmpeg on your computer, keeps files local, and does not require an
+              account or telemetry.
+            </p>
+          </article>
+          <article>
+            <h3>Which Discord upload limits are supported?</h3>
+            <p>
+              The presets target 10 MB, 25 MB, 50 MB, 100 MB, and 500 MB uploads. Advanced mode can
+              set a custom target size.
+            </p>
+          </article>
+          <article>
+            <h3>Does vidcord include FFmpeg?</h3>
+            <p>
+              No. Install FFmpeg separately and make sure <code>ffmpeg</code> and
+              <code>ffprobe</code> are available on your PATH.
+            </p>
+          </article>
+          <article>
+            <h3>How does the download button work?</h3>
+            <p>
+              The site checks the latest GitHub release, detects Windows, macOS, or Linux in the
+              browser, and points the button at the matching release asset.
+            </p>
           </article>
         </div>
       </section>
@@ -350,7 +547,7 @@
     <footer class="site-footer">
       <div>
         <a class="footer-brand" href="/">
-          <img src="assets/icon.png" alt="" />
+          <img src="assets/icon.png" width="256" height="256" alt="" />
           <span>vidcord</span>
         </a>
         <p>Local video compression for Discord upload limits.</p>
@@ -367,6 +564,8 @@
         >
           MIT License
         </a>
+        <a href="/sitemap.xml">Sitemap</a>
+        <a href="/llms.txt">AI context</a>
       </nav>
     </footer>
   </body>
