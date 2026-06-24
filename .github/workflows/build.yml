@@ -2,22 +2,21 @@ name: Multi-Platform Build
 
 on:
   push:
-    branches: [ main, master, rust ]
+    branches: [main]
     tags:
-      - 'v*'
-      - '[0-9]*'
+      - "v*"
     paths-ignore:
-      - 'README.md'
-      - 'CHANGELOG.md'
-      - '.gitignore'
-      - 'screenshots/**'
+      - "README.md"
+      - "CHANGELOG.md"
+      - ".gitignore"
+      - "screenshots/**"
   pull_request:
-    branches: [ main, master, rust ]
+    branches: [main]
     paths-ignore:
-      - 'README.md'
-      - 'CHANGELOG.md'
-      - '.gitignore'
-      - 'screenshots/**'
+      - "README.md"
+      - "CHANGELOG.md"
+      - ".gitignore"
+      - "screenshots/**"
   workflow_dispatch:
 
 concurrency:
@@ -43,15 +42,8 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Cache TypeScript incremental metadata
-        uses: actions/cache@v4
-        with:
-          path: .tsbuildinfo
-          key: tsc-${{ hashFiles('src/**/*.ts', 'src/**/*.tsx', 'tsconfig.json', 'package-lock.json') }}
-          restore-keys: tsc-
-
       - name: Install npm dependencies
-        run: npm ci --prefer-offline
+        run: npm ci --prefer-offline --no-audit --fund=false
 
       - name: Audit npm dependencies
         if: github.event_name != 'pull_request'
@@ -211,9 +203,6 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install npm dependencies
-        run: npm ci --prefer-offline
-
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -249,25 +238,25 @@ jobs:
         if: matrix.platform == 'macos-latest'
         run: |
           PROFILE=${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
-          npx tauri build --target universal-apple-darwin --bundles dmg --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
+          npm exec --yes --package @tauri-apps/cli@2.10.1 -- tauri build --target universal-apple-darwin --bundles dmg --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
 
       - name: Build (Windows aarch64)
         if: matrix.platform == 'windows-latest' && matrix.arch == 'aarch64'
         run: |
           $PROFILE = "${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}"
-          npx tauri build --target aarch64-pc-windows-msvc --bundles nsis --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
+          npm exec --yes --package @tauri-apps/cli@2.10.1 -- tauri build --target aarch64-pc-windows-msvc --bundles nsis --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
 
       - name: Build (Windows x86_64)
         if: matrix.platform == 'windows-latest' && matrix.arch == 'x86_64'
         run: |
           $PROFILE = "${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}"
-          npx tauri build --bundles nsis --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
+          npm exec --yes --package @tauri-apps/cli@2.10.1 -- tauri build --bundles nsis --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
 
       - name: Build (Linux)
         if: startsWith(matrix.platform, 'ubuntu')
         run: |
           PROFILE=${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
-          npx tauri build --bundles appimage --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
+          npm exec --yes --package @tauri-apps/cli@2.10.1 -- tauri build --bundles appimage --config '{"build":{"beforeBuildCommand":""}}' -- --profile $PROFILE
 
       - name: Stage artifacts (Unix)
         if: matrix.platform != 'windows-latest'
