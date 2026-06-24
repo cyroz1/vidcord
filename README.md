@@ -306,7 +306,7 @@ src-tauri/                 Rust backend
 ```
 
 A deeper architectural tour — IPC boundary, file-open race conditions,
-cache layout, settings migration — lives in [CLAUDE.md](CLAUDE.md).
+cache layout, settings migration — lives in [AGENTS.md](AGENTS.md).
 
 ## Troubleshooting
 
@@ -434,7 +434,7 @@ Issues and PRs are welcome. Before opening a PR:
    `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` must stay in
    sync, and any bump triggers a release the next time a tag is pushed.
 
-Read [CLAUDE.md](CLAUDE.md) for the architectural invariants you're
+Read [AGENTS.md](AGENTS.md) for the architectural invariants you're
 expected not to break (Tauri command registration, blocking work and
 `spawn_blocking`, the three file-open delivery paths, Linux env shims for
 KDE / LXQt / Sway / Hyprland, cache invalidation rules).

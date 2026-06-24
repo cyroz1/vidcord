@@ -1,4 +1,6 @@
-use crate::ffmpeg::{get_available_encoders, get_ffmpeg_env, invalidate_encoder_cache};
+use crate::ffmpeg::{
+    ffmpeg_missing_error, get_available_encoders, get_ffmpeg_env, invalidate_encoder_cache,
+};
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use std::sync::{Mutex, OnceLock};
@@ -36,9 +38,9 @@ fn command_exists(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn ffmpeg_probe() -> bool {
+fn ffmpeg_tool_probe(tool: &str) -> bool {
     #[allow(unused_mut)]
-    let mut cmd = std::process::Command::new("ffmpeg");
+    let mut cmd = std::process::Command::new(tool);
     cmd.arg("-version")
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -48,6 +50,10 @@ fn ffmpeg_probe() -> bool {
         cmd.creation_flags(0x08000000);
     }
     cmd.status().map(|s| s.success()).unwrap_or(false)
+}
+
+fn ffmpeg_probe() -> bool {
+    ffmpeg_tool_probe("ffmpeg") && ffmpeg_tool_probe("ffprobe")
 }
 
 fn ffmpeg_available() -> bool {
@@ -89,9 +95,19 @@ fn run_shell(command: &str) -> std::io::Result<std::process::ExitStatus> {
 #[tauri::command]
 pub async fn detect_encoders() -> Vec<serde_json::Value> {
     tokio::task::spawn_blocking(|| {
-        get_available_encoders()
+        let detected = get_available_encoders();
+        let ffmpeg_missing = detected.ffmpeg_missing || !ffmpeg_available();
+        detected
+            .encoders
             .into_iter()
-            .map(|(name, label)| serde_json::json!({"name": name, "label": label}))
+            .enumerate()
+            .map(|(index, (name, label))| {
+                if index == 0 && ffmpeg_missing {
+                    serde_json::json!({"name": name, "label": label, "ffmpeg_missing": true})
+                } else {
+                    serde_json::json!({"name": name, "label": label})
+                }
+            })
             .collect::<Vec<_>>()
     })
     .await
@@ -100,7 +116,7 @@ pub async fn detect_encoders() -> Vec<serde_json::Value> {
 
 #[tauri::command]
 pub async fn check_ffmpeg_available() -> bool {
-    tokio::task::spawn_blocking(ffmpeg_available)
+    tokio::task::spawn_blocking(ffmpeg_available_fresh)
         .await
         .unwrap_or(false)
 }
@@ -357,9 +373,13 @@ pub async fn list_ffmpeg_video_encoders() -> Result<String, String> {
             cmd.creation_flags(0x08000000);
         }
 
-        let output = cmd
-            .output()
-            .map_err(|e| format!("Failed to run ffmpeg: {e}"))?;
+        let output = cmd.output().map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                ffmpeg_missing_error()
+            } else {
+                format!("Failed to run ffmpeg: {e}")
+            }
+        })?;
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
         let re = LIST_ENCODER_RE.get_or_init(|| {

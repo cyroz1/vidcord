@@ -1,6 +1,6 @@
 use crate::ffmpeg::{
-    clear_preview_caches, generate_filmstrip, generate_preview, generate_preview_clip,
-    get_ffmpeg_env, probe_video,
+    clear_preview_caches, ffmpeg_missing_error, generate_filmstrip, generate_preview,
+    generate_preview_clip, get_ffmpeg_env, probe_video,
 };
 use crate::log::vidcord_log;
 use std::io::{BufRead, BufReader};
@@ -344,7 +344,7 @@ async fn run_ffmpeg_attempt(
     let mut child = cmd.spawn().map_err(|e| {
         vidcord_log(&format!("Failed to start ffmpeg: {e}"));
         if e.kind() == std::io::ErrorKind::NotFound {
-            "FFmpeg not found on PATH. Install FFmpeg and restart vidcord.".to_string()
+            ffmpeg_missing_error()
         } else {
             format!("Failed to start ffmpeg: {e}")
         }
