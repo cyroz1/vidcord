@@ -8,7 +8,9 @@
       name="description"
       content="vidcord is a free desktop app that compresses videos under Discord upload limits locally on Windows, macOS, and Linux."
     />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
     <link rel="canonical" href="https://vidcord.app/" />
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
     <meta property="og:title" content="vidcord - local video compression for Discord" />
     <meta
       property="og:description"
@@ -33,6 +35,7 @@
       <nav class="site-nav" aria-label="Main navigation">
         <a href="#features">Features</a>
         <a href="#workflow">How it works</a>
+        <a href="#integrations">Open With</a>
         <a href="#download">Download</a>
         <a href="https://github.com/cyroz1/vidcord" rel="noreferrer" target="_blank">
           GitHub
@@ -49,8 +52,8 @@
           <h1 id="hero-title">vidcord</h1>
           <p class="hero-lede">Local video compression for Discord limits.</p>
           <p class="hero-body">
-            Shrink MP4, MOV, MKV, AVI, WebM, FLV, and WMV files to Discord's
-            10 / 25 / 50 / 100 / 500 MB upload tiers with FFmpeg on your own machine.
+            Shrink MP4, MOV, MKV, AVI, WebM, FLV, and WMV files to Discord's 10 / 25 / 50 / 100 /
+            500 MB upload tiers with FFmpeg on your own machine.
           </p>
 
           <div class="hero-actions">
@@ -71,7 +74,7 @@
               rel="noreferrer"
               target="_blank"
             >
-              <svg aria-hidden="true" viewBox="0 0 24 24">
+              <svg class="github-mark" aria-hidden="true" viewBox="0 0 24 24">
                 <path
                   d="M12 2.75a9.25 9.25 0 0 0-2.92 18.03c.46.08.63-.2.63-.44v-1.72c-2.57.56-3.11-1.09-3.11-1.09-.42-1.07-1.03-1.36-1.03-1.36-.84-.58.06-.56.06-.56.93.07 1.42.96 1.42.96.83 1.41 2.17 1 2.7.77.08-.6.32-1 .58-1.23-2.05-.23-4.2-1.02-4.2-4.56 0-1 .36-1.83.95-2.48-.1-.23-.41-1.17.09-2.44 0 0 .78-.25 2.55.95A8.8 8.8 0 0 1 12 7.27c.79 0 1.58.1 2.32.31 1.77-1.2 2.55-.95 2.55-.95.5 1.27.19 2.21.09 2.44.59.65.95 1.47.95 2.48 0 3.55-2.16 4.32-4.22 4.55.33.29.63.85.63 1.72v2.52c0 .24.17.52.64.43A9.25 9.25 0 0 0 12 2.75Z"
                 />
@@ -176,8 +179,8 @@
         <div class="detail-copy">
           <h2>Simple when you want it. Precise when you need it.</h2>
           <p>
-            Advanced mode lets you set a custom target size, resolution, and encoder string.
-            Encoder detection shows what your installed FFmpeg can actually use.
+            Advanced mode lets you set a custom target size, resolution, and encoder string. Encoder
+            detection shows what your installed FFmpeg can actually use.
           </p>
           <ul>
             <li>Strict output size checks with safer retry behavior.</li>
@@ -190,6 +193,53 @@
             src="assets/advancedmode.png"
             alt="vidcord advanced mode with target size, resolution, and encoder controls"
           />
+        </div>
+      </section>
+
+      <section class="integration-section" id="integrations" aria-labelledby="integrations-title">
+        <div class="section-heading">
+          <div>
+            <h2 id="integrations-title">Open videos from Explorer or Finder</h2>
+            <p>
+              vidcord registers as a video app, so you can start from your file manager and get the
+              compressed MP4 back in Downloads.
+            </p>
+          </div>
+        </div>
+
+        <div class="integration-grid">
+          <article class="integration-panel">
+            <div>
+              <h3>Windows context menu</h3>
+              <p>Right-click a video and choose vidcord from Open with.</p>
+            </div>
+            <img
+              src="assets/context.png"
+              alt="Windows File Explorer context menu showing vidcord as an Open with option"
+            />
+          </article>
+
+          <article class="integration-panel integration-panel-wide">
+            <div>
+              <h3>macOS Finder</h3>
+              <p>Use Open With in Finder to send a local video straight into vidcord.</p>
+            </div>
+            <img
+              src="assets/finder.png"
+              alt="macOS Finder Open With menu showing vidcord for a video file"
+            />
+          </article>
+
+          <article class="integration-panel">
+            <div>
+              <h3>Saved output file</h3>
+              <p>Exports land in Downloads with a safe auto-incremented filename.</p>
+            </div>
+            <img
+              src="assets/file.png"
+              alt="Compressed vidcord MP4 output file saved in the Downloads folder"
+            />
+          </article>
         </div>
       </section>
 
@@ -209,9 +259,15 @@
           </svg>
           <div>
             <strong>FFmpeg required</strong>
-            <span>vidcord shells out to your system <code>ffmpeg</code> and <code>ffprobe</code>.</span>
+            <span
+              >vidcord shells out to your system <code>ffmpeg</code> and <code>ffprobe</code>.</span
+            >
           </div>
-          <a href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md" target="_blank" rel="noreferrer">
+          <a
+            href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
+            target="_blank"
+            rel="noreferrer"
+          >
             Install guide
           </a>
         </div>
@@ -219,7 +275,9 @@
         <div class="download-grid" aria-label="Platform downloads">
           <article class="download-card" data-platform-card="windows">
             <svg class="platform-icon" aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M3 5.1 10.8 4v7.4H3zm9-1.3L21 2.5v8.9h-9zM3 12.6h7.8V20L3 18.9zm9 .1h9v8.8l-9-1.3z" />
+              <path
+                d="M3 5.1 10.8 4v7.4H3zm9-1.3L21 2.5v8.9h-9zM3 12.6h7.8V20L3 18.9zm9 .1h9v8.8l-9-1.3z"
+              />
             </svg>
             <h3>Windows</h3>
             <p>Windows 10 or later, x86_64 and ARM64 builds.</p>
@@ -260,7 +318,9 @@
 
           <article class="download-card" data-platform-card="linux">
             <svg class="platform-icon" aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M12 2.8c-2 0-3.6 1.6-3.6 3.8v3.8L5.7 15c-1.4 2.4.3 5.4 3.1 5.4h6.4c2.8 0 4.5-3 3.1-5.4l-2.7-4.6V6.6c0-2.2-1.6-3.8-3.6-3.8Z" />
+              <path
+                d="M12 2.8c-2 0-3.6 1.6-3.6 3.8v3.8L5.7 15c-1.4 2.4.3 5.4 3.1 5.4h6.4c2.8 0 4.5-3 3.1-5.4l-2.7-4.6V6.6c0-2.2-1.6-3.8-3.6-3.8Z"
+              />
               <path d="M9.1 17.5h5.8M10 7.1h.01M14 7.1h.01" />
             </svg>
             <h3>Linux</h3>
@@ -297,8 +357,14 @@
       </div>
       <nav aria-label="Footer navigation">
         <a href="https://github.com/cyroz1/vidcord" target="_blank" rel="noreferrer">GitHub</a>
-        <a href="https://github.com/cyroz1/vidcord/issues" target="_blank" rel="noreferrer">Issues</a>
-        <a href="https://github.com/cyroz1/vidcord/blob/main/LICENSE" target="_blank" rel="noreferrer">
+        <a href="https://github.com/cyroz1/vidcord/issues" target="_blank" rel="noreferrer"
+          >Issues</a
+        >
+        <a
+          href="https://github.com/cyroz1/vidcord/blob/main/LICENSE"
+          target="_blank"
+          rel="noreferrer"
+        >
           MIT License
         </a>
       </nav>

@@ -1,0 +1,28 @@
+# vidcord
+
+> vidcord is a free, open-source desktop app that compresses video files under Discord upload size limits. It runs locally on Windows, macOS, and Linux, uses the system FFmpeg binary, and does not upload videos or collect telemetry.
+
+## Key Facts
+
+- Product: vidcord
+- Website: https://vidcord.app/
+- Source code: https://github.com/cyroz1/vidcord
+- Latest release: https://github.com/cyroz1/vidcord/releases/latest
+- License: MIT
+- Platforms: Windows, macOS, Linux
+- Installer formats: Windows NSIS `.exe`, macOS universal `.dmg`, Linux `.AppImage`
+- Required dependency: system `ffmpeg` and `ffprobe` on PATH
+- Main use case: compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV videos under Discord's 10 / 25 / 50 / 100 / 500 MB upload tiers
+- Privacy posture: local processing only; no accounts, no uploads, no telemetry
+
+## Pages And Resources
+
+- Home page: https://vidcord.app/
+- FFmpeg setup guide: https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md
+- README: https://github.com/cyroz1/vidcord/blob/main/README.md
+- Changelog: https://github.com/cyroz1/vidcord/blob/main/CHANGELOG.md
+- Issues: https://github.com/cyroz1/vidcord/issues
+
+## Crawler And Agent Access
+
+Public pages on `vidcord.app` may be crawled, indexed, summarized, and referenced by search crawlers and AI agents. Download binaries are hosted on GitHub Releases and should be accessed through the latest release page.
