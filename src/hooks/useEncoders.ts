@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
-export type Encoder = { name: string; label: string };
+export type Encoder = { name: string; label: string; ffmpeg_missing?: boolean };
 
 type Props = {
   settingsLoaded: boolean;
@@ -23,10 +23,9 @@ export function useEncoders({
   const [ffmpegMissing, setFfmpegMissing] = useState(false);
   const missingNotifiedRef = useRef(false);
 
-  // Keep the latest prop values in refs so `refreshEncoders` can have an
-  // empty dep array — a stable identity means downstream useCallbacks in
-  // App.tsx (retryFfmpegDetection, installFfmpeg) don't invalidate every
-  // render.
+  // Keep the latest prop values in refs so the stable marker callbacks below
+  // can notify through the current toast handler without invalidating
+  // downstream useCallbacks in App.tsx on every render.
   const savedEncoderLabelRef = useRef(savedEncoderLabel);
   const savedEncoderIndexRef = useRef(savedEncoderIndex);
   const onFfmpegMissingRef = useRef(onFfmpegMissing);
@@ -36,18 +35,25 @@ export function useEncoders({
     onFfmpegMissingRef.current = onFfmpegMissing;
   }, [savedEncoderLabel, savedEncoderIndex, onFfmpegMissing]);
 
+  const markFfmpegMissing = useCallback(() => {
+    setFfmpegMissing(true);
+    if (!missingNotifiedRef.current) {
+      missingNotifiedRef.current = true;
+      onFfmpegMissingRef.current();
+    }
+  }, []);
+
+  const clearFfmpegMissing = useCallback(() => {
+    setFfmpegMissing(false);
+    missingNotifiedRef.current = false;
+  }, []);
+
   const refreshEncoders = useCallback(() => {
     return invoke<Encoder[]>("detect_encoders").then((list) => {
       if (list.length > 0) {
-        const missing = Boolean((list[0] as Encoder & { ffmpeg_missing?: boolean }).ffmpeg_missing);
-        setFfmpegMissing(missing);
-        if (missing && !missingNotifiedRef.current) {
-          missingNotifiedRef.current = true;
-          onFfmpegMissingRef.current();
-        }
-        if (!missing) {
-          missingNotifiedRef.current = false;
-        }
+        const missing = Boolean(list[0].ffmpeg_missing);
+        if (missing) markFfmpegMissing();
+        else clearFfmpegMissing();
         setEncoders(list.map(({ name, label }) => ({ name, label })));
         const label = savedEncoderLabelRef.current;
         if (label) {
@@ -60,12 +66,12 @@ export function useEncoders({
         setEncoderIdx(Math.min(savedEncoderIndexRef.current, list.length - 1));
       }
     });
-  }, []);
+  }, [clearFfmpegMissing, markFfmpegMissing]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
     refreshEncoders().catch(() => {});
   }, [settingsLoaded, refreshEncoders]);
 
-  return { encoders, encoderIdx, setEncoderIdx, ffmpegMissing, refreshEncoders };
+  return { encoders, encoderIdx, setEncoderIdx, ffmpegMissing, refreshEncoders, markFfmpegMissing };
 }

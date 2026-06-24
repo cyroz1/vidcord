@@ -11,6 +11,11 @@ import { useToasts } from "./hooks/useToasts";
 import { useSettings } from "./hooks/useSettings";
 import { useEncoders } from "./hooks/useEncoders";
 import {
+  FFMPEG_MISSING_LOAD_MESSAGE,
+  FFMPEG_MISSING_TOAST_MESSAGE,
+  isFfmpegMissingError,
+} from "./ffmpegErrors";
+import {
   useCompression,
   calculateBitrate,
   resolutionToShortSide,
@@ -107,17 +112,13 @@ export default function App() {
     setRemoveAudio,
     saveSettings,
   } = useSettings();
-  const { encoders, encoderIdx, setEncoderIdx, ffmpegMissing, refreshEncoders } = useEncoders({
-    settingsLoaded,
-    savedEncoderLabel: settingsRef.current.encoder_label as string | undefined,
-    savedEncoderIndex: (settingsRef.current.encoder_index as number) ?? 0,
-    onFfmpegMissing: () =>
-      addToast(
-        "error",
-        "FFmpeg Not Found",
-        "FFmpeg was not found on PATH. Install FFmpeg and restart vidcord to enable compression."
-      ),
-  });
+  const { encoders, encoderIdx, setEncoderIdx, ffmpegMissing, refreshEncoders, markFfmpegMissing } =
+    useEncoders({
+      settingsLoaded,
+      savedEncoderLabel: settingsRef.current.encoder_label as string | undefined,
+      savedEncoderIndex: (settingsRef.current.encoder_index as number) ?? 0,
+      onFfmpegMissing: () => addToast("error", "FFmpeg Not Found", FFMPEG_MISSING_TOAST_MESSAGE),
+    });
   const { compressing, setCompressing, progress, eta, cancelCompress, resetProgress } =
     useCompression({ onToast: addToast });
 
@@ -278,11 +279,16 @@ export default function App() {
         const data = await invoke<ProbeData>("probe", { path });
         setProbeData(data);
       } catch (e) {
-        setFileName(`Error loading video: ${e}`);
+        if (isFfmpegMissingError(e)) {
+          markFfmpegMissing();
+          setFileName(FFMPEG_MISSING_LOAD_MESSAGE);
+        } else {
+          setFileName(`Error loading video: ${e}`);
+        }
         setProbeData(null);
       }
     },
-    [resetProgress]
+    [markFfmpegMissing, resetProgress]
   );
 
   useEffect(() => {
@@ -448,6 +454,12 @@ export default function App() {
 
   // --- Compression ---
   const startCompress = useCallback(async () => {
+    if (ffmpegMissing) {
+      addToast("warning", "FFmpeg Not Found", FFMPEG_MISSING_TOAST_MESSAGE);
+      setCompressing(false);
+      return;
+    }
+
     if (!filePath || !probeData) {
       addToast("warning", "Warning", "No file selected!");
       setCompressing(false);
@@ -527,7 +539,13 @@ export default function App() {
         vaapi_device: vaapiDevice,
       },
     }).catch((e) => {
-      addToast("error", "Error", String(e));
+      if (isFfmpegMissingError(e)) {
+        markFfmpegMissing();
+        addToast("error", "FFmpeg Not Found", FFMPEG_MISSING_TOAST_MESSAGE);
+      } else {
+        addToast("error", "Error", String(e));
+      }
+      setCompressing(false);
       return null;
     });
 
@@ -538,6 +556,7 @@ export default function App() {
   }, [
     filePath,
     probeData,
+    ffmpegMissing,
     startVal,
     endVal,
     advancedMode,
@@ -549,14 +568,23 @@ export default function App() {
     encoders,
     removeAudio,
     addToast,
+    markFfmpegMissing,
     setCompressing,
   ]);
 
   const loadListedEncoders = useCallback(async () => {
-    const text = await invoke<string>("list_ffmpeg_video_encoders").catch((e) => `Error: ${e}`);
-    setListedEncoderNames(parseListedEncoderNames(text));
+    let fallbackNames: string[] | null = null;
+    const text = await invoke<string>("list_ffmpeg_video_encoders").catch((e) => {
+      if (isFfmpegMissingError(e)) {
+        markFfmpegMissing();
+        fallbackNames = [];
+        return FFMPEG_MISSING_TOAST_MESSAGE;
+      }
+      return `Error: ${e}`;
+    });
+    setListedEncoderNames(fallbackNames ?? parseListedEncoderNames(text));
     return text;
-  }, []);
+  }, [markFfmpegMissing]);
 
   const showEncoders = useCallback(async () => {
     const text = await loadListedEncoders();
@@ -569,8 +597,8 @@ export default function App() {
   }, [advancedMode, listedEncoderNames.length, loadListedEncoders, settingsLoaded]);
 
   const retryFfmpegDetection = useCallback(async () => {
-    await refreshEncoders().catch(() => {});
     const available = await invoke<boolean>("check_ffmpeg_available").catch(() => false);
+    await refreshEncoders().catch(() => {});
     if (available) {
       addToast("success", "FFmpeg Ready", "FFmpeg is now available.");
     } else {
@@ -1345,7 +1373,7 @@ export default function App() {
                   startCompress();
                 }
           }
-          disabled={compressing && progress > 0 && progress < 5}
+          disabled={ffmpegMissing || (compressing && progress > 0 && progress < 5)}
         >
           {compressing ? "Cancel" : "Compress Video"}
         </button>

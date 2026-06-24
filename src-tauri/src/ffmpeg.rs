@@ -1,5 +1,7 @@
 use crate::gpu::get_system_gpus;
 use std::collections::HashMap;
+use std::io::ErrorKind;
+use std::process::{Command, Output};
 use std::sync::{Arc, Mutex, OnceLock};
 
 static VAAPI_CACHE: OnceLock<Option<String>> = OnceLock::new();
@@ -13,6 +15,33 @@ static ENCODER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 // OnceLock) so the FFmpeg-install retry path can invalidate and re-detect.
 type EncoderList = Vec<(String, String)>;
 static ENCODER_CACHE: OnceLock<Mutex<Option<EncoderList>>> = OnceLock::new();
+
+pub struct AvailableEncoders {
+    pub encoders: EncoderList,
+    pub ffmpeg_missing: bool,
+}
+
+pub const FFMPEG_MISSING_ERROR_MARKER: &str = "FFMPEG_MISSING:";
+
+pub fn ffmpeg_missing_error() -> String {
+    format!(
+        "{FFMPEG_MISSING_ERROR_MARKER} FFmpeg was not found on PATH. Install FFmpeg and restart vidcord."
+    )
+}
+
+fn fallback_encoder_list() -> EncoderList {
+    vec![("libx264".to_string(), "CPU (libx264)".to_string())]
+}
+
+fn command_output_or_ffmpeg_missing(
+    cmd: &mut Command,
+) -> Result<Output, Box<dyn std::error::Error>> {
+    match cmd.output() {
+        Ok(output) => Ok(output),
+        Err(err) if err.kind() == ErrorKind::NotFound => Err(ffmpeg_missing_error().into()),
+        Err(err) => Err(Box::new(err)),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Preview clip cache - LRU-like cache with time-based keys
@@ -154,7 +183,7 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
         cmd.creation_flags(0x08000000);
     }
 
-    let out = cmd.output()?;
+    let out = command_output_or_ffmpeg_missing(&mut cmd)?;
 
     if !out.status.success() {
         return Err(format!("ffprobe failed: {}", String::from_utf8_lossy(&out.stderr)).into());
@@ -374,7 +403,7 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn st
         cmd.creation_flags(0x08000000);
     }
 
-    let out = cmd.output()?;
+    let out = command_output_or_ffmpeg_missing(&mut cmd)?;
 
     if !out.status.success() || out.stdout.is_empty() {
         return Err("FFmpeg preview failed".into());
@@ -432,7 +461,7 @@ pub fn generate_filmstrip(
         cmd.creation_flags(0x08000000);
     }
 
-    let out = cmd.output()?;
+    let out = command_output_or_ffmpeg_missing(&mut cmd)?;
 
     if !out.status.success() || out.stdout.is_empty() {
         return Err("FFmpeg filmstrip failed".into());
@@ -526,7 +555,7 @@ fn generate_preview_clip_internal(
         cmd.creation_flags(0x08000000);
     }
 
-    let out = cmd.output()?;
+    let out = command_output_or_ffmpeg_missing(&mut cmd)?;
 
     if !out.status.success() || out.stdout.is_empty() {
         return Err("FFmpeg preview clip failed".into());
@@ -539,11 +568,14 @@ fn generate_preview_clip_internal(
 // Encoder detection
 // ---------------------------------------------------------------------------
 
-pub fn get_available_encoders() -> Vec<(String, String)> {
+pub fn get_available_encoders() -> AvailableEncoders {
     let cache = ENCODER_CACHE.get_or_init(|| Mutex::new(None));
     if let Ok(guard) = cache.lock() {
         if let Some(cached) = guard.as_ref() {
-            return cached.clone();
+            return AvailableEncoders {
+                encoders: cached.clone(),
+                ffmpeg_missing: false,
+            };
         }
     }
 
@@ -561,8 +593,20 @@ pub fn get_available_encoders() -> Vec<(String, String)> {
         Ok(o) => o,
         // Don't cache the fallback: ffmpeg might not be installed *yet*.
         // If the user installs it and retries, we want a fresh probe.
-        Err(_) => return vec![("libx264".to_string(), "CPU (libx264)".to_string())],
+        Err(err) => {
+            return AvailableEncoders {
+                encoders: fallback_encoder_list(),
+                ffmpeg_missing: err.kind() == ErrorKind::NotFound,
+            }
+        }
     };
+
+    if !out.status.success() {
+        return AvailableEncoders {
+            encoders: fallback_encoder_list(),
+            ffmpeg_missing: true,
+        };
+    }
 
     let text = String::from_utf8_lossy(&out.stdout).to_string();
     let gpus = get_system_gpus();
@@ -627,7 +671,7 @@ pub fn get_available_encoders() -> Vec<(String, String)> {
     }
 
     if result.is_empty() {
-        result.push(("libx264".to_string(), "CPU (libx264)".to_string()));
+        result = fallback_encoder_list();
     }
 
     // Memoise so repeat invocations (initial load + Advanced-mode open +
@@ -636,7 +680,10 @@ pub fn get_available_encoders() -> Vec<(String, String)> {
         *guard = Some(result.clone());
     }
 
-    result
+    AvailableEncoders {
+        encoders: result,
+        ffmpeg_missing: false,
+    }
 }
 
 /// Drop the cached encoder list so the next call re-probes ffmpeg. Called
@@ -736,5 +783,19 @@ pub fn clear_preview_caches() {
     }
     if let Ok(mut cache) = get_frame_cache().lock() {
         cache.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ffmpeg_missing_error_is_machine_detectable_and_user_actionable() {
+        let message = ffmpeg_missing_error();
+
+        assert!(message.starts_with(FFMPEG_MISSING_ERROR_MARKER));
+        assert!(message.contains("PATH"));
+        assert!(message.contains("Install FFmpeg"));
     }
 }
