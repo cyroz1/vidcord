@@ -23,6 +23,8 @@
 
   const primaryDownload = document.getElementById("primaryDownload");
   const downloadStatus = document.getElementById("downloadStatus");
+  const ffmpegInstruction = document.getElementById("ffmpegInstruction");
+  const ffmpegCommand = document.getElementById("ffmpegCommand");
   const releaseState = document.getElementById("releaseState");
   const platformLinks = Array.from(document.querySelectorAll("[data-download-for]"));
   const platformCards = Array.from(document.querySelectorAll("[data-platform-card]"));
@@ -254,6 +256,7 @@
     updatePlatformCards();
     updateWindowsArchLinks();
     updateStatus();
+    updateFfmpegWarning();
   }
 
   function updateStatus() {
@@ -292,6 +295,57 @@
     } else {
       downloadStatus.textContent = `${platformLabel} detected. Selecting the latest release asset.`;
     }
+  }
+
+  function ffmpegInstallInfo(platform, arch) {
+    if (platform === "windows" && arch === "arm64") {
+      return {
+        instruction:
+          "Windows ARM64 needs a community FFmpeg build. Download it, copy ffmpeg.exe and ffprobe.exe to C:\\ffmpeg, then add that folder to PATH.",
+        command: "",
+      };
+    }
+
+    if (platform === "windows") {
+      return {
+        instruction: "Open PowerShell or Command Prompt, run this, then restart or sign out:",
+        command: "winget install Gyan.FFmpeg",
+      };
+    }
+
+    if (platform === "macos") {
+      return {
+        instruction: "In Terminal, install Homebrew if needed, then run:",
+        command: "brew install ffmpeg",
+      };
+    }
+
+    if (platform === "linux") {
+      return {
+        instruction: "On Debian or Ubuntu, run this. Fedora and Arch commands are in the guide:",
+        command: "sudo apt install ffmpeg",
+      };
+    }
+
+    return {
+      instruction:
+        "Install ffmpeg and ffprobe before compressing videos. Use the guide for your OS:",
+      command: "",
+    };
+  }
+
+  function updateFfmpegWarning() {
+    if (!ffmpegInstruction || !ffmpegCommand) {
+      return;
+    }
+
+    const platform = state.selectedPlatform || state.platform;
+    const arch = effectiveArchForPlatform(platform);
+    const installInfo = ffmpegInstallInfo(platform, arch);
+
+    ffmpegInstruction.textContent = installInfo.instruction;
+    ffmpegCommand.textContent = installInfo.command;
+    ffmpegCommand.hidden = !installInfo.command;
   }
 
   async function fetchLatestRelease() {
@@ -408,6 +462,7 @@
   window.vidcordDownload = {
     normalizePlatform,
     normalizeArch,
+    ffmpegInstallInfo,
     needsWindowsArchChoice,
     selectBestAsset,
   };
