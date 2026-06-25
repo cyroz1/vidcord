@@ -51,6 +51,17 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   ├── tauri.conf.json        # Product config, CSP, file associations, bundle targets
 │   ├── Cargo.toml             # release/ci/dev profiles (see "Build profiles")
 │   └── .cargo/audit.toml      # RUSTSEC ignore list for Tauri upstream advisories
+├── site/                      # Static marketing/download website for vidcord.app
+│   ├── index.html             # Crawlable landing page, metadata, JSON-LD, app download UI
+│   ├── styles.css             # Dark blue responsive site styling
+│   ├── script.js              # Platform detection + latest GitHub release asset selection
+│   ├── robots.txt             # Allows search crawlers and AI agents
+│   ├── sitemap.xml            # Canonical sitemap for vidcord.app
+│   ├── llms.txt               # Short AI-agent grounding summary
+│   ├── llms-full.txt          # Expanded AI-agent grounding context
+│   ├── site.webmanifest       # Site/app manifest
+│   └── assets/                # Logo and uncropped product / file-manager screenshots
+├── wrangler.jsonc             # Cloudflare Worker static-assets deployment config
 ├── .github/workflows/build.yml# Multi-platform CI + release workflow
 ├── index.html                 # Vite entry
 ├── vite.config.ts             # React plugin, manual chunks (react / tauri / app)
@@ -94,6 +105,92 @@ CI treats any clippy warning as an error — keep new Rust code warning-clean.
 ```sh
 npm run tauri build        # outputs to src-tauri/target/release/bundle/
 ```
+
+### Website (`/site`) and Cloudflare deployment
+
+The public website lives in `site/` and is deployed as static assets through the Cloudflare Worker configured in `wrangler.jsonc`.
+
+- **Production domain**: `https://vidcord.app/`
+- **Workers.dev URL**: `https://vidcord-site.cyrz.workers.dev/`
+- **Cloudflare Worker name**: `vidcord-site`
+- **Deployment config**: `wrangler.jsonc` → `assets.directory = "./site"`, `workers_dev = true`
+- **Custom domain route**: `vidcord.app`
+- **Latest known deployed Worker version**: `cc3477ce-ae3b-4fa4-b6d5-1a93654102ec` (verify with Wrangler output before relying on it)
+- Wrangler deploy commands require a logged-in Cloudflare account and network access.
+
+Site behavior and content:
+- `site/index.html` is static, crawlable HTML. Keep important product claims visible in HTML, not only in JavaScript.
+- `site/script.js` detects Windows/macOS/Linux, calls GitHub's latest-release API, and points download buttons at the best matching release asset. It falls back to `https://github.com/cyroz1/vidcord/releases/latest`.
+- The social/link embed image intentionally uses the logo: `https://vidcord.app/assets/icon.png` via `og:image` and `twitter:image`.
+- Discord and other chat clients may cache old embeds. Use a temporary query string such as `https://vidcord.app/?v=2` when checking a changed preview image.
+- Product screenshots should not be cropped in CSS. Keep `width: 100%` and `height: auto` for screenshot images unless the user explicitly asks for a cropped composition.
+- The website documents local processing, FFmpeg as a required system dependency, Discord target sizes, Open With integration, and output-to-Downloads behavior.
+
+SEO and crawler/agent files:
+- `robots.txt` should allow normal web crawlers and AI agents, and point at `https://vidcord.app/sitemap.xml`.
+- `sitemap.xml` should include the home page plus `llms.txt` and `llms-full.txt`.
+- `llms.txt` is the concise grounding file for AI agents.
+- `llms-full.txt` is the expanded grounding context. Keep it factual and aligned with the app and README; do not invent hosted compression, bundled FFmpeg, accounts, or telemetry.
+- `index.html` contains JSON-LD for `WebSite`, `SoftwareApplication`, and `FAQPage`. If site facts change, update visible copy, JSON-LD, `llms.txt`, and `llms-full.txt` together.
+
+Local website preview:
+
+```sh
+python3 -m http.server 4174 --bind 127.0.0.1 -d site
+```
+
+Website validation:
+
+```sh
+npx prettier --check site/index.html site/styles.css site/script.js site/site.webmanifest wrangler.jsonc
+npx prettier --check --parser markdown site/llms.txt site/llms-full.txt
+node --check site/script.js
+xmllint --noout site/sitemap.xml
+```
+
+Before deployment, also parse the JSON-LD and manifest:
+
+```sh
+node - <<'NODE'
+const fs = require("fs");
+const html = fs.readFileSync("site/index.html", "utf8");
+const matches = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)];
+if (!matches.length) throw new Error("No JSON-LD blocks found");
+for (const match of matches) JSON.parse(match[1]);
+JSON.parse(fs.readFileSync("site/site.webmanifest", "utf8"));
+console.log("site structured data validated");
+NODE
+```
+
+Deploy the website:
+
+```sh
+npx wrangler@latest --version
+npx wrangler@latest deploy --dry-run --domain vidcord.app
+npx wrangler@latest deploy --domain vidcord.app
+```
+
+Post-deploy checks:
+
+```sh
+curl -I https://vidcord.app/
+curl -I https://vidcord.app/assets/icon.png
+curl -L https://vidcord.app/robots.txt
+curl -L https://vidcord.app/sitemap.xml
+curl -L https://vidcord.app/llms.txt
+curl -L https://vidcord.app/llms-full.txt
+curl -L https://vidcord.app/site.webmanifest
+```
+
+For browser QA, use the in-app browser when available and check:
+- page title and canonical URL
+- no blank page or framework overlay
+- no relevant console warnings/errors
+- JSON-LD types are present
+- FAQ and download sections render on desktop and mobile
+- screenshot aspect ratios remain uncropped
+
+Site-only changes should not trigger the multi-platform app CI: `.github/workflows/build.yml` ignores `site/**` for `push` and `pull_request`.
 
 ### Build profiles (src-tauri/Cargo.toml)
 
@@ -232,7 +329,7 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 4. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. Tagged `v*` refs use `release` profile; everything else uses `ci` profile.
 5. **release** (ubuntu-latest, only on tags) — extracts the matching CHANGELOG section, downloads artifacts, creates a draft GitHub release.
 
-Changes to `README.md`, `CHANGELOG.md`, `.gitignore`, and `screenshots/**` do not trigger CI.
+Changes to `README.md`, `CHANGELOG.md`, `.gitignore`, `screenshots/**`, and `site/**` do not trigger CI.
 
 ## Known pitfalls
 
