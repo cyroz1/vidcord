@@ -769,6 +769,106 @@ main {
   font-weight: 740;
 }
 
+.arch-dialog {
+  width: min(92vw, 500px);
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: transparent;
+  box-shadow: var(--shadow);
+}
+
+.arch-dialog::backdrop {
+  background: rgba(2, 9, 20, 0.74);
+  backdrop-filter: blur(10px);
+}
+
+.arch-dialog-panel {
+  position: relative;
+  padding: 28px;
+  background: rgba(8, 24, 44, 0.98);
+}
+
+.arch-dialog-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+.arch-dialog-close:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.arch-dialog-close svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.arch-dialog h3 {
+  margin: 0 44px 8px 0;
+  color: var(--text);
+  font-size: 24px;
+  font-weight: 790;
+  line-height: 1.15;
+}
+
+.arch-dialog p {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.arch-options {
+  display: grid;
+  gap: 12px;
+}
+
+.arch-option {
+  display: grid;
+  gap: 3px;
+  padding: 15px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.arch-option:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-strong);
+  transform: translateY(-1px);
+}
+
+.arch-option span {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 760;
+}
+
+.arch-option small {
+  color: var(--subtle);
+  font-size: 13px;
+}
+
 .site-footer {
   display: flex;
   align-items: center;
@@ -956,6 +1056,10 @@ main {
 
   .download-card p {
     min-height: 0;
+  }
+
+  .arch-dialog-panel {
+    padding: 24px;
   }
 
   .site-footer {

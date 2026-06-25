@@ -27,6 +27,9 @@
   const platformLinks = Array.from(document.querySelectorAll("[data-download-for]"));
   const platformCards = Array.from(document.querySelectorAll("[data-platform-card]"));
   const manualLinks = Array.from(document.querySelectorAll("[data-manual-platform]"));
+  const windowsArchDialog = document.getElementById("windowsArchDialog");
+  const windowsArchLinks = Array.from(document.querySelectorAll("[data-windows-arch]"));
+  const archDialogCloseButtons = Array.from(document.querySelectorAll("[data-arch-dialog-close]"));
 
   function normalizePlatform(value) {
     const text = String(value || "").toLowerCase();
@@ -48,6 +51,7 @@
 
   function normalizeArch(value) {
     const text = String(value || "").toLowerCase();
+    const compactText = text.replace(/[\s_-]+/g, "");
 
     if (text.includes("arm") || text.includes("aarch64")) {
       return "arm64";
@@ -55,9 +59,12 @@
 
     if (
       text.includes("x86_64") ||
+      text.includes("x86-64") ||
+      compactText.includes("x8664") ||
       text.includes("x64") ||
       text.includes("amd64") ||
-      text === "x86"
+      text.includes("win64") ||
+      text.includes("wow64")
     ) {
       return "x64";
     }
@@ -162,15 +169,31 @@
       .sort((a, b) => b.score - a.score || a.asset.name.localeCompare(b.asset.name))[0].asset;
   }
 
+  function effectiveArchForPlatform(platform) {
+    return platform === state.platform ? state.arch : "unknown";
+  }
+
+  function needsWindowsArchChoice(platform, arch) {
+    return platform === "windows" && arch === "unknown";
+  }
+
   function labelFor(platform) {
     return `Download for ${platformNames[platform] || platformNames.unknown}`;
   }
 
+  function assetFor(platform, arch) {
+    if (!state.release) {
+      return null;
+    }
+
+    return selectBestAsset(platform, arch, state.release.assets);
+  }
+
   function setDownloadLink(anchor, platform) {
     const span = anchor.querySelector("span");
-    const asset = state.release
-      ? selectBestAsset(platform, state.arch, state.release.assets)
-      : null;
+    const arch = effectiveArchForPlatform(platform);
+    const shouldChooseArch = needsWindowsArchChoice(platform, arch);
+    const asset = shouldChooseArch ? null : assetFor(platform, arch);
 
     anchor.href = asset ? asset.browser_download_url : latestReleaseUrl;
 
@@ -181,10 +204,33 @@
     if (asset) {
       anchor.setAttribute("aria-label", `${labelFor(platform)}: ${asset.name}`);
       anchor.dataset.assetName = asset.name;
+      delete anchor.dataset.needsArchChoice;
+    } else if (shouldChooseArch) {
+      anchor.setAttribute("aria-label", "Choose Windows architecture to download vidcord");
+      anchor.dataset.needsArchChoice = "true";
+      delete anchor.dataset.assetName;
     } else {
       anchor.setAttribute("aria-label", `${labelFor(platform)} from the latest release`);
+      delete anchor.dataset.needsArchChoice;
       delete anchor.dataset.assetName;
     }
+  }
+
+  function updateWindowsArchLinks() {
+    windowsArchLinks.forEach((link) => {
+      const arch = link.dataset.windowsArch || "unknown";
+      const asset = assetFor("windows", arch);
+
+      link.href = asset ? asset.browser_download_url : latestReleaseUrl;
+
+      if (asset) {
+        link.setAttribute("aria-label", `Download Windows ${arch}: ${asset.name}`);
+        link.dataset.assetName = asset.name;
+      } else {
+        link.setAttribute("aria-label", `Download Windows ${arch} from the latest release`);
+        delete link.dataset.assetName;
+      }
+    });
   }
 
   function updatePlatformCards() {
@@ -206,14 +252,15 @@
     });
 
     updatePlatformCards();
+    updateWindowsArchLinks();
     updateStatus();
   }
 
   function updateStatus() {
     const platformLabel = platformNames[state.selectedPlatform] || platformNames.unknown;
-    const primaryAsset = state.release
-      ? selectBestAsset(state.selectedPlatform, state.arch, state.release.assets)
-      : null;
+    const arch = effectiveArchForPlatform(state.selectedPlatform);
+    const shouldChooseArch = needsWindowsArchChoice(state.selectedPlatform, arch);
+    const primaryAsset = shouldChooseArch ? null : assetFor(state.selectedPlatform, arch);
 
     if (releaseState) {
       if (state.release) {
@@ -229,7 +276,10 @@
       return;
     }
 
-    if (state.release && primaryAsset) {
+    if (state.release && shouldChooseArch) {
+      downloadStatus.textContent =
+        "Windows detected, but browser architecture is unclear. Choose x86_64 or ARM64 when downloading.";
+    } else if (state.release && primaryAsset) {
       downloadStatus.textContent = `${platformLabel} detected. The button downloads ${primaryAsset.name}.`;
     } else if (state.release && state.selectedPlatform !== "unknown") {
       downloadStatus.textContent = `${platformLabel} detected. The button opens the latest release assets.`;
@@ -283,8 +333,67 @@
     });
   }
 
+  function openWindowsArchDialog() {
+    if (!windowsArchDialog) {
+      return;
+    }
+
+    if (windowsArchDialog.open) {
+      return;
+    }
+
+    if (typeof windowsArchDialog.showModal === "function") {
+      windowsArchDialog.showModal();
+    } else {
+      windowsArchDialog.setAttribute("open", "");
+    }
+  }
+
+  function closeWindowsArchDialog() {
+    if (!windowsArchDialog) {
+      return;
+    }
+
+    if (typeof windowsArchDialog.close === "function") {
+      windowsArchDialog.close();
+    } else {
+      windowsArchDialog.removeAttribute("open");
+    }
+  }
+
+  function bindDownloadLinks() {
+    [primaryDownload, ...platformLinks].filter(Boolean).forEach((anchor) => {
+      anchor.addEventListener("click", (event) => {
+        if (anchor.dataset.needsArchChoice !== "true") {
+          return;
+        }
+
+        event.preventDefault();
+        openWindowsArchDialog();
+      });
+    });
+  }
+
+  function bindWindowsArchDialog() {
+    if (!windowsArchDialog) {
+      return;
+    }
+
+    archDialogCloseButtons.forEach((button) => {
+      button.addEventListener("click", closeWindowsArchDialog);
+    });
+
+    windowsArchDialog.addEventListener("click", (event) => {
+      if (event.target === windowsArchDialog) {
+        closeWindowsArchDialog();
+      }
+    });
+  }
+
   async function init() {
     bindManualPlatformLinks();
+    bindDownloadLinks();
+    bindWindowsArchDialog();
     await detectEnvironment();
 
     if (!state.userSelected) {
@@ -299,6 +408,7 @@
   window.vidcordDownload = {
     normalizePlatform,
     normalizeArch,
+    needsWindowsArchChoice,
     selectBestAsset,
   };
 
