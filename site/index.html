@@ -535,6 +535,44 @@
           <a href="#" data-manual-platform="macos">macOS</a>
           <a href="#" data-manual-platform="linux">Linux</a>
         </p>
+
+        <dialog class="arch-dialog" id="windowsArchDialog" aria-labelledby="windowsArchTitle">
+          <div class="arch-dialog-panel">
+            <button
+              class="arch-dialog-close"
+              type="button"
+              data-arch-dialog-close
+              aria-label="Close"
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            </button>
+            <h3 id="windowsArchTitle">Choose Windows download</h3>
+            <p>
+              Your browser did not report this Windows device architecture. Choose the installer
+              that matches your PC.
+            </p>
+            <div class="arch-options">
+              <a
+                class="arch-option"
+                href="https://github.com/cyroz1/vidcord/releases/latest"
+                data-windows-arch="x64"
+              >
+                <span>x86_64</span>
+                <small>Most Intel and AMD Windows PCs</small>
+              </a>
+              <a
+                class="arch-option"
+                href="https://github.com/cyroz1/vidcord/releases/latest"
+                data-windows-arch="arm64"
+              >
+                <span>ARM64</span>
+                <small>Snapdragon and Surface Pro X-style PCs</small>
+              </a>
+            </div>
+          </div>
+        </dialog>
       </section>
     </main>
 
