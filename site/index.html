@@ -217,14 +217,17 @@
           <p class="download-note" id="downloadStatus">
             Detects Windows, macOS, or Linux and selects the latest release asset.
           </p>
-          <p class="download-warning">
+          <p class="download-warning" id="ffmpegWarning">
             <strong>FFmpeg required.</strong>
-            Install <code>ffmpeg</code> and <code>ffprobe</code> before compressing videos.
+            <span id="ffmpegInstruction"
+              >Install <code>ffmpeg</code> and <code>ffprobe</code> before compressing videos.</span
+            >
+            <code id="ffmpegCommand" hidden></code>
             <a
               href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
               target="_blank"
               rel="noreferrer"
-              >Install guide</a
+              >Full FFmpeg guide</a
             >
           </p>
 
