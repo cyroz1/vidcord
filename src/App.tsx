@@ -1385,6 +1385,27 @@ export default function App() {
         <div className="footer">
           <span className="version">{DISPLAY_VERSION}</span>
           <a
+            href="https://vidcord.app/"
+            onClick={(e) => {
+              e.preventDefault();
+              openUrl("https://vidcord.app/");
+            }}
+            className="gh-link"
+            aria-label="Website"
+            title="Website"
+          >
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
+              <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4" />
+              <path
+                d="M1.75 8h12.5M8 1.5c1.7 1.74 2.55 3.9 2.55 6.5S9.7 12.76 8 14.5C6.3 12.76 5.45 10.6 5.45 8S6.3 3.24 8 1.5Z"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.4"
+              />
+            </svg>
+          </a>
+          <a
             href="https://github.com/cyroz1/vidcord"
             onClick={(e) => {
               e.preventDefault();
