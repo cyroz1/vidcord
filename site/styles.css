@@ -251,6 +251,19 @@ main {
   font-size: 0.92em;
 }
 
+.ffmpeg-prereq-command {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 10px;
+  padding: 7px 9px;
+  overflow-x: auto;
+  border: 1px solid rgba(255, 207, 112, 0.28);
+  border-radius: 6px;
+  background: rgba(2, 9, 20, 0.46);
+  white-space: nowrap;
+}
+
 .ffmpeg-prereq-links {
   display: flex;
   flex-wrap: wrap;
@@ -358,36 +371,6 @@ main {
   background: var(--ok);
   box-shadow: 0 0 0 4px rgba(102, 223, 155, 0.1);
   content: "";
-}
-
-.download-warning {
-  max-width: 650px;
-  margin: 10px 0 0;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.download-warning strong {
-  color: #ffd98a;
-  font-weight: 780;
-}
-
-.download-warning code {
-  display: inline-block;
-  margin: 0 2px;
-  padding: 2px 6px;
-  border: 1px solid rgba(139, 177, 222, 0.22);
-  border-radius: 6px;
-  color: #e8f4ff;
-  background: rgba(255, 255, 255, 0.05);
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 0.92em;
-}
-
-.download-warning a {
-  color: var(--accent-strong);
-  font-weight: 740;
-  white-space: nowrap;
 }
 
 .hero-facts {
@@ -1094,7 +1077,6 @@ main {
 
 .site-footer nav a:hover,
 .manual-links a:hover,
-.download-warning a:hover,
 .faq-grid a:hover,
 .ffmpeg-prereq-links a:hover,
 .text-link:hover,

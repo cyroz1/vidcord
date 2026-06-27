@@ -223,14 +223,11 @@
             </svg>
             <div>
               <strong id="ffmpeg-prereq-title">Install FFmpeg first</strong>
-              <span>
-                Compression will not work until <code>ffmpeg</code> and <code>ffprobe</code> are
-                installed and available on your PATH.
+              <span id="ffmpegInstruction">
+                Install <code>ffmpeg</code> and <code>ffprobe</code> before compressing videos.
               </span>
+              <code class="ffmpeg-prereq-command" id="ffmpegCommand" hidden></code>
               <div class="ffmpeg-prereq-links">
-                <a id="ffmpegQuickLink" href="#ffmpeg-install">
-                  <span>Show setup for your platform</span>
-                </a>
                 <a
                   href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
                   target="_blank"
@@ -244,19 +241,6 @@
 
           <p class="download-note" id="downloadStatus">
             Detects Windows, macOS, or Linux and selects the latest release asset.
-          </p>
-          <p class="download-warning" id="ffmpegWarning">
-            <strong>FFmpeg required.</strong>
-            <span id="ffmpegInstruction"
-              >Install <code>ffmpeg</code> and <code>ffprobe</code> before compressing videos.</span
-            >
-            <code id="ffmpegCommand" hidden></code>
-            <a
-              href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
-              target="_blank"
-              rel="noreferrer"
-              >Full FFmpeg guide</a
-            >
           </p>
 
           <dl class="hero-facts" aria-label="Project facts">
