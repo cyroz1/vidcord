@@ -32,7 +32,6 @@
   const ffmpegInstruction = document.getElementById("ffmpegInstruction");
   const ffmpegCommand = document.getElementById("ffmpegCommand");
   const releaseState = document.getElementById("releaseState");
-  const ffmpegQuickLink = document.getElementById("ffmpegQuickLink");
   const platformLinks = Array.from(document.querySelectorAll("[data-download-for]"));
   const platformCards = Array.from(document.querySelectorAll("[data-platform-card]"));
   const ffmpegCards = Array.from(document.querySelectorAll("[data-ffmpeg-platform]"));
@@ -328,28 +327,6 @@
         card.removeAttribute("aria-current");
       }
     });
-
-    if (!ffmpegQuickLink) {
-      return;
-    }
-
-    const quickLinkLabel = ffmpegQuickLink.querySelector("span");
-
-    if (selectedPlatform === "unknown") {
-      ffmpegQuickLink.href = "#ffmpeg-install";
-
-      if (quickLinkLabel) {
-        quickLinkLabel.textContent = "Show setup for your platform";
-      }
-
-      return;
-    }
-
-    ffmpegQuickLink.href = `#ffmpeg-${selectedPlatform}`;
-
-    if (quickLinkLabel) {
-      quickLinkLabel.textContent = `Show ${platformNames[selectedPlatform]} FFmpeg setup`;
-    }
   }
 
   function archOptionText(platform, arch) {
