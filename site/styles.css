@@ -251,17 +251,67 @@ main {
   font-size: 0.92em;
 }
 
-.ffmpeg-prereq-command {
-  display: block;
+.command-block[hidden] {
+  display: none;
+}
+
+.command-block {
+  display: flex;
   width: fit-content;
   max-width: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(139, 177, 222, 0.18);
+  border-radius: 6px;
+  background: rgba(2, 9, 20, 0.68);
+  color: #f3f8ff;
+}
+
+.ffmpeg-prereq-command {
   margin-top: 10px;
+  border-color: rgba(255, 207, 112, 0.28);
+  background: rgba(2, 9, 20, 0.46);
+}
+
+.command-block pre {
+  min-width: 0;
+  margin: 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.command-block code {
+  color: inherit;
+  font-size: inherit;
+  white-space: pre;
+}
+
+.ffmpeg-prereq-command > code {
+  min-width: 0;
   padding: 7px 9px;
   overflow-x: auto;
-  border: 1px solid rgba(255, 207, 112, 0.28);
-  border-radius: 6px;
-  background: rgba(2, 9, 20, 0.46);
   white-space: nowrap;
+}
+
+.copy-command {
+  flex: 0 0 auto;
+  min-height: 100%;
+  padding: 0 10px;
+  border: 0;
+  border-left: 1px solid rgba(139, 177, 222, 0.18);
+  color: var(--accent-strong);
+  background: rgba(46, 140, 255, 0.1);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 780;
+  cursor: pointer;
+}
+
+.copy-command:hover {
+  color: var(--text);
+  background: rgba(46, 140, 255, 0.2);
 }
 
 .ffmpeg-prereq-links {
@@ -788,21 +838,8 @@ main {
   margin-top: 14px;
 }
 
-.ffmpeg-install-card pre {
-  overflow-x: auto;
+.ffmpeg-install-card .command-block {
   margin: 16px 0;
-  padding: 14px;
-  border: 1px solid rgba(139, 177, 222, 0.18);
-  border-radius: var(--radius);
-  background: rgba(2, 9, 20, 0.68);
-  color: #f3f8ff;
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.ffmpeg-install-card pre code {
-  font-size: inherit;
-  white-space: pre;
 }
 
 .download-section {
@@ -930,19 +967,6 @@ main {
   min-height: 50px;
   padding: 0 16px;
   font-size: 14px;
-}
-
-.manual-links {
-  margin: 17px 0 0;
-  color: var(--subtle);
-  text-align: center;
-  font-size: 14px;
-}
-
-.manual-links a {
-  margin-left: 12px;
-  color: var(--accent-strong);
-  font-weight: 740;
 }
 
 .arch-dialog {
@@ -1076,7 +1100,6 @@ main {
 }
 
 .site-footer nav a:hover,
-.manual-links a:hover,
 .faq-grid a:hover,
 .ffmpeg-prereq-links a:hover,
 .text-link:hover,

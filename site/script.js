@@ -24,18 +24,18 @@
     selectedPlatform: "unknown",
     release: null,
     releaseError: null,
-    userSelected: false,
   };
 
   const primaryDownload = document.getElementById("primaryDownload");
   const downloadStatus = document.getElementById("downloadStatus");
   const ffmpegInstruction = document.getElementById("ffmpegInstruction");
+  const ffmpegCommandBlock = document.getElementById("ffmpegCommandBlock");
   const ffmpegCommand = document.getElementById("ffmpegCommand");
   const releaseState = document.getElementById("releaseState");
   const platformLinks = Array.from(document.querySelectorAll("[data-download-for]"));
   const platformCards = Array.from(document.querySelectorAll("[data-platform-card]"));
   const ffmpegCards = Array.from(document.querySelectorAll("[data-ffmpeg-platform]"));
-  const manualLinks = Array.from(document.querySelectorAll("[data-manual-platform]"));
+  const copyCommandButtons = Array.from(document.querySelectorAll("[data-copy-target]"));
   const archDialog = document.getElementById("archChoiceDialog");
   const archDialogTitle = document.getElementById("archChoiceTitle");
   const archDialogBody = document.getElementById("archChoiceBody");
@@ -526,7 +526,7 @@
   }
 
   function updateFfmpegWarning() {
-    if (!ffmpegInstruction || !ffmpegCommand) {
+    if (!ffmpegInstruction || !ffmpegCommand || !ffmpegCommandBlock) {
       return;
     }
 
@@ -536,7 +536,7 @@
 
     ffmpegInstruction.textContent = installInfo.instruction;
     ffmpegCommand.textContent = installInfo.command;
-    ffmpegCommand.hidden = !installInfo.command;
+    ffmpegCommandBlock.hidden = !installInfo.command;
   }
 
   async function fetchLatestRelease() {
@@ -561,21 +561,6 @@
     } finally {
       window.clearTimeout(timeout);
     }
-  }
-
-  function bindManualPlatformLinks() {
-    manualLinks.forEach((link) => {
-      link.addEventListener("click", (event) => {
-        event.preventDefault();
-        state.selectedPlatform = link.dataset.manualPlatform || "unknown";
-        state.userSelected = true;
-        updateDownloadLinks();
-
-        if (primaryDownload) {
-          primaryDownload.focus({ preventScroll: true });
-        }
-      });
-    });
   }
 
   function openArchDialog(platform) {
@@ -647,15 +632,86 @@
     });
   }
 
+  function setCopyButtonLabel(button, label) {
+    const labelElement = button.querySelector("span");
+
+    if (!labelElement) {
+      return;
+    }
+
+    const defaultLabel = button.dataset.defaultLabel || labelElement.textContent || "Copy";
+    button.dataset.defaultLabel = defaultLabel;
+    labelElement.textContent = label;
+
+    if (button.dataset.resetTimer) {
+      window.clearTimeout(Number(button.dataset.resetTimer));
+    }
+
+    const timer = window.setTimeout(() => {
+      labelElement.textContent = defaultLabel;
+      delete button.dataset.resetTimer;
+    }, 1800);
+
+    button.dataset.resetTimer = String(timer);
+  }
+
+  function copyWithTextarea(text) {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.top = "0";
+    textarea.style.left = "0";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+
+    let copied = false;
+
+    try {
+      copied = document.execCommand("copy");
+    } finally {
+      textarea.remove();
+    }
+
+    return copied;
+  }
+
+  async function copyCommand(button) {
+    const targetId = button.dataset.copyTarget;
+    const target = targetId ? document.getElementById(targetId) : null;
+    const command = target?.textContent?.trim();
+
+    if (!command) {
+      return;
+    }
+
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(command);
+      } else if (!copyWithTextarea(command)) {
+        throw new Error("Copy fallback failed");
+      }
+
+      setCopyButtonLabel(button, "Copied");
+    } catch (_error) {
+      setCopyButtonLabel(button, "Copy failed");
+    }
+  }
+
+  function bindCopyCommandButtons() {
+    copyCommandButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        copyCommand(button);
+      });
+    });
+  }
+
   async function init() {
-    bindManualPlatformLinks();
+    bindCopyCommandButtons();
     bindDownloadLinks();
     bindArchDialog();
     await detectEnvironment();
-
-    if (!state.userSelected) {
-      state.selectedPlatform = state.platform;
-    }
 
     updateDownloadLinks();
     await fetchLatestRelease();
