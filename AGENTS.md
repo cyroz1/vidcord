@@ -106,27 +106,36 @@ CI treats any clippy warning as an error — keep new Rust code warning-clean.
 npm run tauri build        # outputs to src-tauri/target/release/bundle/
 ```
 
-### Website (`/site`) and Cloudflare deployment
+### Website (`/site`) deployment
 
-The public website lives in `site/` and is deployed as static assets through the Cloudflare Worker configured in `wrangler.jsonc`.
+The public website lives in `site/` and deploys from GitHub when changes are pushed to `main`.
+Do not run Wrangler for normal site deploys.
 
 - **Production domain**: `https://vidcord.app/`
 - **Workers.dev URL**: `https://vidcord-site.cyrz.workers.dev/`
 - **Cloudflare Worker name**: `vidcord-site`
-- **Deployment config**: `wrangler.jsonc` → `assets.directory = "./site"`, `workers_dev = true`
+- **Legacy/manual deployment config**: `wrangler.jsonc` → `assets.directory = "./site"`,
+  `workers_dev = true`
 - **Custom domain route**: `vidcord.app`
-- **Latest known deployed Worker version**: `cc3477ce-ae3b-4fa4-b6d5-1a93654102ec` (verify with Wrangler output before relying on it)
-- Wrangler deploy commands require a logged-in Cloudflare account and network access.
+- **Deployment trigger**: push the committed site changes to `origin/main`; the
+  GitHub-connected deployment handles publishing.
 
 Site behavior and content:
+
 - `site/index.html` is static, crawlable HTML. Keep important product claims visible in HTML, not only in JavaScript.
-- `site/script.js` detects Windows/macOS/Linux, calls GitHub's latest-release API, and points download buttons at the best matching release asset. It falls back to `https://github.com/cyroz1/vidcord/releases/latest`.
+- `site/script.js` detects Windows/macOS/Linux, calls GitHub's latest-release API, and
+  links download buttons directly to matching binary assets when the platform and architecture are
+  known. If x64 vs ARM64 cannot be determined with high confidence, prompt the user to choose an
+  architecture; each architecture option should link directly to the matching latest-release
+  binary. It falls back to `https://github.com/cyroz1/vidcord/releases/latest` only when release
+  metadata cannot be fetched.
 - The social/link embed image intentionally uses the logo: `https://vidcord.app/assets/icon.png` via `og:image` and `twitter:image`.
 - Discord and other chat clients may cache old embeds. Use a temporary query string such as `https://vidcord.app/?v=2` when checking a changed preview image.
 - Product screenshots should not be cropped in CSS. Keep `width: 100%` and `height: auto` for screenshot images unless the user explicitly asks for a cropped composition.
 - The website documents local processing, FFmpeg as a required system dependency, Discord target sizes, Open With integration, and output-to-Downloads behavior.
 
 SEO and crawler/agent files:
+
 - `robots.txt` should allow normal web crawlers and AI agents, and point at `https://vidcord.app/sitemap.xml`.
 - `sitemap.xml` should include the home page plus `llms.txt` and `llms-full.txt`.
 - `llms.txt` is the concise grounding file for AI agents.
@@ -165,9 +174,7 @@ NODE
 Deploy the website:
 
 ```sh
-npx wrangler@latest --version
-npx wrangler@latest deploy --dry-run --domain vidcord.app
-npx wrangler@latest deploy --domain vidcord.app
+git push origin main
 ```
 
 Post-deploy checks:
@@ -183,6 +190,7 @@ curl -L https://vidcord.app/site.webmanifest
 ```
 
 For browser QA, use the in-app browser when available and check:
+
 - page title and canonical URL
 - no blank page or framework overlay
 - no relevant console warnings/errors
@@ -212,6 +220,7 @@ All Rust→Frontend IO flows through `#[tauri::command]` functions registered in
 4. Heavy/blocking work (`ffmpeg`, `ffprobe`, `lspci`, `winget`, etc.) must run inside `tokio::task::spawn_blocking` — Tauri's command runtime uses a small async pool and blocking work there stalls the UI.
 
 Events flow the other direction via `AppHandle::emit` → `listen()` in the frontend:
+
 - `compress-progress` — percent, eta, status, attempt number, encoder, bitrate (emitted per FFmpeg stderr `time=` line and at retry boundaries)
 - `compress-done` — success/cancelled/message/output_path plus output/target size metadata when available
 - `open-file` — path from single-instance forwarding, macOS Apple Events, or CLI args
@@ -220,6 +229,7 @@ Events flow the other direction via `AppHandle::emit` → `listen()` in the fron
 ### File-open routing (tricky)
 
 Open-with / right-click → Open must work across three delivery mechanisms:
+
 - **Windows/Linux CLI arg**: handled in `setup()` → stored in `PendingFile`.
 - **macOS Apple Events**: `RunEvent::Opened` in the top-level `.run(|app, event| …)` handler — fires after `setup()`, may fire hot or cold.
 - **Second instance launched while running**: `tauri_plugin_single_instance::init` focuses the existing window and emits `open-file` directly.
@@ -229,6 +239,7 @@ The frontend's `open-file` listener may not be registered when the event fires o
 ### FFmpeg invocations
 
 Every `std::process::Command::new("ffmpeg"|"ffprobe")` in Rust must:
+
 1. Use `envs(get_ffmpeg_env())` — on Linux this sets `LIBVA_DRIVER_NAME=radeonsi` for AMD systems.
 2. On Windows, set `creation_flags(0x08000000)` (CREATE_NO_WINDOW) to avoid a console flash. The pattern in use:
    ```rust
@@ -256,6 +267,7 @@ Call `clear_preview_caches()` when the frontend loads a new file (already done i
 ### Settings
 
 `settings.rs` deserializes into a typed `Settings` struct and re-serializes to drop unknown keys — this silently migrates away from removed fields. When adding a field:
+
 1. Add an `Option<T>` field to `Settings` (always optional for forward/backward compatibility).
 2. Read it in the frontend's `useSettings.ts`.
 3. Call `saveSettings({ your_key: … })`; writes are debounced 250 ms and flushed on unmount.
@@ -265,6 +277,7 @@ Persisted to `~/.local/share/vidcord/settings.json` (Linux), `~/Library/Applicat
 ### Frontend performance conventions
 
 The app re-renders on every trim-slider move. Established patterns:
+
 - **Module-scope style objects** in components (`PreviewPane`, `Toast`, `ProgressSection`) — do not re-create `React.CSSProperties` literals per render.
 - **`memo()`** on leaf components that receive many prop updates.
 - **Refs for callbacks** when a hook needs an empty dependency array but must call the latest version of a caller-provided function (see `useEncoders`, `loadVideoRef` pattern in `App.tsx`).
@@ -323,6 +336,7 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 ## CI reference
 
 `.github/workflows/build.yml` has four jobs:
+
 1. **frontend** (ubuntu-latest) — `npm ci`, audit (high), lint, typecheck, test, build; uploads `dist/` as an artifact for every platform matrix job to download.
 2. **rust-lint** (ubuntu-latest) — `cargo fmt --check` + `cargo audit`. Fast, runs in parallel.
 3. **rust-compile-checks** (ubuntu-latest) — `cargo clippy -D warnings` + `cargo test`. Shares the `rust-linux` `Swatinem/rust-cache` key with the Linux x86_64 build job.
