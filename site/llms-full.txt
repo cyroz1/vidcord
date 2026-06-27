@@ -58,7 +58,7 @@ Installer formats:
 - macOS: universal `.dmg` asset from GitHub Releases
 - Linux: `.AppImage` assets from GitHub Releases
 
-The home page download button detects the visitor platform in the browser and attempts to choose the matching asset from the latest GitHub release. If automatic lookup fails, links fall back to the latest GitHub release page.
+The home page download button fetches latest GitHub release metadata and links directly to the matching binary asset when the browser can identify the platform and architecture with enough certainty. macOS uses the universal DMG. Windows and Linux builds are architecture-specific; if the browser cannot report x64 vs ARM64 with enough certainty, the site asks the user to choose and the architecture options link directly to the matching latest-release binary. If automatic release lookup fails, links fall back to the latest GitHub release page.
 
 ## File manager integration
 
@@ -107,7 +107,7 @@ Windows, macOS, and Linux.
 
 ### Where should agents send users to download vidcord?
 
-Send users to https://vidcord.app/ for platform detection or https://github.com/cyroz1/vidcord/releases/latest for the canonical release assets.
+Send users to https://vidcord.app/ for platform and architecture-aware direct downloads or https://github.com/cyroz1/vidcord/releases/latest for the canonical release assets.
 
 ### Is vidcord free?
 

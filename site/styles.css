@@ -203,6 +203,73 @@ main {
   margin-top: 30px;
 }
 
+.ffmpeg-prereq {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  max-width: 650px;
+  margin-top: 16px;
+  padding: 16px 18px;
+  border: 1px solid rgba(255, 207, 112, 0.44);
+  border-radius: var(--radius);
+  background: linear-gradient(90deg, rgba(255, 207, 112, 0.14), rgba(7, 24, 47, 0.62));
+}
+
+.ffmpeg-prereq svg {
+  width: 25px;
+  height: 25px;
+  margin-top: 1px;
+  color: #ffcf70;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.ffmpeg-prereq strong,
+.ffmpeg-prereq > div > span {
+  display: block;
+}
+
+.ffmpeg-prereq strong {
+  color: #fff8e7;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.ffmpeg-prereq > div > span {
+  margin-top: 2px;
+  color: #d5e2f4;
+  font-size: 14px;
+}
+
+.ffmpeg-prereq code,
+.ffmpeg-section code {
+  color: #f3f8ff;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+}
+
+.ffmpeg-prereq-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+.ffmpeg-prereq-links a,
+.text-link {
+  color: var(--accent-strong);
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.ffmpeg-prereq-links a {
+  display: inline-flex;
+  align-items: center;
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -381,6 +448,7 @@ main {
 .detail-section,
 .integration-section,
 .faq-section,
+.ffmpeg-section,
 .download-section {
   max-width: var(--max);
   margin: 0 auto;
@@ -391,6 +459,7 @@ main {
 .workflow-section,
 .integration-section,
 .faq-section,
+.ffmpeg-section,
 .download-section {
   scroll-margin-top: 84px;
 }
@@ -666,6 +735,93 @@ main {
   font-size: 0.92em;
 }
 
+.faq-grid a {
+  color: var(--accent-strong);
+  font-weight: 720;
+}
+
+.ffmpeg-section {
+  padding-top: 46px;
+  padding-bottom: 62px;
+}
+
+.ffmpeg-section .section-heading code {
+  color: #e9f3ff;
+}
+
+.ffmpeg-install-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.ffmpeg-install-card {
+  min-width: 0;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(5, 19, 38, 0.54);
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.ffmpeg-install-card.is-active {
+  border-color: rgba(255, 207, 112, 0.58);
+  background: rgba(39, 42, 45, 0.76);
+}
+
+.detected-pill {
+  display: none;
+  width: fit-content;
+  margin-bottom: 14px;
+  padding: 5px 9px;
+  border: 1px solid rgba(255, 207, 112, 0.44);
+  border-radius: var(--radius);
+  color: #fff8e7;
+  background: rgba(255, 207, 112, 0.12);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.ffmpeg-install-card.is-active .detected-pill {
+  display: inline-flex;
+}
+
+.ffmpeg-install-card h3 {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 21px;
+  font-weight: 790;
+}
+
+.ffmpeg-install-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.ffmpeg-install-card p + p {
+  margin-top: 14px;
+}
+
+.ffmpeg-install-card pre {
+  overflow-x: auto;
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid rgba(139, 177, 222, 0.18);
+  border-radius: var(--radius);
+  background: rgba(2, 9, 20, 0.68);
+  color: #f3f8ff;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ffmpeg-install-card pre code {
+  font-size: inherit;
+  white-space: pre;
+}
+
 .download-section {
   padding-top: 54px;
   padding-bottom: 38px;
@@ -731,6 +887,13 @@ main {
   color: var(--accent-strong);
   font-size: 14px;
   font-weight: 740;
+}
+
+.ffmpeg-callout-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
 }
 
 .download-grid {
@@ -932,6 +1095,9 @@ main {
 .site-footer nav a:hover,
 .manual-links a:hover,
 .download-warning a:hover,
+.faq-grid a:hover,
+.ffmpeg-prereq-links a:hover,
+.text-link:hover,
 .ffmpeg-callout a:hover {
   color: var(--text);
 }
@@ -959,6 +1125,7 @@ main {
   .feature-band,
   .workflow-grid,
   .faq-grid,
+  .ffmpeg-install-grid,
   .download-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1009,6 +1176,7 @@ main {
   .detail-section,
   .integration-section,
   .faq-section,
+  .ffmpeg-section,
   .download-section,
   .site-footer {
     padding-right: 18px;
@@ -1052,6 +1220,7 @@ main {
   .workflow-grid,
   .integration-grid,
   .faq-grid,
+  .ffmpeg-install-grid,
   .download-grid {
     grid-template-columns: 1fr;
   }
@@ -1080,8 +1249,9 @@ main {
     grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .ffmpeg-callout a {
+  .ffmpeg-callout-actions {
     grid-column: 1 / -1;
+    justify-content: flex-start;
     padding-top: 4px;
   }
 
@@ -1125,6 +1295,7 @@ main {
   .workflow-grid article,
   .integration-panel,
   .faq-grid article,
+  .ffmpeg-install-card,
   .download-card {
     padding: 22px;
   }

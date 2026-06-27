@@ -6,7 +6,7 @@
     <title>vidcord - Free Discord Video Compressor for Windows, macOS, and Linux</title>
     <meta
       name="description"
-      content="vidcord is a free, open-source desktop video compressor for Discord upload limits. Compress videos locally on Windows, macOS, and Linux with FFmpeg."
+      content="vidcord is a free, open-source desktop video compressor for Discord upload limits. Install FFmpeg first, then compress videos locally on Windows, macOS, and Linux."
     />
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta
@@ -61,7 +61,7 @@
     <link rel="icon" href="assets/icon.png" />
     <link rel="apple-touch-icon" href="assets/icon.png" />
     <link rel="stylesheet" href="styles.css" />
-    <script src="script.js" defer></script>
+    <script src="script.js?v=direct-downloads" defer></script>
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -139,7 +139,7 @@
                 "name": "Which platforms does vidcord support?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "vidcord ships builds for Windows, macOS, and Linux. The site download button detects the visitor platform and selects the matching latest GitHub release asset when available."
+                  "text": "vidcord ships builds for Windows, macOS, and Linux. The site download button detects the visitor platform, links directly to the matching latest GitHub release asset when available, and prompts for architecture when the browser cannot report x64 or ARM64 with enough certainty."
                 }
               },
               {
@@ -214,6 +214,34 @@
             </a>
           </div>
 
+          <div class="ffmpeg-prereq" role="note" aria-labelledby="ffmpeg-prereq-title">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M12 9v4M12 17h.01" />
+              <path
+                d="M10.3 4.5 2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.5a2 2 0 0 0-3.4 0Z"
+              />
+            </svg>
+            <div>
+              <strong id="ffmpeg-prereq-title">Install FFmpeg first</strong>
+              <span>
+                Compression will not work until <code>ffmpeg</code> and <code>ffprobe</code> are
+                installed and available on your PATH.
+              </span>
+              <div class="ffmpeg-prereq-links">
+                <a id="ffmpegQuickLink" href="#ffmpeg-install">
+                  <span>Show setup for your platform</span>
+                </a>
+                <a
+                  href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Full FFMPEG_SETUP.md
+                </a>
+              </div>
+            </div>
+          </div>
+
           <p class="download-note" id="downloadStatus">
             Detects Windows, macOS, or Linux and selects the latest release asset.
           </p>
@@ -242,7 +270,7 @@
             </div>
             <div>
               <dt>FFmpeg</dt>
-              <dd>Uses your system binary</dd>
+              <dd>Install it before compressing</dd>
             </div>
           </dl>
         </div>
@@ -434,14 +462,74 @@
             <h3>Does vidcord include FFmpeg?</h3>
             <p>
               No. Install FFmpeg separately and make sure <code>ffmpeg</code> and
-              <code>ffprobe</code> are available on your PATH.
+              <code>ffprobe</code> are available on your PATH. Start with the
+              <a href="#ffmpeg-install">platform setup steps</a>.
             </p>
           </article>
           <article>
             <h3>How does the download button work?</h3>
             <p>
               The site checks the latest GitHub release, detects Windows, macOS, or Linux in the
-              browser, and points the button at the matching release asset.
+              browser, and links directly to the matching release asset. If x64 or ARM64 cannot be
+              determined with enough certainty, it asks you to choose.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="ffmpeg-section" id="ffmpeg-install" aria-labelledby="ffmpeg-title">
+        <div class="section-heading">
+          <div>
+            <h2 id="ffmpeg-title">Install FFmpeg first</h2>
+            <p>
+              vidcord does not bundle FFmpeg. Install it once, then launch vidcord and it will
+              detect <code>ffmpeg</code> and <code>ffprobe</code> automatically.
+            </p>
+          </div>
+          <a
+            class="text-link"
+            href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Full FFMPEG_SETUP.md
+          </a>
+        </div>
+
+        <div class="ffmpeg-install-grid" aria-label="FFmpeg install directions by platform">
+          <article class="ffmpeg-install-card" id="ffmpeg-windows" data-ffmpeg-platform="windows">
+            <span class="detected-pill">Detected platform</span>
+            <h3>Windows</h3>
+            <p>Most Windows 10 and Windows 11 PCs can install FFmpeg from PowerShell:</p>
+            <pre><code>winget install Gyan.FFmpeg</code></pre>
+            <p>
+              Restart your PC, or sign out and back in, so PATH includes <code>ffmpeg.exe</code> and
+              <code>ffprobe.exe</code>. Windows ARM64 users should follow the manual steps in the
+              full guide.
+            </p>
+          </article>
+
+          <article class="ffmpeg-install-card" id="ffmpeg-macos" data-ffmpeg-platform="macos">
+            <span class="detected-pill">Detected platform</span>
+            <h3>macOS</h3>
+            <p>Install Homebrew if you do not have it, then run this in Terminal:</p>
+            <pre><code>brew install ffmpeg</code></pre>
+            <p>
+              After Homebrew finishes, reopen vidcord. It will look for <code>ffmpeg</code> and
+              <code>ffprobe</code> on your PATH.
+            </p>
+          </article>
+
+          <article class="ffmpeg-install-card" id="ffmpeg-linux" data-ffmpeg-platform="linux">
+            <span class="detected-pill">Detected platform</span>
+            <h3>Linux</h3>
+            <p>Install FFmpeg with your distribution package manager:</p>
+            <pre><code>sudo apt install ffmpeg
+sudo dnf install ffmpeg
+sudo pacman -S ffmpeg</code></pre>
+            <p>
+              Use the command for your distro, then launch vidcord normally. The app uses the system
+              <code>ffmpeg</code> and <code>ffprobe</code> binaries.
             </p>
           </article>
         </div>
@@ -464,16 +552,20 @@
           <div>
             <strong>FFmpeg required</strong>
             <span
-              >vidcord shells out to your system <code>ffmpeg</code> and <code>ffprobe</code>.</span
+              >Install FFmpeg before using vidcord. The app shells out to your system
+              <code>ffmpeg</code> and <code>ffprobe</code>.</span
             >
           </div>
-          <a
-            href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Install guide
-          </a>
+          <div class="ffmpeg-callout-actions">
+            <a href="#ffmpeg-install">Setup steps</a>
+            <a
+              href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Full guide
+            </a>
+          </div>
         </div>
 
         <div class="download-grid" aria-label="Platform downloads">
@@ -549,7 +641,7 @@
           <a href="#" data-manual-platform="linux">Linux</a>
         </p>
 
-        <dialog class="arch-dialog" id="windowsArchDialog" aria-labelledby="windowsArchTitle">
+        <dialog class="arch-dialog" id="archChoiceDialog" aria-labelledby="archChoiceTitle">
           <div class="arch-dialog-panel">
             <button
               class="arch-dialog-close"
@@ -561,24 +653,25 @@
                 <path d="M6 6l12 12M18 6 6 18" />
               </svg>
             </button>
-            <h3 id="windowsArchTitle">Choose Windows download</h3>
-            <p>
-              Your browser did not report this Windows device architecture. Choose the installer
-              that matches your PC.
+            <h3 id="archChoiceTitle">Choose download</h3>
+            <p id="archChoiceBody">
+              Your browser did not report this device architecture with enough certainty. Choose the
+              build that matches your computer.
             </p>
             <div class="arch-options">
               <a
                 class="arch-option"
                 href="https://github.com/cyroz1/vidcord/releases/latest"
-                data-windows-arch="x64"
+                id="arch-choice"
+                data-arch-download="x64"
               >
-                <span>x86_64</span>
+                <span>x64</span>
                 <small>Most Intel and AMD Windows PCs</small>
               </a>
               <a
                 class="arch-option"
                 href="https://github.com/cyroz1/vidcord/releases/latest"
-                data-windows-arch="arm64"
+                data-arch-download="arm64"
               >
                 <span>ARM64</span>
                 <small>Snapdragon and Surface Pro X-style PCs</small>

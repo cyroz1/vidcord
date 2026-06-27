@@ -23,12 +23,12 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Does vidcord bundle FFmpeg? No. The system `ffmpeg` and `ffprobe` binaries must be installed and available on PATH.
 - Which platforms are supported? Windows, macOS, and Linux.
 - Which Discord size targets are supported? 10 MB, 25 MB, 50 MB, 100 MB, and 500 MB, plus custom target controls in advanced mode.
-- How does downloading work? The site detects the visitor platform and tries to select the matching binary from the latest GitHub release. Manual platform links are also available.
+- How does downloading work? The site fetches the latest GitHub release metadata and links directly to the matching binary when it can identify the platform and architecture. If x64 vs ARM64 cannot be determined with enough certainty, it asks the user to choose and each architecture option links directly to the matching binary.
 
 ## Canonical Pages And Resources
 
 - [Home page](https://vidcord.app/): Product overview, screenshots, FAQ, and platform download buttons.
-- [Latest release](https://github.com/cyroz1/vidcord/releases/latest): Canonical download page and binary assets.
+- [Latest release](https://github.com/cyroz1/vidcord/releases/latest): Canonical release page and binary assets.
 - [FFmpeg setup guide](https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md): User instructions for installing FFmpeg.
 - [README](https://github.com/cyroz1/vidcord/blob/main/README.md): Project overview and development context.
 - [Changelog](https://github.com/cyroz1/vidcord/blob/main/CHANGELOG.md): User-facing release notes.
@@ -37,4 +37,4 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 
 ## Crawler And Agent Access
 
-Public pages on `vidcord.app` may be crawled, indexed, summarized, and referenced by search crawlers and AI agents. Download binaries are hosted on GitHub Releases and should be accessed through the latest release page.
+Public pages on `vidcord.app` may be crawled, indexed, summarized, and referenced by search crawlers and AI agents. Download binaries are hosted on GitHub Releases; direct binary URLs should be resolved from the latest release metadata because asset names can change.

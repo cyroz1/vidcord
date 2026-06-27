@@ -12,9 +12,15 @@
     unknown: "your platform",
   };
 
+  const archNames = {
+    x64: "x64",
+    arm64: "ARM64",
+  };
+
   const state = {
     platform: "unknown",
     arch: "unknown",
+    archCertain: false,
     selectedPlatform: "unknown",
     release: null,
     releaseError: null,
@@ -26,11 +32,15 @@
   const ffmpegInstruction = document.getElementById("ffmpegInstruction");
   const ffmpegCommand = document.getElementById("ffmpegCommand");
   const releaseState = document.getElementById("releaseState");
+  const ffmpegQuickLink = document.getElementById("ffmpegQuickLink");
   const platformLinks = Array.from(document.querySelectorAll("[data-download-for]"));
   const platformCards = Array.from(document.querySelectorAll("[data-platform-card]"));
+  const ffmpegCards = Array.from(document.querySelectorAll("[data-ffmpeg-platform]"));
   const manualLinks = Array.from(document.querySelectorAll("[data-manual-platform]"));
-  const windowsArchDialog = document.getElementById("windowsArchDialog");
-  const windowsArchLinks = Array.from(document.querySelectorAll("[data-windows-arch]"));
+  const archDialog = document.getElementById("archChoiceDialog");
+  const archDialogTitle = document.getElementById("archChoiceTitle");
+  const archDialogBody = document.getElementById("archChoiceBody");
+  const archDialogLinks = Array.from(document.querySelectorAll("[data-arch-download]"));
   const archDialogCloseButtons = Array.from(document.querySelectorAll("[data-arch-dialog-close]"));
 
   function normalizePlatform(value) {
@@ -55,16 +65,18 @@
     const text = String(value || "").toLowerCase();
     const compactText = text.replace(/[\s_-]+/g, "");
 
-    if (text.includes("arm") || text.includes("aarch64")) {
+    if (
+      compactText.includes("arm64") ||
+      compactText.includes("aarch64") ||
+      (compactText.includes("arm") && compactText.includes("64"))
+    ) {
       return "arm64";
     }
 
     if (
-      text.includes("x86_64") ||
-      text.includes("x86-64") ||
       compactText.includes("x8664") ||
-      text.includes("x64") ||
-      text.includes("amd64") ||
+      compactText.includes("x64") ||
+      compactText.includes("amd64") ||
       text.includes("win64") ||
       text.includes("wow64")
     ) {
@@ -76,21 +88,30 @@
 
   async function detectEnvironment() {
     const userAgentData = navigator.userAgentData;
-    const platformSource =
+    let platformSource =
       (userAgentData && userAgentData.platform) || navigator.platform || navigator.userAgent;
-    let architectureSource = navigator.platform || navigator.userAgent;
 
     if (userAgentData && typeof userAgentData.getHighEntropyValues === "function") {
       try {
-        const values = await userAgentData.getHighEntropyValues(["architecture", "bitness"]);
-        architectureSource = `${values.architecture || ""} ${values.bitness || ""}`;
+        const values = await userAgentData.getHighEntropyValues([
+          "architecture",
+          "bitness",
+          "platform",
+        ]);
+        const detectedArch = normalizeArch(`${values.architecture || ""} ${values.bitness || ""}`);
+        platformSource = values.platform || platformSource;
+
+        if (detectedArch !== "unknown") {
+          state.arch = detectedArch;
+          state.archCertain = true;
+        }
       } catch (_error) {
-        architectureSource = navigator.platform || navigator.userAgent;
+        state.arch = "unknown";
+        state.archCertain = false;
       }
     }
 
     state.platform = normalizePlatform(platformSource);
-    state.arch = normalizeArch(architectureSource);
     state.selectedPlatform = state.platform;
   }
 
@@ -118,35 +139,18 @@
     return "";
   }
 
-  function assetScore(asset, platform, arch) {
-    const name = asset.name.toLowerCase();
-    let score = 0;
-
-    if (name.includes("vidcord")) {
-      score += 8;
-    }
-
-    if (platform === "windows" && name.includes("setup")) {
-      score += 5;
-    }
-
-    if (platform === "macos" && name.includes("universal")) {
-      score += 8;
-    }
-
-    if (platform === "linux" && name.includes("appimage")) {
-      score += 5;
-    }
+  function assetMatchesArch(asset, arch) {
+    const name = String(asset.name || "");
 
     if (arch === "arm64") {
-      score += isArm64Name(name) ? 20 : 0;
-      score -= isX64Name(name) ? 14 : 0;
-    } else if (arch === "x64") {
-      score += isX64Name(name) ? 20 : 0;
-      score -= isArm64Name(name) ? 14 : 0;
+      return isArm64Name(name);
     }
 
-    return score;
+    if (arch === "x64") {
+      return isX64Name(name);
+    }
+
+    return false;
   }
 
   function selectBestAsset(platform, arch, assets) {
@@ -166,21 +170,21 @@
       return null;
     }
 
-    return candidates
-      .map((asset) => ({ asset, score: assetScore(asset, platform, arch) }))
-      .sort((a, b) => b.score - a.score || a.asset.name.localeCompare(b.asset.name))[0].asset;
-  }
+    if (platform === "macos") {
+      return (
+        candidates.find((asset) =>
+          String(asset.name || "")
+            .toLowerCase()
+            .includes("universal")
+        ) || candidates[0]
+      );
+    }
 
-  function effectiveArchForPlatform(platform) {
-    return platform === state.platform ? state.arch : "unknown";
-  }
-
-  function needsWindowsArchChoice(platform, arch) {
-    return platform === "windows" && arch === "unknown";
-  }
-
-  function labelFor(platform) {
-    return `Download for ${platformNames[platform] || platformNames.unknown}`;
+    return (
+      candidates
+        .filter((asset) => assetMatchesArch(asset, arch))
+        .sort((a, b) => a.name.localeCompare(b.name))[0] || null
+    );
   }
 
   function assetFor(platform, arch) {
@@ -191,48 +195,117 @@
     return selectBestAsset(platform, arch, state.release.assets);
   }
 
-  function setDownloadLink(anchor, platform) {
-    const span = anchor.querySelector("span");
-    const arch = effectiveArchForPlatform(platform);
-    const shouldChooseArch = needsWindowsArchChoice(platform, arch);
-    const asset = shouldChooseArch ? null : assetFor(platform, arch);
-
-    anchor.href = asset ? asset.browser_download_url : latestReleaseUrl;
-
-    if (span) {
-      span.textContent = labelFor(platform);
-    }
-
-    if (asset) {
-      anchor.setAttribute("aria-label", `${labelFor(platform)}: ${asset.name}`);
-      anchor.dataset.assetName = asset.name;
-      delete anchor.dataset.needsArchChoice;
-    } else if (shouldChooseArch) {
-      anchor.setAttribute("aria-label", "Choose Windows architecture to download vidcord");
-      anchor.dataset.needsArchChoice = "true";
-      delete anchor.dataset.assetName;
-    } else {
-      anchor.setAttribute("aria-label", `${labelFor(platform)} from the latest release`);
-      delete anchor.dataset.needsArchChoice;
-      delete anchor.dataset.assetName;
-    }
+  function effectiveArchForPlatform(platform) {
+    return platform === state.platform && state.archCertain ? state.arch : "unknown";
   }
 
-  function updateWindowsArchLinks() {
-    windowsArchLinks.forEach((link) => {
-      const arch = link.dataset.windowsArch || "unknown";
-      const asset = assetFor("windows", arch);
+  function needsArchChoice(platform, arch) {
+    return (platform === "windows" || platform === "linux") && arch === "unknown";
+  }
 
-      link.href = asset ? asset.browser_download_url : latestReleaseUrl;
+  function labelFor(platform) {
+    return `Download for ${platformNames[platform] || platformNames.unknown}`;
+  }
 
-      if (asset) {
-        link.setAttribute("aria-label", `Download Windows ${arch}: ${asset.name}`);
-        link.dataset.assetName = asset.name;
-      } else {
-        link.setAttribute("aria-label", `Download Windows ${arch} from the latest release`);
-        delete link.dataset.assetName;
+  function downloadLabel(platform, arch) {
+    if (!arch || arch === "unknown") {
+      return labelFor(platform);
+    }
+
+    return `Download for ${platformNames[platform]} ${archNames[arch]}`;
+  }
+
+  function setPendingLink(anchor, label) {
+    const span = anchor.querySelector("span");
+
+    anchor.href = state.releaseError ? latestReleaseUrl : "#download";
+    anchor.dataset.directDownload = "false";
+    delete anchor.dataset.needsArchChoice;
+    delete anchor.dataset.assetName;
+
+    if (span) {
+      span.textContent = label;
+    }
+
+    if (state.releaseError) {
+      anchor.removeAttribute("aria-disabled");
+      anchor.setAttribute("aria-label", `${label}: open latest release page`);
+      return;
+    }
+
+    anchor.setAttribute("aria-disabled", "true");
+    anchor.setAttribute("aria-label", `${label}: checking latest release`);
+  }
+
+  function setDownloadLink(anchor, platform, arch) {
+    const span = anchor.querySelector("span");
+    const label = downloadLabel(platform, arch);
+    const asset = assetFor(platform, arch);
+
+    if (!asset) {
+      setPendingLink(anchor, label);
+      return;
+    }
+
+    anchor.href = asset.browser_download_url;
+    anchor.dataset.directDownload = "true";
+    delete anchor.dataset.needsArchChoice;
+    anchor.removeAttribute("aria-disabled");
+
+    if (span) {
+      span.textContent = label;
+    }
+
+    anchor.setAttribute("aria-label", `${label}: ${asset.name}`);
+    anchor.dataset.assetName = asset.name;
+  }
+
+  function setChooseArchLink(anchor, platform) {
+    const span = anchor.querySelector("span");
+    const label = `Choose ${platformNames[platform]} architecture`;
+
+    anchor.href = "#arch-choice";
+    anchor.dataset.directDownload = "false";
+    anchor.dataset.needsArchChoice = platform;
+    anchor.removeAttribute("aria-disabled");
+    delete anchor.dataset.assetName;
+
+    if (span) {
+      span.textContent = label;
+    }
+
+    anchor.setAttribute("aria-label", label);
+  }
+
+  function updatePrimaryDownload() {
+    if (!primaryDownload) {
+      return;
+    }
+
+    const selectedPlatform = state.selectedPlatform || "unknown";
+    const span = primaryDownload.querySelector("span");
+
+    if (selectedPlatform === "unknown") {
+      primaryDownload.href = "#download";
+      primaryDownload.dataset.directDownload = "false";
+      delete primaryDownload.dataset.needsArchChoice;
+
+      if (span) {
+        span.textContent = "Choose your platform";
       }
-    });
+
+      primaryDownload.setAttribute("aria-label", "Choose your platform");
+      return;
+    }
+
+    const arch = selectedPlatform === "macos" ? null : effectiveArchForPlatform(selectedPlatform);
+
+    if (needsArchChoice(selectedPlatform, arch)) {
+      setChooseArchLink(primaryDownload, selectedPlatform);
+      return;
+    }
+
+    setDownloadLink(primaryDownload, selectedPlatform, arch);
   }
 
   function updatePlatformCards() {
@@ -242,28 +315,169 @@
     });
   }
 
+  function updateFfmpegInstallLinks() {
+    const selectedPlatform = state.selectedPlatform || "unknown";
+
+    ffmpegCards.forEach((card) => {
+      const isActive = card.dataset.ffmpegPlatform === selectedPlatform;
+      card.classList.toggle("is-active", isActive);
+
+      if (isActive) {
+        card.setAttribute("aria-current", "true");
+      } else {
+        card.removeAttribute("aria-current");
+      }
+    });
+
+    if (!ffmpegQuickLink) {
+      return;
+    }
+
+    const quickLinkLabel = ffmpegQuickLink.querySelector("span");
+
+    if (selectedPlatform === "unknown") {
+      ffmpegQuickLink.href = "#ffmpeg-install";
+
+      if (quickLinkLabel) {
+        quickLinkLabel.textContent = "Show setup for your platform";
+      }
+
+      return;
+    }
+
+    ffmpegQuickLink.href = `#ffmpeg-${selectedPlatform}`;
+
+    if (quickLinkLabel) {
+      quickLinkLabel.textContent = `Show ${platformNames[selectedPlatform]} FFmpeg setup`;
+    }
+  }
+
+  function archOptionText(platform, arch) {
+    if (platform === "windows" && arch === "arm64") {
+      return {
+        label: "Windows ARM64 installer",
+        detail: "Snapdragon and Surface Pro X-style PCs",
+      };
+    }
+
+    if (platform === "windows") {
+      return {
+        label: "Windows x86_64 installer",
+        detail: "Most Intel and AMD Windows PCs",
+      };
+    }
+
+    if (platform === "linux" && arch === "arm64") {
+      return {
+        label: "Linux aarch64 AppImage",
+        detail: "ARM64 Linux systems",
+      };
+    }
+
+    return {
+      label: "Linux x86_64 AppImage",
+      detail: "Most Intel and AMD Linux systems",
+    };
+  }
+
+  function setArchDialogDownloadLink(anchor, platform, arch) {
+    const asset = assetFor(platform, arch);
+
+    if (!asset) {
+      anchor.href = state.releaseError ? latestReleaseUrl : "#download";
+      anchor.dataset.directDownload = "false";
+      delete anchor.dataset.assetName;
+
+      if (state.releaseError) {
+        anchor.removeAttribute("aria-disabled");
+        anchor.setAttribute(
+          "aria-label",
+          `${platformNames[platform]} ${archNames[arch]}: open latest release page`
+        );
+      } else {
+        anchor.setAttribute("aria-disabled", "true");
+        anchor.setAttribute(
+          "aria-label",
+          `${platformNames[platform]} ${archNames[arch]}: checking latest release`
+        );
+      }
+
+      return;
+    }
+
+    anchor.href = asset.browser_download_url;
+    anchor.dataset.directDownload = "true";
+    anchor.removeAttribute("aria-disabled");
+    anchor.setAttribute(
+      "aria-label",
+      `${platformNames[platform]} ${archNames[arch]}: ${asset.name}`
+    );
+    anchor.dataset.assetName = asset.name;
+  }
+
+  function updateArchDialogContent(platform) {
+    if (!archDialog || !platform || platform === "unknown") {
+      return;
+    }
+
+    archDialog.dataset.platform = platform;
+
+    if (archDialogTitle) {
+      archDialogTitle.textContent = `Choose ${platformNames[platform]} download`;
+    }
+
+    if (archDialogBody) {
+      archDialogBody.textContent =
+        "Your browser did not report this device architecture with enough certainty. Choose the build that matches your computer.";
+    }
+
+    archDialogLinks.forEach((link) => {
+      const arch = link.dataset.archDownload || "unknown";
+      const label = link.querySelector("span");
+      const detail = link.querySelector("small");
+      const text = archOptionText(platform, arch);
+
+      if (label) {
+        label.textContent = text.label;
+      }
+
+      if (detail) {
+        detail.textContent = text.detail;
+      }
+
+      setArchDialogDownloadLink(link, platform, arch);
+    });
+  }
+
   function updateDownloadLinks() {
     const selectedPlatform = state.selectedPlatform || "unknown";
 
-    if (primaryDownload) {
-      setDownloadLink(primaryDownload, selectedPlatform);
-    }
+    updatePrimaryDownload();
 
     platformLinks.forEach((anchor) => {
-      setDownloadLink(anchor, anchor.dataset.downloadFor);
+      const platform = anchor.dataset.downloadFor;
+      const arch = platform === "macos" ? null : effectiveArchForPlatform(platform);
+
+      if (needsArchChoice(platform, arch)) {
+        setChooseArchLink(anchor, platform);
+      } else {
+        setDownloadLink(anchor, platform, arch);
+      }
     });
 
+    updateArchDialogContent(archDialog && archDialog.dataset.platform);
     updatePlatformCards();
-    updateWindowsArchLinks();
+    updateFfmpegInstallLinks();
     updateStatus();
     updateFfmpegWarning();
   }
 
   function updateStatus() {
-    const platformLabel = platformNames[state.selectedPlatform] || platformNames.unknown;
-    const arch = effectiveArchForPlatform(state.selectedPlatform);
-    const shouldChooseArch = needsWindowsArchChoice(state.selectedPlatform, arch);
-    const primaryAsset = shouldChooseArch ? null : assetFor(state.selectedPlatform, arch);
+    const selectedPlatform = state.selectedPlatform || "unknown";
+    const platformLabel = platformNames[selectedPlatform] || platformNames.unknown;
+    const arch = selectedPlatform === "macos" ? null : effectiveArchForPlatform(selectedPlatform);
+    const shouldChooseArch = needsArchChoice(selectedPlatform, arch);
+    const primaryAsset = shouldChooseArch ? null : assetFor(selectedPlatform, arch);
 
     if (releaseState) {
       if (state.release) {
@@ -280,16 +494,16 @@
     }
 
     if (state.release && shouldChooseArch) {
-      downloadStatus.textContent =
-        "Windows detected, but browser architecture is unclear. Choose x86_64 or ARM64 when downloading.";
+      downloadStatus.textContent = `${platformLabel} detected, but architecture needs confirmation. Choose x64 or ARM64 to download the direct binary.`;
     } else if (state.release && primaryAsset) {
-      downloadStatus.textContent = `${platformLabel} detected. The button downloads ${primaryAsset.name}.`;
-    } else if (state.release && state.selectedPlatform !== "unknown") {
-      downloadStatus.textContent = `${platformLabel} detected. The button opens the latest release assets.`;
+      const archLabel = arch ? ` ${archNames[arch]}` : "";
+      downloadStatus.textContent = `${platformLabel}${archLabel} detected. The button downloads ${primaryAsset.name}.`;
+    } else if (state.release && selectedPlatform !== "unknown") {
+      downloadStatus.textContent = `${platformLabel} detected. Choose a direct latest-release binary below.`;
     } else if (state.releaseError) {
       downloadStatus.textContent =
         "Could not check GitHub automatically. The button opens the latest release page.";
-    } else if (state.selectedPlatform === "unknown") {
+    } else if (selectedPlatform === "unknown") {
       downloadStatus.textContent =
         "Choose Windows, macOS, or Linux below to get the right latest-release asset.";
     } else {
@@ -387,59 +601,71 @@
     });
   }
 
-  function openWindowsArchDialog() {
-    if (!windowsArchDialog) {
+  function openArchDialog(platform) {
+    if (!archDialog || !platform || platform === "unknown") {
       return;
     }
 
-    if (windowsArchDialog.open) {
+    updateArchDialogContent(platform);
+
+    if (archDialog.open) {
       return;
     }
 
-    if (typeof windowsArchDialog.showModal === "function") {
-      windowsArchDialog.showModal();
+    if (typeof archDialog.showModal === "function") {
+      archDialog.showModal();
     } else {
-      windowsArchDialog.setAttribute("open", "");
+      archDialog.setAttribute("open", "");
     }
   }
 
-  function closeWindowsArchDialog() {
-    if (!windowsArchDialog) {
+  function closeArchDialog() {
+    if (!archDialog) {
       return;
     }
 
-    if (typeof windowsArchDialog.close === "function") {
-      windowsArchDialog.close();
+    if (typeof archDialog.close === "function") {
+      archDialog.close();
     } else {
-      windowsArchDialog.removeAttribute("open");
+      archDialog.removeAttribute("open");
     }
   }
 
   function bindDownloadLinks() {
     [primaryDownload, ...platformLinks].filter(Boolean).forEach((anchor) => {
       anchor.addEventListener("click", (event) => {
-        if (anchor.dataset.needsArchChoice !== "true") {
+        const archChoicePlatform = anchor.dataset.needsArchChoice;
+
+        if (!archChoicePlatform) {
           return;
         }
 
         event.preventDefault();
-        openWindowsArchDialog();
+        openArchDialog(archChoicePlatform);
+      });
+    });
+
+    archDialogLinks.forEach((anchor) => {
+      anchor.addEventListener("click", (event) => {
+        if (anchor.dataset.directDownload === "false" && !state.releaseError) {
+          event.preventDefault();
+        }
       });
     });
   }
 
-  function bindWindowsArchDialog() {
-    if (!windowsArchDialog) {
+  function bindArchDialog() {
+    if (!archDialog) {
       return;
     }
 
     archDialogCloseButtons.forEach((button) => {
-      button.addEventListener("click", closeWindowsArchDialog);
+      button.addEventListener("click", closeArchDialog);
     });
 
-    windowsArchDialog.addEventListener("click", (event) => {
-      if (event.target === windowsArchDialog) {
-        closeWindowsArchDialog();
+    archDialog.addEventListener("click", (event) => {
+      if (event.target === archDialog) {
+        closeArchDialog();
       }
     });
   }
@@ -447,7 +673,7 @@
   async function init() {
     bindManualPlatformLinks();
     bindDownloadLinks();
-    bindWindowsArchDialog();
+    bindArchDialog();
     await detectEnvironment();
 
     if (!state.userSelected) {
@@ -463,7 +689,8 @@
     normalizePlatform,
     normalizeArch,
     ffmpegInstallInfo,
-    needsWindowsArchChoice,
+    needsArchChoice,
+    needsWindowsArchChoice: needsArchChoice,
     selectBestAsset,
   };
 
