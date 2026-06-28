@@ -9,7 +9,6 @@ on:
       - "README.md"
       - "CHANGELOG.md"
       - ".gitignore"
-      - "screenshots/**"
       - "site/**"
   pull_request:
     branches: [main]
@@ -17,7 +16,6 @@ on:
       - "README.md"
       - "CHANGELOG.md"
       - ".gitignore"
-      - "screenshots/**"
       - "site/**"
   workflow_dispatch:
 
@@ -55,6 +53,12 @@ jobs:
         if: github.event_name == 'pull_request'
         continue-on-error: true
         run: npm audit --audit-level=high
+
+      - name: Check version alignment
+        run: npm run version:check
+
+      - name: Check asset organization
+        run: npm run assets:check
 
       - name: Lint
         run: npm run lint

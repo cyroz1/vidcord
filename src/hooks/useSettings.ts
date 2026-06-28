@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
-
-type Settings = Record<string, unknown>;
+import { loadSettings, saveSettings as persistSettings, type Settings } from "../ipc";
 
 export function useSettings() {
   const settingsRef = useRef<Settings>({});
@@ -18,7 +16,7 @@ export function useSettings() {
 
   useEffect(() => {
     (async () => {
-      const s = await invoke<Settings>("load_settings").catch((): Settings => ({}));
+      const s = await loadSettings().catch((): Settings => ({}));
       settingsRef.current = s;
       if (typeof s.quality_index === "number") setQualityIdx(s.quality_index);
       if (typeof s.advanced_mode === "boolean") setAdvancedMode(s.advanced_mode);
@@ -36,7 +34,7 @@ export function useSettings() {
       clearTimeout(saveTimerRef.current);
     }
     saveTimerRef.current = setTimeout(() => {
-      invoke("save_settings", { settings: settingsRef.current }).catch(() => {});
+      persistSettings(settingsRef.current).catch(() => {});
     }, 250);
   }, []);
 
@@ -48,7 +46,7 @@ export function useSettings() {
         // before the timer fires. Settings payload is tiny — no perf concern.
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
-        invoke("save_settings", { settings: settingsRef.current }).catch(() => {});
+        persistSettings(settingsRef.current).catch(() => {});
       }
     };
   }, []);

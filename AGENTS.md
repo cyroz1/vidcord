@@ -7,7 +7,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 **vidcord** is a cross-platform desktop app that compresses video files under Discord's size limits. It is built with **Tauri 2** (Rust backend + React/TypeScript frontend) and shells out to the system **FFmpeg** binary for all video work. It does **not** bundle FFmpeg — the system `ffmpeg`/`ffprobe` must be on `PATH`.
 
 - **App version**: kept in sync across `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and any `vX.Y` references in source/docs (see "Bumping the version" below)
-- **Window**: fixed-size 460×630, non-resizable, transparent (macOS Tahoe "liquid glass" styling)
+- **Window**: fixed-size 460×630, non-resizable, opaque window background with macOS Tahoe "liquid glass" styling inside the app surface
 - **Supported OS/arch**: Windows (x86_64 + aarch64), macOS (universal), Linux (x86_64 + aarch64)
 - **Node**: `^20.19.0 || >=22.12.0` (see `package.json` engines)
 - **Rust**: stable toolchain, edition 2021
@@ -17,14 +17,16 @@ Guidance for AI assistants working in this repository. Read this before making c
 ```
 .
 ├── src/                       # React frontend (TypeScript)
-│   ├── App.tsx                # Monolithic root component — wires hooks, UI, trim timeline, compression
-│   ├── App.css                # All styling (dark theme + light theme via data-theme)
+│   ├── App.tsx                # Root component — wires hooks, UI, trim timeline, compression
+│   ├── App.css                # App styling (dark/light via prefers-color-scheme)
 │   ├── ErrorBoundary.tsx      # Top-level crash recovery UI
+│   ├── ipc.ts                 # Typed wrappers around Tauri invoke() commands
 │   ├── main.tsx               # ReactDOM entry
 │   ├── index.css              # Global CSS vars (--accent, --surface, --blur…)
 │   ├── components/
 │   │   ├── PreviewPane.tsx    # Video preview + scrub thumbnail + filmstrip
 │   │   ├── ProgressSection.tsx# Compression progress bar + ETA
+│   │   ├── TrimTimeline.tsx   # Memoized trim controls, shortcuts, zoom, playhead UI
 │   │   ├── Toast.tsx          # Single toast row
 │   │   └── EncodersDialog.tsx # Lazy-loaded FFmpeg encoder list dialog
 │   ├── hooks/
@@ -38,7 +40,9 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   ├── src/
 │   │   ├── main.rs            # Thin entry — calls lib::run()
 │   │   ├── lib.rs             # Tauri builder, plugins, Linux env shims, file-open routing
-│   │   ├── ffmpeg.rs          # probe / preview / filmstrip / encoder detection / VAAPI discovery + caches
+│   │   ├── ffmpeg.rs          # probe / preview / filmstrip / VAAPI discovery + caches
+│   │   ├── ffmpeg/
+│   │   │   └── encoders.rs    # FFmpeg encoder detection + encoder cache invalidation
 │   │   ├── gpu.rs             # Vendor detection (lspci / system_profiler / Get-CimInstance)
 │   │   ├── log.rs             # Rotating ~/…/vidcord/vidcord.log (5 MB cap)
 │   │   ├── settings.rs        # Typed settings persisted via atomic rename
@@ -60,9 +64,11 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   ├── llms.txt               # Short AI-agent grounding summary
 │   ├── llms-full.txt          # Expanded AI-agent grounding context
 │   ├── site.webmanifest       # Site/app manifest
-│   └── assets/                # Logo and uncropped product / file-manager screenshots
+│   └── assets/                # Canonical logo and uncropped product / file-manager screenshots
 ├── wrangler.jsonc             # Cloudflare Worker static-assets deployment config
 ├── .github/workflows/build.yml# Multi-platform CI + release workflow
+├── .github/workflows/site.yml # Site-only validation workflow
+├── scripts/                   # Version, asset, and site structured-data checks
 ├── index.html                 # Vite entry
 ├── vite.config.ts             # React plugin, manual chunks (react / tauri / app)
 ├── vitest.config.ts           # Node env + Tauri-api mock aliases
@@ -151,24 +157,13 @@ python3 -m http.server 4174 --bind 127.0.0.1 -d site
 Website validation:
 
 ```sh
-npx prettier --check site/index.html site/styles.css site/script.js site/site.webmanifest wrangler.jsonc
-npx prettier --check --parser markdown site/llms.txt site/llms-full.txt
-node --check site/script.js
-xmllint --noout site/sitemap.xml
+npm run site:check
 ```
 
-Before deployment, also parse the JSON-LD and manifest:
+The site check runs Prettier, `node --check`, JSON-LD / manifest parsing, asset organization checks, version alignment, and `xmllint` for the sitemap. If you need to run the structured-data parser directly:
 
 ```sh
-node - <<'NODE'
-const fs = require("fs");
-const html = fs.readFileSync("site/index.html", "utf8");
-const matches = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)];
-if (!matches.length) throw new Error("No JSON-LD blocks found");
-for (const match of matches) JSON.parse(match[1]);
-JSON.parse(fs.readFileSync("site/site.webmanifest", "utf8"));
-console.log("site structured data validated");
-NODE
+node scripts/check-site-structured-data.mjs
 ```
 
 Deploy the website:
@@ -318,7 +313,7 @@ When the user asks to change the version, update **every** reference in one comm
    - `src-tauri/Cargo.lock` (run `cargo check --manifest-path src-tauri/Cargo.toml` so the lockfile updates)
    - `src-tauri/tauri.conf.json` (`version`, full semver)
 2. **Source code**: grep for the **previous** full semver and `vX.Y` short form across the repo (`README.md`, `src/**`, `src-tauri/src/**`, docs). Update inline copy and any hard-coded version strings that declare or display the current app version. The frontend's `DISPLAY_VERSION` is derived from `package.json` and does not need a manual edit. **Skip** test fixtures that use semver strings as arbitrary inputs (e.g. `src-tauri/src/commands/updates.rs` semver-comparison tests) — those exercise comparison invariants, not the current version.
-3. **Verify**: `git grep -E "<old-semver>|v<old-major>\.<old-minor>"` should return zero hits before committing (excluding `Cargo.lock`/`package-lock.json` entries for unrelated dependencies that share the version string — read each match before assuming).
+3. **Verify**: run `npm run version:check`, then `git grep -E "<old-semver>|v<old-major>\.<old-minor>"` should return zero hits before committing (excluding `Cargo.lock`/`package-lock.json` entries for unrelated dependencies that share the version string — read each match before assuming).
 4. Run the relevant quality gates (above) before committing.
 
 ### Tagging and pushing a release
@@ -335,7 +330,7 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 
 ## CI reference
 
-`.github/workflows/build.yml` has four jobs:
+`.github/workflows/build.yml` has five jobs:
 
 1. **frontend** (ubuntu-latest) — `npm ci`, audit (high), lint, typecheck, test, build; uploads `dist/` as an artifact for every platform matrix job to download.
 2. **rust-lint** (ubuntu-latest) — `cargo fmt --check` + `cargo audit`. Fast, runs in parallel.
@@ -343,13 +338,13 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 4. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. Tagged `v*` refs use `release` profile; everything else uses `ci` profile.
 5. **release** (ubuntu-latest, only on tags) — extracts the matching CHANGELOG section, downloads artifacts, creates a draft GitHub release.
 
-Changes to `README.md`, `CHANGELOG.md`, `.gitignore`, `screenshots/**`, and `site/**` do not trigger CI.
+Changes to `README.md`, `CHANGELOG.md`, `.gitignore`, and `site/**` do not trigger the app build matrix. Site changes run the separate Site Checks workflow.
 
 ## Known pitfalls
 
 - `npm audit` is run in CI; new high-severity advisories fail non-PR builds. Add a frontend advisory to an ignore-list only when upstream is the blocker.
 - Rust audit ignores live in `src-tauri/.cargo/audit.toml` and are almost all Tauri/GTK transitives. If a new advisory appears for code we actually control, fix it.
-- The window is `transparent: true` — new backgrounds must set an explicit opaque colour or the desktop bleeds through.
+- The Tauri window is opaque (`transparent: false`), while inner app surfaces still use glass-style translucency. Keep `--bg` fully opaque so WebView/Desktop compositor quirks cannot bleed through.
 - `convertFileSrc` is required for local file URLs in the video preview; paths fed directly to `<video src>` will fail under the asset-protocol CSP. The CSP lives in `src-tauri/tauri.conf.json` → `app.security.csp`.
 - CSP also gates drive roots on Windows (`C:/**` … `Z:/**`). If a user reports a path refused by the asset protocol, check `assetProtocol.scope`.
 - EncodersDialog is `React.lazy` + `Suspense` — don't import it eagerly in `App.tsx`, that re-grows the entry bundle.

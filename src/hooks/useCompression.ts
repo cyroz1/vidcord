@@ -1,15 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { cancelCompression, type ProbeData } from "../ipc";
 
-export type ProbeData = {
-  duration: number;
-  width: number;
-  height: number;
-  display_width?: number;
-  display_height?: number;
-  bitrate: number;
-};
+export type { ProbeData };
 
 type Props = {
   onToast: (type: "success" | "error" | "warning" | "info", title: string, msg: string) => void;
@@ -57,7 +50,7 @@ export function useCompression({ onToast: _onToast }: Props) {
   }, []);
 
   const cancelCompress = useCallback(() => {
-    invoke("cancel_compression").catch(() => {});
+    cancelCompression().catch(() => {});
     setCompressing(false);
     setEta("Cancelled");
   }, []);

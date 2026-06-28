@@ -1,5 +1,4 @@
 import { useEffect, useCallback, useState, useMemo, useRef, lazy, Suspense } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -7,6 +6,7 @@ import "./App.css";
 import Toast from "./components/Toast";
 import ProgressSection from "./components/ProgressSection";
 import PreviewPane, { type PreviewHandle } from "./components/PreviewPane";
+import TrimTimeline, { type SnapMode } from "./components/TrimTimeline";
 import { useToasts } from "./hooks/useToasts";
 import { useSettings } from "./hooks/useSettings";
 import { useEncoders } from "./hooks/useEncoders";
@@ -22,6 +22,19 @@ import {
   computeTargetDimensions,
   type ProbeData,
 } from "./hooks/useCompression";
+import {
+  checkFfmpegAvailable,
+  checkForUpdates,
+  compressVideo,
+  getOs,
+  getVaapiDevice,
+  installFfmpegDependency,
+  listFfmpegVideoEncoders,
+  probe as probeVideo,
+  resolveOutputPath,
+  showInFileExplorer,
+  type FfmpegInstallResult,
+} from "./ipc";
 import pkg from "../package.json";
 
 // EncodersDialog is only shown after an explicit user click from Advanced
@@ -49,21 +62,6 @@ const SLIDER_MAX = 10000;
 const MIN_TRIM_GAP = 1;
 const UNDO_LIMIT = 200;
 const FRAME_STEP_SECONDS = 1 / 30;
-
-type SnapMode = "off" | "0.1" | "0.5" | "1.0";
-
-type FfmpegInstallResult = {
-  status:
-    | "installed"
-    | "already_available"
-    | "failed"
-    | "unsupported"
-    | "requires_privileged"
-    | "needs_manual_download";
-  message: string;
-  hint_command?: string | null;
-  guide_url?: string | null;
-};
 
 function isH265Encoder(name: string): boolean {
   return name === "libx265" || name.startsWith("hevc_");
@@ -276,7 +274,7 @@ export default function App() {
       redoStackRef.current = [];
       resetProgress();
       try {
-        const data = await invoke<ProbeData>("probe", { path });
+        const data = await probeVideo(path);
         setProbeData(data);
       } catch (e) {
         if (isFfmpegMissingError(e)) {
@@ -432,10 +430,7 @@ export default function App() {
     if (!settingsLoaded) return;
     const lastCheck = (settingsRef.current.update_last_check as number) ?? 0;
     if (Date.now() / 1000 - lastCheck < 6 * 3600) return;
-    invoke<{ update_available: boolean; latest_version?: string; release_url?: string }>(
-      "check_for_updates",
-      { currentVersion: CURRENT_VERSION }
-    )
+    checkForUpdates(CURRENT_VERSION)
       .then((r) => {
         if (r.update_available && r.latest_version && r.release_url) {
           const dismissed = settingsRef.current.update_dismissed_version as string | undefined;
@@ -510,8 +505,8 @@ export default function App() {
     // parallel so we save one round-trip latency before the encode starts.
     const isVaapi = encoderName.endsWith("_vaapi");
     const [resolvedOutput, vaapiDevice] = await Promise.all([
-      invoke<string>("resolve_output_path", { inputPath: filePath }).catch(() => null),
-      isVaapi ? invoke<string | null>("get_vaapi_device").catch(() => null) : Promise.resolve(null),
+      resolveOutputPath(filePath).catch(() => null),
+      isVaapi ? getVaapiDevice().catch(() => null) : Promise.resolve(null),
     ]);
     if (!resolvedOutput) {
       addToast("error", "Error", "Could not resolve output path.");
@@ -519,25 +514,23 @@ export default function App() {
       return;
     }
 
-    const outputPath = await invoke<string>("compress_video", {
-      opts: {
-        input_path: filePath,
-        output_path: resolvedOutput,
-        encoder: encoderName,
-        video_bitrate_k: videoBitrate,
-        target_size_mb: targetSize,
-        start_time: startTime,
-        end_time: endTime,
-        remove_audio: removeAudio,
-        scale_filter: buildScaleFilter(
-          probeData.width,
-          probeData.height,
-          targetH,
-          targetShort,
-          encoderName
-        ),
-        vaapi_device: vaapiDevice,
-      },
+    const outputPath = await compressVideo({
+      input_path: filePath,
+      output_path: resolvedOutput,
+      encoder: encoderName,
+      video_bitrate_k: videoBitrate,
+      target_size_mb: targetSize,
+      start_time: startTime,
+      end_time: endTime,
+      remove_audio: removeAudio,
+      scale_filter: buildScaleFilter(
+        probeData.width,
+        probeData.height,
+        targetH,
+        targetShort,
+        encoderName
+      ),
+      vaapi_device: vaapiDevice,
     }).catch((e) => {
       if (isFfmpegMissingError(e)) {
         markFfmpegMissing();
@@ -551,7 +544,7 @@ export default function App() {
 
     if (outputPath) {
       addToast("success", "Success", "Compression complete!");
-      invoke("show_in_file_explorer", { path: outputPath }).catch(() => {});
+      showInFileExplorer(outputPath).catch(() => {});
     }
   }, [
     filePath,
@@ -574,7 +567,7 @@ export default function App() {
 
   const loadListedEncoders = useCallback(async () => {
     let fallbackNames: string[] | null = null;
-    const text = await invoke<string>("list_ffmpeg_video_encoders").catch((e) => {
+    const text = await listFfmpegVideoEncoders().catch((e) => {
       if (isFfmpegMissingError(e)) {
         markFfmpegMissing();
         fallbackNames = [];
@@ -597,7 +590,7 @@ export default function App() {
   }, [advancedMode, listedEncoderNames.length, loadListedEncoders, settingsLoaded]);
 
   const retryFfmpegDetection = useCallback(async () => {
-    const available = await invoke<boolean>("check_ffmpeg_available").catch(() => false);
+    const available = await checkFfmpegAvailable().catch(() => false);
     await refreshEncoders().catch(() => {});
     if (available) {
       addToast("success", "FFmpeg Ready", "FFmpeg is now available.");
@@ -608,7 +601,7 @@ export default function App() {
 
   const installFfmpeg = useCallback(async () => {
     setInstallingFfmpeg(true);
-    const os = await invoke<string>("get_os").catch(() => "unknown");
+    const os = await getOs().catch(() => "unknown");
 
     const showInstallResult = (result: FfmpegInstallResult) => {
       if (result.status === "installed" || result.status === "already_available") {
@@ -630,9 +623,7 @@ export default function App() {
       }
     };
 
-    let result = await invoke<FfmpegInstallResult>("install_ffmpeg_dependency", {
-      opts: { allow_privileged: false },
-    }).catch((e) => ({
+    let result = await installFfmpegDependency(false).catch((e) => ({
       status: "failed" as const,
       message: String(e),
       hint_command: null,
@@ -644,9 +635,7 @@ export default function App() {
         "Installing FFmpeg on Linux needs elevated privileges. Run the installer command now?"
       );
       if (approved) {
-        result = await invoke<FfmpegInstallResult>("install_ffmpeg_dependency", {
-          opts: { allow_privileged: true },
-        }).catch((e) => ({
+        result = await installFfmpegDependency(true).catch((e) => ({
           status: "failed" as const,
           message: String(e),
           hint_command: null,
@@ -888,6 +877,55 @@ export default function App() {
       window.addEventListener("mouseup", onUp);
     },
     [probeData, duration, seekToTimelineClick]
+  );
+
+  const setSnapModeFromTimeline = useCallback((mode: SnapMode) => {
+    setSnapMode(mode);
+  }, []);
+
+  const zoomTimelineOut = useCallback(() => {
+    setTimelineZoom((prev) => Math.max(1, prev / 1.25));
+  }, []);
+
+  const resetTimelineZoom = useCallback(() => {
+    setTimelineZoom(1);
+    setTimelineCenterVal((startValRef.current + endValRef.current) / 2);
+  }, []);
+
+  const zoomTimelineIn = useCallback(() => {
+    setTimelineZoom((prev) => Math.min(20, prev * 1.25));
+  }, []);
+
+  const setLoopPlaybackFromTimeline = useCallback((enabled: boolean) => {
+    setLoopPlayback(enabled);
+  }, []);
+
+  const toggleShortcuts = useCallback(() => {
+    setShowShortcuts((value) => !value);
+  }, []);
+
+  const handleStartHandlePointerDown = useCallback(() => {
+    activeHandleRef.current = "start";
+    beginPointerTrimChange();
+  }, [beginPointerTrimChange]);
+
+  const handleEndHandlePointerDown = useCallback(() => {
+    activeHandleRef.current = "end";
+    beginPointerTrimChange();
+  }, [beginPointerTrimChange]);
+
+  const handleStartChange = useCallback(
+    (next: number) => {
+      applyTrim(next, endValRef.current, { record: false, anchor: "start" });
+    },
+    [applyTrim]
+  );
+
+  const handleEndChange = useCallback(
+    (next: number) => {
+      applyTrim(startValRef.current, next, { record: false, anchor: "end" });
+    },
+    [applyTrim]
   );
 
   return (
@@ -1165,190 +1203,45 @@ export default function App() {
           </div>
         )}
 
-        {/* Trim slider */}
-        <div className="trim-section">
-          <div className="trim-header">
-            <span className="section-title">Trim Video</span>
-            <span className="trim-selection-meta">
-              {selectedDuration.toFixed(2)}s selected ({selectedDurationPct.toFixed(1)}%)
-            </span>
-            <button
-              type="button"
-              className="trim-mini-btn"
-              onClick={setInPoint}
-              disabled={playheadTime === null}
-              title="Set in point to playhead (I)"
-            >
-              In
-            </button>
-            <button
-              type="button"
-              className="trim-mini-btn"
-              onClick={setOutPoint}
-              disabled={playheadTime === null}
-              title="Set out point to playhead (O)"
-            >
-              Out
-            </button>
-            <label className="trim-inline-control">
-              Snap
-              <select value={snapMode} onChange={(e) => setSnapMode(e.target.value as SnapMode)}>
-                <option value="off">Off</option>
-                <option value="0.1">0.1s</option>
-                <option value="0.5">0.5s</option>
-                <option value="1.0">1.0s</option>
-              </select>
-            </label>
-            <div className="trim-zoom-controls">
-              <button
-                type="button"
-                className="trim-mini-btn"
-                onClick={() => setTimelineZoom((prev) => Math.max(1, prev / 1.25))}
-              >
-                -
-              </button>
-              <button
-                type="button"
-                className="trim-mini-btn"
-                onClick={() => {
-                  setTimelineZoom(1);
-                  setTimelineCenterVal((startValRef.current + endValRef.current) / 2);
-                }}
-                title="Reset zoom"
-              >
-                {timelineZoom.toFixed(1)}x
-              </button>
-              <button
-                type="button"
-                className="trim-mini-btn"
-                onClick={() => setTimelineZoom((prev) => Math.min(20, prev * 1.25))}
-              >
-                +
-              </button>
-            </div>
-            <button
-              type="button"
-              className="trim-mini-btn"
-              onClick={undoTrim}
-              title="Undo trim (Cmd/Ctrl+Z)"
-            >
-              Undo
-            </button>
-            <button
-              type="button"
-              className="trim-mini-btn"
-              onClick={redoTrim}
-              title="Redo trim (Cmd/Ctrl+Shift+Z)"
-            >
-              Redo
-            </button>
-            <label className="trim-loop-toggle">
-              <input
-                type="checkbox"
-                checked={loopPlayback}
-                onChange={(e) => setLoopPlayback(e.target.checked)}
-              />
-              Loop
-            </label>
-            <button
-              type="button"
-              className={`trim-mini-btn trim-shortcuts-btn${showShortcuts ? " active" : ""}`}
-              onClick={() => setShowShortcuts((v) => !v)}
-              title="Keyboard shortcuts"
-            >
-              ?
-            </button>
-          </div>
-          {showShortcuts && (
-            <div className="trim-shortcuts-panel">
-              <div className="trim-shortcuts-grid">
-                <span className="sc-key">Space</span>
-                <span>Play / Pause</span>
-                <span className="sc-key">, / .</span>
-                <span>Step frame back / forward</span>
-                <span className="sc-key">I</span>
-                <span>Set in point to playhead</span>
-                <span className="sc-key">O</span>
-                <span>Set out point to playhead</span>
-                <span className="sc-key">J</span>
-                <span>Seek to in point</span>
-                <span className="sc-key">K</span>
-                <span>Seek to out point</span>
-                <span className="sc-key">[ / ]</span>
-                <span>Expand in / out point</span>
-                <span className="sc-key">R / U</span>
-                <span>Reset trim to full clip</span>
-                <span className="sc-key">⇧ ← / →</span>
-                <span>Nudge active handle</span>
-                <span className="sc-key">⌘Z / ⇧⌘Z</span>
-                <span>Undo / Redo trim</span>
-              </div>
-            </div>
-          )}
-          <div className="slider-row trim-dual-row">
-            <span className="time-label time-label-left">{startTime.toFixed(1)}s</span>
-            <div
-              ref={trimWrapRef}
-              className="trim-dual-wrap"
-              onWheel={handleTrimWheel}
-              onClick={handleTimelineClick}
-              title="Click to seek · Wheel to pan · Ctrl+Wheel to zoom"
-              style={{ cursor: filePath ? "crosshair" : undefined }}
-            >
-              <div className="trim-dual-track" />
-              <div
-                className="trim-dual-range"
-                style={{
-                  left: `${startPct}%`,
-                  width: `${Math.max(endPct - startPct, 0)}%`,
-                }}
-                onMouseDown={handleRangeDragStart}
-              />
-              {trimPlayheadLeftPct !== null && (
-                <div
-                  className="trim-playhead"
-                  style={{ left: `${trimPlayheadLeftPct}%` }}
-                  onMouseDown={handlePlayheadDragStart}
-                />
-              )}
-              <input
-                className="trim-handle trim-start-handle"
-                type="range"
-                min={Math.round(viewStartVal)}
-                max={Math.round(viewEndVal)}
-                value={startVal}
-                onPointerDown={() => {
-                  activeHandleRef.current = "start";
-                  beginPointerTrimChange();
-                }}
-                onPointerUp={commitPointerTrimChange}
-                onChange={(e) => {
-                  const next = +e.target.value;
-                  applyTrim(next, endValRef.current, { record: false, anchor: "start" });
-                }}
-                aria-label="Trim start"
-              />
-              <input
-                className="trim-handle trim-end-handle"
-                type="range"
-                min={Math.round(viewStartVal)}
-                max={Math.round(viewEndVal)}
-                value={endVal}
-                onPointerDown={() => {
-                  activeHandleRef.current = "end";
-                  beginPointerTrimChange();
-                }}
-                onPointerUp={commitPointerTrimChange}
-                onChange={(e) => {
-                  const next = +e.target.value;
-                  applyTrim(startValRef.current, next, { record: false, anchor: "end" });
-                }}
-                aria-label="Trim end"
-              />
-            </div>
-            <span className="time-label time-label-right">{endTime.toFixed(1)}s</span>
-          </div>
-        </div>
+        <TrimTimeline
+          showShortcuts={showShortcuts}
+          selectedDuration={selectedDuration}
+          selectedDurationPct={selectedDurationPct}
+          playheadTime={playheadTime}
+          snapMode={snapMode}
+          timelineZoom={timelineZoom}
+          trimWrapRef={trimWrapRef}
+          filePath={filePath}
+          startTime={startTime}
+          endTime={endTime}
+          viewStartVal={viewStartVal}
+          viewEndVal={viewEndVal}
+          startVal={startVal}
+          endVal={endVal}
+          startPct={startPct}
+          endPct={endPct}
+          trimPlayheadLeftPct={trimPlayheadLeftPct}
+          onSetInPoint={setInPoint}
+          onSetOutPoint={setOutPoint}
+          onSnapModeChange={setSnapModeFromTimeline}
+          onZoomOut={zoomTimelineOut}
+          onZoomReset={resetTimelineZoom}
+          onZoomIn={zoomTimelineIn}
+          onUndoTrim={undoTrim}
+          onRedoTrim={redoTrim}
+          loopPlayback={loopPlayback}
+          onLoopPlaybackChange={setLoopPlaybackFromTimeline}
+          onToggleShortcuts={toggleShortcuts}
+          onTrimWheel={handleTrimWheel}
+          onTimelineClick={handleTimelineClick}
+          onRangeDragStart={handleRangeDragStart}
+          onPlayheadDragStart={handlePlayheadDragStart}
+          onStartHandlePointerDown={handleStartHandlePointerDown}
+          onEndHandlePointerDown={handleEndHandlePointerDown}
+          onPointerUp={commitPointerTrimChange}
+          onStartChange={handleStartChange}
+          onEndChange={handleEndChange}
+        />
 
         {/* Preview */}
         <PreviewPane

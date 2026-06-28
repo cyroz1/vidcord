@@ -1,7 +1,7 @@
 # vidcord - Free Discord Video Compressor for Windows, macOS, and Linux
 
 <p>
-  <img src="public/icon.png" height="64" alt="vidcord app icon">
+  <img src="site/assets/icon.png" height="64" alt="vidcord app icon">
 </p>
 
 **vidcord** is a free, open-source **Discord video compressor** for
@@ -27,7 +27,7 @@ size checks, and a ~10 MB installer. Built with [Tauri 2](https://tauri.app)
   <img alt="License"      src="https://img.shields.io/badge/license-MIT-blue">
 </p>
 
-![vidcord main window: loaded video with preset picker and compress button](screenshots/window.png)
+![vidcord main window: loaded video with preset picker and compress button](site/assets/window.png)
 
 > **At a glance** — Free Discord video compressor for Windows 10/11, macOS 11+,
 > and Linux · x86_64 + aarch64 · ~10 MB installer · Compresses MP4, MOV, MKV,
@@ -132,11 +132,11 @@ mode.
 
 | Main window | Advanced mode |
 |---|---|
-| ![vidcord main window with trim timeline, size preset picker, and progress bar](screenshots/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](screenshots/advancedmode.png) |
+| ![vidcord main window with trim timeline, size preset picker, and progress bar](site/assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/assets/advancedmode.png) |
 
 | Output file | Windows context menu | macOS Finder |
 |---|---|---|
-| ![Compressed video saved to the Downloads folder as name-vidcord.mp4](screenshots/file.png) | ![Windows File Explorer right-click menu with Open with vidcord entry on a video file](screenshots/context.png) | ![macOS Finder right-click menu with Open with vidcord entry on a video file](screenshots/finder.png) |
+| ![Compressed video saved to the Downloads folder as name-vidcord.mp4](site/assets/file.png) | ![Windows File Explorer right-click menu with Open with vidcord entry on a video file](site/assets/context.png) | ![macOS Finder right-click menu with Open with vidcord entry on a video file](site/assets/finder.png) |
 
 ## Download vidcord
 
@@ -309,17 +309,22 @@ a GitHub release on `v*` tags.
 ```
 src/                       React + TypeScript frontend
   App.tsx                  Root component — trim UI, preset wiring, compress flow
-  components/              PreviewPane, ProgressSection, Toast, EncodersDialog
+  ipc.ts                   Typed wrappers around Tauri invoke() commands
+  components/              PreviewPane, TrimTimeline, ProgressSection, Toast, EncodersDialog
   hooks/                   useCompression, useEncoders, useSettings, useToasts
   __tests__/               Vitest tests (node env, Tauri APIs mocked)
 
 src-tauri/                 Rust backend
   src/lib.rs               Tauri builder, plugins, Linux env shims, file-open routing
-  src/ffmpeg.rs            Probe / preview / filmstrip / encoder detection + caches
+  src/ffmpeg.rs            Probe / preview / filmstrip / VAAPI discovery + caches
+  src/ffmpeg/encoders.rs   FFmpeg encoder detection + encoder cache invalidation
   src/gpu.rs               Vendor detection (lspci / system_profiler / CIM)
   src/settings.rs          Typed settings persisted via atomic rename
   src/commands/            #[tauri::command] handlers (compression, encoders, files, updates)
   tauri.conf.json          Product config, CSP, file associations, bundle targets
+
+.github/workflows/         App build/release workflow plus site validation workflow
+scripts/                   Version, asset, and site structured-data checks
 ```
 
 A deeper architectural tour — IPC boundary, file-open race conditions,

@@ -7,40 +7,6 @@
   max-width: 100%;
 }
 
-/* ── Header ──────────────────────────────────────────────────────────── */
-.header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 20px 10px;
-  flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.04);
-  border-bottom: 1px solid var(--border-subtle);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-@media (prefers-color-scheme: light) {
-  .header {
-    background: rgba(255, 255, 255, 0.18);
-  }
-}
-
-.app-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-xs);
-  object-fit: cover;
-}
-
-.app-title {
-  font-size: 14px;
-  font-weight: 600;
-  margin: 0;
-  color: var(--text);
-  letter-spacing: -0.01em;
-}
-
 /* ── Update banner ───────────────────────────────────────────────────── */
 .update-banner {
   background: var(--surface);
@@ -491,10 +457,6 @@ select optgroup {
 }
 
 /* ── macOS-style Toggle Switch ───────────────────────────────────────── */
-.options-row {
-  align-items: center;
-}
-
 .toggle-label {
   display: flex;
   align-items: center;
@@ -773,13 +735,6 @@ select optgroup {
   white-space: nowrap;
 }
 
-.slider-label {
-  font-size: 12px;
-  color: var(--text-secondary);
-  width: 32px;
-  flex-shrink: 0;
-}
-
 /* ── Glass Slider ────────────────────────────────────────────────────── */
 .slider-row input[type="range"] {
   flex: 1;
@@ -853,9 +808,17 @@ select optgroup {
   border-radius: 2px;
 }
 
+.slider-row input.trim-handle[type="range"]::-webkit-slider-runnable-track {
+  background: transparent;
+}
+
 @media (prefers-color-scheme: light) {
   .slider-row input[type="range"]::-webkit-slider-runnable-track {
     background: rgba(0, 0, 0, 0.1);
+  }
+
+  .slider-row input.trim-handle[type="range"]::-webkit-slider-runnable-track {
+    background: transparent;
   }
 }
 
@@ -889,6 +852,10 @@ select optgroup {
   border: none;
 }
 
+.slider-row input.trim-handle[type="range"]::-moz-range-track {
+  background: transparent;
+}
+
 .slider-row input[type="range"]::-moz-range-thumb {
   width: 16px;
   height: 16px;
@@ -902,6 +869,10 @@ select optgroup {
   height: 4px;
   background: var(--accent);
   border-radius: 2px;
+}
+
+.slider-row input.trim-handle[type="range"]::-moz-range-progress {
+  background: transparent;
 }
 
 .slider-row input[type="range"]:focus {

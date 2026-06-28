@@ -40,6 +40,6 @@ Thumbs.db
 ffmpeg.exe
 ffprobe.exe
 ffplay.exe
-ffmpeg
-ffprobe
+/ffmpeg
+/ffprobe
 AppDir/

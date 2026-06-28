@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { detectEncoders, type Encoder } from "../ipc";
 
-export type Encoder = { name: string; label: string; ffmpeg_missing?: boolean };
+export type { Encoder };
 
 type Props = {
   settingsLoaded: boolean;
@@ -49,7 +49,7 @@ export function useEncoders({
   }, []);
 
   const refreshEncoders = useCallback(() => {
-    return invoke<Encoder[]>("detect_encoders").then((list) => {
+    return detectEncoders().then((list) => {
       if (list.length > 0) {
         const missing = Boolean(list[0].ffmpeg_missing);
         if (missing) markFfmpegMissing();
