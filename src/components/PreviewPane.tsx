@@ -7,8 +7,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { getFilmstrip, getOs, getPreviewClip, getPreviewFrame } from "../ipc";
 
 // Module-scope static style objects. Hoisted so React doesn't allocate a
 // fresh object literal per render — PreviewPane re-renders on every
@@ -176,7 +176,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // the backend for the actual OS.
   const [isLinux, setIsLinux] = useState(false);
   useEffect(() => {
-    invoke<string>("get_os").then((os) => setIsLinux(os === "linux"));
+    getOs().then((os) => setIsLinux(os === "linux"));
   }, []);
   useEffect(() => {
     if (videoRef.current) {
@@ -306,10 +306,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     }
     const requestId = filmstripRequestIdRef.current + 1;
     filmstripRequestIdRef.current = requestId;
-    invoke<Uint8Array>("get_filmstrip", {
-      path: filePath,
-      durationSec: probeData.duration,
-    })
+    getFilmstrip(filePath, probeData.duration)
       .then((rawBytes) => {
         if (filmstripRequestIdRef.current !== requestId) return;
         const frames = splitJpegStream(new Uint8Array(rawBytes.buffer as ArrayBuffer));
@@ -339,7 +336,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     if (frameRequestIdRef.current !== requestId) return;
     setLoading(true);
     try {
-      const buffer = await invoke<Uint8Array>("get_preview_frame", { path, timeSec: time });
+      const buffer = await getPreviewFrame(path, time);
       if (frameRequestIdRef.current !== requestId) return;
       const blob = new Blob([buffer as Uint8Array<ArrayBuffer>], { type: "image/jpeg" });
       const url = URL.createObjectURL(blob);
@@ -483,11 +480,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       if (tryingGeneratedClip) return;
       tryingGeneratedClip = true;
       try {
-        const buffer = await invoke<Uint8Array>("get_preview_clip", {
-          path: filePath,
-          startTimeSec: startTime,
-          endTimeSec: endTime,
-        });
+        const buffer = await getPreviewClip(filePath, startTime, endTime);
         const blob = new Blob([new Uint8Array(buffer)], { type: "video/mp4" });
         const clipUrl = URL.createObjectURL(blob);
         if (clipUrlRef.current) URL.revokeObjectURL(clipUrlRef.current);
