@@ -125,6 +125,11 @@ export default function App() {
   const activeHandleRef = useRef<"start" | "end">("start");
   const startValRef = useRef(0);
   const endValRef = useRef(SLIDER_MAX);
+  const trimStateRafRef = useRef<number | null>(null);
+  const pendingTrimStateRef = useRef<{ start: number; end: number } | null>(null);
+  const playheadSeekRafRef = useRef<number | null>(null);
+  const pendingPlayheadClientXRef = useRef<number | null>(null);
+  const suppressNextTimelineClickRef = useRef(false);
   const pointerHistoryStartRef = useRef<{ start: number; end: number } | null>(null);
   const undoStackRef = useRef<Array<{ start: number; end: number }>>([]);
   const redoStackRef = useRef<Array<{ start: number; end: number }>>([]);
@@ -197,6 +202,29 @@ export default function App() {
     [snapSliderValue]
   );
 
+  const flushTrimState = useCallback(() => {
+    trimStateRafRef.current = null;
+    const pending = pendingTrimStateRef.current;
+    pendingTrimStateRef.current = null;
+    if (!pending) return;
+    setStartVal(pending.start);
+    setEndVal(pending.end);
+  }, []);
+
+  const scheduleTrimState = useCallback((next: { start: number; end: number }) => {
+    pendingTrimStateRef.current = next;
+    if (trimStateRafRef.current !== null) return;
+    trimStateRafRef.current = window.requestAnimationFrame(flushTrimState);
+  }, [flushTrimState]);
+
+  const flushPendingTrimStateNow = useCallback(() => {
+    if (trimStateRafRef.current !== null) {
+      window.cancelAnimationFrame(trimStateRafRef.current);
+      trimStateRafRef.current = null;
+    }
+    flushTrimState();
+  }, [flushTrimState]);
+
   const applyTrim = useCallback(
     (rawStart: number, rawEnd: number, opts?: { record?: boolean; anchor?: "start" | "end" }) => {
       const anchor = opts?.anchor ?? "start";
@@ -212,10 +240,9 @@ export default function App() {
       // rapid undo/redo) sees the new values rather than waiting for useEffect.
       startValRef.current = next.start;
       endValRef.current = next.end;
-      setStartVal(next.start);
-      setEndVal(next.end);
+      scheduleTrimState(next);
     },
-    [normalizeTrim, pushUndoSnapshot]
+    [normalizeTrim, pushUndoSnapshot, scheduleTrimState]
   );
 
   const undoTrim = useCallback(() => {
@@ -224,6 +251,11 @@ export default function App() {
     redoStackRef.current.push({ start: startValRef.current, end: endValRef.current });
     startValRef.current = target.start;
     endValRef.current = target.end;
+    pendingTrimStateRef.current = null;
+    if (trimStateRafRef.current !== null) {
+      window.cancelAnimationFrame(trimStateRafRef.current);
+      trimStateRafRef.current = null;
+    }
     setStartVal(target.start);
     setEndVal(target.end);
   }, []);
@@ -234,6 +266,11 @@ export default function App() {
     pushUndoSnapshot({ start: startValRef.current, end: endValRef.current });
     startValRef.current = target.start;
     endValRef.current = target.end;
+    pendingTrimStateRef.current = null;
+    if (trimStateRafRef.current !== null) {
+      window.cancelAnimationFrame(trimStateRafRef.current);
+      trimStateRafRef.current = null;
+    }
     setStartVal(target.start);
     setEndVal(target.end);
   }, [pushUndoSnapshot]);
@@ -266,8 +303,17 @@ export default function App() {
       }
       setFilePath(path);
       setFileName(path.split(/[\\/]/).pop() ?? path);
+      pendingTrimStateRef.current = null;
+      if (trimStateRafRef.current !== null) {
+        window.cancelAnimationFrame(trimStateRafRef.current);
+        trimStateRafRef.current = null;
+      }
+      startValRef.current = 0;
+      endValRef.current = SLIDER_MAX;
+      playheadTimeRef.current = null;
       setStartVal(0);
       setEndVal(SLIDER_MAX);
+      setPlayheadTime(null);
       setTimelineCenterVal(SLIDER_MAX / 2);
       setTimelineZoom(1);
       undoStackRef.current = [];
@@ -290,9 +336,22 @@ export default function App() {
   );
 
   useEffect(() => {
+    if (pendingTrimStateRef.current) return;
     startValRef.current = startVal;
     endValRef.current = endVal;
   }, [startVal, endVal]);
+
+  useEffect(
+    () => () => {
+      if (trimStateRafRef.current !== null) {
+        window.cancelAnimationFrame(trimStateRafRef.current);
+      }
+      if (playheadSeekRafRef.current !== null) {
+        window.cancelAnimationFrame(playheadSeekRafRef.current);
+      }
+    },
+    []
+  );
 
   const browseFile = useCallback(async () => {
     const selected = await open({
@@ -379,10 +438,10 @@ export default function App() {
         previewRef.current?.stepBy(FRAME_STEP_SECONDS);
       } else if (e.key === "j" || e.key === "J") {
         e.preventDefault();
-        previewRef.current?.seekTo((startVal / SLIDER_MAX) * duration);
+        previewRef.current?.seekTo((startValRef.current / SLIDER_MAX) * duration);
       } else if (e.key === "k" || e.key === "K") {
         e.preventDefault();
-        previewRef.current?.seekTo((endVal / SLIDER_MAX) * duration);
+        previewRef.current?.seekTo((endValRef.current / SLIDER_MAX) * duration);
       } else if (e.key === "[") {
         e.preventDefault();
         applyTrim(startValRef.current - coarseStep, endValRef.current, { anchor: "start" });
@@ -423,7 +482,7 @@ export default function App() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [filePath, probeData, redoTrim, undoTrim, startVal, endVal, duration, applyTrim]);
+  }, [filePath, probeData, redoTrim, undoTrim, duration, applyTrim]);
 
   // --- Update check ---
   useEffect(() => {
@@ -461,8 +520,8 @@ export default function App() {
       return;
     }
     const duration = probeData.duration;
-    const startTime = (startVal / SLIDER_MAX) * duration;
-    const endTime = (endVal / SLIDER_MAX) * duration;
+    const startTime = (startValRef.current / SLIDER_MAX) * duration;
+    const endTime = (endValRef.current / SLIDER_MAX) * duration;
     const clipDuration = endTime - startTime;
     if (clipDuration <= 0) {
       addToast("warning", "Warning", "Invalid trim range.");
@@ -550,8 +609,6 @@ export default function App() {
     filePath,
     probeData,
     ffmpegMissing,
-    startVal,
-    endVal,
     advancedMode,
     advSize,
     advResolution,
@@ -770,6 +827,7 @@ export default function App() {
   }, [timelineZoom, startVal, endVal, viewStartVal, viewEndVal]);
 
   const beginPointerTrimChange = useCallback(() => {
+    previewRef.current?.stopPlayback();
     pointerHistoryStartRef.current = {
       start: startValRef.current,
       end: endValRef.current,
@@ -782,9 +840,10 @@ export default function App() {
     if (!started) return;
     const now = { start: startValRef.current, end: endValRef.current };
     if (started.start === now.start && started.end === now.end) return;
+    flushPendingTrimStateNow();
     pushUndoSnapshot(started);
     redoStackRef.current = [];
-  }, [pushUndoSnapshot]);
+  }, [flushPendingTrimStateNow, pushUndoSnapshot]);
 
   const handleRangeDragStart = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -795,14 +854,19 @@ export default function App() {
       const rect = wrap.getBoundingClientRect();
       if (rect.width <= 0) return;
 
-      beginPointerTrimChange();
       const originX = e.clientX;
       const originStart = startValRef.current;
       const originEnd = endValRef.current;
       const span = originEnd - originStart;
+      let dragging = false;
 
       const onMove = (moveEvent: MouseEvent) => {
         const deltaPx = moveEvent.clientX - originX;
+        if (!dragging) {
+          if (Math.abs(deltaPx) < 4) return;
+          dragging = true;
+          beginPointerTrimChange();
+        }
         const deltaVal = (deltaPx / rect.width) * (viewEndVal - viewStartVal);
         let nextStart = originStart + deltaVal;
         nextStart = Math.max(0, Math.min(nextStart, SLIDER_MAX - span));
@@ -812,7 +876,10 @@ export default function App() {
       const onUp = () => {
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
-        commitPointerTrimChange();
+        if (dragging) {
+          suppressNextTimelineClickRef.current = true;
+          commitPointerTrimChange();
+        }
       };
 
       window.addEventListener("mousemove", onMove);
@@ -839,7 +906,7 @@ export default function App() {
     [viewStartVal, viewEndVal]
   );
 
-  const seekToTimelineClick = useCallback(
+  const seekToTimelinePosition = useCallback(
     (clientX: number) => {
       const wrap = trimWrapRef.current;
       if (!wrap || !probeData || duration <= 0) return;
@@ -854,12 +921,44 @@ export default function App() {
     [probeData, duration, viewStartVal, viewEndVal]
   );
 
+  const scheduleTimelineSeek = useCallback(
+    (clientX: number) => {
+      pendingPlayheadClientXRef.current = clientX;
+      if (playheadSeekRafRef.current !== null) return;
+      playheadSeekRafRef.current = window.requestAnimationFrame(() => {
+        playheadSeekRafRef.current = null;
+        const pending = pendingPlayheadClientXRef.current;
+        pendingPlayheadClientXRef.current = null;
+        if (pending !== null) {
+          seekToTimelinePosition(pending);
+        }
+      });
+    },
+    [seekToTimelinePosition]
+  );
+
+  const flushPendingTimelineSeek = useCallback(() => {
+    if (playheadSeekRafRef.current !== null) {
+      window.cancelAnimationFrame(playheadSeekRafRef.current);
+      playheadSeekRafRef.current = null;
+    }
+    const pending = pendingPlayheadClientXRef.current;
+    pendingPlayheadClientXRef.current = null;
+    if (pending !== null) {
+      seekToTimelinePosition(pending);
+    }
+  }, [seekToTimelinePosition]);
+
   const handleTimelineClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (suppressNextTimelineClickRef.current) {
+        suppressNextTimelineClickRef.current = false;
+        return;
+      }
       if ((e.target as HTMLElement).tagName === "INPUT") return;
-      seekToTimelineClick(e.clientX);
+      seekToTimelinePosition(e.clientX);
     },
-    [seekToTimelineClick]
+    [seekToTimelinePosition]
   );
 
   const handlePlayheadDragStart = useCallback(
@@ -867,16 +966,17 @@ export default function App() {
       e.preventDefault();
       e.stopPropagation();
       if (!probeData || duration <= 0) return;
-      seekToTimelineClick(e.clientX);
-      const onMove = (mv: MouseEvent) => seekToTimelineClick(mv.clientX);
+      seekToTimelinePosition(e.clientX);
+      const onMove = (mv: MouseEvent) => scheduleTimelineSeek(mv.clientX);
       const onUp = () => {
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
+        flushPendingTimelineSeek();
       };
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     },
-    [probeData, duration, seekToTimelineClick]
+    [probeData, duration, flushPendingTimelineSeek, scheduleTimelineSeek, seekToTimelinePosition]
   );
 
   const setSnapModeFromTimeline = useCallback((mode: SnapMode) => {

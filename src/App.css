@@ -682,7 +682,6 @@ select optgroup {
   cursor: ew-resize;
   transform: translateX(-50%);
   z-index: 4;
-  transition: left 80ms linear;
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
 }
 

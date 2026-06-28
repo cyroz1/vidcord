@@ -414,9 +414,12 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn st
 pub fn generate_filmstrip(
     path: &str,
     duration_sec: f64,
+    max_frames: Option<usize>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    // Target ~60 frames; for very short clips aim for ~1 fps.
-    let frame_count = (duration_sec.floor() as usize).clamp(2, 60);
+    // Target ~60 frames by default; callers can lower this for long clips so
+    // loading a file does less thumbnail work before the user starts scrubbing.
+    let frame_limit = max_frames.unwrap_or(60).clamp(2, 60);
+    let frame_count = (duration_sec.floor() as usize).clamp(2, frame_limit);
     let fps = frame_count as f64 / duration_sec;
 
     #[allow(unused_mut)]

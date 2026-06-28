@@ -130,6 +130,12 @@ export type PreviewHandle = {
   stepBy: (deltaSec: number) => void;
 };
 
+type FrameRequest = {
+  path: string;
+  time: number;
+  requestId: number;
+};
+
 // Split a concatenated JPEG byte stream into individual frame buffers.
 // FFmpeg's image2pipe/mjpeg output places JPEG frames back-to-back;
 // each frame begins with SOI (FF D8) and ends with EOI (FF D9).
@@ -187,6 +193,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const [hovered, setHovered] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0);
+  const playingRef = useRef(false);
 
   // --- Filmstrip state ---
   // Blob URLs for each pre-extracted filmstrip frame. Managed manually
@@ -199,6 +206,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const currentPlaybackTimeRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameRequestIdRef = useRef(0);
+  const frameInFlightRef = useRef(false);
+  const queuedFrameRequestRef = useRef<FrameRequest | null>(null);
+  const startFrameFetchRef = useRef<(request: FrameRequest) => void>(() => {});
   const prevStartTimeRef = useRef(startTime);
   const prevEndTimeRef = useRef(endTime);
   const prevFilePathRef = useRef<string | null>(filePath);
@@ -208,6 +218,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // during every playback.
   const timeUpdateHandlerRef = useRef<(() => void) | null>(null);
   const clipUrlRef = useRef<string | null>(null);
+  const playbackSessionRef = useRef(0);
   const playbackOffsetRef = useRef(0);
   const usingGeneratedClipRef = useRef(false);
   const urlCacheRef = useRef<Map<string, string[]>>(new Map());
@@ -306,23 +317,29 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     }
     const requestId = filmstripRequestIdRef.current + 1;
     filmstripRequestIdRef.current = requestId;
-    getFilmstrip(filePath, probeData.duration)
-      .then((rawBytes) => {
-        if (filmstripRequestIdRef.current !== requestId) return;
-        const frames = splitJpegStream(new Uint8Array(rawBytes.buffer as ArrayBuffer));
-        if (frames.length === 0) return;
-        // Revoke previous strip's URLs before replacing
-        filmstripUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
-        filmstripUrlsRef.current = frames.map((frame) => {
-          const blob = new Blob([frame], { type: "image/jpeg" });
-          return URL.createObjectURL(blob);
+    const duration = probeData.duration;
+    const maxFrames = duration > 300 ? 36 : duration > 120 ? 48 : 60;
+    const delayMs = duration > 120 ? 500 : 120;
+    const timer = window.setTimeout(() => {
+      getFilmstrip(filePath, duration, maxFrames)
+        .then((rawBytes) => {
+          if (filmstripRequestIdRef.current !== requestId) return;
+          const frames = splitJpegStream(new Uint8Array(rawBytes.buffer as ArrayBuffer));
+          if (frames.length === 0) return;
+          // Revoke previous strip's URLs before replacing
+          filmstripUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+          filmstripUrlsRef.current = frames.map((frame) => {
+            const blob = new Blob([frame], { type: "image/jpeg" });
+            return URL.createObjectURL(blob);
+          });
+        })
+        .catch(() => {
+          // Filmstrip is optional — scrubbing falls back to on-demand frames
         });
-      })
-      .catch(() => {
-        // Filmstrip is optional — scrubbing falls back to on-demand frames
-      });
+    }, delayMs);
 
     return () => {
+      window.clearTimeout(timer);
       if (filmstripRequestIdRef.current === requestId) {
         filmstripRequestIdRef.current += 1;
       }
@@ -332,33 +349,56 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // ---------------------------------------------------------------------------
   // Frame preview (static JPEG)
   // ---------------------------------------------------------------------------
-  const fetchFrame = useCallback(async (path: string, time: number, requestId: number) => {
-    if (frameRequestIdRef.current !== requestId) return;
+  const startFrameFetch = useCallback((request: FrameRequest) => {
+    if (frameRequestIdRef.current !== request.requestId) return;
+    frameInFlightRef.current = true;
     setLoading(true);
-    try {
-      const buffer = await getPreviewFrame(path, time);
-      if (frameRequestIdRef.current !== requestId) return;
-      const blob = new Blob([buffer as Uint8Array<ArrayBuffer>], { type: "image/jpeg" });
-      const url = URL.createObjectURL(blob);
-      setFilmstripIdx(null); // exact frame is ready — stop showing filmstrip
-      setFrameUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return url;
-      });
-    } catch {
-      if (frameRequestIdRef.current !== requestId) return;
-      setFilmstripIdx(null);
-      setFrameUrl(null);
-    } finally {
-      if (frameRequestIdRef.current === requestId) {
+    void (async () => {
+      try {
+        const buffer = await getPreviewFrame(request.path, request.time);
+        if (frameRequestIdRef.current !== request.requestId) return;
+        const blob = new Blob([buffer as Uint8Array<ArrayBuffer>], { type: "image/jpeg" });
+        const url = URL.createObjectURL(blob);
+        setFilmstripIdx(null); // exact frame is ready — stop showing filmstrip
+        setFrameUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+      } catch {
+        if (frameRequestIdRef.current !== request.requestId) return;
+        setFilmstripIdx(null);
+        setFrameUrl(null);
+      } finally {
+        frameInFlightRef.current = false;
+        const queued = queuedFrameRequestRef.current;
+        queuedFrameRequestRef.current = null;
+        if (queued && frameRequestIdRef.current === queued.requestId) {
+          startFrameFetchRef.current(queued);
+          return;
+        }
         setLoading(false);
       }
-    }
+    })();
   }, []);
+  startFrameFetchRef.current = startFrameFetch;
+
+  const fetchFrame = useCallback(
+    (path: string, time: number, requestId: number) => {
+      if (frameRequestIdRef.current !== requestId) return;
+      const request = { path, time, requestId };
+      if (frameInFlightRef.current) {
+        queuedFrameRequestRef.current = request;
+        return;
+      }
+      startFrameFetch(request);
+    },
+    [startFrameFetch]
+  );
 
   useEffect(() => {
     if (!filePath || !probeData) {
       frameRequestIdRef.current += 1;
+      queuedFrameRequestRef.current = null;
       setLoading(false);
       setFrameUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
@@ -369,7 +409,6 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     }
     const requestId = frameRequestIdRef.current + 1;
     frameRequestIdRef.current = requestId;
-    stopPlayback();
     const isNewFile = filePath !== prevFilePathRef.current;
     const isInitialRange =
       prevStartTimeRef.current === 0 &&
@@ -410,6 +449,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // ---------------------------------------------------------------------------
   const stopPlayback = useCallback(() => {
     const vid = videoRef.current;
+    const hadActivePlayback =
+      playingRef.current ||
+      timeUpdateHandlerRef.current !== null ||
+      clipUrlRef.current !== null ||
+      Boolean(vid?.src);
+    if (!hadActivePlayback) return;
+    playbackSessionRef.current += 1;
     if (vid && timeUpdateHandlerRef.current) {
       vid.removeEventListener("timeupdate", timeUpdateHandlerRef.current);
     }
@@ -430,6 +476,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       URL.revokeObjectURL(clipUrlRef.current);
       clipUrlRef.current = null;
     }
+    playingRef.current = false;
     setPlaying(false);
     onTimeUpdateRef.current?.(null);
   }, []);
@@ -438,6 +485,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     if (!filePath || !probeData) return;
     const vid = videoRef.current;
     if (!vid) return;
+    const session = playbackSessionRef.current + 1;
+    playbackSessionRef.current = session;
     vid.muted = removeAudio;
     // Resume from the last scrubbed/paused position if it falls within the
     // trim range; otherwise start at trim-in.
@@ -481,6 +530,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       tryingGeneratedClip = true;
       try {
         const buffer = await getPreviewClip(filePath, startTime, endTime);
+        if (playbackSessionRef.current !== session) return;
         const blob = new Blob([new Uint8Array(buffer)], { type: "video/mp4" });
         const clipUrl = URL.createObjectURL(blob);
         if (clipUrlRef.current) URL.revokeObjectURL(clipUrlRef.current);
@@ -489,10 +539,14 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         playbackOffsetRef.current = startTime;
         vid.src = clipUrl;
         await vid.play();
+        if (playbackSessionRef.current !== session) return;
+        playingRef.current = true;
         setPlaying(true);
         ensureStopTimer();
       } catch {
-        stopPlayback();
+        if (playbackSessionRef.current === session) {
+          stopPlayback();
+        }
       }
     };
 
@@ -502,6 +556,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     vid.onseeked = null;
 
     const beginPlayback = (index: number) => {
+      if (playbackSessionRef.current !== session) return;
       if (index >= sources.length) {
         stopPlayback();
         return;
@@ -513,10 +568,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       vid
         .play()
         .then(() => {
+          if (playbackSessionRef.current !== session) return;
+          playingRef.current = true;
           setPlaying(true);
           ensureStopTimer();
         })
         .catch(() => {
+          if (playbackSessionRef.current !== session) return;
           if (index + 1 < sources.length) {
             beginPlayback(index + 1);
             return;
@@ -526,6 +584,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     };
 
     vid.onerror = () => {
+      if (playbackSessionRef.current !== session) return;
       if (sourceIndex + 1 < sources.length) {
         beginPlayback(sourceIndex + 1);
         return;
@@ -567,18 +626,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     () => ({
       startPlayback,
       stopPlayback,
-      isPlaying: () => playing,
+      isPlaying: () => playingRef.current,
       getCurrentTime: () => getPlaybackTime(),
       seekTo,
       stepBy,
     }),
-    [startPlayback, stopPlayback, playing, getPlaybackTime, seekTo, stepBy]
+    [startPlayback, stopPlayback, getPlaybackTime, seekTo, stepBy]
   );
-
-  // Stop playback when trim range changes
-  useEffect(() => {
-    stopPlayback();
-  }, [startTime, endTime, stopPlayback]);
 
   // Cleanup on unmount
   useEffect(
