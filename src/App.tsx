@@ -58,6 +58,9 @@ const QUALITY_PRESETS = [
 
 const RESOLUTION_OPTIONS = ["Native", "4K", "1440p", "1080p", "720p", "480p"];
 
+const H265_WARNING_MESSAGE =
+  "H.265 compresses more efficiently (better quality at the same target size), but isn't supported on all devices, browsers, or older Discord clients - recipients may see a black screen or audio-only playback.";
+
 const SLIDER_MAX = 10000;
 const MIN_TRIM_GAP = 1;
 const UNDO_LIMIT = 200;
@@ -1120,10 +1123,30 @@ export default function App() {
                 ))}
               </select>
             </label>
-            <label>
-              Encoder
+            <div className="settings-field">
+              <div className="encoder-heading">
+                <label htmlFor="encoder-select">Encoder</label>
+                {isH265Encoder(encoders[encoderIdx]?.name ?? "") && (
+                  <span
+                    className="encoder-warning"
+                    tabIndex={0}
+                    aria-label={H265_WARNING_MESSAGE}
+                    aria-describedby="h265-warning-tooltip"
+                  >
+                    <span aria-hidden="true">!</span>
+                    <span
+                      id="h265-warning-tooltip"
+                      className="encoder-warning-tooltip"
+                      role="tooltip"
+                    >
+                      {H265_WARNING_MESSAGE}
+                    </span>
+                  </span>
+                )}
+              </div>
               <div className="encoder-row">
                 <select
+                  id="encoder-select"
                   value={encoderIdx}
                   onChange={(e) => {
                     setEncoderIdx(+e.target.value);
@@ -1166,14 +1189,7 @@ export default function App() {
                   {removeAudio ? "Unmute" : "Mute"}
                 </button>
               </div>
-              {isH265Encoder(encoders[encoderIdx]?.name ?? "") && (
-                <div className="encoder-warning">
-                  ⚠ H.265 compresses more efficiently (better quality at the same target size), but
-                  isn't supported on all devices, browsers, or older Discord clients — recipients
-                  may see a black screen or audio-only playback.
-                </div>
-              )}
-            </label>
+            </div>
           </div>
         )}
 
