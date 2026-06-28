@@ -67,6 +67,10 @@ svg {
   display: block;
 }
 
+picture {
+  display: block;
+}
+
 img {
   max-width: 100%;
 }

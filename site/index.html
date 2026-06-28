@@ -159,7 +159,14 @@
   <body>
     <header class="site-header">
       <a class="brand" href="/" aria-label="vidcord home">
-        <img src="assets/icon.png" width="256" height="256" alt="" />
+        <picture>
+          <source
+            type="image/webp"
+            srcset="assets/icon-64.webp 64w, assets/icon-128.webp 128w"
+            sizes="34px"
+          />
+          <img src="assets/icon.png" width="128" height="128" alt="" />
+        </picture>
         <span>vidcord</span>
       </a>
 
@@ -271,14 +278,25 @@
               <span></span>
               <span></span>
             </div>
-            <img
-              src="assets/window.png"
-              width="1144"
-              height="1484"
-              fetchpriority="high"
-              decoding="async"
-              alt="vidcord desktop app with video preview, trim timeline, preset picker, and compression controls"
-            />
+            <picture>
+              <source
+                type="image/webp"
+                srcset="
+                  assets/window-480.webp   480w,
+                  assets/window-720.webp   720w,
+                  assets/window-960.webp   960w,
+                  assets/window-1144.webp 1144w
+                "
+                sizes="(max-width: 760px) calc(100vw - 36px), (max-width: 1040px) 560px, 500px"
+              />
+              <img
+                src="assets/window.png"
+                width="1144"
+                height="1484"
+                decoding="async"
+                alt="vidcord desktop app with video preview, trim timeline, preset picker, and compression controls"
+              />
+            </picture>
           </div>
         </div>
       </section>
@@ -354,14 +372,26 @@
           </ul>
         </div>
         <div class="detail-image">
-          <img
-            src="assets/advancedmode.png"
-            width="1144"
-            height="1484"
-            loading="lazy"
-            decoding="async"
-            alt="vidcord advanced mode with target size, resolution, and encoder controls"
-          />
+          <picture>
+            <source
+              type="image/webp"
+              srcset="
+                assets/advancedmode-480.webp   480w,
+                assets/advancedmode-720.webp   720w,
+                assets/advancedmode-960.webp   960w,
+                assets/advancedmode-1144.webp 1144w
+              "
+              sizes="(max-width: 760px) calc(100vw - 36px), (max-width: 1040px) 560px, 500px"
+            />
+            <img
+              src="assets/advancedmode.png"
+              width="1144"
+              height="1484"
+              loading="lazy"
+              decoding="async"
+              alt="vidcord advanced mode with target size, resolution, and encoder controls"
+            />
+          </picture>
         </div>
       </section>
 
@@ -382,14 +412,25 @@
               <h3>Windows context menu</h3>
               <p>Right-click a video and choose vidcord from Open with.</p>
             </div>
-            <img
-              src="assets/context.png"
-              width="1115"
-              height="947"
-              loading="lazy"
-              decoding="async"
-              alt="Windows File Explorer context menu showing vidcord as an Open with option"
-            />
+            <picture>
+              <source
+                type="image/webp"
+                srcset="
+                  assets/context-480.webp   480w,
+                  assets/context-720.webp   720w,
+                  assets/context-1115.webp 1115w
+                "
+                sizes="(max-width: 760px) calc(100vw - 80px), 430px"
+              />
+              <img
+                src="assets/context.png"
+                width="1115"
+                height="947"
+                loading="lazy"
+                decoding="async"
+                alt="Windows File Explorer context menu showing vidcord as an Open with option"
+              />
+            </picture>
           </article>
 
           <article class="integration-panel integration-panel-wide">
@@ -397,14 +438,25 @@
               <h3>macOS Finder</h3>
               <p>Use Open With in Finder to send a local video straight into vidcord.</p>
             </div>
-            <img
-              src="assets/finder.png"
-              width="2176"
-              height="1208"
-              loading="lazy"
-              decoding="async"
-              alt="macOS Finder Open With menu showing vidcord for a video file"
-            />
+            <picture>
+              <source
+                type="image/webp"
+                srcset="
+                  assets/finder-720.webp   720w,
+                  assets/finder-1200.webp 1200w,
+                  assets/finder-1600.webp 1600w
+                "
+                sizes="(max-width: 760px) calc(100vw - 80px), 670px"
+              />
+              <img
+                src="assets/finder.png"
+                width="2176"
+                height="1208"
+                loading="lazy"
+                decoding="async"
+                alt="macOS Finder Open With menu showing vidcord for a video file"
+              />
+            </picture>
           </article>
 
           <article class="integration-panel">
@@ -412,14 +464,21 @@
               <h3>Saved output file</h3>
               <p>Exports land in Downloads with a safe auto-incremented filename.</p>
             </div>
-            <img
-              src="assets/file.png"
-              width="572"
-              height="638"
-              loading="lazy"
-              decoding="async"
-              alt="Compressed vidcord MP4 output file saved in the Downloads folder"
-            />
+            <picture>
+              <source
+                type="image/webp"
+                srcset="assets/file-480.webp 480w, assets/file-572.webp 572w"
+                sizes="(max-width: 760px) calc(100vw - 80px), 430px"
+              />
+              <img
+                src="assets/file.png"
+                width="572"
+                height="638"
+                loading="lazy"
+                decoding="async"
+                alt="Compressed vidcord MP4 output file saved in the Downloads folder"
+              />
+            </picture>
           </article>
         </div>
       </section>
@@ -679,7 +738,14 @@ sudo pacman -S ffmpeg</code></pre>
     <footer class="site-footer">
       <div>
         <a class="footer-brand" href="/">
-          <img src="assets/icon.png" width="256" height="256" alt="" />
+          <picture>
+            <source
+              type="image/webp"
+              srcset="assets/icon-64.webp 64w, assets/icon-128.webp 128w"
+              sizes="34px"
+            />
+            <img src="assets/icon.png" width="128" height="128" alt="" />
+          </picture>
           <span>vidcord</span>
         </a>
         <p>Local video compression for Discord upload limits.</p>
