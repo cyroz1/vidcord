@@ -80,9 +80,10 @@ pub async fn get_preview_clip(
 pub async fn get_filmstrip(
     path: String,
     duration_sec: f64,
+    max_frames: Option<usize>,
 ) -> Result<tauri::ipc::Response, String> {
     tokio::task::spawn_blocking(move || {
-        generate_filmstrip(&path, duration_sec)
+        generate_filmstrip(&path, duration_sec, max_frames)
             .map(tauri::ipc::Response::new)
             .map_err(|e| e.to_string())
     })
@@ -167,69 +168,87 @@ fn scale_filter_for_encoder(opts: &CompressOptions, encoder: &str) -> String {
     }
 }
 
-fn video_bitrate_for_safety(base_bitrate_k: f64, safety: f64) -> u32 {
-    ((base_bitrate_k * safety).floor() as u32).max(100)
+const OVERSIZE_RETRY_LIMIT_PER_ENCODER: usize = 2;
+const OVERSIZE_RETRY_SAFETY: f64 = 0.96;
+
+fn initial_attempt(opts: &CompressOptions) -> CompressionAttempt {
+    CompressionAttempt {
+        encoder: opts.encoder.clone(),
+        video_bitrate_k: opts.video_bitrate_k.max(100),
+        status: "Compressing...".into(),
+    }
 }
 
-fn retry_attempts(opts: &CompressOptions, clip_duration: f64) -> Vec<CompressionAttempt> {
-    let mut attempts = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    let mut push_attempt = |encoder: String, video_bitrate_k: u32, status: String| {
-        if seen.insert((encoder.clone(), video_bitrate_k)) {
-            attempts.push(CompressionAttempt {
-                encoder,
-                video_bitrate_k,
-                status,
-            });
-        }
-    };
-
-    push_attempt(
-        opts.encoder.clone(),
-        opts.video_bitrate_k.max(100),
-        "Compressing...".into(),
-    );
-
-    let Some(target_size_mb) = opts.target_size_mb else {
-        return attempts;
-    };
-    let use_cpu_fallback = opts.encoder != "libx264";
-    if use_cpu_fallback {
-        push_attempt(
-            "libx264".into(),
-            opts.video_bitrate_k.max(100),
-            "Retrying with CPU encoder...".into(),
-        );
+fn max_adaptive_attempts(opts: &CompressOptions, has_target: bool) -> usize {
+    if !has_target {
+        return 1;
     }
-
-    let total_kbits = target_size_mb * 1024.0 * 8.0;
-    let audio_kbits = if opts.remove_audio {
-        0.0
+    if opts.encoder == "libx264" {
+        1 + OVERSIZE_RETRY_LIMIT_PER_ENCODER
     } else {
-        128.0 * clip_duration
-    };
-    let nominal_base = ((total_kbits - audio_kbits) / clip_duration).max(100.0);
-    let initial_base = (opts.video_bitrate_k as f64 / 0.9).max(100.0);
-    let base_bitrate_k = nominal_base.min(initial_base);
+        2 + (OVERSIZE_RETRY_LIMIT_PER_ENCODER * 2)
+    }
+}
 
-    for safety_percent in (10..=80).rev().step_by(10) {
-        let safety = safety_percent as f64 / 100.0;
-        let bitrate = video_bitrate_for_safety(base_bitrate_k, safety);
-        push_attempt(
-            opts.encoder.clone(),
-            bitrate,
-            format!("Retrying at {safety_percent}% size safety..."),
-        );
-        if use_cpu_fallback {
-            push_attempt(
-                "libx264".into(),
-                bitrate,
-                format!("Retrying with CPU encoder at {safety_percent}% size safety..."),
-            );
-        }
+fn cpu_fallback_attempt(video_bitrate_k: u32, status: String) -> CompressionAttempt {
+    CompressionAttempt {
+        encoder: "libx264".into(),
+        video_bitrate_k: video_bitrate_k.max(100),
+        status,
+    }
+}
+
+fn adaptive_bitrate_for_oversize(
+    current_bitrate_k: u32,
+    target_bytes: u64,
+    output_bytes: u64,
+) -> u32 {
+    if output_bytes == 0 {
+        return current_bitrate_k.max(100);
+    }
+    let ratio = target_bytes as f64 / output_bytes as f64;
+    ((current_bitrate_k as f64 * ratio * OVERSIZE_RETRY_SAFETY).floor() as u32).max(100)
+}
+
+fn next_oversize_attempt(
+    current: &CompressionAttempt,
+    target_bytes: u64,
+    output_bytes: u64,
+    oversize_retries_for_encoder: usize,
+    cpu_fallback_used: bool,
+) -> Option<(CompressionAttempt, usize, bool)> {
+    let next_bitrate =
+        adaptive_bitrate_for_oversize(current.video_bitrate_k, target_bytes, output_bytes);
+
+    if oversize_retries_for_encoder < OVERSIZE_RETRY_LIMIT_PER_ENCODER
+        && next_bitrate < current.video_bitrate_k
+    {
+        return Some((
+            CompressionAttempt {
+                encoder: current.encoder.clone(),
+                video_bitrate_k: next_bitrate,
+                status: format!("Retrying at {next_bitrate} kbps after size check..."),
+            },
+            oversize_retries_for_encoder + 1,
+            cpu_fallback_used,
+        ));
     }
 
-    attempts
+    if !cpu_fallback_used && current.encoder != "libx264" {
+        return Some((
+            cpu_fallback_attempt(
+                next_bitrate.min(current.video_bitrate_k),
+                format!(
+                    "Retrying with CPU encoder at {} kbps...",
+                    next_bitrate.min(current.video_bitrate_k)
+                ),
+            ),
+            0,
+            true,
+        ));
+    }
+
+    None
 }
 
 fn target_size_bytes(target_size_mb: Option<f64>) -> Result<Option<u64>, String> {
@@ -297,14 +316,19 @@ async fn run_ffmpeg_attempt(
 
     let vf = scale_filter_for_encoder(opts, &attempt.encoder);
     let preset_args = encoder_preset_args(&attempt.encoder);
+    let duration = format!("{clip_duration:.3}");
+    let start_time = format!("{:.3}", opts.start_time);
 
     cmd_args.extend([
         "-ss".into(),
-        opts.start_time.to_string(),
-        "-to".into(),
-        opts.end_time.to_string(),
+        start_time,
+        "-t".into(),
+        duration,
         "-i".into(),
         opts.input_path.clone(),
+        "-map".into(),
+        "0:v:0".into(),
+        "-sn".into(),
         "-c:v".into(),
         attempt.encoder.clone(),
         "-b:v".into(),
@@ -317,7 +341,14 @@ async fn run_ffmpeg_attempt(
     if opts.remove_audio {
         cmd_args.push("-an".into());
     } else {
-        cmd_args.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "128k".into()]);
+        cmd_args.extend([
+            "-map".into(),
+            "0:a?".into(),
+            "-c:a".into(),
+            "aac".into(),
+            "-b:a".into(),
+            "128k".into(),
+        ]);
     }
 
     cmd_args.extend([
@@ -371,6 +402,7 @@ async fn run_ffmpeg_attempt(
         tokio::task::spawn_blocking(move || -> Result<_, std::io::Error> {
             let mut reader = BufReader::new(stderr);
             let start_instant = std::time::Instant::now();
+            let mut last_progress_emit: Option<std::time::Instant> = None;
             let mut last_lines: std::collections::VecDeque<String> =
                 std::collections::VecDeque::with_capacity(200);
             let mut chunk_buf = Vec::with_capacity(4096);
@@ -401,6 +433,15 @@ async fn run_ffmpeg_attempt(
                     if is_progress {
                         if let Some(time_str) = parse_ffmpeg_time(line) {
                             let pct = ((time_str / clip_duration) * 100.0).min(100.0);
+                            let now = std::time::Instant::now();
+                            let should_emit = last_progress_emit
+                                .map(|last| now.duration_since(last).as_millis() >= 250)
+                                .unwrap_or(true)
+                                || pct >= 99.9;
+                            if !should_emit {
+                                continue;
+                            }
+                            last_progress_emit = Some(now);
                             let elapsed = start_instant.elapsed().as_secs_f64();
                             let eta = if time_str > 0.0 && elapsed > 0.0 {
                                 let rate = time_str / elapsed;
@@ -485,27 +526,46 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     }
 
     let target_bytes = target_size_bytes(opts.target_size_mb)?;
-    let attempts = retry_attempts(&opts, clip_duration);
-    let total_attempts = attempts.len();
+    let total_attempts = max_adaptive_attempts(&opts, target_bytes.is_some());
     let mut smallest_oversize_bytes: Option<u64> = None;
+    let mut attempt = initial_attempt(&opts);
+    let mut attempt_index = 0usize;
+    let mut oversize_retries_for_encoder = 0usize;
+    let mut cpu_fallback_used = opts.encoder == "libx264";
+    let mut seen_attempts: std::collections::HashSet<(String, u32)> =
+        std::collections::HashSet::new();
     reset_cancelled();
 
-    for (idx, attempt) in attempts.iter().enumerate() {
+    loop {
+        if attempt_index >= total_attempts {
+            break;
+        }
+        if !seen_attempts.insert((attempt.encoder.clone(), attempt.video_bitrate_k)) {
+            break;
+        }
+
         let _ = app.emit(
             "compress-progress",
             serde_json::json!({
                 "percent": 0,
                 "eta": "Calculating...",
                 "status": attempt.status.as_str(),
-                "attempt": idx + 1,
+                "attempt": attempt_index + 1,
                 "attempt_total": total_attempts,
                 "encoder": attempt.encoder.as_str(),
                 "video_bitrate_k": attempt.video_bitrate_k
             }),
         );
 
-        let run =
-            run_ffmpeg_attempt(&app, &opts, attempt, idx, total_attempts, clip_duration).await?;
+        let run = run_ffmpeg_attempt(
+            &app,
+            &opts,
+            &attempt,
+            attempt_index,
+            total_attempts,
+            clip_duration,
+        )
+        .await?;
         if run.cancelled {
             vidcord_log("Compression cancelled by user.");
             remove_partial_output(&opts.output_path);
@@ -518,6 +578,25 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         }
 
         if !run.exit_status.success() {
+            if !cpu_fallback_used && attempt.encoder != "libx264" {
+                let all_lines: Vec<&str> = run.last_lines.iter().map(String::as_str).collect();
+                vidcord_log(&format!(
+                    "Compression attempt failed with {}; retrying CPU fallback. rc={:?}\n{}",
+                    attempt.encoder,
+                    run.exit_status.code(),
+                    all_lines.join("\n")
+                ));
+                remove_partial_output(&opts.output_path);
+                cpu_fallback_used = true;
+                oversize_retries_for_encoder = 0;
+                attempt_index += 1;
+                attempt = cpu_fallback_attempt(
+                    attempt.video_bitrate_k,
+                    "Retrying with CPU encoder...".into(),
+                );
+                continue;
+            }
+
             let err_lines: Vec<&str> = run
                 .last_lines
                 .iter()
@@ -571,7 +650,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                     "output_path": &opts.output_path,
                     "output_size_bytes": output_size,
                     "target_size_bytes": target_bytes,
-                    "attempt": idx + 1,
+                    "attempt": attempt_index + 1,
                     "attempt_total": total_attempts,
                     "encoder": attempt.encoder.as_str(),
                     "video_bitrate_k": attempt.video_bitrate_k
@@ -591,6 +670,25 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             target_bytes.unwrap_or(0)
         ));
         remove_partial_output(&opts.output_path);
+
+        let Some(limit) = target_bytes else {
+            break;
+        };
+        let Some((next_attempt, next_oversize_retries, next_cpu_fallback_used)) =
+            next_oversize_attempt(
+                &attempt,
+                limit,
+                output_size,
+                oversize_retries_for_encoder,
+                cpu_fallback_used,
+            )
+        else {
+            break;
+        };
+        attempt_index += 1;
+        attempt = next_attempt;
+        oversize_retries_for_encoder = next_oversize_retries;
+        cpu_fallback_used = next_cpu_fallback_used;
     }
 
     reset_cancelled();
@@ -770,13 +868,13 @@ mod tests {
         assert_eq!(format_eta(-1.0), "Calculating...");
     }
 
-    fn retry_test_options(encoder: &str) -> CompressOptions {
+    fn retry_test_options(encoder: &str, target_size_mb: Option<f64>) -> CompressOptions {
         CompressOptions {
             input_path: "input.mp4".into(),
             output_path: "output.mp4".into(),
             encoder: encoder.into(),
             video_bitrate_k: 900,
-            target_size_mb: Some(100.0),
+            target_size_mb,
             start_time: 0.0,
             end_time: 60.0,
             remove_audio: false,
@@ -786,55 +884,77 @@ mod tests {
     }
 
     #[test]
-    fn test_retry_attempts_try_cpu_before_reducing_original_encoder() {
-        let opts = retry_test_options("h264_nvenc");
-        let attempts = retry_attempts(&opts, 60.0);
-        let first_attempts: Vec<(&str, u32, &str)> = attempts
-            .iter()
-            .take(6)
-            .map(|attempt| {
-                (
-                    attempt.encoder.as_str(),
-                    attempt.video_bitrate_k,
-                    attempt.status.as_str(),
-                )
-            })
-            .collect();
+    fn test_adaptive_retry_reduces_selected_encoder_before_cpu_fallback() {
+        let mut attempt = CompressionAttempt {
+            encoder: "h264_nvenc".into(),
+            video_bitrate_k: 900,
+            status: "Compressing...".into(),
+        };
 
-        assert_eq!(
-            first_attempts,
-            vec![
-                ("h264_nvenc", 900, "Compressing..."),
-                ("libx264", 900, "Retrying with CPU encoder..."),
-                ("h264_nvenc", 800, "Retrying at 80% size safety..."),
-                (
-                    "libx264",
-                    800,
-                    "Retrying with CPU encoder at 80% size safety..."
-                ),
-                ("h264_nvenc", 700, "Retrying at 70% size safety..."),
-                (
-                    "libx264",
-                    700,
-                    "Retrying with CPU encoder at 70% size safety..."
-                ),
-            ]
-        );
+        let (next, retries, cpu_used) =
+            next_oversize_attempt(&attempt, 1_000, 2_000, 0, false).unwrap();
+        assert_eq!(next.encoder, "h264_nvenc");
+        assert_eq!(next.video_bitrate_k, 432);
+        assert_eq!(retries, 1);
+        assert!(!cpu_used);
+
+        attempt = next;
+        let (next, retries, cpu_used) =
+            next_oversize_attempt(&attempt, 1_000, 1_500, retries, cpu_used).unwrap();
+        assert_eq!(next.encoder, "h264_nvenc");
+        assert_eq!(next.video_bitrate_k, 276);
+        assert_eq!(retries, 2);
+        assert!(!cpu_used);
+
+        attempt = next;
+        let (next, retries, cpu_used) =
+            next_oversize_attempt(&attempt, 1_000, 1_500, retries, cpu_used).unwrap();
+        assert_eq!(next.encoder, "libx264");
+        assert_eq!(next.video_bitrate_k, 176);
+        assert_eq!(retries, 0);
+        assert!(cpu_used);
     }
 
     #[test]
-    fn test_retry_attempts_do_not_duplicate_cpu_encoder() {
-        let opts = retry_test_options("libx264");
-        let attempts = retry_attempts(&opts, 60.0);
-        let bitrates: Vec<u32> = attempts
-            .iter()
-            .map(|attempt| {
-                assert_eq!(attempt.encoder, "libx264");
-                attempt.video_bitrate_k
-            })
-            .collect();
+    fn test_cpu_adaptive_retry_caps_without_cpu_fallback_duplication() {
+        let first = CompressionAttempt {
+            encoder: "libx264".into(),
+            video_bitrate_k: 900,
+            status: "Compressing...".into(),
+        };
+        let (second, retries, cpu_used) =
+            next_oversize_attempt(&first, 1_000, 2_000, 0, true).unwrap();
+        assert_eq!(second.encoder, "libx264");
+        assert_eq!(second.video_bitrate_k, 432);
+        assert_eq!(retries, 1);
+        assert!(cpu_used);
 
-        assert_eq!(bitrates, vec![900, 800, 700, 600, 500, 400, 300, 200, 100]);
+        let (third, retries, cpu_used) =
+            next_oversize_attempt(&second, 1_000, 2_000, retries, cpu_used).unwrap();
+        assert_eq!(third.encoder, "libx264");
+        assert_eq!(third.video_bitrate_k, 207);
+        assert_eq!(retries, 2);
+        assert!(cpu_used);
+
+        assert!(next_oversize_attempt(&third, 1_000, 2_000, retries, cpu_used).is_none());
+    }
+
+    #[test]
+    fn test_adaptive_bitrate_has_safety_margin_and_minimum() {
+        assert_eq!(adaptive_bitrate_for_oversize(1_000, 900, 1_000), 864);
+        assert_eq!(adaptive_bitrate_for_oversize(120, 1, 10_000), 100);
+    }
+
+    #[test]
+    fn test_adaptive_attempt_caps() {
+        let hardware = retry_test_options("h264_nvenc", Some(100.0));
+        let cpu = retry_test_options("libx264", Some(100.0));
+        let no_target = retry_test_options("h264_nvenc", None);
+
+        assert_eq!(max_adaptive_attempts(&hardware, true), 6);
+        assert_eq!(max_adaptive_attempts(&cpu, true), 3);
+        assert_eq!(max_adaptive_attempts(&no_target, false), 1);
+        assert_eq!(initial_attempt(&no_target).video_bitrate_k, 900);
     }
 
     #[test]

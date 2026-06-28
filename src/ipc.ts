@@ -69,8 +69,12 @@ export function getPreviewClip(
   return invoke<Uint8Array>("get_preview_clip", { path, startTimeSec, endTimeSec });
 }
 
-export function getFilmstrip(path: string, durationSec: number): Promise<Uint8Array> {
-  return invoke<Uint8Array>("get_filmstrip", { path, durationSec });
+export function getFilmstrip(
+  path: string,
+  durationSec: number,
+  maxFrames?: number
+): Promise<Uint8Array> {
+  return invoke<Uint8Array>("get_filmstrip", { path, durationSec, maxFrames });
 }
 
 export function detectEncoders(): Promise<Encoder[]> {
