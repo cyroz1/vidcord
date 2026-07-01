@@ -57,6 +57,12 @@ const QUALITY_PRESETS = [
 ];
 
 const RESOLUTION_OPTIONS = ["Native", "4K", "1440p", "1080p", "720p", "480p"];
+const FPS_OPTIONS = [
+  { label: "Off", value: "off", fps: null },
+  { label: "24", value: "24", fps: 24 },
+  { label: "30", value: "30", fps: 30 },
+  { label: "60", value: "60", fps: 60 },
+] as const;
 
 const H265_WARNING_MESSAGE =
   "H.265 compresses more efficiently (better quality at the same target size), but isn't supported on all devices, browsers, or older Discord clients - recipients may see a black screen or audio-only playback.";
@@ -107,6 +113,10 @@ export default function App() {
     setAdvSize,
     advResolution,
     setAdvResolution,
+    fpsOption,
+    setFpsOption,
+    advFps,
+    setAdvFps,
     advEncoder,
     setAdvEncoder,
     removeAudio,
@@ -159,6 +169,22 @@ export default function App() {
   const [activeEncoderOption, setActiveEncoderOption] = useState(0);
 
   const duration = probeData?.duration ?? 0;
+  const sourceFrameRate =
+    typeof probeData?.frame_rate === "number" &&
+    Number.isFinite(probeData.frame_rate) &&
+    probeData.frame_rate > 0
+      ? probeData.frame_rate
+      : null;
+  const standardFpsOptions = useMemo(
+    () =>
+      FPS_OPTIONS.filter(
+        (option) => option.fps === null || sourceFrameRate === null || option.fps <= sourceFrameRate
+      ),
+    [sourceFrameRate]
+  );
+  const standardFpsValue = standardFpsOptions.some((option) => option.value === fpsOption)
+    ? fpsOption
+    : "off";
 
   const pushUndoSnapshot = useCallback((snapshot: { start: number; end: number }) => {
     undoStackRef.current.push(snapshot);
@@ -214,11 +240,14 @@ export default function App() {
     setEndVal(pending.end);
   }, []);
 
-  const scheduleTrimState = useCallback((next: { start: number; end: number }) => {
-    pendingTrimStateRef.current = next;
-    if (trimStateRafRef.current !== null) return;
-    trimStateRafRef.current = window.requestAnimationFrame(flushTrimState);
-  }, [flushTrimState]);
+  const scheduleTrimState = useCallback(
+    (next: { start: number; end: number }) => {
+      pendingTrimStateRef.current = next;
+      if (trimStateRafRef.current !== null) return;
+      trimStateRafRef.current = window.requestAnimationFrame(flushTrimState);
+    },
+    [flushTrimState]
+  );
 
   const flushPendingTrimStateNow = useCallback(() => {
     if (trimStateRafRef.current !== null) {
@@ -536,6 +565,7 @@ export default function App() {
     let targetH: number | null = null;
     let targetShort: number | null = null;
     let encoderName: string;
+    let outputFps: number | null = null;
 
     if (advancedMode) {
       const sz = parseFloat(advSize);
@@ -546,6 +576,16 @@ export default function App() {
       }
       targetSize = sz;
       targetShort = resolutionToShortSide(advResolution);
+      const fpsText = advFps.trim();
+      if (fpsText) {
+        const fps = Number(fpsText);
+        if (!Number.isFinite(fps) || fps <= 0 || fps > 1000) {
+          addToast("warning", "Warning", "Enter a valid FPS value.");
+          setCompressing(false);
+          return;
+        }
+        outputFps = fps;
+      }
       const customEnc = advEncoder.trim();
       if (customEnc) {
         const mapped = encoders.find((e) => e.label === customEnc || e.name === customEnc);
@@ -558,6 +598,10 @@ export default function App() {
       targetSize = preset.size_mb;
       targetH = preset.target_h;
       encoderName = encoders[encoderIdx]?.name ?? "libx264";
+      const selectedFps = FPS_OPTIONS.find((option) => option.value === fpsOption)?.fps ?? null;
+      if (selectedFps !== null && (sourceFrameRate === null || selectedFps <= sourceFrameRate)) {
+        outputFps = selectedFps;
+      }
     }
 
     let videoBitrate = calculateBitrate(targetSize, clipDuration, removeAudio);
@@ -585,6 +629,7 @@ export default function App() {
       start_time: startTime,
       end_time: endTime,
       remove_audio: removeAudio,
+      output_fps: outputFps,
       scale_filter: buildScaleFilter(
         probeData.width,
         probeData.height,
@@ -615,7 +660,10 @@ export default function App() {
     advancedMode,
     advSize,
     advResolution,
+    advFps,
     advEncoder,
+    fpsOption,
+    sourceFrameRate,
     qualityIdx,
     encoderIdx,
     encoders,
@@ -1123,6 +1171,22 @@ export default function App() {
                 ))}
               </select>
             </label>
+            <label className="fps-label">
+              FPS
+              <select
+                value={standardFpsValue}
+                onChange={(e) => {
+                  setFpsOption(e.target.value);
+                  saveSettings({ fps_option: e.target.value });
+                }}
+              >
+                {standardFpsOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div className="settings-field">
               <div className="encoder-heading">
                 <label htmlFor="encoder-select">Encoder</label>
@@ -1223,6 +1287,20 @@ export default function App() {
                   <option key={r}>{r}</option>
                 ))}
               </select>
+            </label>
+            <label className="fps-label">
+              FPS
+              <input
+                type="number"
+                min="0.1"
+                step="1"
+                placeholder="Off"
+                value={advFps}
+                onChange={(e) => {
+                  setAdvFps(e.target.value);
+                  saveSettings({ advanced_fps: e.target.value });
+                }}
+              />
             </label>
             <label className="encoder-label">
               Encoder

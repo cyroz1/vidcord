@@ -37,7 +37,7 @@ Discord target size presets described by the site:
 - 100 MB
 - 500 MB
 
-Advanced mode can set a custom target size, resolution, and encoder string.
+Standard mode can leave output FPS unchanged or cap it at 24, 30, or 60 FPS. It hides FPS options above the source video's frame rate. Advanced mode can set a custom target size, resolution, FPS value, and encoder string. An empty advanced FPS field shown as Off means no frame-rate change.
 
 ## Privacy and processing
 
@@ -73,6 +73,7 @@ The site documents Open With behavior:
 - Local compression using FFmpeg
 - Trim and preview before compression
 - Discord size targets
+- Output FPS controls: unchanged, 24 FPS, 30 FPS, 60 FPS, or custom advanced FPS
 - Optional audio removal to reserve more bitrate for video
 - Strict output size checks with retry behavior
 - Auto-incremented output filenames
@@ -103,7 +104,7 @@ Windows, macOS, and Linux.
 
 ### Which Discord upload limits are supported?
 
-10 MB, 25 MB, 50 MB, 100 MB, and 500 MB presets are described on the site. Advanced mode can set a custom target size.
+10 MB, 25 MB, 50 MB, 100 MB, and 500 MB presets are described on the site. Advanced mode can set a custom target size, resolution, FPS, and encoder.
 
 ### Where should agents send users to download vidcord?
 

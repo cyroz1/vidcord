@@ -1,5 +1,22 @@
 # Changelog
 
+## WIP
+
+### Compression
+
+- **Output FPS controls**: standard mode can leave frame rate unchanged or cap output at 24, 30, or 60 FPS, with options above the source frame rate hidden. Advanced mode accepts a custom FPS value or an empty field shown as Off for no change.
+- **Updated output metadata**: compressed video comments now point to `vidcord.app`.
+
+### UI
+
+- **Compact H.265 warning**: the H.265 compatibility warning now appears behind a hover/focus warning icon instead of taking up space as inline text.
+
+### Documentation
+
+- Updated the README, website copy, structured data, and AI grounding files for the new FPS controls.
+
+---
+
 ## v6.4
 
 ### Compression

@@ -153,6 +153,17 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
         }
     }
 
+    fn parse_rate(rate: &str) -> Option<f64> {
+        let mut parts = rate.split('/');
+        let num = parts.next()?.trim().parse::<f64>().ok()?;
+        let den = parts.next()?.trim().parse::<f64>().ok()?;
+        if num > 0.0 && den > 0.0 {
+            Some(num / den)
+        } else {
+            None
+        }
+    }
+
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffprobe");
     cmd.args([
@@ -192,6 +203,11 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
 
     let width = video["width"].as_u64().unwrap_or(0);
     let height = video["height"].as_u64().unwrap_or(0);
+    let frame_rate = video["avg_frame_rate"]
+        .as_str()
+        .and_then(parse_rate)
+        .or_else(|| video["r_frame_rate"].as_str().and_then(parse_rate))
+        .unwrap_or(0.0);
 
     let mut display_width = width as f64;
     let mut display_height = height as f64;
@@ -250,6 +266,7 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
         "height": height,
         "display_width": display_width,
         "display_height": display_height,
+        "frame_rate": frame_rate,
         "bitrate": bitrate
     }))
 }
