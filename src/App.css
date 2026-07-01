@@ -198,6 +198,10 @@
   max-width: 100%;
 }
 
+.settings-row {
+  position: relative;
+}
+
 .settings-row label,
 .settings-field {
   display: flex;
@@ -343,6 +347,8 @@ select optgroup {
 }
 
 .encoder-heading {
+  position: relative;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -357,6 +363,8 @@ select optgroup {
 }
 
 .encoder-row {
+  position: relative;
+  z-index: 1;
   display: flex;
   gap: 4px;
   min-width: 0;
@@ -450,6 +458,7 @@ select optgroup {
 }
 .encoder-warning {
   position: relative;
+  z-index: 4;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -472,9 +481,9 @@ select optgroup {
 
 .encoder-warning-tooltip {
   position: absolute;
-  top: calc(100% + 7px);
-  right: -4px;
-  z-index: 20;
+  right: -8px;
+  bottom: calc(100% + 7px);
+  z-index: 50;
   width: 260px;
   padding: 8px 10px;
   border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
