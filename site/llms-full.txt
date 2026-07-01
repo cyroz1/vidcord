@@ -11,7 +11,7 @@ This file gives web crawlers and AI agents a more complete grounding source than
 - Source repository: https://github.com/cyroz1/vidcord
 - Latest release page: https://github.com/cyroz1/vidcord/releases/latest
 - License: MIT
-- Current website-referenced app version: 6.4.0
+- Current website-referenced app version: 6.5.0
 - App framework: Tauri 2 desktop app with a React and TypeScript frontend plus Rust backend
 - Primary dependency: system FFmpeg, specifically `ffmpeg` and `ffprobe` available on PATH
 
