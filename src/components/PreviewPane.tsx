@@ -4,11 +4,14 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getFilmstrip, getOs, getPreviewClip, getPreviewFrame } from "../ipc";
+
+const DEFAULT_PREVIEW_ASPECT_RATIO = 16 / 9;
 
 // Module-scope static style objects. Hoisted so React doesn't allocate a
 // fresh object literal per render — PreviewPane re-renders on every
@@ -22,7 +25,8 @@ const containerStyle: React.CSSProperties = {
   overflow: "hidden",
   position: "relative",
   width: "100%",
-  aspectRatio: `${16 / 9}`,
+  aspectRatio: `${DEFAULT_PREVIEW_ASPECT_RATIO}`,
+  flexShrink: 0,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -769,6 +773,19 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // Render
   // ---------------------------------------------------------------------------
   const canPlay = !!filePath && !!probeData && endTime > startTime;
+  const previewAspectRatio = useMemo(() => {
+    const width = probeData?.display_width ?? probeData?.width ?? 0;
+    const height = probeData?.display_height ?? probeData?.height ?? 0;
+    if (width <= 0 || height <= 0) return DEFAULT_PREVIEW_ASPECT_RATIO;
+    return width / height;
+  }, [probeData]);
+  const previewContainerStyle = useMemo(
+    () => ({
+      ...containerStyle,
+      aspectRatio: `${previewAspectRatio}`,
+    }),
+    [previewAspectRatio]
+  );
   const showLiveScrubPreview =
     supportsLiveScrubPreview && isScrubbing && previewTime !== null && scrubVideoReady && !playing;
 
@@ -781,7 +798,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   return (
     <div
-      style={containerStyle}
+      style={previewContainerStyle}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
