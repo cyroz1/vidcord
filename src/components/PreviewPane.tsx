@@ -105,6 +105,8 @@ type Props = {
   filePath: string | null;
   startTime: number;
   endTime: number;
+  previewTime: number | null;
+  isScrubbing: boolean;
   removeAudio: boolean;
   loopPlayback: boolean;
   probeData: {
@@ -162,7 +164,17 @@ function splitJpegStream(data: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer>
 }
 
 const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
-  { filePath, startTime, endTime, removeAudio, loopPlayback, probeData, onTimeUpdate },
+  {
+    filePath,
+    startTime,
+    endTime,
+    previewTime,
+    isScrubbing,
+    removeAudio,
+    loopPlayback,
+    probeData,
+    onTimeUpdate,
+  },
   ref
 ) {
   // Stash the latest onTimeUpdate in a ref so the playback callbacks don't
@@ -181,8 +193,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // navigator.userAgent is unreliable (WebView2 can include "Linux"), so we ask
   // the backend for the actual OS.
   const [isLinux, setIsLinux] = useState(false);
+  const [supportsLiveScrubPreview, setSupportsLiveScrubPreview] = useState(false);
   useEffect(() => {
-    getOs().then((os) => setIsLinux(os === "linux"));
+    getOs().then((os) => {
+      const linux = os === "linux";
+      setIsLinux(linux);
+      setSupportsLiveScrubPreview(!linux);
+    });
   }, []);
   useEffect(() => {
     if (videoRef.current) {
@@ -192,6 +209,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const [loading, setLoading] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [scrubVideoReady, setScrubVideoReady] = useState(false);
   const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0);
   const playingRef = useRef(false);
 
@@ -213,6 +231,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const prevEndTimeRef = useRef(endTime);
   const prevFilePathRef = useRef<string | null>(filePath);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const scrubVideoSrcRef = useRef<string | null>(null);
+  const pendingScrubVideoSeekRef = useRef<number | null>(null);
   // Listener reference so we can unbind on stop. Replaces the previous 100 ms
   // setInterval polling of `currentTime`, which kept the main thread warm
   // during every playback.
@@ -231,6 +251,29 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     if (raw > max) return max;
     return raw;
   }, [startTime, endTime]);
+
+  const seekVideoElement = useCallback((mediaTime: number) => {
+    if (!Number.isFinite(mediaTime)) return;
+    const vid = videoRef.current;
+    if (!vid) return;
+
+    const applySeek = () => {
+      try {
+        vid.currentTime = Math.max(0, mediaTime);
+      } catch {
+        // Some WebViews reject currentTime before metadata is ready. Keep the
+        // newest target and replay it from loadedmetadata/canplay.
+        pendingScrubVideoSeekRef.current = Math.max(0, mediaTime);
+      }
+    };
+
+    if (vid.readyState >= 1) {
+      applySeek();
+      return;
+    }
+
+    pendingScrubVideoSeekRef.current = Math.max(0, mediaTime);
+  }, []);
 
   const seekTo = useCallback(
     (timeSec: number) => {
@@ -251,9 +294,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         : clamped;
 
       if (!Number.isFinite(mediaTime)) return;
-      vid.currentTime = mediaTime;
+      seekVideoElement(mediaTime);
     },
-    [probeData]
+    [probeData, seekVideoElement]
   );
 
   const stepBy = useCallback(
@@ -299,6 +342,57 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
     return result;
   }, []);
+
+  useEffect(() => {
+    if (!supportsLiveScrubPreview || !filePath || !probeData || playing) {
+      setScrubVideoReady(false);
+      if (!filePath || !probeData) {
+        scrubVideoSrcRef.current = null;
+        const vid = videoRef.current;
+        if (vid && !playingRef.current) {
+          vid.src = "";
+          vid.load();
+        }
+      }
+      return;
+    }
+
+    const vid = videoRef.current;
+    if (!vid || usingGeneratedClipRef.current || clipUrlRef.current) return;
+
+    const [src] = buildPlaybackUrls(filePath);
+    if (!src) return;
+    if (scrubVideoSrcRef.current === src && vid.src === src) return;
+
+    scrubVideoSrcRef.current = src;
+    setScrubVideoReady(false);
+    vid.preload = "auto";
+    vid.src = src;
+    vid.load();
+  }, [buildPlaybackUrls, filePath, playing, probeData, supportsLiveScrubPreview]);
+
+  const handleVideoReady = useCallback(() => {
+    setScrubVideoReady(true);
+    const pending = pendingScrubVideoSeekRef.current;
+    if (pending === null) return;
+    pendingScrubVideoSeekRef.current = null;
+    seekVideoElement(pending);
+  }, [seekVideoElement]);
+
+  useEffect(() => {
+    if (
+      !supportsLiveScrubPreview ||
+      !isScrubbing ||
+      previewTime === null ||
+      playing ||
+      usingGeneratedClipRef.current
+    ) {
+      return;
+    }
+    const dur = probeData?.duration ?? 0;
+    const clamped = dur > 0 ? Math.max(0, Math.min(previewTime, dur)) : Math.max(0, previewTime);
+    seekVideoElement(clamped);
+  }, [isScrubbing, playing, previewTime, probeData, seekVideoElement, supportsLiveScrubPreview]);
 
   // ---------------------------------------------------------------------------
   // Filmstrip loading — fires once per file load, runs in the background
@@ -417,8 +511,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       endTime > 0;
     const startChanged = Math.abs(startTime - prevStartTimeRef.current) > 0.001;
     const endChanged = Math.abs(endTime - prevEndTimeRef.current) > 0.001;
+    const explicitPreviewTime =
+      previewTime !== null && Number.isFinite(previewTime)
+        ? Math.max(0, Math.min(previewTime, probeData.duration))
+        : null;
     const frameTime =
-      isNewFile || isInitialRange ? startTime : endChanged && !startChanged ? endTime : startTime;
+      explicitPreviewTime ??
+      (isNewFile || isInitialRange ? startTime : endChanged && !startChanged ? endTime : startTime);
     prevFilePathRef.current = filePath;
     prevStartTimeRef.current = startTime;
     prevEndTimeRef.current = endTime;
@@ -432,9 +531,23 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     }
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      void fetchFrame(filePath, frameTime, requestId);
-    }, 80); // filmstrip covers the gap; on-demand frame refines after 80 ms
+    if (isScrubbing) {
+      queuedFrameRequestRef.current = null;
+      setLoading(false);
+      return () => {
+        if (frameRequestIdRef.current === requestId) {
+          frameRequestIdRef.current += 1;
+        }
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+      };
+    }
+
+    debounceRef.current = setTimeout(
+      () => {
+        void fetchFrame(filePath, frameTime, requestId);
+      },
+      explicitPreviewTime !== null ? 160 : 100
+    );
     return () => {
       if (frameRequestIdRef.current === requestId) {
         frameRequestIdRef.current += 1;
@@ -442,7 +555,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filePath, startTime, endTime, fetchFrame, probeData]);
+  }, [filePath, startTime, endTime, previewTime, isScrubbing, fetchFrame, probeData]);
 
   // ---------------------------------------------------------------------------
   // Video playback
@@ -453,7 +566,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       playingRef.current ||
       timeUpdateHandlerRef.current !== null ||
       clipUrlRef.current !== null ||
-      Boolean(vid?.src);
+      usingGeneratedClipRef.current;
     if (!hadActivePlayback) return;
     playbackSessionRef.current += 1;
     if (vid && timeUpdateHandlerRef.current) {
@@ -468,6 +581,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       vid.src = "";
       vid.load(); // abort any in-flight load
     }
+    scrubVideoSrcRef.current = null;
+    setScrubVideoReady(false);
     playbackOffsetRef.current = 0;
     usingGeneratedClipRef.current = false;
     currentPlaybackTimeRef.current = 0;
@@ -488,6 +603,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const session = playbackSessionRef.current + 1;
     playbackSessionRef.current = session;
     vid.muted = removeAudio;
+    pendingScrubVideoSeekRef.current = null;
     // Resume from the last scrubbed/paused position if it falls within the
     // trim range; otherwise start at trim-in.
     const scrubbed = currentPlaybackTimeRef.current;
@@ -653,9 +769,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // Render
   // ---------------------------------------------------------------------------
   const canPlay = !!filePath && !!probeData && endTime > startTime;
+  const showLiveScrubPreview =
+    supportsLiveScrubPreview && isScrubbing && previewTime !== null && scrubVideoReady && !playing;
 
   // Filmstrip frame takes priority while the user is scrubbing; exact on-demand
-  // frame replaces it once the 80 ms debounce fires and the fetch completes.
+  // frame replaces it once scrubbing settles and the idle fetch completes.
   const displayUrl =
     filmstripIdx !== null && filmstripUrlsRef.current[filmstripIdx]
       ? filmstripUrlsRef.current[filmstripIdx]
@@ -668,9 +786,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       onMouseLeave={() => setHovered(false)}
     >
       {/* Static frame preview */}
-      {displayUrl && !playing ? (
+      {displayUrl && !playing && !showLiveScrubPreview ? (
         <img src={displayUrl} alt="preview" style={imgStyle} />
-      ) : !playing ? (
+      ) : !playing && !showLiveScrubPreview ? (
         <span style={placeholderStyle}>
           {loading && filmstripUrlsRef.current.length === 0
             ? "Loading preview…"
@@ -684,7 +802,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       <video
         ref={videoRef}
         muted={removeAudio}
-        style={playing ? videoVisibleStyle : videoHiddenStyle}
+        style={playing || showLiveScrubPreview ? videoVisibleStyle : videoHiddenStyle}
+        onLoadedMetadata={handleVideoReady}
+        onCanPlay={handleVideoReady}
+        onError={() => setScrubVideoReady(false)}
         onEnded={stopPlayback}
       />
 
