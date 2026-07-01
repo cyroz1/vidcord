@@ -92,6 +92,7 @@
             "featureList": [
               "Local video compression with FFmpeg",
               "Discord upload targets: 10 MB, 25 MB, 50 MB, 100 MB, and 500 MB",
+              "Output FPS controls with source-aware 24, 30, and 60 FPS presets plus advanced custom FPS",
               "Trim and preview before compression",
               "GPU encoder detection for NVENC, AMF, QSV, VAAPI, and VideoToolbox",
               "Open With integration from Windows File Explorer and macOS Finder",
@@ -131,7 +132,15 @@
                 "name": "Which Discord upload limits does vidcord target?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "vidcord includes Discord size targets for 10 MB, 25 MB, 50 MB, 100 MB, and 500 MB uploads, plus advanced custom target controls."
+                  "text": "vidcord includes Discord size targets for 10 MB, 25 MB, 50 MB, 100 MB, and 500 MB uploads, plus advanced custom target, resolution, FPS, and encoder controls."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can vidcord change output FPS?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Standard mode can leave FPS unchanged or cap output at 24, 30, or 60 FPS without showing choices above the source frame rate. Advanced mode accepts a custom FPS value or an empty Off field for no change."
                 }
               },
               {
@@ -315,7 +324,10 @@
             <path d="M8 12.5v4L12 19l4-2.5v-4" />
           </svg>
           <h2>Discord targets</h2>
-          <p>Pick 10, 25, 50, 100, or 500 MB and let the app calculate the bitrate.</p>
+          <p>
+            Pick 10, 25, 50, 100, or 500 MB, cap FPS if needed, and let the app calculate the
+            bitrate.
+          </p>
         </article>
         <article>
           <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -348,7 +360,10 @@
           <article>
             <span class="step-number">2</span>
             <h3>Choose preset and trim</h3>
-            <p>Select a Discord size target, remove audio if needed, and preview the range.</p>
+            <p>
+              Select a Discord size target, cap FPS or remove audio if needed, and preview the
+              range.
+            </p>
           </article>
           <article>
             <span class="step-number">3</span>
@@ -362,11 +377,12 @@
         <div class="detail-copy">
           <h2>Simple when you want it. Precise when you need it.</h2>
           <p>
-            Advanced mode lets you set a custom target size, resolution, and encoder string. Encoder
-            detection shows what your installed FFmpeg can actually use.
+            Advanced mode lets you set a custom target size, resolution, FPS, and encoder string.
+            Encoder detection shows what your installed FFmpeg can actually use.
           </p>
           <ul>
             <li>Strict output size checks with safer retry behavior.</li>
+            <li>Output FPS controls for 24, 30, 60, or a custom advanced value.</li>
             <li>Optional audio removal for more video bitrate.</li>
             <li>Auto-incremented filenames so exports never overwrite your files.</li>
           </ul>
@@ -503,7 +519,15 @@
             <h3>Which Discord upload limits are supported?</h3>
             <p>
               The presets target 10 MB, 25 MB, 50 MB, 100 MB, and 500 MB uploads. Advanced mode can
-              set a custom target size.
+              set a custom target size, resolution, FPS, and encoder.
+            </p>
+          </article>
+          <article>
+            <h3>Can vidcord change output FPS?</h3>
+            <p>
+              Yes. Standard mode can leave FPS unchanged or cap output at 24, 30, or 60 FPS without
+              showing choices above the source frame rate. Advanced mode accepts a custom FPS value
+              or an empty Off field for no change.
             </p>
           </article>
           <article>

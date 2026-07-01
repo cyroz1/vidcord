@@ -8,6 +8,7 @@ export type ProbeData = {
   height: number;
   display_width?: number;
   display_height?: number;
+  frame_rate?: number;
   bitrate: number;
 };
 
@@ -35,6 +36,7 @@ export type CompressOptions = {
   start_time: number;
   end_time: number;
   remove_audio: boolean;
+  output_fps: number | null;
   scale_filter: string | null;
   vaapi_device: string | null;
 };

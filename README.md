@@ -14,8 +14,9 @@ vidcord supports **MP4, MOV, MKV, AVI, WebM, FLV, WMV**, and other formats
 handled by your system [FFmpeg](https://ffmpeg.org) install. It wraps FFmpeg
 with hardware-accelerated encoding (NVIDIA NVENC, AMD AMF, Intel Quick Sync,
 Linux VAAPI, Apple VideoToolbox), automatic bitrate calculation, strict output
-size checks, and a ~10 MB installer. Built with [Tauri 2](https://tauri.app)
-(Rust + React). 100% local - no accounts, no uploads, no telemetry.
+size checks, output FPS controls, and a ~10 MB installer. Built with
+[Tauri 2](https://tauri.app) (Rust + React). 100% local - no accounts,
+no uploads, no telemetry.
 
 <p>
   <img alt="Platforms"    src="https://img.shields.io/badge/platforms-windows%20%7C%20macos%20%7C%20linux-3b82f6">
@@ -84,6 +85,7 @@ first pass lands too large.
 | Make a video fit Discord Nitro or boosted server limits | Pick 50 MB, 100 MB, or 500 MB presets without calculating bitrates by hand. |
 | Keep video compression private | Everything runs locally on your computer; no web upload step. |
 | Use GPU video encoding from a simple GUI | vidcord auto-detects NVENC, AMF, QSV, VAAPI, and VideoToolbox encoders. |
+| Cap output frame rate for smaller files | Leave FPS unchanged, or choose a lower output FPS when Discord size is tight. |
 
 ## Features
 
@@ -94,9 +96,12 @@ first pass lands too large.
   - 100 MB @ 1080p — Boost Level 3 or
     [Clips Bypass](https://github.com/riolubruh/YABDP4Nitro?tab=readme-ov-file#clips)
   - 500 MB @ native — Nitro Full
-- **Advanced mode** — custom target size (MB), output resolution, and any
+- **Advanced mode** — custom target size (MB), output resolution, FPS, and any
   FFmpeg video encoder string, with autocomplete from the encoders your
   installed FFmpeg exposes.
+- **Output FPS controls** — standard mode can leave FPS unchanged or cap it
+  at 24, 30, or 60 FPS, hiding options above the source frame rate. Advanced
+  mode accepts a custom FPS value, or an empty field shown as Off for no change.
 - **Trim timeline** with frame-accurate handles, draggable playhead,
   snap tick marks, and a minimap when zoomed in.
 - **In-app preview** of the trimmed segment before you commit to a compress.
@@ -196,7 +201,9 @@ For more distros, manual installs, or troubleshooting, read
 1. **Open a video** — drop it onto the window, right-click → *Open with
    vidcord* from Explorer/Finder, or click **Browse File**.
 2. **Pick a preset** — 10/25/50/100/500 MB, or flip on **Advanced mode** for
-   a custom target size, resolution, and encoder.
+   a custom target size, resolution, FPS, and encoder. Standard mode can
+   also cap output FPS at 24, 30, or 60 when those values do not exceed the
+   source frame rate.
 3. **Trim** (optional) — drag the handles or use `I` / `O` to stamp the
    playhead. `Space` plays the selected range.
 4. **Toggle Remove Audio** to strip audio if you need more video bitrate.
@@ -423,6 +430,12 @@ limit, and export a smaller `.mp4` ready to upload.
 No. The 10 MB and 25 MB presets target free Discord accounts
 specifically; the 50 / 100 / 500 MB presets are there for boosted
 servers and Nitro subscribers.
+
+### Can I change the output FPS?
+
+Yes. Standard mode offers Off, 24, 30, and 60 FPS, and hides choices above
+the source video's frame rate. Advanced mode lets you enter any positive FPS
+value, or leave the Off field empty to keep the original cadence.
 
 ### How is vidcord different from using FFmpeg directly?
 

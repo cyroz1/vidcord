@@ -290,8 +290,56 @@ select optgroup {
   }
 }
 
-.advanced .encoder-label {
+.settings-row .fps-label {
+  flex: 0 0 82px;
+  min-width: 82px;
+}
+
+.settings-row .encoder-label {
   flex: 2;
+  min-width: 150px;
+}
+
+.settings-row.advanced {
+  display: grid;
+  grid-template-columns: 68px 104px 52px minmax(0, 1fr);
+  align-items: end;
+  flex-wrap: nowrap;
+}
+
+.settings-row.advanced label {
+  min-width: 0;
+}
+
+.settings-row.advanced select {
+  padding-left: 8px;
+  padding-right: 24px;
+  background-position: right 7px center;
+}
+
+.settings-row.advanced input[type="number"],
+.settings-row.advanced input[type="text"] {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.settings-row.advanced .fps-label {
+  flex-basis: auto;
+  min-width: 0;
+}
+
+.settings-row.advanced .encoder-label {
+  min-width: 0;
+}
+
+.settings-row.advanced .mute-btn {
+  min-width: 54px;
+  padding: 0 8px;
+}
+
+.settings-row.advanced .icon-btn {
+  width: 28px;
+  padding: 0;
 }
 
 .encoder-heading {

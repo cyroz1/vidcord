@@ -19,6 +19,10 @@ pub struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advanced_resolution: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub fps_option: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub advanced_fps: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub advanced_encoder: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remove_audio: Option<bool>,

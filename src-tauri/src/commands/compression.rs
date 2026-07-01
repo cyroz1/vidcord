@@ -105,6 +105,7 @@ pub struct CompressOptions {
     pub start_time: f64,
     pub end_time: f64,
     pub remove_audio: bool,
+    pub output_fps: Option<f64>,
     pub scale_filter: Option<String>,
     pub vaapi_device: Option<String>,
 }
@@ -151,21 +152,49 @@ fn valid_encoder_name(encoder: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-fn scale_filter_for_encoder(opts: &CompressOptions, encoder: &str) -> String {
+fn valid_output_fps(fps: Option<f64>) -> bool {
+    match fps {
+        Some(value) => value.is_finite() && value > 0.0 && value <= 1000.0,
+        None => true,
+    }
+}
+
+fn format_fps_filter_value(fps: f64) -> String {
+    let mut value = format!("{fps:.3}");
+    while value.contains('.') && value.ends_with('0') {
+        value.pop();
+    }
+    if value.ends_with('.') {
+        value.pop();
+    }
+    value
+}
+
+fn video_filter_for_encoder(opts: &CompressOptions, encoder: &str) -> String {
+    let mut filters = Vec::new();
+    if let Some(fps) = opts.output_fps {
+        filters.push(format!("fps={}", format_fps_filter_value(fps)));
+    }
+
     if encoder.ends_with("_vaapi") {
         let scale = opts
             .scale_filter
             .as_deref()
             .map(|filter| filter.strip_prefix("scale=").unwrap_or(filter))
             .unwrap_or("iw:ih");
-        format!("format=nv12,hwupload,scale_vaapi={scale}")
+        filters.extend([
+            "format=nv12".to_string(),
+            "hwupload".to_string(),
+            format!("scale_vaapi={scale}"),
+        ]);
     } else {
-        match opts.scale_filter.as_deref() {
+        filters.push(match opts.scale_filter.as_deref() {
             Some(filter) if filter.contains('=') => filter.to_string(),
             Some(filter) => format!("scale={filter}"),
             None => "scale=trunc(iw/2)*2:trunc(ih/2)*2".into(),
-        }
+        });
     }
+    filters.join(",")
 }
 
 const OVERSIZE_RETRY_LIMIT_PER_ENCODER: usize = 2;
@@ -314,7 +343,7 @@ async fn run_ffmpeg_attempt(
         }
     }
 
-    let vf = scale_filter_for_encoder(opts, &attempt.encoder);
+    let vf = video_filter_for_encoder(opts, &attempt.encoder);
     let preset_args = encoder_preset_args(&attempt.encoder);
     let duration = format!("{clip_duration:.3}");
     let start_time = format!("{:.3}", opts.start_time);
@@ -353,7 +382,7 @@ async fn run_ffmpeg_attempt(
 
     cmd_args.extend([
         "-metadata".into(),
-        "comment=Compressed with vidcord - cyroz.net/vidcord".into(),
+        "comment=Compressed with vidcord - vidcord.app".into(),
     ]);
     cmd_args.push(opts.output_path.clone());
 
@@ -519,6 +548,9 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     // Validate encoder name: only alphanumeric characters and underscores are valid.
     if !valid_encoder_name(&opts.encoder) {
         return Err(format!("Invalid encoder name: {}", opts.encoder));
+    }
+    if !valid_output_fps(opts.output_fps) {
+        return Err("Invalid output FPS".to_string());
     }
     let clip_duration = opts.end_time - opts.start_time;
     if clip_duration <= 0.0 {
@@ -878,9 +910,43 @@ mod tests {
             start_time: 0.0,
             end_time: 60.0,
             remove_audio: false,
+            output_fps: None,
             scale_filter: None,
             vaapi_device: None,
         }
+    }
+
+    #[test]
+    fn test_video_filter_adds_fps_before_software_scale() {
+        let mut opts = retry_test_options("libx264", None);
+        opts.output_fps = Some(30.0);
+        opts.scale_filter = Some("scale=1280:720".into());
+
+        assert_eq!(
+            video_filter_for_encoder(&opts, "libx264"),
+            "fps=30,scale=1280:720"
+        );
+    }
+
+    #[test]
+    fn test_video_filter_adds_fps_before_vaapi_upload() {
+        let mut opts = retry_test_options("h264_vaapi", None);
+        opts.output_fps = Some(24.0);
+        opts.scale_filter = Some("1280:720".into());
+
+        assert_eq!(
+            video_filter_for_encoder(&opts, "h264_vaapi"),
+            "fps=24,format=nv12,hwupload,scale_vaapi=1280:720"
+        );
+    }
+
+    #[test]
+    fn test_output_fps_validation_rejects_invalid_values() {
+        assert!(valid_output_fps(None));
+        assert!(valid_output_fps(Some(60.0)));
+        assert!(!valid_output_fps(Some(0.0)));
+        assert!(!valid_output_fps(Some(f64::INFINITY)));
+        assert!(!valid_output_fps(Some(1000.1)));
     }
 
     #[test]

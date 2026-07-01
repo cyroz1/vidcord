@@ -11,6 +11,8 @@ export function useSettings() {
   const [advancedMode, setAdvancedMode] = useState(false);
   const [advSize, setAdvSize] = useState("");
   const [advResolution, setAdvResolution] = useState("Native");
+  const [fpsOption, setFpsOption] = useState("off");
+  const [advFps, setAdvFps] = useState("");
   const [advEncoder, setAdvEncoder] = useState("");
   const [removeAudio, setRemoveAudio] = useState(false);
 
@@ -22,6 +24,8 @@ export function useSettings() {
       if (typeof s.advanced_mode === "boolean") setAdvancedMode(s.advanced_mode);
       if (typeof s.advanced_target_size === "string") setAdvSize(s.advanced_target_size);
       if (typeof s.advanced_resolution === "string") setAdvResolution(s.advanced_resolution);
+      if (typeof s.fps_option === "string") setFpsOption(s.fps_option);
+      if (typeof s.advanced_fps === "string") setAdvFps(s.advanced_fps);
       if (typeof s.advanced_encoder === "string") setAdvEncoder(s.advanced_encoder);
       if (typeof s.remove_audio === "boolean") setRemoveAudio(s.remove_audio);
       setSettingsLoaded(true);
@@ -62,6 +66,10 @@ export function useSettings() {
     setAdvSize,
     advResolution,
     setAdvResolution,
+    fpsOption,
+    setFpsOption,
+    advFps,
+    setAdvFps,
     advEncoder,
     setAdvEncoder,
     removeAudio,
