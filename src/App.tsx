@@ -140,12 +140,17 @@ export default function App() {
   const endValRef = useRef(SLIDER_MAX);
   const trimStateRafRef = useRef<number | null>(null);
   const pendingTrimStateRef = useRef<{ start: number; end: number } | null>(null);
+  const scrubPreviewRafRef = useRef<number | null>(null);
+  const pendingScrubPreviewRef = useRef<{ time: number | null; active: boolean } | null>(null);
+  const previewFocusTimeRef = useRef<number | null>(null);
   const playheadSeekRafRef = useRef<number | null>(null);
   const pendingPlayheadClientXRef = useRef<number | null>(null);
   const suppressNextTimelineClickRef = useRef(false);
   const pointerHistoryStartRef = useRef<{ start: number; end: number } | null>(null);
   const undoStackRef = useRef<Array<{ start: number; end: number }>>([]);
   const redoStackRef = useRef<Array<{ start: number; end: number }>>([]);
+  const [previewFocusTime, setPreviewFocusTime] = useState<number | null>(null);
+  const [previewScrubbing, setPreviewScrubbing] = useState(false);
   const [playheadTime, setPlayheadTime] = useState<number | null>(null);
   const [loopPlayback, setLoopPlayback] = useState(false);
   const [snapMode, setSnapMode] = useState<SnapMode>("off");
@@ -185,6 +190,66 @@ export default function App() {
   const standardFpsValue = standardFpsOptions.some((option) => option.value === fpsOption)
     ? fpsOption
     : "off";
+
+  const clampPreviewFocusTime = useCallback(
+    (time: number | null) => {
+      if (time === null || !Number.isFinite(time)) return null;
+      return duration > 0 ? Math.max(0, Math.min(time, duration)) : Math.max(0, time);
+    },
+    [duration]
+  );
+
+  const sliderValueToTime = useCallback(
+    (value: number) => {
+      if (duration <= 0) return 0;
+      return (Math.max(0, Math.min(value, SLIDER_MAX)) / SLIDER_MAX) * duration;
+    },
+    [duration]
+  );
+
+  const flushScrubPreviewState = useCallback(() => {
+    scrubPreviewRafRef.current = null;
+    const pending = pendingScrubPreviewRef.current;
+    pendingScrubPreviewRef.current = null;
+    if (!pending) return;
+    previewFocusTimeRef.current = pending.time;
+    setPreviewFocusTime(pending.time);
+    setPreviewScrubbing(pending.active);
+  }, []);
+
+  const schedulePreviewFocus = useCallback(
+    (time: number | null, active: boolean) => {
+      pendingScrubPreviewRef.current = {
+        time: clampPreviewFocusTime(time),
+        active,
+      };
+      if (scrubPreviewRafRef.current !== null) return;
+      scrubPreviewRafRef.current = window.requestAnimationFrame(flushScrubPreviewState);
+    },
+    [clampPreviewFocusTime, flushScrubPreviewState]
+  );
+
+  const setPreviewFocusNow = useCallback(
+    (time: number | null, active: boolean) => {
+      if (scrubPreviewRafRef.current !== null) {
+        window.cancelAnimationFrame(scrubPreviewRafRef.current);
+        scrubPreviewRafRef.current = null;
+      }
+      pendingScrubPreviewRef.current = null;
+      const nextTime = clampPreviewFocusTime(time);
+      previewFocusTimeRef.current = nextTime;
+      setPreviewFocusTime(nextTime);
+      setPreviewScrubbing(active);
+    },
+    [clampPreviewFocusTime]
+  );
+
+  const finishPreviewScrub = useCallback(
+    (time?: number | null) => {
+      setPreviewFocusNow(time === undefined ? previewFocusTimeRef.current : time, false);
+    },
+    [setPreviewFocusNow]
+  );
 
   const pushUndoSnapshot = useCallback((snapshot: { start: number; end: number }) => {
     undoStackRef.current.push(snapshot);
@@ -263,7 +328,7 @@ export default function App() {
       const record = opts?.record ?? true;
       const prev = { start: startValRef.current, end: endValRef.current };
       const next = normalizeTrim(rawStart, rawEnd, anchor);
-      if (next.start === prev.start && next.end === prev.end) return;
+      if (next.start === prev.start && next.end === prev.end) return null;
       if (record) {
         pushUndoSnapshot(prev);
         redoStackRef.current = [];
@@ -273,6 +338,7 @@ export default function App() {
       startValRef.current = next.start;
       endValRef.current = next.end;
       scheduleTrimState(next);
+      return next;
     },
     [normalizeTrim, pushUndoSnapshot, scheduleTrimState]
   );
@@ -290,7 +356,8 @@ export default function App() {
     }
     setStartVal(target.start);
     setEndVal(target.end);
-  }, []);
+    setPreviewFocusNow(sliderValueToTime(target.start), false);
+  }, [setPreviewFocusNow, sliderValueToTime]);
 
   const redoTrim = useCallback(() => {
     const target = redoStackRef.current.pop();
@@ -305,7 +372,8 @@ export default function App() {
     }
     setStartVal(target.start);
     setEndVal(target.end);
-  }, [pushUndoSnapshot]);
+    setPreviewFocusNow(sliderValueToTime(target.start), false);
+  }, [pushUndoSnapshot, setPreviewFocusNow, sliderValueToTime]);
 
   const playheadTimeRef = useRef<number | null>(null);
   useEffect(() => {
@@ -316,15 +384,17 @@ export default function App() {
     const pt = playheadTimeRef.current;
     if (pt === null || duration <= 0) return;
     const val = Math.round((pt / duration) * SLIDER_MAX);
-    applyTrim(val, endValRef.current, { anchor: "start" });
-  }, [duration, applyTrim]);
+    const next = applyTrim(val, endValRef.current, { anchor: "start" });
+    setPreviewFocusNow(sliderValueToTime(next?.start ?? startValRef.current), false);
+  }, [duration, applyTrim, setPreviewFocusNow, sliderValueToTime]);
 
   const setOutPoint = useCallback(() => {
     const pt = playheadTimeRef.current;
     if (pt === null || duration <= 0) return;
     const val = Math.round((pt / duration) * SLIDER_MAX);
-    applyTrim(startValRef.current, val, { anchor: "end" });
-  }, [duration, applyTrim]);
+    const next = applyTrim(startValRef.current, val, { anchor: "end" });
+    setPreviewFocusNow(sliderValueToTime(next?.end ?? endValRef.current), false);
+  }, [duration, applyTrim, setPreviewFocusNow, sliderValueToTime]);
 
   // --- File loading ---
   const loadVideo = useCallback(
@@ -340,11 +410,19 @@ export default function App() {
         window.cancelAnimationFrame(trimStateRafRef.current);
         trimStateRafRef.current = null;
       }
+      if (scrubPreviewRafRef.current !== null) {
+        window.cancelAnimationFrame(scrubPreviewRafRef.current);
+        scrubPreviewRafRef.current = null;
+      }
+      pendingScrubPreviewRef.current = null;
+      previewFocusTimeRef.current = null;
       startValRef.current = 0;
       endValRef.current = SLIDER_MAX;
       playheadTimeRef.current = null;
       setStartVal(0);
       setEndVal(SLIDER_MAX);
+      setPreviewFocusTime(null);
+      setPreviewScrubbing(false);
       setPlayheadTime(null);
       setTimelineCenterVal(SLIDER_MAX / 2);
       setTimelineZoom(1);
@@ -377,6 +455,9 @@ export default function App() {
     () => () => {
       if (trimStateRafRef.current !== null) {
         window.cancelAnimationFrame(trimStateRafRef.current);
+      }
+      if (scrubPreviewRafRef.current !== null) {
+        window.cancelAnimationFrame(scrubPreviewRafRef.current);
       }
       if (playheadSeekRafRef.current !== null) {
         window.cancelAnimationFrame(playheadSeekRafRef.current);
@@ -464,57 +545,103 @@ export default function App() {
 
       if (e.key === ",") {
         e.preventDefault();
+        const nextTime = Math.max(
+          0,
+          (previewRef.current?.getCurrentTime() ?? playheadTimeRef.current ?? 0) -
+            FRAME_STEP_SECONDS
+        );
         previewRef.current?.stepBy(-FRAME_STEP_SECONDS);
+        setPreviewFocusNow(nextTime, false);
       } else if (e.key === ".") {
         e.preventDefault();
+        const nextTime = Math.min(
+          duration,
+          (previewRef.current?.getCurrentTime() ?? playheadTimeRef.current ?? 0) +
+            FRAME_STEP_SECONDS
+        );
         previewRef.current?.stepBy(FRAME_STEP_SECONDS);
+        setPreviewFocusNow(nextTime, false);
       } else if (e.key === "j" || e.key === "J") {
         e.preventDefault();
-        previewRef.current?.seekTo((startValRef.current / SLIDER_MAX) * duration);
+        const nextTime = (startValRef.current / SLIDER_MAX) * duration;
+        previewRef.current?.seekTo(nextTime);
+        setPreviewFocusNow(nextTime, false);
       } else if (e.key === "k" || e.key === "K") {
         e.preventDefault();
-        previewRef.current?.seekTo((endValRef.current / SLIDER_MAX) * duration);
+        const nextTime = (endValRef.current / SLIDER_MAX) * duration;
+        previewRef.current?.seekTo(nextTime);
+        setPreviewFocusNow(nextTime, false);
       } else if (e.key === "[") {
         e.preventDefault();
-        applyTrim(startValRef.current - coarseStep, endValRef.current, { anchor: "start" });
+        const next = applyTrim(startValRef.current - coarseStep, endValRef.current, {
+          anchor: "start",
+        });
+        setPreviewFocusNow(sliderValueToTime(next?.start ?? startValRef.current), false);
       } else if (e.key === "]") {
         e.preventDefault();
-        applyTrim(startValRef.current, endValRef.current + coarseStep, { anchor: "end" });
+        const next = applyTrim(startValRef.current, endValRef.current + coarseStep, {
+          anchor: "end",
+        });
+        setPreviewFocusNow(sliderValueToTime(next?.end ?? endValRef.current), false);
       } else if (e.key === "r" || e.key === "R" || e.key === "u" || e.key === "U") {
         e.preventDefault();
-        applyTrim(0, SLIDER_MAX, { anchor: "end" });
+        const next = applyTrim(0, SLIDER_MAX, { anchor: "end" });
+        setPreviewFocusNow(sliderValueToTime(next?.start ?? startValRef.current), false);
       } else if (e.key === "i" || e.key === "I") {
         e.preventDefault();
         const pt = playheadTimeRef.current;
         if (pt === null) return;
         const currentVal = Math.max(0, Math.min(SLIDER_MAX, Math.round((pt / dur) * SLIDER_MAX)));
-        applyTrim(currentVal, endValRef.current, { anchor: "start" });
+        const next = applyTrim(currentVal, endValRef.current, { anchor: "start" });
+        setPreviewFocusNow(sliderValueToTime(next?.start ?? startValRef.current), false);
       } else if (e.key === "o" || e.key === "O") {
         e.preventDefault();
         const pt = playheadTimeRef.current;
         if (pt === null) return;
         const currentVal = Math.max(0, Math.min(SLIDER_MAX, Math.round((pt / dur) * SLIDER_MAX)));
-        applyTrim(startValRef.current, currentVal, { anchor: "end" });
+        const next = applyTrim(startValRef.current, currentVal, { anchor: "end" });
+        setPreviewFocusNow(sliderValueToTime(next?.end ?? endValRef.current), false);
       } else if (e.shiftKey && e.key === "ArrowLeft") {
         e.preventDefault();
         if (activeHandleRef.current === "start") {
-          applyTrim(startValRef.current - fineStep, endValRef.current, { anchor: "start" });
+          const next = applyTrim(startValRef.current - fineStep, endValRef.current, {
+            anchor: "start",
+          });
+          setPreviewFocusNow(sliderValueToTime(next?.start ?? startValRef.current), false);
         } else {
-          applyTrim(startValRef.current, endValRef.current - fineStep, { anchor: "end" });
+          const next = applyTrim(startValRef.current, endValRef.current - fineStep, {
+            anchor: "end",
+          });
+          setPreviewFocusNow(sliderValueToTime(next?.end ?? endValRef.current), false);
         }
       } else if (e.shiftKey && e.key === "ArrowRight") {
         e.preventDefault();
         if (activeHandleRef.current === "start") {
-          applyTrim(startValRef.current + fineStep, endValRef.current, { anchor: "start" });
+          const next = applyTrim(startValRef.current + fineStep, endValRef.current, {
+            anchor: "start",
+          });
+          setPreviewFocusNow(sliderValueToTime(next?.start ?? startValRef.current), false);
         } else {
-          applyTrim(startValRef.current, endValRef.current + fineStep, { anchor: "end" });
+          const next = applyTrim(startValRef.current, endValRef.current + fineStep, {
+            anchor: "end",
+          });
+          setPreviewFocusNow(sliderValueToTime(next?.end ?? endValRef.current), false);
         }
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [filePath, probeData, redoTrim, undoTrim, duration, applyTrim]);
+  }, [
+    filePath,
+    probeData,
+    redoTrim,
+    undoTrim,
+    duration,
+    applyTrim,
+    setPreviewFocusNow,
+    sliderValueToTime,
+  ]);
 
   // --- Update check ---
   useEffect(() => {
@@ -879,22 +1006,26 @@ export default function App() {
 
   const beginPointerTrimChange = useCallback(() => {
     previewRef.current?.stopPlayback();
+    const activeValue = activeHandleRef.current === "end" ? endValRef.current : startValRef.current;
+    setPreviewFocusNow(sliderValueToTime(activeValue), true);
     pointerHistoryStartRef.current = {
       start: startValRef.current,
       end: endValRef.current,
     };
-  }, []);
+  }, [setPreviewFocusNow, sliderValueToTime]);
 
   const commitPointerTrimChange = useCallback(() => {
     const started = pointerHistoryStartRef.current;
     pointerHistoryStartRef.current = null;
+    const activeValue = activeHandleRef.current === "end" ? endValRef.current : startValRef.current;
+    finishPreviewScrub(sliderValueToTime(activeValue));
     if (!started) return;
     const now = { start: startValRef.current, end: endValRef.current };
     if (started.start === now.start && started.end === now.end) return;
     flushPendingTrimStateNow();
     pushUndoSnapshot(started);
     redoStackRef.current = [];
-  }, [flushPendingTrimStateNow, pushUndoSnapshot]);
+  }, [finishPreviewScrub, flushPendingTrimStateNow, pushUndoSnapshot, sliderValueToTime]);
 
   const handleRangeDragStart = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -905,6 +1036,7 @@ export default function App() {
       const rect = wrap.getBoundingClientRect();
       if (rect.width <= 0) return;
 
+      activeHandleRef.current = "start";
       const originX = e.clientX;
       const originStart = startValRef.current;
       const originEnd = endValRef.current;
@@ -921,7 +1053,8 @@ export default function App() {
         const deltaVal = (deltaPx / rect.width) * (viewEndVal - viewStartVal);
         let nextStart = originStart + deltaVal;
         nextStart = Math.max(0, Math.min(nextStart, SLIDER_MAX - span));
-        applyTrim(nextStart, nextStart + span, { record: false, anchor: "start" });
+        const next = applyTrim(nextStart, nextStart + span, { record: false, anchor: "start" });
+        schedulePreviewFocus(sliderValueToTime(next?.start ?? startValRef.current), true);
       };
 
       const onUp = () => {
@@ -936,7 +1069,15 @@ export default function App() {
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     },
-    [applyTrim, beginPointerTrimChange, commitPointerTrimChange, viewStartVal, viewEndVal]
+    [
+      applyTrim,
+      beginPointerTrimChange,
+      commitPointerTrimChange,
+      schedulePreviewFocus,
+      sliderValueToTime,
+      viewStartVal,
+      viewEndVal,
+    ]
   );
 
   const handleTrimWheel = useCallback(
@@ -958,7 +1099,7 @@ export default function App() {
   );
 
   const seekToTimelinePosition = useCallback(
-    (clientX: number) => {
+    (clientX: number, activePreview = false) => {
       const wrap = trimWrapRef.current;
       if (!wrap || !probeData || duration <= 0) return;
       const rect = wrap.getBoundingClientRect();
@@ -968,8 +1109,9 @@ export default function App() {
       previewRef.current?.seekTo(time);
       playheadTimeRef.current = time;
       setPlayheadTime(time);
+      setPreviewFocusNow(time, activePreview);
     },
-    [probeData, duration, viewStartVal, viewEndVal]
+    [probeData, duration, setPreviewFocusNow, viewStartVal, viewEndVal]
   );
 
   const scheduleTimelineSeek = useCallback(
@@ -981,24 +1123,27 @@ export default function App() {
         const pending = pendingPlayheadClientXRef.current;
         pendingPlayheadClientXRef.current = null;
         if (pending !== null) {
-          seekToTimelinePosition(pending);
+          seekToTimelinePosition(pending, true);
         }
       });
     },
     [seekToTimelinePosition]
   );
 
-  const flushPendingTimelineSeek = useCallback(() => {
-    if (playheadSeekRafRef.current !== null) {
-      window.cancelAnimationFrame(playheadSeekRafRef.current);
-      playheadSeekRafRef.current = null;
-    }
-    const pending = pendingPlayheadClientXRef.current;
-    pendingPlayheadClientXRef.current = null;
-    if (pending !== null) {
-      seekToTimelinePosition(pending);
-    }
-  }, [seekToTimelinePosition]);
+  const flushPendingTimelineSeek = useCallback(
+    (activePreview = false) => {
+      if (playheadSeekRafRef.current !== null) {
+        window.cancelAnimationFrame(playheadSeekRafRef.current);
+        playheadSeekRafRef.current = null;
+      }
+      const pending = pendingPlayheadClientXRef.current;
+      pendingPlayheadClientXRef.current = null;
+      if (pending !== null) {
+        seekToTimelinePosition(pending, activePreview);
+      }
+    },
+    [seekToTimelinePosition]
+  );
 
   const handleTimelineClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -1017,17 +1162,25 @@ export default function App() {
       e.preventDefault();
       e.stopPropagation();
       if (!probeData || duration <= 0) return;
-      seekToTimelinePosition(e.clientX);
+      seekToTimelinePosition(e.clientX, true);
       const onMove = (mv: MouseEvent) => scheduleTimelineSeek(mv.clientX);
       const onUp = () => {
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
-        flushPendingTimelineSeek();
+        flushPendingTimelineSeek(true);
+        finishPreviewScrub(playheadTimeRef.current);
       };
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     },
-    [probeData, duration, flushPendingTimelineSeek, scheduleTimelineSeek, seekToTimelinePosition]
+    [
+      probeData,
+      duration,
+      finishPreviewScrub,
+      flushPendingTimelineSeek,
+      scheduleTimelineSeek,
+      seekToTimelinePosition,
+    ]
   );
 
   const setSnapModeFromTimeline = useCallback((mode: SnapMode) => {
@@ -1067,16 +1220,18 @@ export default function App() {
 
   const handleStartChange = useCallback(
     (next: number) => {
-      applyTrim(next, endValRef.current, { record: false, anchor: "start" });
+      const trim = applyTrim(next, endValRef.current, { record: false, anchor: "start" });
+      schedulePreviewFocus(sliderValueToTime(trim?.start ?? startValRef.current), true);
     },
-    [applyTrim]
+    [applyTrim, schedulePreviewFocus, sliderValueToTime]
   );
 
   const handleEndChange = useCallback(
     (next: number) => {
-      applyTrim(startValRef.current, next, { record: false, anchor: "end" });
+      const trim = applyTrim(startValRef.current, next, { record: false, anchor: "end" });
+      schedulePreviewFocus(sliderValueToTime(trim?.end ?? endValRef.current), true);
     },
-    [applyTrim]
+    [applyTrim, schedulePreviewFocus, sliderValueToTime]
   );
 
   return (
@@ -1443,6 +1598,8 @@ export default function App() {
           filePath={filePath}
           startTime={startTime}
           endTime={endTime}
+          previewTime={previewFocusTime}
+          isScrubbing={previewScrubbing}
           loopPlayback={loopPlayback}
           probeData={probeData}
           removeAudio={removeAudio}
