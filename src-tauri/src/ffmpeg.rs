@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use crate::log::vidcord_log;
+use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::process::{Command, Output};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -29,6 +30,61 @@ fn command_output_or_ffmpeg_missing(
     }
 }
 
+const PREVIEW_CLIP_SCALE_FILTER: &str =
+    "scale=w=1280:h=720:flags=fast_bilinear:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1";
+const PREVIEW_CLIP_BITRATE: &str = "2500k";
+const SPARSE_FILMSTRIP_THRESHOLD_SEC: f64 = 10.0 * 60.0;
+const DEFAULT_PREVIEW_IMAGE_WIDTH: u32 = 720;
+const DEFAULT_PREVIEW_IMAGE_HEIGHT: u32 = 480;
+const MIN_PREVIEW_IMAGE_DIM: u32 = 240;
+const MAX_PREVIEW_IMAGE_WIDTH: u32 = 960;
+const MAX_PREVIEW_IMAGE_HEIGHT: u32 = 1080;
+
+fn push_auto_hwaccel_args(args: &mut Vec<String>) {
+    args.extend(["-hwaccel".into(), "auto".into()]);
+}
+
+fn finite_non_negative(seconds: f64) -> f64 {
+    if seconds.is_finite() {
+        seconds.max(0.0)
+    } else {
+        0.0
+    }
+}
+
+fn format_time_arg(seconds: f64) -> String {
+    format!("{:.3}", finite_non_negative(seconds))
+}
+
+fn time_to_100ms(seconds: f64) -> u64 {
+    (finite_non_negative(seconds) * 10.0).round() as u64
+}
+
+fn time_to_ms(seconds: f64) -> u64 {
+    (finite_non_negative(seconds) * 1000.0).round() as u64
+}
+
+fn even_dimension(value: u32) -> u32 {
+    value.max(2) & !1
+}
+
+fn normalize_preview_dimensions(width: Option<u32>, height: Option<u32>) -> (u32, u32) {
+    let width = width
+        .unwrap_or(DEFAULT_PREVIEW_IMAGE_WIDTH)
+        .clamp(MIN_PREVIEW_IMAGE_DIM, MAX_PREVIEW_IMAGE_WIDTH);
+    let height = height
+        .unwrap_or(DEFAULT_PREVIEW_IMAGE_HEIGHT)
+        .clamp(MIN_PREVIEW_IMAGE_DIM, MAX_PREVIEW_IMAGE_HEIGHT);
+
+    (even_dimension(width), even_dimension(height))
+}
+
+fn preview_jpeg_scale_filter(width: u32, height: u32) -> String {
+    format!(
+        "scale=w={width}:h={height}:flags=fast_bilinear:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1"
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Preview clip cache - LRU-like cache with time-based keys
 // ---------------------------------------------------------------------------
@@ -43,8 +99,8 @@ struct ClipCacheEntry {
 }
 
 struct ClipCache {
-    // Key: (start_time_ms, end_time_ms)
-    clips: HashMap<(u64, u64), ClipCacheEntry>,
+    // Key: (path_hash, start_time_ms, end_time_ms)
+    clips: HashMap<(u64, u64, u64), ClipCacheEntry>,
     total_size: usize,
     max_size: usize,
 }
@@ -58,14 +114,14 @@ impl ClipCache {
         }
     }
 
-    fn get(&mut self, key: (u64, u64)) -> Option<Arc<Vec<u8>>> {
+    fn get(&mut self, key: (u64, u64, u64)) -> Option<Arc<Vec<u8>>> {
         self.clips.get_mut(&key).map(|entry| {
             entry.last_used = std::time::Instant::now();
             Arc::clone(&entry.data)
         })
     }
 
-    fn insert(&mut self, key: (u64, u64), data: Arc<Vec<u8>>) {
+    fn insert(&mut self, key: (u64, u64, u64), data: Arc<Vec<u8>>) {
         let clip_size = data.len();
 
         // Remove least recently used entries until it fits. Pick the victim
@@ -286,7 +342,7 @@ struct FrameCacheEntry {
 
 struct FrameCache {
     // (path_hash, time_100ms) → JPEG bytes
-    entries: std::collections::HashMap<(u64, u64), FrameCacheEntry>,
+    entries: std::collections::HashMap<(u64, u64, u32, u32), FrameCacheEntry>,
     max_entries: usize,
 }
 
@@ -298,14 +354,14 @@ impl FrameCache {
         }
     }
 
-    fn get(&mut self, key: (u64, u64)) -> Option<Arc<Vec<u8>>> {
+    fn get(&mut self, key: (u64, u64, u32, u32)) -> Option<Arc<Vec<u8>>> {
         self.entries.get_mut(&key).map(|entry| {
             entry.last_used = std::time::Instant::now();
             Arc::clone(&entry.data)
         })
     }
 
-    fn insert(&mut self, key: (u64, u64), data: Arc<Vec<u8>>) {
+    fn insert(&mut self, key: (u64, u64, u32, u32), data: Arc<Vec<u8>>) {
         if self.entries.contains_key(&key) {
             return;
         }
@@ -354,10 +410,17 @@ fn path_hash(path: &str) -> u64 {
 // Preview frame extraction
 // ---------------------------------------------------------------------------
 
-pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+pub fn generate_preview(
+    path: &str,
+    time_sec: f64,
+    preview_width: Option<u32>,
+    preview_height: Option<u32>,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let (preview_width, preview_height) =
+        normalize_preview_dimensions(preview_width, preview_height);
     // Round to 0.1 s resolution for cache key
-    let time_100ms = (time_sec * 10.0) as u64;
-    let cache_key = (path_hash(path), time_100ms);
+    let time_100ms = time_to_100ms(time_sec);
+    let cache_key = (path_hash(path), time_100ms, preview_width, preview_height);
 
     {
         let mut cache = get_frame_cache().lock().unwrap_or_else(|e| e.into_inner());
@@ -372,35 +435,100 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn st
     // 3-decimal precision is millisecond-accurate — ffmpeg's -ss seek doesn't
     // need more than that and Rust's default `f64::to_string()` can emit a
     // long tail (e.g. 4.800000000000001) that yields a larger allocation.
-    let ss = format!("{time_sec:.3}");
+    let bytes =
+        generate_preview_frame_with_fallback(path, time_sec, "5", preview_width, preview_height)?;
+    let shared = Arc::new(bytes);
+    {
+        let mut cache = get_frame_cache().lock().unwrap_or_else(|e| e.into_inner());
+        cache.insert(cache_key, Arc::clone(&shared));
+    }
+    Ok(Arc::try_unwrap(shared).unwrap_or_else(|a| (*a).clone()))
+}
+
+// ---------------------------------------------------------------------------
+// Filmstrip generation — extracts evenly-spaced frames in a single FFmpeg pass
+// ---------------------------------------------------------------------------
+
+fn generate_preview_frame_with_fallback(
+    path: &str,
+    time_sec: f64,
+    quality: &str,
+    preview_width: u32,
+    preview_height: u32,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    match generate_preview_frame_internal(
+        path,
+        time_sec,
+        quality,
+        preview_width,
+        preview_height,
+        true,
+    ) {
+        Ok(bytes) => Ok(bytes),
+        Err(err) if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER) => Err(err),
+        Err(err) => {
+            vidcord_log(&format!(
+                "Hardware preview frame decode failed; retrying software decode: {err}"
+            ));
+            generate_preview_frame_internal(
+                path,
+                time_sec,
+                quality,
+                preview_width,
+                preview_height,
+                false,
+            )
+        }
+    }
+}
+
+fn generate_preview_frame_internal(
+    path: &str,
+    time_sec: f64,
+    quality: &str,
+    preview_width: u32,
+    preview_height: u32,
+    use_auto_hwaccel: bool,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    // 3-decimal precision is millisecond-accurate. ffmpeg's -ss seek doesn't
+    // need more than that, and Rust's default f64 formatting can emit a long
+    // tail such as 4.800000000000001.
+    let ss = format_time_arg(time_sec);
+    let mut args: Vec<String> = vec![
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-y".into(),
+    ];
+    if use_auto_hwaccel {
+        push_auto_hwaccel_args(&mut args);
+    }
+    args.extend([
+        "-ss".into(),
+        ss,
+        "-i".into(),
+        path.into(),
+        "-an".into(),
+        "-sn".into(),
+        "-frames:v".into(),
+        "1".into(),
+        "-q:v".into(),
+        quality.into(),
+        "-vf".into(),
+        preview_jpeg_scale_filter(preview_width, preview_height),
+        "-f".into(),
+        "image2pipe".into(),
+        "-vcodec".into(),
+        "mjpeg".into(),
+        "-".into(),
+    ]);
 
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
-    cmd.args([
-        "-y",
-        "-hwaccel",
-        "auto",
-        "-ss",
-        ss.as_str(),
-        "-i",
-        path,
-        "-an",
-        "-sn",
-        "-frames:v",
-        "1",
-        "-q:v",
-        "5",
-        "-vf",
-        "scale=320:-2:flags=fast_bilinear,setsar=1",
-        "-f",
-        "image2pipe",
-        "-vcodec",
-        "mjpeg",
-        "-",
-    ])
-    .envs(get_ffmpeg_env())
-    .stdout(std::process::Stdio::piped())
-    .stderr(std::process::Stdio::null());
+    cmd.args(&args)
+        .envs(get_ffmpeg_env())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
 
     #[cfg(target_os = "windows")]
     {
@@ -414,17 +542,8 @@ pub fn generate_preview(path: &str, time_sec: f64) -> Result<Vec<u8>, Box<dyn st
         return Err("FFmpeg preview failed".into());
     }
 
-    let shared = Arc::new(out.stdout);
-    {
-        let mut cache = get_frame_cache().lock().unwrap_or_else(|e| e.into_inner());
-        cache.insert(cache_key, Arc::clone(&shared));
-    }
-    Ok(Arc::try_unwrap(shared).unwrap_or_else(|a| (*a).clone()))
+    Ok(out.stdout)
 }
-
-// ---------------------------------------------------------------------------
-// Filmstrip generation — extracts evenly-spaced frames in a single FFmpeg pass
-// ---------------------------------------------------------------------------
 
 /// Returns all frames as a single concatenated JPEG stream.
 /// The frontend splits it using JPEG SOI/EOI markers (FF D8 / FF D9).
@@ -432,36 +551,99 @@ pub fn generate_filmstrip(
     path: &str,
     duration_sec: f64,
     max_frames: Option<usize>,
+    preview_width: Option<u32>,
+    preview_height: Option<u32>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    if !duration_sec.is_finite() || duration_sec <= 0.0 {
+        return Err("Invalid filmstrip duration".into());
+    }
+    let (preview_width, preview_height) =
+        normalize_preview_dimensions(preview_width, preview_height);
+
     // Target ~60 frames by default; callers can lower this for long clips so
     // loading a file does less thumbnail work before the user starts scrubbing.
     let frame_limit = max_frames.unwrap_or(60).clamp(2, 60);
     let frame_count = (duration_sec.floor() as usize).clamp(2, frame_limit);
+
+    if duration_sec >= SPARSE_FILMSTRIP_THRESHOLD_SEC {
+        return generate_sparse_seek_filmstrip(
+            path,
+            duration_sec,
+            frame_count,
+            preview_width,
+            preview_height,
+        );
+    }
+
+    generate_filmstrip_single_pass(
+        path,
+        duration_sec,
+        frame_count,
+        preview_width,
+        preview_height,
+        true,
+    )
+    .or_else(|err| {
+        if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER) {
+            return Err(err);
+        }
+        vidcord_log(&format!(
+            "Hardware filmstrip decode failed; retrying software decode: {err}"
+        ));
+        generate_filmstrip_single_pass(
+            path,
+            duration_sec,
+            frame_count,
+            preview_width,
+            preview_height,
+            false,
+        )
+    })
+}
+
+fn generate_filmstrip_single_pass(
+    path: &str,
+    duration_sec: f64,
+    frame_count: usize,
+    preview_width: u32,
+    preview_height: u32,
+    use_auto_hwaccel: bool,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let fps = frame_count as f64 / duration_sec;
+    let mut args: Vec<String> = vec![
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-y".into(),
+    ];
+    if use_auto_hwaccel {
+        push_auto_hwaccel_args(&mut args);
+    }
+    args.extend([
+        "-i".into(),
+        path.into(),
+        "-an".into(),
+        "-sn".into(),
+        "-vf".into(),
+        format!(
+            "fps={fps:.6},{}",
+            preview_jpeg_scale_filter(preview_width, preview_height)
+        ),
+        "-q:v".into(),
+        "7".into(),
+        "-f".into(),
+        "image2pipe".into(),
+        "-vcodec".into(),
+        "mjpeg".into(),
+        "-".into(),
+    ]);
 
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
-    cmd.args([
-        "-y",
-        "-hwaccel",
-        "auto",
-        "-i",
-        path,
-        "-an",
-        "-sn",
-        "-vf",
-        &format!("fps={fps:.6},scale=320:-2:flags=fast_bilinear,setsar=1"),
-        "-q:v",
-        "7", // slightly lower quality than on-demand; fine for thumbnail strip
-        "-f",
-        "image2pipe",
-        "-vcodec",
-        "mjpeg",
-        "-",
-    ])
-    .envs(get_ffmpeg_env())
-    .stdout(std::process::Stdio::piped())
-    .stderr(std::process::Stdio::null());
+    cmd.args(&args)
+        .envs(get_ffmpeg_env())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
 
     #[cfg(target_os = "windows")]
     {
@@ -478,15 +660,166 @@ pub fn generate_filmstrip(
     Ok(out.stdout)
 }
 
+fn generate_sparse_seek_filmstrip(
+    path: &str,
+    duration_sec: f64,
+    frame_count: usize,
+    preview_width: u32,
+    preview_height: u32,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut output = Vec::new();
+    let mut last_error: Option<String> = None;
+    let max_time = (duration_sec - 0.05).max(0.0);
+    let mut use_auto_hwaccel = true;
+
+    for idx in 0..frame_count {
+        let ratio = if frame_count <= 1 {
+            0.0
+        } else {
+            idx as f64 / (frame_count - 1) as f64
+        };
+        let time_sec = max_time * ratio;
+        match generate_preview_frame_internal(
+            path,
+            time_sec,
+            "7",
+            preview_width,
+            preview_height,
+            use_auto_hwaccel,
+        ) {
+            Ok(frame) => output.extend(frame),
+            Err(err) if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER) => {
+                return Err(err)
+            }
+            Err(err) if use_auto_hwaccel => {
+                vidcord_log(&format!(
+                    "Hardware sparse filmstrip decode failed; using software decode for remaining frames: {err}"
+                ));
+                use_auto_hwaccel = false;
+                match generate_preview_frame_internal(
+                    path,
+                    time_sec,
+                    "7",
+                    preview_width,
+                    preview_height,
+                    false,
+                ) {
+                    Ok(frame) => output.extend(frame),
+                    Err(err) if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER) => {
+                        return Err(err)
+                    }
+                    Err(err) => {
+                        last_error = Some(err.to_string());
+                    }
+                }
+            }
+            Err(err) => {
+                last_error = Some(err.to_string());
+            }
+        }
+    }
+
+    if output.is_empty() {
+        return Err(last_error
+            .unwrap_or_else(|| "FFmpeg sparse filmstrip failed".to_string())
+            .into());
+    }
+
+    Ok(output)
+}
+
+#[derive(Clone)]
+struct PreviewClipPlan {
+    encoder: String,
+    use_auto_hwaccel: bool,
+    vaapi_device: Option<String>,
+}
+
+fn preview_clip_hw_encoder_order() -> &'static [&'static str] {
+    #[cfg(target_os = "macos")]
+    {
+        &["h264_videotoolbox"]
+    }
+    #[cfg(target_os = "windows")]
+    {
+        &["h264_nvenc", "h264_qsv", "h264_amf"]
+    }
+    #[cfg(target_os = "linux")]
+    {
+        &["h264_vaapi", "h264_nvenc", "h264_qsv"]
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        &[
+            "h264_nvenc",
+            "h264_qsv",
+            "h264_amf",
+            "h264_videotoolbox",
+            "h264_vaapi",
+        ]
+    }
+}
+
+fn preview_clip_plans() -> Vec<PreviewClipPlan> {
+    let available = get_available_encoders();
+    let available_names: HashSet<String> = available
+        .encoders
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    let mut plans = Vec::new();
+
+    for encoder in preview_clip_hw_encoder_order() {
+        if !available_names.contains(*encoder) {
+            continue;
+        }
+
+        if *encoder == "h264_vaapi" {
+            if let Some(device) = find_vaapi_device() {
+                plans.push(PreviewClipPlan {
+                    encoder: (*encoder).to_string(),
+                    use_auto_hwaccel: false,
+                    vaapi_device: Some(device),
+                });
+            }
+            continue;
+        }
+
+        plans.push(PreviewClipPlan {
+            encoder: (*encoder).to_string(),
+            use_auto_hwaccel: true,
+            vaapi_device: None,
+        });
+        plans.push(PreviewClipPlan {
+            encoder: (*encoder).to_string(),
+            use_auto_hwaccel: false,
+            vaapi_device: None,
+        });
+    }
+
+    plans.push(PreviewClipPlan {
+        encoder: "libx264".into(),
+        use_auto_hwaccel: true,
+        vaapi_device: None,
+    });
+    plans.push(PreviewClipPlan {
+        encoder: "libx264".into(),
+        use_auto_hwaccel: false,
+        vaapi_device: None,
+    });
+
+    plans
+}
+
 pub fn generate_preview_clip(
     path: &str,
     start_time_sec: f64,
     end_time_sec: f64,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     // Try to get from cache first
-    let start_ms = (start_time_sec * 1000.0) as u64;
-    let end_ms = (end_time_sec * 1000.0) as u64;
-    let cache_key = (start_ms, end_ms);
+    let start_ms = time_to_ms(start_time_sec);
+    let end_ms = time_to_ms(end_time_sec);
+    let cache_key = (path_hash(path), start_ms, end_ms);
 
     {
         let mut cache = get_clip_cache().lock().unwrap_or_else(|e| e.into_inner());
@@ -497,8 +830,8 @@ pub fn generate_preview_clip(
         }
     }
 
-    // Not in cache, generate it
-    let clip = generate_preview_clip_internal(path, start_time_sec, end_time_sec)?;
+    // Not in cache, generate it.
+    let clip = generate_preview_clip_with_fallbacks(path, start_time_sec, end_time_sec)?;
     let shared = Arc::new(clip);
 
     // Store in cache (refcount bump, no payload copy)
@@ -510,52 +843,151 @@ pub fn generate_preview_clip(
     Ok(Arc::try_unwrap(shared).unwrap_or_else(|a| (*a).clone()))
 }
 
-fn generate_preview_clip_internal(
+fn generate_preview_clip_with_fallbacks(
     path: &str,
     start_time_sec: f64,
     end_time_sec: f64,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut last_error: Option<String> = None;
+
+    for plan in preview_clip_plans() {
+        match generate_preview_clip_internal(path, start_time_sec, end_time_sec, &plan) {
+            Ok(clip) => return Ok(clip),
+            Err(err) if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER) => {
+                return Err(err)
+            }
+            Err(err) => {
+                vidcord_log(&format!(
+                    "Preview clip encode failed with {} (hwdecode={}): {err}",
+                    plan.encoder, plan.use_auto_hwaccel
+                ));
+                last_error = Some(err.to_string());
+            }
+        }
+    }
+
+    Err(last_error
+        .unwrap_or_else(|| "FFmpeg preview clip failed".to_string())
+        .into())
+}
+
+fn generate_preview_clip_internal(
+    path: &str,
+    start_time_sec: f64,
+    end_time_sec: f64,
+    plan: &PreviewClipPlan,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let duration = (end_time_sec - start_time_sec).clamp(0.2, 12.0);
+    let start_time = format_time_arg(start_time_sec);
+    let duration = format_time_arg(duration);
+    let mut args: Vec<String> = vec![
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-y".into(),
+    ];
+
+    if let Some(device) = plan.vaapi_device.as_ref() {
+        args.extend(["-vaapi_device".into(), device.clone()]);
+    }
+    if plan.use_auto_hwaccel {
+        push_auto_hwaccel_args(&mut args);
+    }
+
+    let video_filter = if plan.encoder == "h264_vaapi" {
+        format!("{PREVIEW_CLIP_SCALE_FILTER},format=nv12,hwupload")
+    } else {
+        PREVIEW_CLIP_SCALE_FILTER.to_string()
+    };
+
+    args.extend([
+        "-ss".into(),
+        start_time,
+        "-t".into(),
+        duration,
+        "-i".into(),
+        path.into(),
+        "-map".into(),
+        "0:v:0".into(),
+        "-map".into(),
+        "0:a?".into(),
+        "-sn".into(),
+        "-vf".into(),
+        video_filter,
+        "-c:v".into(),
+        plan.encoder.clone(),
+    ]);
+
+    match plan.encoder.as_str() {
+        "libx264" => args.extend([
+            "-preset".into(),
+            "ultrafast".into(),
+            "-crf".into(),
+            "30".into(),
+            "-pix_fmt".into(),
+            "yuv420p".into(),
+        ]),
+        "h264_nvenc" => args.extend([
+            "-preset".into(),
+            "p1".into(),
+            "-tune".into(),
+            "ll".into(),
+            "-b:v".into(),
+            PREVIEW_CLIP_BITRATE.into(),
+            "-pix_fmt".into(),
+            "yuv420p".into(),
+        ]),
+        "h264_qsv" => args.extend([
+            "-preset".into(),
+            "veryfast".into(),
+            "-b:v".into(),
+            PREVIEW_CLIP_BITRATE.into(),
+            "-pix_fmt".into(),
+            "yuv420p".into(),
+        ]),
+        "h264_amf" => args.extend([
+            "-quality".into(),
+            "speed".into(),
+            "-usage".into(),
+            "transcoding".into(),
+            "-b:v".into(),
+            PREVIEW_CLIP_BITRATE.into(),
+            "-pix_fmt".into(),
+            "yuv420p".into(),
+        ]),
+        "h264_videotoolbox" => args.extend([
+            "-b:v".into(),
+            PREVIEW_CLIP_BITRATE.into(),
+            "-pix_fmt".into(),
+            "yuv420p".into(),
+        ]),
+        "h264_vaapi" => args.extend(["-b:v".into(), PREVIEW_CLIP_BITRATE.into()]),
+        _ => args.extend([
+            "-b:v".into(),
+            PREVIEW_CLIP_BITRATE.into(),
+            "-pix_fmt".into(),
+            "yuv420p".into(),
+        ]),
+    }
+
+    args.extend([
+        "-c:a".into(),
+        "aac".into(),
+        "-b:a".into(),
+        "96k".into(),
+        "-movflags".into(),
+        "frag_keyframe+empty_moov".into(),
+        "-f".into(),
+        "mp4".into(),
+        "-".into(),
+    ]);
 
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
-    cmd.args([
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-ss",
-        &start_time_sec.to_string(),
-        "-t",
-        &duration.to_string(),
-        "-i",
-        path,
-        "-map",
-        "0:v:0",
-        "-map",
-        "0:a?",
-        "-sn",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "ultrafast",
-        "-crf",
-        "30",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "96k",
-        "-pix_fmt",
-        "yuv420p",
-        "-movflags",
-        "frag_keyframe+empty_moov",
-        "-f",
-        "mp4",
-        "-",
-    ])
-    .envs(get_ffmpeg_env())
-    .stdout(std::process::Stdio::piped())
-    .stderr(std::process::Stdio::null());
+    cmd.args(&args)
+        .envs(get_ffmpeg_env())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
 
     #[cfg(target_os = "windows")]
     {

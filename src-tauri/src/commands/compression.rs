@@ -49,9 +49,11 @@ pub async fn probe(path: String) -> Result<serde_json::Value, String> {
 pub async fn get_preview_frame(
     path: String,
     time_sec: f64,
+    preview_width: Option<u32>,
+    preview_height: Option<u32>,
 ) -> Result<tauri::ipc::Response, String> {
     tokio::task::spawn_blocking(move || {
-        generate_preview(&path, time_sec)
+        generate_preview(&path, time_sec, preview_width, preview_height)
             .map(tauri::ipc::Response::new)
             .map_err(|e| e.to_string())
     })
@@ -81,11 +83,19 @@ pub async fn get_filmstrip(
     path: String,
     duration_sec: f64,
     max_frames: Option<usize>,
+    preview_width: Option<u32>,
+    preview_height: Option<u32>,
 ) -> Result<tauri::ipc::Response, String> {
     tokio::task::spawn_blocking(move || {
-        generate_filmstrip(&path, duration_sec, max_frames)
-            .map(tauri::ipc::Response::new)
-            .map_err(|e| e.to_string())
+        generate_filmstrip(
+            &path,
+            duration_sec,
+            max_frames,
+            preview_width,
+            preview_height,
+        )
+        .map(tauri::ipc::Response::new)
+        .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?

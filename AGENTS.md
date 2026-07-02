@@ -7,7 +7,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 **vidcord** is a cross-platform desktop app that compresses video files under Discord's size limits. It is built with **Tauri 2** (Rust backend + React/TypeScript frontend) and shells out to the system **FFmpeg** binary for all video work. It does **not** bundle FFmpeg — the system `ffmpeg`/`ffprobe` must be on `PATH`.
 
 - **App version**: kept in sync across `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and any `vX.Y` references in source/docs (see "Bumping the version" below)
-- **Window**: fixed-size 460×840, non-resizable, opaque window background with macOS Tahoe "liquid glass" styling inside the app surface
+- **Window**: fixed-size 460×660, non-resizable, opaque window background with macOS Tahoe "liquid glass" styling inside the app surface
 - **Supported OS/arch**: Windows (x86_64 + aarch64), macOS (universal), Linux (x86_64 + aarch64)
 - **Node**: `^20.19.0 || >=22.12.0` (see `package.json` engines)
 - **Rust**: stable toolchain, edition 2021
@@ -253,11 +253,12 @@ Every `std::process::Command::new("ffmpeg"|"ffprobe")` in Rust must:
 
 - `ENCODER_CACHE` — memoised encoder list. Call `invalidate_encoder_cache()` after a successful FFmpeg install.
 - `VAAPI_CACHE` — probes `/dev/dri/renderD*` once per session.
-- `PREVIEW_FRAME_CACHE` — 60-entry LRU, keyed by `(path_hash, time_100ms)`.
-- `PREVIEW_CLIP_CACHE` — 100 MB LRU, keyed by `(start_ms, end_ms)`.
+- `PREVIEW_FRAME_CACHE` — 60-entry LRU, keyed by `(path_hash, time_100ms, preview_width, preview_height)`.
+- `PREVIEW_CLIP_CACHE` — 100 MB LRU, keyed by `(path_hash, start_ms, end_ms)`.
 - `FFMPEG_AVAIL_CACHE` — 30 s TTL on `ffmpeg -version` probe, with `ffmpeg_available_fresh()` for post-install bypass.
 
 Call `clear_preview_caches()` when the frontend loads a new file (already done in `probe`).
+Preview frame and filmstrip IPC accepts optional preview dimensions; the backend clamps them to even values before building FFmpeg scale filters. Long videos (10+ minutes) use sparse seeks for filmstrip generation instead of a dense single-pass `fps` filter. Generated preview clips try platform H.264 hardware encoders first, then fall back through software `libx264`.
 
 ### Settings
 

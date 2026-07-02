@@ -1,5 +1,22 @@
 # Changelog
 
+## WIP
+
+### Preview
+
+- **Sharper preview frames and filmstrips**: trim previews now request images sized to the rendered preview pane, including HiDPI displays, instead of using fixed low-resolution thumbnails.
+- **More reliable preview decoding**: preview frames and filmstrips try FFmpeg hardware decode first and automatically retry with software decode when hardware acceleration fails.
+- **Faster long-video filmstrips**: videos over 10 minutes now use sparse frame seeks and lower frame counts so loading long clips does less upfront thumbnail work.
+- **Hardware-accelerated preview clips**: generated scrub preview clips now try platform H.264 hardware encoders where available before falling back to `libx264`.
+
+### UI
+
+- **Compact fixed window**: the main window is now fixed at 460×660, and saved window state restores position only so stale dimensions cannot leave extra blank space or reintroduce scrollbars.
+
+### Internal
+
+- Preview frame cache keys now include requested output dimensions, and preview clip cache keys include the source file path to avoid stale preview reuse across files or display sizes.
+
 ## v6.5
 
 ### Compression

@@ -105,6 +105,9 @@ first pass lands too large.
 - **Trim timeline** with frame-accurate handles, draggable playhead,
   snap tick marks, and a minimap when zoomed in.
 - **In-app preview** of the trimmed segment before you commit to a compress.
+- **Responsive scrub previews** with display-sized filmstrip/frame thumbnails,
+  sparse thumbnail generation for long videos, and hardware-accelerated preview
+  clips where FFmpeg supports them.
 - **Hardware acceleration**, auto-detected at startup:
   - NVIDIA NVENC (`h264_nvenc`, `hevc_nvenc`)
   - AMD AMF (`h264_amf`, `hevc_amf`)
@@ -113,6 +116,8 @@ first pass lands too large.
   - Apple Silicon VideoToolbox (`h264_videotoolbox`, `hevc_videotoolbox`)
 - **Three ways to open a video:** drag-and-drop onto the window, "Open with
   vidcord" from Explorer/Finder, or the in-app **Browse** button.
+- **Compact fixed window** — the 460×660 desktop window keeps the controls,
+  preview, progress, and footer visible without resizing.
 - **Remove audio** — strip the audio track to reclaim space.
 - **Strict size checks** — finished files are measured against the selected
   target; oversized results are retried with `libx264` and lower safety
