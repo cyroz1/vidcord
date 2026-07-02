@@ -12,6 +12,11 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { getFilmstrip, getOs, getPreviewClip, getPreviewFrame } from "../ipc";
 
 const DEFAULT_PREVIEW_ASPECT_RATIO = 16 / 9;
+const FALLBACK_PREVIEW_CSS_WIDTH = 432;
+const MAX_PREVIEW_DEVICE_SCALE = 2;
+const MIN_PREVIEW_PIXEL_DIM = 240;
+const MAX_PREVIEW_PIXEL_WIDTH = 960;
+const MAX_PREVIEW_PIXEL_HEIGHT = 1080;
 
 // Module-scope static style objects. Hoisted so React doesn't allocate a
 // fresh object literal per render — PreviewPane re-renders on every
@@ -140,7 +145,14 @@ type FrameRequest = {
   path: string;
   time: number;
   requestId: number;
+  previewWidth: number;
+  previewHeight: number;
 };
+
+function clampEvenPixelDimension(value: number, min: number, max: number): number {
+  const clamped = Math.max(min, Math.min(max, Math.round(value)));
+  return clamped % 2 === 0 ? clamped : clamped + 1 <= max ? clamped + 1 : clamped - 1;
+}
 
 // Split a concatenated JPEG byte stream into individual frame buffers.
 // FFmpeg's image2pipe/mjpeg output places JPEG frames back-to-back;
@@ -234,6 +246,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const prevStartTimeRef = useRef(startTime);
   const prevEndTimeRef = useRef(endTime);
   const prevFilePathRef = useRef<string | null>(filePath);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubVideoSrcRef = useRef<string | null>(null);
   const pendingScrubVideoSeekRef = useRef<number | null>(null);
@@ -246,6 +259,27 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const playbackOffsetRef = useRef(0);
   const usingGeneratedClipRef = useRef(false);
   const urlCacheRef = useRef<Map<string, string[]>>(new Map());
+
+  const getPreviewPixelSize = useCallback(() => {
+    const rect = previewContainerRef.current?.getBoundingClientRect();
+    const cssWidth = rect?.width && rect.width > 0 ? rect.width : FALLBACK_PREVIEW_CSS_WIDTH;
+    const cssHeight =
+      rect?.height && rect.height > 0 ? rect.height : cssWidth / DEFAULT_PREVIEW_ASPECT_RATIO;
+    const scale = Math.max(1, Math.min(window.devicePixelRatio || 1, MAX_PREVIEW_DEVICE_SCALE));
+
+    return {
+      width: clampEvenPixelDimension(
+        cssWidth * scale,
+        MIN_PREVIEW_PIXEL_DIM,
+        MAX_PREVIEW_PIXEL_WIDTH
+      ),
+      height: clampEvenPixelDimension(
+        cssHeight * scale,
+        MIN_PREVIEW_PIXEL_DIM,
+        MAX_PREVIEW_PIXEL_HEIGHT
+      ),
+    };
+  }, []);
 
   const getPlaybackTime = useCallback(() => {
     const raw = (videoRef.current?.currentTime ?? 0) + playbackOffsetRef.current;
@@ -416,10 +450,12 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const requestId = filmstripRequestIdRef.current + 1;
     filmstripRequestIdRef.current = requestId;
     const duration = probeData.duration;
-    const maxFrames = duration > 300 ? 36 : duration > 120 ? 48 : 60;
-    const delayMs = duration > 120 ? 500 : 120;
+    const maxFrames =
+      duration > 1800 ? 24 : duration > 600 ? 30 : duration > 300 ? 36 : duration > 120 ? 48 : 60;
+    const delayMs = duration > 600 ? 700 : duration > 120 ? 500 : 120;
     const timer = window.setTimeout(() => {
-      getFilmstrip(filePath, duration, maxFrames)
+      const { width, height } = getPreviewPixelSize();
+      getFilmstrip(filePath, duration, maxFrames, width, height)
         .then((rawBytes) => {
           if (filmstripRequestIdRef.current !== requestId) return;
           const frames = splitJpegStream(new Uint8Array(rawBytes.buffer as ArrayBuffer));
@@ -442,7 +478,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         filmstripRequestIdRef.current += 1;
       }
     };
-  }, [filePath, probeData, clearFilmstrip]);
+  }, [filePath, probeData, clearFilmstrip, getPreviewPixelSize]);
 
   // ---------------------------------------------------------------------------
   // Frame preview (static JPEG)
@@ -453,7 +489,12 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     setLoading(true);
     void (async () => {
       try {
-        const buffer = await getPreviewFrame(request.path, request.time);
+        const buffer = await getPreviewFrame(
+          request.path,
+          request.time,
+          request.previewWidth,
+          request.previewHeight
+        );
         if (frameRequestIdRef.current !== request.requestId) return;
         const blob = new Blob([buffer as Uint8Array<ArrayBuffer>], { type: "image/jpeg" });
         const url = URL.createObjectURL(blob);
@@ -483,14 +524,15 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const fetchFrame = useCallback(
     (path: string, time: number, requestId: number) => {
       if (frameRequestIdRef.current !== requestId) return;
-      const request = { path, time, requestId };
+      const { width, height } = getPreviewPixelSize();
+      const request = { path, time, requestId, previewWidth: width, previewHeight: height };
       if (frameInFlightRef.current) {
         queuedFrameRequestRef.current = request;
         return;
       }
       startFrameFetch(request);
     },
-    [startFrameFetch]
+    [getPreviewPixelSize, startFrameFetch]
   );
 
   useEffect(() => {
@@ -798,6 +840,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   return (
     <div
+      ref={previewContainerRef}
       style={previewContainerStyle}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}

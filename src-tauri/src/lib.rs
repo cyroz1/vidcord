@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
+use tauri_plugin_window_state::StateFlags;
 
 pub mod commands;
 mod ffmpeg;
@@ -137,7 +138,11 @@ pub fn run() {
     }
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(StateFlags::POSITION)
+                .build(),
+        )
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // A second instance was launched — focus the existing window.
             if let Some(win) = app.get_webview_window("main") {

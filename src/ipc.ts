@@ -59,8 +59,18 @@ export function probe(path: string): Promise<ProbeData> {
   return invoke<ProbeData>("probe", { path });
 }
 
-export function getPreviewFrame(path: string, timeSec: number): Promise<Uint8Array> {
-  return invoke<Uint8Array>("get_preview_frame", { path, timeSec });
+export function getPreviewFrame(
+  path: string,
+  timeSec: number,
+  previewWidth?: number,
+  previewHeight?: number
+): Promise<Uint8Array> {
+  return invoke<Uint8Array>("get_preview_frame", {
+    path,
+    timeSec,
+    previewWidth,
+    previewHeight,
+  });
 }
 
 export function getPreviewClip(
@@ -74,9 +84,17 @@ export function getPreviewClip(
 export function getFilmstrip(
   path: string,
   durationSec: number,
-  maxFrames?: number
+  maxFrames?: number,
+  previewWidth?: number,
+  previewHeight?: number
 ): Promise<Uint8Array> {
-  return invoke<Uint8Array>("get_filmstrip", { path, durationSec, maxFrames });
+  return invoke<Uint8Array>("get_filmstrip", {
+    path,
+    durationSec,
+    maxFrames,
+    previewWidth,
+    previewHeight,
+  });
 }
 
 export function detectEncoders(): Promise<Encoder[]> {
