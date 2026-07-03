@@ -217,7 +217,7 @@
 .settings-row select,
 .settings-row input[type="number"],
 .settings-row input[type="text"] {
-  background: var(--surface);
+  background-color: var(--surface);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border);
@@ -229,7 +229,7 @@
   min-width: 0;
   transition:
     border-color 0.15s,
-    background 0.15s;
+    background-color 0.15s;
   box-shadow: var(--card-top);
 }
 
@@ -257,7 +257,7 @@
 .settings-row select:hover,
 .settings-row input:hover {
   border-color: var(--accent);
-  background: var(--surface2);
+  background-color: var(--surface2);
 }
 
 .settings-row select:focus,
@@ -295,8 +295,18 @@ select optgroup {
 }
 
 .settings-row .fps-label {
-  flex: 0 0 82px;
-  min-width: 82px;
+  flex: 0 0 64px;
+  min-width: 64px;
+}
+
+.settings-row .target-label {
+  flex: 0 0 120px;
+  min-width: 120px;
+}
+
+.settings-row .encoder-field {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .settings-row .encoder-label {
@@ -306,9 +316,10 @@ select optgroup {
 
 .settings-row.advanced {
   display: grid;
-  grid-template-columns: 68px 104px 52px minmax(0, 1fr);
+  grid-template-columns: 68px 104px 48px minmax(0, 1fr);
   align-items: end;
   flex-wrap: nowrap;
+  z-index: 20;
 }
 
 .settings-row.advanced label {
@@ -330,6 +341,17 @@ select optgroup {
 .settings-row.advanced .fps-label {
   flex-basis: auto;
   min-width: 0;
+}
+
+.settings-row input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.settings-row input[type="number"]::-webkit-inner-spin-button,
+.settings-row input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .settings-row.advanced .encoder-label {
