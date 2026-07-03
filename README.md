@@ -104,10 +104,11 @@ first pass lands too large.
   mode accepts a custom FPS value, or an empty field shown as Off for no change.
 - **Trim timeline** with frame-accurate handles, draggable playhead,
   snap tick marks, and a minimap when zoomed in.
-- **In-app preview** of the trimmed segment before you commit to a compress.
+- **In-app preview** of the trimmed segment before you commit to a compress,
+  starting from the current playhead when it is inside the selected range.
 - **Responsive scrub previews** with display-sized filmstrip/frame thumbnails,
-  sparse thumbnail generation for long videos, and hardware-accelerated preview
-  clips where FFmpeg supports them.
+  sparse thumbnail generation for long videos, full-range fallback preview clips,
+  and hardware-accelerated preview clips where FFmpeg supports them.
 - **Hardware acceleration**, auto-detected at startup:
   - NVIDIA NVENC (`h264_nvenc`, `hevc_nvenc`)
   - AMD AMF (`h264_amf`, `hevc_amf`)
@@ -116,7 +117,7 @@ first pass lands too large.
   - Apple Silicon VideoToolbox (`h264_videotoolbox`, `hevc_videotoolbox`)
 - **Three ways to open a video:** drag-and-drop onto the window, "Open with
   vidcord" from Explorer/Finder, or the in-app **Browse** button.
-- **Compact fixed window** — the 460×660 desktop window keeps the controls,
+- **Compact fixed window** — the 460×690 desktop window keeps the controls,
   preview, progress, and footer visible without resizing.
 - **Remove audio** — strip the audio track to reclaim space.
 - **Strict size checks** — finished files are measured against the selected
@@ -210,7 +211,8 @@ For more distros, manual installs, or troubleshooting, read
    also cap output FPS at 24, 30, or 60 when those values do not exceed the
    source frame rate.
 3. **Trim** (optional) — drag the handles or use `I` / `O` to stamp the
-   playhead. `Space` plays the selected range.
+   playhead. `Space` plays the selected range from the current playhead when it
+   is inside the trim.
 4. **Toggle Remove Audio** to strip audio if you need more video bitrate.
 5. **Click Compress.** Progress shows the current attempt, encoder, bitrate,
    and ETA. When it's done, vidcord reports the final output size and
@@ -223,7 +225,7 @@ Output goes to `~/Downloads/<original-name>-vidcord.mp4` by default, with
 
 | Key | Action |
 |-----|--------|
-| `Space` | Play / stop preview |
+| `Space` | Play / stop preview from the playhead |
 | `,` / `.` | Step one frame back / forward |
 | `Shift` + `,` / `.` | Nudge active trim handle by one frame |
 | `J` / `K` | Jump playhead to trim start / end |

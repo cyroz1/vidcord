@@ -877,7 +877,7 @@ fn generate_preview_clip_internal(
     end_time_sec: f64,
     plan: &PreviewClipPlan,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let duration = (end_time_sec - start_time_sec).clamp(0.2, 12.0);
+    let duration = (end_time_sec - start_time_sec).max(0.2);
     let start_time = format_time_arg(start_time_sec);
     let duration = format_time_arg(duration);
     let mut args: Vec<String> = vec![
