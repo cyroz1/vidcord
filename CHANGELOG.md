@@ -14,6 +14,7 @@
 ### UI
 
 - **Compact fixed window**: the main window is now fixed at 460×690, and saved window state restores position only so stale dimensions cannot leave extra blank space or reintroduce scrollbars.
+- **Tighter settings layout**: target, FPS, and encoder controls now use fixed-width sizing where needed so the standard and advanced rows fit cleanly in the compact window.
 
 ### Internal
 

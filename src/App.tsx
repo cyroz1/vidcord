@@ -1419,7 +1419,7 @@ export default function App() {
         {/* Basic settings */}
         {!advancedMode && (
           <div className="row settings-row">
-            <label>
+            <label className="target-label">
               Target
               <select
                 value={qualityIdx}
@@ -1451,7 +1451,7 @@ export default function App() {
                 ))}
               </select>
             </label>
-            <div className="settings-field">
+            <div className="settings-field encoder-field">
               <div className="encoder-heading">
                 <label htmlFor="encoder-select">Encoder</label>
                 {isH265Encoder(encoders[encoderIdx]?.name ?? "") && (
