@@ -5,6 +5,9 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:window:allow-center",
+    "core:window:allow-set-size",
+    "core:window:allow-set-size-constraints",
     "dialog:default",
     "dialog:allow-open",
     "opener:default"
