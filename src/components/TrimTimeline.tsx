@@ -3,7 +3,6 @@ import { memo, type MouseEvent, type RefObject, type WheelEvent } from "react";
 export type SnapMode = "off" | "0.1" | "0.5" | "1.0";
 
 type Props = {
-  showShortcuts: boolean;
   selectedDuration: number;
   selectedDurationPct: number;
   playheadTime: number | null;
@@ -30,7 +29,6 @@ type Props = {
   onRedoTrim: () => void;
   loopPlayback: boolean;
   onLoopPlaybackChange: (enabled: boolean) => void;
-  onToggleShortcuts: () => void;
   onTrimWheel: (event: WheelEvent<HTMLDivElement>) => void;
   onTimelineClick: (event: MouseEvent<HTMLDivElement>) => void;
   onRangeDragStart: (event: MouseEvent<HTMLDivElement>) => void;
@@ -43,7 +41,6 @@ type Props = {
 };
 
 function TrimTimeline({
-  showShortcuts,
   selectedDuration,
   selectedDurationPct,
   playheadTime,
@@ -70,7 +67,6 @@ function TrimTimeline({
   onRedoTrim,
   loopPlayback,
   onLoopPlaybackChange,
-  onToggleShortcuts,
   onTrimWheel,
   onTimelineClick,
   onRangeDragStart,
@@ -153,41 +149,42 @@ function TrimTimeline({
           />
           Loop
         </label>
-        <button
-          type="button"
-          className={`trim-mini-btn trim-shortcuts-btn${showShortcuts ? " active" : ""}`}
-          onClick={onToggleShortcuts}
-          title="Keyboard shortcuts"
-        >
-          ?
-        </button>
-      </div>
-      {showShortcuts && (
-        <div className="trim-shortcuts-panel">
-          <div className="trim-shortcuts-grid">
-            <span className="sc-key">Space</span>
-            <span>Play / Pause</span>
-            <span className="sc-key">, / .</span>
-            <span>Step frame back / forward</span>
-            <span className="sc-key">I</span>
-            <span>Set in point to playhead</span>
-            <span className="sc-key">O</span>
-            <span>Set out point to playhead</span>
-            <span className="sc-key">J</span>
-            <span>Seek to in point</span>
-            <span className="sc-key">K</span>
-            <span>Seek to out point</span>
-            <span className="sc-key">[ / ]</span>
-            <span>Expand in / out point</span>
-            <span className="sc-key">R / U</span>
-            <span>Reset trim to full clip</span>
-            <span className="sc-key">Shift Left / Right</span>
-            <span>Nudge active handle</span>
-            <span className="sc-key">Cmd Z / Shift Cmd Z</span>
-            <span>Undo / Redo trim</span>
+        <div className="trim-shortcuts-popover">
+          <button
+            type="button"
+            className="trim-mini-btn trim-shortcuts-btn"
+            aria-label="Keyboard shortcuts"
+            aria-describedby="trim-shortcuts-panel"
+            title="Keyboard shortcuts"
+          >
+            ?
+          </button>
+          <div id="trim-shortcuts-panel" className="trim-shortcuts-panel" role="tooltip">
+            <div className="trim-shortcuts-grid">
+              <span className="sc-key">Space</span>
+              <span>Play / Pause</span>
+              <span className="sc-key">, / .</span>
+              <span>Step frame back / forward</span>
+              <span className="sc-key">I</span>
+              <span>Set in point to playhead</span>
+              <span className="sc-key">O</span>
+              <span>Set out point to playhead</span>
+              <span className="sc-key">J</span>
+              <span>Seek to in point</span>
+              <span className="sc-key">K</span>
+              <span>Seek to out point</span>
+              <span className="sc-key">[ / ]</span>
+              <span>Expand in / out point</span>
+              <span className="sc-key">R / U</span>
+              <span>Reset trim to full clip</span>
+              <span className="sc-key">Shift + Arrow</span>
+              <span>Nudge active handle</span>
+              <span className="sc-key">Cmd/Ctrl + Z</span>
+              <span>Undo / Redo trim</span>
+            </div>
           </div>
         </div>
-      )}
+      </div>
       <div className="slider-row trim-dual-row">
         <span className="time-label time-label-left">{startTime.toFixed(1)}s</span>
         <div

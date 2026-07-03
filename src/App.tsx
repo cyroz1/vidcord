@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useState, useMemo, useRef, lazy, Suspense } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { currentMonitor, getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import "./App.css";
@@ -71,6 +72,12 @@ const SLIDER_MAX = 10000;
 const MIN_TRIM_GAP = 1;
 const UNDO_LIMIT = 200;
 const FRAME_STEP_SECONDS = 1 / 30;
+const WINDOW_WIDTH = 460;
+const MIN_WINDOW_HEIGHT = 690;
+const MIN_FALLBACK_WINDOW_HEIGHT = 560;
+const WINDOW_SCREEN_MARGIN = 32;
+const WINDOW_CONTENT_FIT_PADDING = 2;
+const WINDOW_RESIZE_EPSILON = 2;
 
 function isH265Encoder(name: string): boolean {
   return name === "libx265" || name.startsWith("hevc_");
@@ -134,6 +141,9 @@ export default function App() {
     useCompression({ onToast: addToast });
 
   const previewRef = useRef<PreviewHandle>(null);
+  const appRef = useRef<HTMLDivElement>(null);
+  const autoWindowHeightRef = useRef<number | null>(null);
+  const autoWindowCenteredRef = useRef(false);
   const trimWrapRef = useRef<HTMLDivElement>(null);
   const activeHandleRef = useRef<"start" | "end">("start");
   const startValRef = useRef(0);
@@ -169,9 +179,112 @@ export default function App() {
   const [encodersDialogText, setEncodersDialogText] = useState<string | null>(null);
   const [listedEncoderNames, setListedEncoderNames] = useState<string[]>([]);
   const [installingFfmpeg, setInstallingFfmpeg] = useState(false);
-  const [showShortcuts, setShowShortcuts] = useState(false);
   const [encoderInputFocused, setEncoderInputFocused] = useState(false);
   const [activeEncoderOption, setActiveEncoderOption] = useState(0);
+
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    let resizeFrame: number | null = null;
+    let disposed = false;
+
+    const measureContentHeight = () => {
+      const app = appRef.current;
+      const scrollArea = app?.querySelector<HTMLElement>(".scroll-area");
+      if (!app || !scrollArea) return null;
+
+      const contentChildren = Array.from(scrollArea.children).filter(
+        (child): child is HTMLElement => child instanceof HTMLElement
+      );
+      const lastChild = contentChildren[contentChildren.length - 1];
+      const scrollStyles = window.getComputedStyle(scrollArea);
+      const paddingBottom = Number.parseFloat(scrollStyles.paddingBottom) || 0;
+      const scrollContentHeight = lastChild
+        ? lastChild.offsetTop + lastChild.offsetHeight + paddingBottom
+        : scrollArea.scrollHeight;
+
+      return Math.ceil(scrollArea.offsetTop + scrollContentHeight);
+    };
+
+    const getMaxLogicalHeight = async () => {
+      const monitor = await currentMonitor();
+      if (!monitor) return null;
+      return Math.floor(monitor.workArea.size.height / monitor.scaleFactor) - WINDOW_SCREEN_MARGIN;
+    };
+
+    const resizeToContent = async () => {
+      const contentHeight = measureContentHeight();
+      if (contentHeight === null) return;
+
+      const maxLogicalHeight = await getMaxLogicalHeight();
+      if (disposed) return;
+
+      const desiredHeight = Math.max(MIN_WINDOW_HEIGHT, contentHeight + WINDOW_CONTENT_FIT_PADDING);
+      const targetHeight =
+        maxLogicalHeight === null
+          ? desiredHeight
+          : Math.max(MIN_FALLBACK_WINDOW_HEIGHT, Math.min(desiredHeight, maxLogicalHeight));
+
+      if (
+        autoWindowHeightRef.current !== null &&
+        Math.abs(autoWindowHeightRef.current - targetHeight) < WINDOW_RESIZE_EPSILON
+      ) {
+        return;
+      }
+
+      try {
+        await appWindow.setSizeConstraints(null);
+        await appWindow.setSize(new LogicalSize(WINDOW_WIDTH, targetHeight));
+        await appWindow.setSizeConstraints({
+          minWidth: WINDOW_WIDTH,
+          minHeight: Math.min(MIN_WINDOW_HEIGHT, targetHeight),
+          maxWidth: WINDOW_WIDTH,
+          maxHeight: targetHeight,
+        });
+        if (!autoWindowCenteredRef.current) {
+          autoWindowCenteredRef.current = true;
+          await appWindow.center();
+        }
+        autoWindowHeightRef.current = targetHeight;
+      } catch (err) {
+        console.warn("Unable to auto-size window", err);
+      }
+    };
+
+    const scheduleResize = () => {
+      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = null;
+        void resizeToContent();
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(scheduleResize);
+    const mutationObserver = new MutationObserver(scheduleResize);
+
+    if (appRef.current) {
+      resizeObserver.observe(appRef.current);
+      mutationObserver.observe(appRef.current, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+    }
+
+    const onResize = () => {
+      scheduleResize();
+    };
+
+    window.addEventListener("resize", onResize);
+    scheduleResize();
+
+    return () => {
+      disposed = true;
+      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
 
   const duration = probeData?.duration ?? 0;
   const sourceFrameRate =
@@ -1204,10 +1317,6 @@ export default function App() {
     setLoopPlayback(enabled);
   }, []);
 
-  const toggleShortcuts = useCallback(() => {
-    setShowShortcuts((value) => !value);
-  }, []);
-
   const handleStartHandlePointerDown = useCallback(() => {
     activeHandleRef.current = "start";
     beginPointerTrimChange();
@@ -1235,7 +1344,7 @@ export default function App() {
   );
 
   return (
-    <div className="app">
+    <div className="app" ref={appRef}>
       {/* Update banner */}
       {updateInfo && (
         <div className="update-banner">
@@ -1553,7 +1662,6 @@ export default function App() {
         )}
 
         <TrimTimeline
-          showShortcuts={showShortcuts}
           selectedDuration={selectedDuration}
           selectedDurationPct={selectedDurationPct}
           playheadTime={playheadTime}
@@ -1580,7 +1688,6 @@ export default function App() {
           onRedoTrim={redoTrim}
           loopPlayback={loopPlayback}
           onLoopPlaybackChange={setLoopPlaybackFromTimeline}
-          onToggleShortcuts={toggleShortcuts}
           onTrimWheel={handleTrimWheel}
           onTimelineClick={handleTimelineClick}
           onRangeDragStart={handleRangeDragStart}
