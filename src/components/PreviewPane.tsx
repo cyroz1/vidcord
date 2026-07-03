@@ -254,6 +254,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // setInterval polling of `currentTime`, which kept the main thread warm
   // during every playback.
   const timeUpdateHandlerRef = useRef<(() => void) | null>(null);
+  const endBoundaryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const schedulePlaybackBoundaryRef = useRef<(() => void) | null>(null);
   const clipUrlRef = useRef<string | null>(null);
   const playbackSessionRef = useRef(0);
   const playbackOffsetRef = useRef(0);
@@ -606,6 +608,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // ---------------------------------------------------------------------------
   // Video playback
   // ---------------------------------------------------------------------------
+  const clearEndBoundaryTimer = useCallback(() => {
+    if (endBoundaryTimerRef.current !== null) {
+      clearTimeout(endBoundaryTimerRef.current);
+      endBoundaryTimerRef.current = null;
+    }
+  }, []);
+
   const stopPlayback = useCallback(() => {
     const vid = videoRef.current;
     const hadActivePlayback =
@@ -615,6 +624,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       usingGeneratedClipRef.current;
     if (!hadActivePlayback) return;
     playbackSessionRef.current += 1;
+    clearEndBoundaryTimer();
+    schedulePlaybackBoundaryRef.current = null;
     if (vid && timeUpdateHandlerRef.current) {
       vid.removeEventListener("timeupdate", timeUpdateHandlerRef.current);
     }
@@ -640,7 +651,21 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     playingRef.current = false;
     setPlaying(false);
     onTimeUpdateRef.current?.(null);
-  }, []);
+  }, [clearEndBoundaryTimer]);
+
+  const handlePlaybackBoundary = useCallback(() => {
+    if (!playingRef.current) return;
+    if (loopPlayback && endTime > startTime) {
+      seekTo(startTime);
+      schedulePlaybackBoundaryRef.current?.();
+      const vid = videoRef.current;
+      if (vid) {
+        void vid.play().catch(() => stopPlayback());
+      }
+      return;
+    }
+    stopPlayback();
+  }, [endTime, loopPlayback, seekTo, startTime, stopPlayback]);
 
   const startPlayback = useCallback(() => {
     if (!filePath || !probeData) return;
@@ -654,6 +679,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     // trim range; otherwise start at trim-in.
     const scrubbed = currentPlaybackTimeRef.current;
     const resumeTime = scrubbed >= startTime && scrubbed < endTime ? scrubbed : startTime;
+    const resumeClipOffset = Math.max(0, resumeTime - startTime);
     currentPlaybackTimeRef.current = resumeTime;
     setCurrentPlaybackTime(resumeTime);
     onTimeUpdateRef.current?.(resumeTime);
@@ -662,29 +688,42 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     let sourceIndex = 0;
     let tryingGeneratedClip = false;
 
-    // Event-driven end-of-trim detection. `timeupdate` fires from the media
-    // pipeline (~4 Hz per the HTML spec), so we don't need a wall-clock timer
-    // waking the main thread every 100 ms. The video element's `onEnded`
-    // handler (JSX prop) covers natural end-of-stream.
+    // `timeupdate` drives UI position updates; a one-shot timer enforces the
+    // trim out point more tightly than the media pipeline's low-frequency event.
     const ensureStopTimer = () => {
       if (timeUpdateHandlerRef.current) {
         vid.removeEventListener("timeupdate", timeUpdateHandlerRef.current);
       }
+      clearEndBoundaryTimer();
+
+      const scheduleBoundaryTimer = () => {
+        clearEndBoundaryTimer();
+        if (playbackSessionRef.current !== session || !playingRef.current) return;
+        const remainingMs = Math.max(0, (endTime - currentPlaybackTimeRef.current) * 1000);
+        endBoundaryTimerRef.current = setTimeout(() => {
+          endBoundaryTimerRef.current = null;
+          if (playbackSessionRef.current === session) {
+            handlePlaybackBoundary();
+          }
+        }, remainingMs);
+      };
+
+      schedulePlaybackBoundaryRef.current = scheduleBoundaryTimer;
+
       const handler = () => {
         const playbackTime = getPlaybackTime();
         currentPlaybackTimeRef.current = playbackTime;
         setCurrentPlaybackTime(playbackTime);
         onTimeUpdateRef.current?.(playbackTime);
         if (playbackTime >= endTime || vid.ended) {
-          if (loopPlayback && endTime > startTime && !vid.ended) {
-            seekTo(startTime);
-            return;
-          }
-          stopPlayback();
+          handlePlaybackBoundary();
+          return;
         }
+        scheduleBoundaryTimer();
       };
       timeUpdateHandlerRef.current = handler;
       vid.addEventListener("timeupdate", handler);
+      scheduleBoundaryTimer();
     };
 
     const playGeneratedClip = async () => {
@@ -699,6 +738,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         clipUrlRef.current = clipUrl;
         usingGeneratedClipRef.current = true;
         playbackOffsetRef.current = startTime;
+        vid.onloadedmetadata = () => {
+          vid.onloadedmetadata = null;
+          vid.currentTime = resumeClipOffset;
+        };
         vid.src = clipUrl;
         await vid.play();
         if (playbackSessionRef.current !== session) return;
@@ -754,15 +797,12 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       void playGeneratedClip();
     };
 
-    // Seek to startTime once the browser knows the media duration, then play.
-    // play() is called after the seek completes so that WebView2/Chromium does
-    // not abort the pending play() when currentTime is changed mid-flight
-    // (WebKit handles this gracefully; Chromium rejects the promise).
+    // Seek to the current playhead once the browser knows the media duration.
     // --autoplay-policy=no-user-gesture-required (tauri.conf.json) means the
     // async play() call is not blocked by WebView2's autoplay policy.
     vid.onloadedmetadata = () => {
       vid.onloadedmetadata = null;
-      vid.currentTime = usingGeneratedClipRef.current ? 0 : startTime;
+      vid.currentTime = usingGeneratedClipRef.current ? resumeClipOffset : resumeTime;
     };
 
     // play() must be called synchronously inside the user-gesture handler.
@@ -778,9 +818,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     stopPlayback,
     buildPlaybackUrls,
     getPlaybackTime,
-    loopPlayback,
-    seekTo,
+    clearEndBoundaryTimer,
+    handlePlaybackBoundary,
   ]);
+
+  const handleVideoEnded = useCallback(() => {
+    handlePlaybackBoundary();
+  }, [handlePlaybackBoundary]);
 
   // Expose handle so App.tsx can drive playback from keyboard shortcuts
   useImperativeHandle(
@@ -866,7 +910,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         onLoadedMetadata={handleVideoReady}
         onCanPlay={handleVideoReady}
         onError={() => setScrubVideoReady(false)}
-        onEnded={stopPlayback}
+        onEnded={handleVideoEnded}
       />
 
       {/* Play/Stop overlay — shown on hover; disabled on Linux (GStreamer crash) */}

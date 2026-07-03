@@ -8,10 +8,12 @@
 - **More reliable preview decoding**: preview frames and filmstrips try FFmpeg hardware decode first and automatically retry with software decode when hardware acceleration fails.
 - **Faster long-video filmstrips**: videos over 10 minutes now use sparse frame seeks and lower frame counts so loading long clips does less upfront thumbnail work.
 - **Hardware-accelerated preview clips**: generated scrub preview clips now try platform H.264 hardware encoders where available before falling back to `libx264`.
+- **More accurate preview playback**: trim playback now starts from the current playhead when it is inside the selected range, stops at the trim out point more precisely, and loops correctly even when the selected range reaches the source video's end.
+- **Full-range fallback preview clips**: generated fallback preview clips now cover the selected trim range instead of being capped to the first 12 seconds.
 
 ### UI
 
-- **Compact fixed window**: the main window is now fixed at 460×660, and saved window state restores position only so stale dimensions cannot leave extra blank space or reintroduce scrollbars.
+- **Compact fixed window**: the main window is now fixed at 460×690, and saved window state restores position only so stale dimensions cannot leave extra blank space or reintroduce scrollbars.
 
 ### Internal
 

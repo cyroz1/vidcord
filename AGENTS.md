@@ -7,7 +7,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 **vidcord** is a cross-platform desktop app that compresses video files under Discord's size limits. It is built with **Tauri 2** (Rust backend + React/TypeScript frontend) and shells out to the system **FFmpeg** binary for all video work. It does **not** bundle FFmpeg — the system `ffmpeg`/`ffprobe` must be on `PATH`.
 
 - **App version**: kept in sync across `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and any `vX.Y` references in source/docs (see "Bumping the version" below)
-- **Window**: fixed-size 460×660, non-resizable, opaque window background with macOS Tahoe "liquid glass" styling inside the app surface
+- **Window**: fixed-size 460×690, non-resizable, opaque window background with macOS Tahoe "liquid glass" styling inside the app surface
 - **Supported OS/arch**: Windows (x86_64 + aarch64), macOS (universal), Linux (x86_64 + aarch64)
 - **Node**: `^20.19.0 || >=22.12.0` (see `package.json` engines)
 - **Rust**: stable toolchain, edition 2021
@@ -258,7 +258,7 @@ Every `std::process::Command::new("ffmpeg"|"ffprobe")` in Rust must:
 - `FFMPEG_AVAIL_CACHE` — 30 s TTL on `ffmpeg -version` probe, with `ffmpeg_available_fresh()` for post-install bypass.
 
 Call `clear_preview_caches()` when the frontend loads a new file (already done in `probe`).
-Preview frame and filmstrip IPC accepts optional preview dimensions; the backend clamps them to even values before building FFmpeg scale filters. Long videos (10+ minutes) use sparse seeks for filmstrip generation instead of a dense single-pass `fps` filter. Generated preview clips try platform H.264 hardware encoders first, then fall back through software `libx264`.
+Preview frame and filmstrip IPC accepts optional preview dimensions; the backend clamps them to even values before building FFmpeg scale filters. Long videos (10+ minutes) use sparse seeks for filmstrip generation instead of a dense single-pass `fps` filter. Generated preview clips cover the selected trim range, try platform H.264 hardware encoders first, then fall back through software `libx264`.
 
 ### Settings
 

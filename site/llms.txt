@@ -15,6 +15,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Installer formats: Windows NSIS `.exe`, macOS universal `.dmg`, Linux `.AppImage`
 - Required dependency: system `ffmpeg` and `ffprobe` on PATH
 - Main use case: compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV videos under Discord's 10 / 25 / 50 / 100 / 500 MB upload tiers
+- Preview behavior: users can trim, scrub, and preview locally before compression; playback can start from the current playhead inside the selected range
 - Output controls: standard mode can leave FPS unchanged or cap output at 24, 30, or 60 FPS without showing options above the source frame rate; advanced mode accepts a custom FPS value or an empty Off field for no change
 - Privacy posture: local processing only; no accounts, no uploads, no telemetry
 

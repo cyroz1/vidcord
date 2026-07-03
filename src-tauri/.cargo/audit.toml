@@ -22,4 +22,6 @@ ignore = [
     "RUSTSEC-2025-0098", # unic-ucd-version — unmaintained (transitive)
     "RUSTSEC-2025-0100", # unic-ucd-ident — unmaintained (transitive)
     "RUSTSEC-2026-0097", # rand unsoundness — waiting on tauri/quinn bump
+    "RUSTSEC-2026-0194", # quick-xml duplicate-attribute DoS — waiting on plist/tauri bump
+    "RUSTSEC-2026-0195", # quick-xml namespace allocation DoS — waiting on plist/tauri bump
 ]
