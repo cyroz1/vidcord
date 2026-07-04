@@ -131,8 +131,7 @@ fn download_target_path(asset_name: &str) -> Result<PathBuf, String> {
     let file_name = safe_asset_filename(asset_name)?;
     let dir = dirs::download_dir()
         .or_else(dirs::data_local_dir)
-        .unwrap_or_else(std::env::temp_dir)
-        .join("vidcord-updates");
+        .unwrap_or_else(std::env::temp_dir);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join(file_name))
 }
