@@ -27,6 +27,7 @@ import {
   checkFfmpegAvailable,
   checkForUpdates,
   compressVideo,
+  downloadAndOpenUpdateInstaller,
   getOs,
   getVaapiDevice,
   installFfmpegDependency,
@@ -175,10 +176,16 @@ export default function App() {
   const [endVal, setEndVal] = useState(SLIDER_MAX);
 
   // --- UI state ---
-  const [updateInfo, setUpdateInfo] = useState<{ version: string; url: string } | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<{
+    version: string;
+    url: string;
+    installerAvailable: boolean;
+    installerName?: string;
+  } | null>(null);
   const [encodersDialogText, setEncodersDialogText] = useState<string | null>(null);
   const [listedEncoderNames, setListedEncoderNames] = useState<string[]>([]);
   const [installingFfmpeg, setInstallingFfmpeg] = useState(false);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
   const [encoderInputFocused, setEncoderInputFocused] = useState(false);
   const [activeEncoderOption, setActiveEncoderOption] = useState(0);
 
@@ -766,7 +773,12 @@ export default function App() {
         if (r.update_available && r.latest_version && r.release_url) {
           const dismissed = settingsRef.current.update_dismissed_version as string | undefined;
           if (dismissed !== r.latest_version) {
-            setUpdateInfo({ version: r.latest_version, url: r.release_url });
+            setUpdateInfo({
+              version: r.latest_version,
+              url: r.release_url,
+              installerAvailable: r.installer_available === true,
+              installerName: r.installer_name,
+            });
           }
         }
       })
@@ -936,6 +948,23 @@ export default function App() {
     if (!settingsLoaded || !advancedMode || listedEncoderNames.length > 0) return;
     loadListedEncoders().catch(() => {});
   }, [advancedMode, listedEncoderNames.length, loadListedEncoders, settingsLoaded]);
+
+  const installUpdate = useCallback(async () => {
+    setInstallingUpdate(true);
+    try {
+      const result = await downloadAndOpenUpdateInstaller();
+      addToast(
+        "success",
+        "Installer Opened",
+        `${result.installer_name} was downloaded and opened.`
+      );
+      setUpdateInfo(null);
+    } catch (e) {
+      addToast("error", "Update Failed", String(e));
+    } finally {
+      setInstallingUpdate(false);
+    }
+  }, [addToast]);
 
   const retryFfmpegDetection = useCallback(async () => {
     const available = await checkFfmpegAvailable().catch(() => false);
@@ -1345,28 +1374,74 @@ export default function App() {
 
   return (
     <div className="app" ref={appRef}>
-      {/* Update banner */}
       {updateInfo && (
-        <div className="update-banner">
-          <span>Version {updateInfo.version} available.</span>
-          <a
-            href={updateInfo.url}
-            onClick={(e) => {
-              e.preventDefault();
-              openUrl(updateInfo.url);
-            }}
-          >
-            Download
-          </a>
-          <button
-            className="update-dismiss"
-            onClick={() => {
+        <div
+          className="update-modal-backdrop"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
               saveSettings({ update_dismissed_version: updateInfo.version });
               setUpdateInfo(null);
-            }}
+            }
+          }}
+        >
+          <div
+            className="update-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="update-title"
           >
-            ✕
-          </button>
+            <div className="update-modal-header">
+              <div>
+                <div className="update-modal-kicker">Update available</div>
+                <h2 id="update-title">Version {updateInfo.version}</h2>
+              </div>
+              <button
+                className="update-close-btn"
+                type="button"
+                aria-label="Dismiss update"
+                onClick={() => {
+                  saveSettings({ update_dismissed_version: updateInfo.version });
+                  setUpdateInfo(null);
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="update-modal-copy">
+              A newer vidcord release is available. Install will download the matching
+              {updateInfo.installerName ? ` ${updateInfo.installerName}` : " installer"} for this
+              computer and open it.
+            </p>
+
+            <div className="update-modal-actions">
+              <button
+                className="update-primary-btn"
+                type="button"
+                onClick={installUpdate}
+                disabled={installingUpdate || !updateInfo.installerAvailable}
+              >
+                {installingUpdate ? "Opening..." : "Install"}
+              </button>
+              <button
+                className="update-secondary-btn"
+                type="button"
+                onClick={() => openUrl(updateInfo.url)}
+              >
+                Release Page
+              </button>
+              <button
+                className="update-secondary-btn"
+                type="button"
+                onClick={() => {
+                  saveSettings({ update_dismissed_version: updateInfo.version });
+                  setUpdateInfo(null);
+                }}
+              >
+                Later
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

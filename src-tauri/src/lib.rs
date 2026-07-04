@@ -17,7 +17,7 @@ use commands::encoders::{
     list_ffmpeg_video_encoders,
 };
 use commands::files::{get_os, resolve_output_path, show_in_file_explorer, PendingFile};
-use commands::updates::check_for_updates;
+use commands::updates::{check_for_updates, download_and_open_update_installer};
 use log::vidcord_log;
 use settings::SettingsManager;
 
@@ -223,6 +223,7 @@ pub fn run() {
             compress_video,
             cancel_compression,
             check_for_updates,
+            download_and_open_update_installer,
             show_in_file_explorer,
             get_vaapi_device,
             resolve_output_path,

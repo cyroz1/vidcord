@@ -7,49 +7,123 @@
   max-width: 100%;
 }
 
-/* ── Update banner ───────────────────────────────────────────────────── */
-.update-banner {
+/* ── Update prompt ───────────────────────────────────────────────────── */
+.update-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.48);
+}
+
+.update-modal {
+  width: min(392px, 100%);
   background: var(--surface);
   backdrop-filter: var(--blur);
   -webkit-backdrop-filter: var(--blur);
   border: 1px solid var(--border-subtle);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--radius-sm);
-  margin: 8px 14px 0;
-  padding: 8px 12px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-overlay), var(--card-top);
+  padding: 18px;
+  color: var(--text);
+}
+
+.update-modal-header {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  flex-shrink: 0;
-  box-shadow: var(--shadow-card), var(--card-top);
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.update-banner a {
+.update-modal-kicker {
   color: var(--accent);
-  font-weight: 500;
-  text-decoration: none;
-}
-.update-banner a:hover {
-  text-decoration: underline;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  margin-bottom: 4px;
 }
 
-.update-dismiss {
-  background: none;
-  border: none;
+.update-modal h2 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.update-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
   color: var(--text-secondary);
   font-size: 13px;
-  padding: 2px 4px;
-  margin-left: auto;
-  border-radius: var(--radius-xs);
-  transition:
-    color 0.15s,
-    background 0.15s;
   line-height: 1;
 }
-.update-dismiss:hover {
+
+.update-close-btn:hover {
   color: var(--text);
   background: var(--surface-subtle);
+  border-color: var(--border-subtle);
+}
+
+.update-modal-copy {
+  margin: 14px 0 18px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.update-modal-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.update-primary-btn,
+.update-secondary-btn {
+  min-height: 34px;
+  border-radius: var(--radius-xs);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+
+.update-primary-btn {
+  background: var(--accent);
+  color: var(--accent-text);
+  border: 1px solid transparent;
+  box-shadow: 0 2px 10px var(--accent-glow);
+}
+
+.update-primary-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.update-primary-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.update-secondary-btn {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.update-secondary-btn:hover {
+  background: var(--surface-subtle);
+  filter: brightness(1.08);
 }
 
 /* ── FFmpeg banner ───────────────────────────────────────────────────── */

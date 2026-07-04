@@ -45,6 +45,13 @@ export type UpdateCheckResult = {
   update_available: boolean;
   latest_version?: string;
   release_url?: string;
+  installer_available?: boolean;
+  installer_name?: string;
+};
+
+export type UpdateInstallResult = {
+  path: string;
+  installer_name: string;
 };
 
 export function loadSettings(): Promise<Settings> {
@@ -125,6 +132,10 @@ export function cancelCompression(): Promise<void> {
 
 export function checkForUpdates(currentVersion: string): Promise<UpdateCheckResult> {
   return invoke<UpdateCheckResult>("check_for_updates", { currentVersion });
+}
+
+export function downloadAndOpenUpdateInstaller(): Promise<UpdateInstallResult> {
+  return invoke<UpdateInstallResult>("download_and_open_update_installer");
 }
 
 export function showInFileExplorer(path: string): Promise<void> {
