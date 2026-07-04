@@ -17,6 +17,7 @@ const MAX_PREVIEW_DEVICE_SCALE = 2;
 const MIN_PREVIEW_PIXEL_DIM = 240;
 const MAX_PREVIEW_PIXEL_WIDTH = 960;
 const MAX_PREVIEW_PIXEL_HEIGHT = 1080;
+const MAX_GENERATED_PREVIEW_CLIP_SECONDS = 12;
 
 // Module-scope static style objects. Hoisted so React doesn't allocate a
 // fresh object literal per render — PreviewPane re-renders on every
@@ -257,6 +258,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const endBoundaryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const schedulePlaybackBoundaryRef = useRef<(() => void) | null>(null);
   const clipUrlRef = useRef<string | null>(null);
+  const generatedClipEndTimeRef = useRef<number | null>(null);
   const playbackSessionRef = useRef(0);
   const playbackOffsetRef = useRef(0);
   const usingGeneratedClipRef = useRef(false);
@@ -640,6 +642,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     }
     scrubVideoSrcRef.current = null;
     setScrubVideoReady(false);
+    generatedClipEndTimeRef.current = null;
     playbackOffsetRef.current = 0;
     usingGeneratedClipRef.current = false;
     currentPlaybackTimeRef.current = 0;
@@ -655,7 +658,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   const handlePlaybackBoundary = useCallback(() => {
     if (!playingRef.current) return;
-    if (loopPlayback && endTime > startTime) {
+    const generatedClipCoversTrimEnd =
+      !usingGeneratedClipRef.current ||
+      (generatedClipEndTimeRef.current !== null &&
+        generatedClipEndTimeRef.current >= endTime - 0.05);
+    if (loopPlayback && endTime > startTime && generatedClipCoversTrimEnd) {
       seekTo(startTime);
       schedulePlaybackBoundaryRef.current?.();
       const vid = videoRef.current;
@@ -730,17 +737,23 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       if (tryingGeneratedClip) return;
       tryingGeneratedClip = true;
       try {
-        const buffer = await getPreviewClip(filePath, startTime, endTime);
+        const fallbackStartTime = Math.max(startTime, Math.min(resumeTime, endTime));
+        const fallbackEndTime = Math.min(
+          endTime,
+          fallbackStartTime + MAX_GENERATED_PREVIEW_CLIP_SECONDS
+        );
+        const buffer = await getPreviewClip(filePath, fallbackStartTime, fallbackEndTime);
         if (playbackSessionRef.current !== session) return;
         const blob = new Blob([new Uint8Array(buffer)], { type: "video/mp4" });
         const clipUrl = URL.createObjectURL(blob);
         if (clipUrlRef.current) URL.revokeObjectURL(clipUrlRef.current);
         clipUrlRef.current = clipUrl;
         usingGeneratedClipRef.current = true;
-        playbackOffsetRef.current = startTime;
+        generatedClipEndTimeRef.current = fallbackEndTime;
+        playbackOffsetRef.current = fallbackStartTime;
         vid.onloadedmetadata = () => {
           vid.onloadedmetadata = null;
-          vid.currentTime = resumeClipOffset;
+          vid.currentTime = 0;
         };
         vid.src = clipUrl;
         await vid.play();
@@ -768,6 +781,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       }
       sourceIndex = index;
       usingGeneratedClipRef.current = false;
+      generatedClipEndTimeRef.current = null;
       playbackOffsetRef.current = 0;
       vid.src = sources[index];
       vid

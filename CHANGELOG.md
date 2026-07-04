@@ -1,17 +1,15 @@
 # Changelog
 
-## WIP
+## v6.6
 
 ### Preview
 
+- **Reimplemented video preview**: the preview system has been rebuilt around source-shaped playback, live scrub updates, display-sized thumbnails and filmstrips, and a more accurate trim playback loop.
 - **Sharper preview frames and filmstrips**: trim previews now request images sized to the rendered preview pane, including HiDPI displays, instead of using fixed low-resolution thumbnails.
-- **More reliable preview decoding**: preview frames and filmstrips try FFmpeg hardware decode first and automatically retry with software decode when hardware acceleration fails.
+- **More reliable preview generation**: preview frames and filmstrips try FFmpeg hardware decode first and automatically retry with software decode when hardware acceleration fails.
 - **Faster long-video filmstrips**: videos over 10 minutes now use sparse frame seeks and lower frame counts so loading long clips does less upfront thumbnail work.
 - **Hardware-accelerated preview clips**: generated scrub preview clips now try platform H.264 hardware encoders where available before falling back to `libx264`.
-- **Live scrub previews**: dragging trim handles, dragging the selected range, or seeking on the timeline now updates the preview from the video element where supported, with static-frame fallback behavior preserved on Linux.
-- **Source-shaped preview pane**: the preview area now follows the source video's display aspect ratio and keeps a stable size in the compact layout.
-- **More accurate preview playback**: trim playback now starts from the current playhead when it is inside the selected range, stops at the trim out point more precisely, and loops correctly even when the selected range reaches the source video's end.
-- **Full-range fallback preview clips**: generated fallback preview clips now cover the selected trim range instead of being capped to the first 12 seconds.
+- **Playhead-aware fallback preview clips**: generated fallback preview clips now start from the current playhead and stay bounded to a short preview window so long selections do not generate huge in-memory clips.
 
 ### UI
 
@@ -27,7 +25,7 @@
 
 ### Internal
 
-- Preview frame cache keys now include requested output dimensions, and preview clip cache keys include the source file path to avoid stale preview reuse across files or display sizes.
+- Preview frame cache keys now include requested output dimensions, and preview clip cache keys include the source file path and bounded time window to avoid stale preview reuse across files or display sizes.
 - Rust audit ignores now include the current upstream `quick-xml` advisories that are blocked on the Tauri/plist dependency chain.
 
 ## v6.5

@@ -107,7 +107,7 @@ first pass lands too large.
 - **In-app preview** of the trimmed segment before you commit to a compress,
   starting from the current playhead when it is inside the selected range.
 - **Responsive scrub previews** with display-sized filmstrip/frame thumbnails,
-  sparse thumbnail generation for long videos, full-range fallback preview clips,
+  sparse thumbnail generation for long videos, playhead-aware fallback preview clips,
   and hardware-accelerated preview clips where FFmpeg supports them.
 - **Hardware acceleration**, auto-detected at startup:
   - NVIDIA NVENC (`h264_nvenc`, `hevc_nvenc`)
