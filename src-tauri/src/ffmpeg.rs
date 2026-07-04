@@ -33,6 +33,7 @@ fn command_output_or_ffmpeg_missing(
 const PREVIEW_CLIP_SCALE_FILTER: &str =
     "scale=w=1280:h=720:flags=fast_bilinear:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1";
 const PREVIEW_CLIP_BITRATE: &str = "2500k";
+const MAX_GENERATED_PREVIEW_CLIP_SECONDS: f64 = 12.0;
 const SPARSE_FILMSTRIP_THRESHOLD_SEC: f64 = 10.0 * 60.0;
 const DEFAULT_PREVIEW_IMAGE_WIDTH: u32 = 720;
 const DEFAULT_PREVIEW_IMAGE_HEIGHT: u32 = 480;
@@ -816,6 +817,12 @@ pub fn generate_preview_clip(
     start_time_sec: f64,
     end_time_sec: f64,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let start_time_sec = finite_non_negative(start_time_sec);
+    let requested_end_time_sec = finite_non_negative(end_time_sec);
+    let duration =
+        (requested_end_time_sec - start_time_sec).clamp(0.2, MAX_GENERATED_PREVIEW_CLIP_SECONDS);
+    let end_time_sec = start_time_sec + duration;
+
     // Try to get from cache first
     let start_ms = time_to_ms(start_time_sec);
     let end_ms = time_to_ms(end_time_sec);

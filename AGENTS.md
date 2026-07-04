@@ -258,7 +258,7 @@ Every `std::process::Command::new("ffmpeg"|"ffprobe")` in Rust must:
 - `FFMPEG_AVAIL_CACHE` — 30 s TTL on `ffmpeg -version` probe, with `ffmpeg_available_fresh()` for post-install bypass.
 
 Call `clear_preview_caches()` when the frontend loads a new file (already done in `probe`).
-Preview frame and filmstrip IPC accepts optional preview dimensions; the backend clamps them to even values before building FFmpeg scale filters. Long videos (10+ minutes) use sparse seeks for filmstrip generation instead of a dense single-pass `fps` filter. Generated preview clips cover the selected trim range, try platform H.264 hardware encoders first, then fall back through software `libx264`.
+Preview frame and filmstrip IPC accepts optional preview dimensions; the backend clamps them to even values before building FFmpeg scale filters. Long videos (10+ minutes) use sparse seeks for filmstrip generation instead of a dense single-pass `fps` filter. Generated preview clips are bounded to a short playhead-relative window, try platform H.264 hardware encoders first, then fall back through software `libx264`.
 
 ### Settings
 
@@ -308,7 +308,7 @@ The app re-renders on every trim-slider move. Established patterns:
 When the user asks to change the version, update **every** reference in one commit so semver and `vX.Y` references stay aligned. There is no single source of truth — these all need to match:
 
 1. **Packaging / source**:
-   - `package.json` (`version`, full semver e.g. `6.5.0`)
+   - `package.json` (`version`, full semver e.g. `6.6.0`)
    - `package-lock.json` (run `npm install` after editing `package.json` so the lockfile picks up the new version — don't hand-edit)
    - `src-tauri/Cargo.toml` (`version`, full semver)
    - `src-tauri/Cargo.lock` (run `cargo check --manifest-path src-tauri/Cargo.toml` so the lockfile updates)
