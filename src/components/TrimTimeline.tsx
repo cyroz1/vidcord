@@ -1,4 +1,4 @@
-import { memo, type MouseEvent, type RefObject, type WheelEvent } from "react";
+import { memo, useState, type MouseEvent, type RefObject, type WheelEvent } from "react";
 
 export type SnapMode = "off" | "0.1" | "0.5" | "1.0";
 
@@ -77,8 +77,12 @@ function TrimTimeline({
   onStartChange,
   onEndChange,
 }: Props) {
+  const [shortcutsHovered, setShortcutsHovered] = useState(false);
+  const [shortcutsFocused, setShortcutsFocused] = useState(false);
+  const shortcutsOpen = shortcutsHovered || shortcutsFocused;
+
   return (
-    <div className="trim-section">
+    <div className={`trim-section${shortcutsOpen ? " shortcuts-open" : ""}`}>
       <div className="trim-header">
         <span className="section-title">Trim Video</span>
         <span className="trim-selection-meta">
@@ -149,7 +153,17 @@ function TrimTimeline({
           />
           Loop
         </label>
-        <div className="trim-shortcuts-popover">
+        <div
+          className="trim-shortcuts-popover"
+          onMouseEnter={() => setShortcutsHovered(true)}
+          onMouseLeave={() => setShortcutsHovered(false)}
+          onFocusCapture={() => setShortcutsFocused(true)}
+          onBlurCapture={(event) => {
+            const nextTarget = event.relatedTarget;
+            if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+            setShortcutsFocused(false);
+          }}
+        >
           <button
             type="button"
             className="trim-mini-btn trim-shortcuts-btn"

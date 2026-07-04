@@ -8,17 +8,27 @@
 - **More reliable preview decoding**: preview frames and filmstrips try FFmpeg hardware decode first and automatically retry with software decode when hardware acceleration fails.
 - **Faster long-video filmstrips**: videos over 10 minutes now use sparse frame seeks and lower frame counts so loading long clips does less upfront thumbnail work.
 - **Hardware-accelerated preview clips**: generated scrub preview clips now try platform H.264 hardware encoders where available before falling back to `libx264`.
+- **Live scrub previews**: dragging trim handles, dragging the selected range, or seeking on the timeline now updates the preview from the video element where supported, with static-frame fallback behavior preserved on Linux.
+- **Source-shaped preview pane**: the preview area now follows the source video's display aspect ratio and keeps a stable size in the compact layout.
 - **More accurate preview playback**: trim playback now starts from the current playhead when it is inside the selected range, stops at the trim out point more precisely, and loops correctly even when the selected range reaches the source video's end.
 - **Full-range fallback preview clips**: generated fallback preview clips now cover the selected trim range instead of being capped to the first 12 seconds.
 
 ### UI
 
-- **Compact fixed window**: the main window is now fixed at 460×690, and saved window state restores position only so stale dimensions cannot leave extra blank space or reintroduce scrollbars.
+- **Auto-fitting compact window**: the main window now starts at 460×690, keeps a fixed width, and automatically adjusts height to fit content and the available monitor space while saved window state restores position only.
 - **Tighter settings layout**: target, FPS, and encoder controls now use fixed-width sizing where needed so the standard and advanced rows fit cleanly in the compact window.
+- **Cleaner shortcut help**: the trim shortcut reference is now a hover/focus popover so it no longer expands the timeline layout.
+- **Safer encoder warning tooltip**: the H.265 compatibility tooltip now opens above the encoder row and layers over neighboring controls reliably.
+
+### Documentation
+
+- Refreshed the website screenshots with corrected compact-window captures.
+- Updated the README, website copy, structured data, and AI grounding files for scrub preview and preview-from-playhead behavior.
 
 ### Internal
 
 - Preview frame cache keys now include requested output dimensions, and preview clip cache keys include the source file path to avoid stale preview reuse across files or display sizes.
+- Rust audit ignores now include the current upstream `quick-xml` advisories that are blocked on the Tauri/plist dependency chain.
 
 ## v6.5
 
