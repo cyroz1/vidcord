@@ -2,9 +2,10 @@
 
 vidcord requires FFmpeg to be installed and available on your system PATH. Follow the steps for your platform below.
 
-If FFmpeg is missing, vidcord now shows an install banner in-app:
-- Windows: runs `winget install Gyan.FFmpeg`
-- Windows ARM64: opens guided community build download page
+If FFmpeg is missing, vidcord can help install it without bundling FFmpeg
+binaries:
+
+- Windows: the installer and first launch can run `winget install Gyan.FFmpeg`
 - macOS: runs `brew install ffmpeg`
 - Linux: can run distro install commands with privilege confirmation
 
@@ -12,9 +13,12 @@ If FFmpeg is missing, vidcord now shows an install banner in-app:
 
 ## Windows
 
-### x86_64 (most PCs)
+### Package-manager setup
 
-Open **PowerShell** or **Command Prompt** and run:
+The vidcord installer and first-launch setup offer to install FFmpeg with
+`winget` if `ffmpeg` and `ffprobe` are not already on PATH. If you skipped that
+step or the automatic install failed, open **PowerShell** or **Command Prompt**
+and run:
 
 ```powershell
 winget install Gyan.FFmpeg
@@ -26,7 +30,8 @@ Then **restart your PC** (or sign out and back in) to apply the PATH change.
 
 ### ARM64 (Surface Pro X, Snapdragon PCs)
 
-No official ARM64 FFmpeg build exists for Windows yet. Download the community build manually:
+vidcord tries `winget` first. If that package is unavailable for your ARM64 PC,
+download the community build manually:
 
 1. Go to [github.com/tordona/ffmpeg-win-arm64/releases](https://github.com/tordona/ffmpeg-win-arm64/releases) and download the latest `ffmpeg-*-essentials-static-win-arm64.7z`
 2. Extract the archive (use [7-Zip](https://www.7-zip.org/) if needed)

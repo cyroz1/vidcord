@@ -6,7 +6,7 @@
     <title>vidcord - Free Discord Video Compressor for Windows, macOS, and Linux</title>
     <meta
       name="description"
-      content="vidcord is a free, open-source desktop video compressor for Discord upload limits. Install FFmpeg first, then compress videos locally on Windows, macOS, and Linux."
+      content="vidcord is a free, open-source desktop video compressor for Discord upload limits. It can help install FFmpeg, then compresses videos locally on Windows, macOS, and Linux."
     />
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta
@@ -87,7 +87,7 @@
             "applicationCategory": "MultimediaApplication",
             "operatingSystem": ["Windows", "macOS", "Linux"],
             "license": "https://github.com/cyroz1/vidcord/blob/main/LICENSE",
-            "softwareRequirements": "FFmpeg and ffprobe must be available on PATH.",
+            "softwareRequirements": "FFmpeg and ffprobe must be available on PATH; vidcord can help install them through platform package managers.",
             "description": "vidcord compresses MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord upload size limits locally on Windows, macOS, and Linux.",
             "featureList": [
               "Local video compression with FFmpeg",
@@ -156,7 +156,7 @@
                 "name": "Does vidcord include FFmpeg?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "No. vidcord uses the system ffmpeg and ffprobe binaries, so FFmpeg must be installed and available on PATH."
+                  "text": "No. vidcord uses the system ffmpeg and ffprobe binaries, so FFmpeg must be installed and available on PATH. The installer or first launch can help install it through platform package managers."
                 }
               }
             ]
@@ -238,9 +238,10 @@
               />
             </svg>
             <div>
-              <strong id="ffmpeg-prereq-title">Install FFmpeg first</strong>
+              <strong id="ffmpeg-prereq-title">FFmpeg required</strong>
               <span id="ffmpegInstruction">
-                Install <code>ffmpeg</code> and <code>ffprobe</code> before compressing videos.
+                vidcord can help install <code>ffmpeg</code> and <code>ffprobe</code> before
+                compressing videos.
               </span>
               <div class="command-block ffmpeg-prereq-command" id="ffmpegCommandBlock" hidden>
                 <code id="ffmpegCommand"></code>
@@ -536,9 +537,9 @@
           <article>
             <h3>Does vidcord include FFmpeg?</h3>
             <p>
-              No. Install FFmpeg separately and make sure <code>ffmpeg</code> and
-              <code>ffprobe</code> are available on your PATH. Start with the
-              <a href="#ffmpeg-install">platform setup steps</a>.
+              No. Make sure <code>ffmpeg</code> and <code>ffprobe</code> are available on your PATH.
+              vidcord can help install them with the
+              <a href="#ffmpeg-install">platform package-manager steps</a>.
             </p>
           </article>
           <article>
@@ -555,10 +556,11 @@
       <section class="ffmpeg-section" id="ffmpeg-install" aria-labelledby="ffmpeg-title">
         <div class="section-heading">
           <div>
-            <h2 id="ffmpeg-title">Install FFmpeg first</h2>
+            <h2 id="ffmpeg-title">Set up FFmpeg</h2>
             <p>
-              vidcord does not bundle FFmpeg. Install it once, then launch vidcord and it will
-              detect <code>ffmpeg</code> and <code>ffprobe</code> automatically.
+              vidcord does not bundle FFmpeg. The installer or first launch can help install it
+              through your platform package manager, then detect <code>ffmpeg</code> and
+              <code>ffprobe</code> automatically.
             </p>
           </div>
           <a
@@ -575,7 +577,7 @@
           <article class="ffmpeg-install-card" id="ffmpeg-windows" data-ffmpeg-platform="windows">
             <span class="detected-pill">Detected platform</span>
             <h3>Windows</h3>
-            <p>Most Windows 10 and Windows 11 PCs can install FFmpeg from PowerShell:</p>
+            <p>vidcord can run this through the installer or first-launch setup:</p>
             <div class="command-block">
               <pre><code id="ffmpeg-windows-command">winget install Gyan.FFmpeg</code></pre>
               <button class="copy-command" type="button" data-copy-target="ffmpeg-windows-command">
@@ -584,8 +586,8 @@
             </div>
             <p>
               Restart your PC, or sign out and back in, so PATH includes <code>ffmpeg.exe</code> and
-              <code>ffprobe.exe</code>. Windows ARM64 users should follow the manual steps in the
-              full guide.
+              <code>ffprobe.exe</code>. If winget cannot install on your machine, use the full
+              guide.
             </p>
           </article>
 
@@ -642,8 +644,8 @@ sudo pacman -S ffmpeg</code></pre>
           <div>
             <strong>FFmpeg required</strong>
             <span
-              >Install FFmpeg before using vidcord. The app shells out to your system
-              <code>ffmpeg</code> and <code>ffprobe</code>.</span
+              >vidcord can help install FFmpeg through your package manager. The app shells out to
+              your system <code>ffmpeg</code> and <code>ffprobe</code>.</span
             >
           </div>
           <div class="ffmpeg-callout-actions">

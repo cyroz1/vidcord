@@ -488,18 +488,11 @@
     }
   }
 
-  function ffmpegInstallInfo(platform, arch) {
-    if (platform === "windows" && arch === "arm64") {
-      return {
-        instruction:
-          "Windows ARM64 needs a community FFmpeg build. Download it, copy ffmpeg.exe and ffprobe.exe to C:\\ffmpeg, then add that folder to PATH.",
-        command: "",
-      };
-    }
-
+  function ffmpegInstallInfo(platform) {
     if (platform === "windows") {
       return {
-        instruction: "Open PowerShell or Command Prompt, run this, then restart or sign out:",
+        instruction:
+          "vidcord can run this during install or first launch. If needed, run it manually, then restart or sign out:",
         command: "winget install Gyan.FFmpeg",
       };
     }
@@ -531,8 +524,7 @@
     }
 
     const platform = state.selectedPlatform || state.platform;
-    const arch = effectiveArchForPlatform(platform);
-    const installInfo = ffmpegInstallInfo(platform, arch);
+    const installInfo = ffmpegInstallInfo(platform);
 
     ffmpegInstruction.textContent = installInfo.instruction;
     ffmpegCommand.textContent = installInfo.command;

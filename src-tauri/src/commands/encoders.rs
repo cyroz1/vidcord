@@ -136,19 +136,6 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
 
         #[cfg(target_os = "windows")]
         {
-            if std::env::consts::ARCH == "aarch64" {
-                return FfmpegInstallResult {
-                    status: "needs_manual_download".to_string(),
-                    message:
-                        "Windows ARM64 requires a community FFmpeg build. Open the setup guide to download and add it to PATH."
-                            .to_string(),
-                    hint_command: None,
-                    guide_url: Some(
-                        "https://github.com/tordona/ffmpeg-win-arm64/releases".to_string(),
-                    ),
-                };
-            }
-
             if !command_exists("winget") {
                 return FfmpegInstallResult {
                     status: "failed".to_string(),

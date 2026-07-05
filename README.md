@@ -127,8 +127,9 @@ first pass lands too large.
   bitrate parsed from FFmpeg's stderr.
 - **Auto-increment output** — saves `name-vidcord.mp4` and bumps `-1`, `-2`,
   … if the filename is taken, never overwriting.
-- **In-app FFmpeg install banner** when it's missing — `winget` on Windows,
-  `brew` on macOS, or distro package manager on Linux (with confirmation).
+- **Automated FFmpeg setup assistance** — Windows installers offer `winget`,
+  and first launch prompts to install through the platform package manager.
+  No FFmpeg binaries are bundled with vidcord.
 - **Cross-platform installers:** Windows NSIS (x86_64 + aarch64), macOS
   universal `.dmg`, Linux `.AppImage` (x86_64 + aarch64).
 
@@ -164,26 +165,30 @@ Grab the latest installer for your platform from the releases page:
 | Linux (any distro with glibc) | aarch64 | `vidcord_<version>_aarch64.AppImage` |
 
 > **You still need FFmpeg.** vidcord does not bundle FFmpeg. See the next
-> section.
+> section. The installer or first launch can offer to install it for you.
 
 ## FFmpeg setup
 
 vidcord shells out to the system `ffmpeg` and `ffprobe` binaries, which must
-be on `PATH`. If they aren't, vidcord shows an in-app banner with a
-one-click install for your platform.
+be on `PATH`. If they aren't, vidcord can prompt on first launch and attempt a
+package-manager install: `winget` on Windows, `brew` on macOS, or apt/dnf/pacman
+on Linux with privilege confirmation.
 
-### Windows (x86_64)
+### Windows
 
 ```powershell
 winget install Gyan.FFmpeg
 ```
 
-Restart vidcord (or sign out and back in) so the new `PATH` takes effect.
+The vidcord installer and first-launch setup can run this for you when FFmpeg is
+missing. Restart vidcord (or sign out and back in) so the new `PATH` takes
+effect.
 
 ### Windows (aarch64 — Surface Pro X, Snapdragon PCs)
 
-No official ARM64 build exists yet. See [FFMPEG_SETUP.md](FFMPEG_SETUP.md)
-for the community build and manual PATH steps.
+vidcord tries the same `winget` setup first. If the package is unavailable for
+your ARM64 PC, see [FFMPEG_SETUP.md](FFMPEG_SETUP.md) for the community build
+and manual PATH steps.
 
 ### macOS
 

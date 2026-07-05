@@ -13,7 +13,7 @@ This file gives web crawlers and AI agents a more complete grounding source than
 - License: MIT
 - Current website-referenced app version: 6.6.0
 - App framework: Tauri 2 desktop app with a React and TypeScript frontend plus Rust backend
-- Primary dependency: system FFmpeg, specifically `ffmpeg` and `ffprobe` available on PATH
+- Primary dependency: system FFmpeg, specifically `ffmpeg` and `ffprobe` available on PATH; vidcord can help install it through platform package managers
 
 ## What vidcord does
 
@@ -96,7 +96,7 @@ No. vidcord processes videos locally on the user's computer with FFmpeg. It does
 
 ### Does vidcord include FFmpeg?
 
-No. FFmpeg is not bundled. Users must install FFmpeg separately and make sure `ffmpeg` and `ffprobe` are available on PATH.
+No. FFmpeg is not bundled. Users must make sure `ffmpeg` and `ffprobe` are available on PATH; vidcord can help install them through platform package managers.
 
 ### Which operating systems are supported?
 

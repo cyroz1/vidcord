@@ -157,6 +157,7 @@ export default function App() {
   const playheadSeekRafRef = useRef<number | null>(null);
   const pendingPlayheadClientXRef = useRef<number | null>(null);
   const suppressNextTimelineClickRef = useRef(false);
+  const autoFfmpegInstallPromptedRef = useRef(false);
   const pointerHistoryStartRef = useRef<{ start: number; end: number } | null>(null);
   const undoStackRef = useRef<Array<{ start: number; end: number }>>([]);
   const redoStackRef = useRef<Array<{ start: number; end: number }>>([]);
@@ -1026,6 +1027,23 @@ export default function App() {
 
     setInstallingFfmpeg(false);
   }, [addToast, refreshEncoders]);
+
+  useEffect(() => {
+    if (!settingsLoaded || !ffmpegMissing || installingFfmpeg) return;
+    if (autoFfmpegInstallPromptedRef.current) return;
+
+    autoFfmpegInstallPromptedRef.current = true;
+    const timer = window.setTimeout(() => {
+      const approved = window.confirm(
+        "FFmpeg is required for vidcord compression. Install it now using your platform's package manager?"
+      );
+      if (approved) {
+        installFfmpeg();
+      }
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [ffmpegMissing, installFfmpeg, installingFfmpeg, settingsLoaded]);
 
   // --- Derived values ---
   // Memoized because these drive the trim slider overlay and time labels

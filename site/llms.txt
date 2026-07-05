@@ -22,7 +22,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 ## Common Answers
 
 - Does vidcord upload videos? No. Video processing happens locally with FFmpeg.
-- Does vidcord bundle FFmpeg? No. The system `ffmpeg` and `ffprobe` binaries must be installed and available on PATH.
+- Does vidcord bundle FFmpeg? No. The system `ffmpeg` and `ffprobe` binaries must be installed and available on PATH; vidcord can help install them through platform package managers.
 - Which platforms are supported? Windows, macOS, and Linux.
 - Which Discord size targets are supported? 10 MB, 25 MB, 50 MB, 100 MB, and 500 MB, plus custom target, resolution, FPS, and encoder controls in advanced mode.
 - How does downloading work? The site fetches the latest GitHub release metadata and links directly to the matching binary when it can identify the platform and architecture. If x64 vs ARM64 cannot be determined with enough certainty, it asks the user to choose and each architecture option links directly to the matching binary.
