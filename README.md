@@ -64,11 +64,11 @@ no uploads, no telemetry.
 
 Discord caps uploads at 10 MB (free), 25 MB (legacy), 50 MB (Nitro Basic /
 Boost Level 2), 100 MB (Boost Level 3), and 500 MB (Nitro). vidcord picks a
-target bitrate for the clip length you want, runs FFmpeg with the right
-hardware encoder for your GPU, and drops the result in your **Downloads**
-folder. It verifies the finished file against your selected size limit and
-automatically retries with CPU encoding and safer bitrates when FFmpeg's
-first pass lands too large.
+target bitrate for the clip length you want, lets you choose from the video
+encoders exposed by your FFmpeg install, and drops the result in your
+**Downloads** folder. It verifies the finished file against your selected size
+limit and automatically retries with CPU encoding and safer bitrates when
+FFmpeg's first pass lands too large.
 
 - **~10 MB installer.** Tauri uses the system WebView (Edge on Windows,
   WebKit on macOS/Linux) instead of bundling Chromium.
@@ -102,8 +102,8 @@ first pass lands too large.
 - **Output FPS controls** — standard mode can leave FPS unchanged or cap it
   at 24, 30, or 60 FPS, hiding options above the source frame rate. Advanced
   mode accepts a custom FPS value, or an empty field shown as Off for no change.
-- **Trim timeline** with frame-accurate handles, draggable playhead,
-  snap tick marks, and a minimap when zoomed in.
+- **Trim timeline** with frame-accurate handles, draggable playhead, snap
+  controls, zoom, pan, undo/redo, and optional looped playback.
 - **In-app preview** of the trimmed segment before you commit to a compress,
   starting from the current playhead when it is inside the selected range.
 - **Responsive scrub previews** with display-sized filmstrip/frame thumbnails,
@@ -117,8 +117,8 @@ first pass lands too large.
   - Apple Silicon VideoToolbox (`h264_videotoolbox`, `hevc_videotoolbox`)
 - **Three ways to open a video:** drag-and-drop onto the window, "Open with
   vidcord" from Explorer/Finder, or the in-app **Browse** button.
-- **Compact fixed window** — the 460×690 desktop window keeps the controls,
-  preview, progress, and footer visible without resizing.
+- **Compact fixed-width window** — starts at 460×690, keeps a fixed 460 px
+  width, and automatically adjusts height to fit content and monitor space.
 - **Remove audio** — strip the audio track to reclaim space.
 - **Strict size checks** — finished files are measured against the selected
   target; oversized results are retried with `libx264` and lower safety
@@ -232,19 +232,20 @@ Output goes to `~/Downloads/<original-name>-vidcord.mp4` by default, with
 |-----|--------|
 | `Space` | Play / stop preview from the playhead |
 | `,` / `.` | Step one frame back / forward |
-| `Shift` + `,` / `.` | Nudge active trim handle by one frame |
+| `Shift` + `←` / `→` | Nudge active trim handle by a small step |
 | `J` / `K` | Jump playhead to trim start / end |
 | `[` / `]` | Nudge trim start / end by a small step |
 | `I` / `O` | Set trim in / out to current playhead |
-| `R` | Reset trim to full clip |
-| `?` | Open shortcuts cheat-sheet |
-| `Esc` | Dismiss overlays |
+| `R` / `U` | Reset trim to full clip |
+| `Cmd/Ctrl` + `Z` | Undo trim |
+| `Cmd/Ctrl` + `Shift` + `Z` | Redo trim |
 
 ## Hardware acceleration
 
-At startup vidcord runs `ffmpeg -encoders` and picks the best available
-hardware encoder for the GPU it detects. You can override this from the
-**Encoders** dialog.
+At startup vidcord runs `ffmpeg -encoders`, detects compatible CPU and hardware
+encoders, and lets you choose the encoder to use. Advanced mode can accept any
+FFmpeg video encoder string; the **Encoders** dialog shows what your installed
+FFmpeg exposes.
 
 | Vendor / Platform | Encoder | Notes |
 |---|---|---|
@@ -290,7 +291,7 @@ npm run tauri build
 
 Installers / bundles land in `src-tauri/target/release/bundle/`.
 
-### Quality gates (what CI runs)
+### Quality gates
 
 ```sh
 npm run lint                                            # eslint src
@@ -300,10 +301,12 @@ npm run format                                          # prettier --write src
 cargo fmt   --check --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings
 cargo test  --manifest-path src-tauri/Cargo.toml
-cargo audit --manifest-path src-tauri/Cargo.toml        # respects .cargo/audit.toml
+(cd src-tauri && cargo audit)                           # respects .cargo/audit.toml
 ```
 
-CI treats any clippy warning as an error — keep new Rust code warning-clean.
+CI treats any clippy warning as an error and also runs npm/Rust audit, version,
+asset, lint, typecheck, test, and build checks. Keep new Rust code
+warning-clean.
 
 ### Build profiles
 

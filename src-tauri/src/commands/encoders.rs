@@ -42,6 +42,7 @@ fn ffmpeg_tool_probe(tool: &str) -> bool {
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new(tool);
     cmd.arg("-version")
+        .envs(get_ffmpeg_env())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     #[cfg(target_os = "windows")]
