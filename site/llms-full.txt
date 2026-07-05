@@ -78,6 +78,7 @@ The site documents Open With behavior:
 - Strict output size checks with retry behavior
 - Auto-incremented output filenames
 - Encoder detection for installed FFmpeg capabilities
+- User-selectable CPU/GPU encoders, with CPU fallback during retry flows when needed
 - GPU acceleration support when FFmpeg exposes supported encoders
 
 GPU encoder families mentioned by the website:
