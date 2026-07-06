@@ -633,6 +633,7 @@ export default function App() {
       setPreviewMaxHeight(null);
       setFilePath(path);
       setFileName(path.split(/[\\/]/).pop() ?? path);
+      setProbeData(null);
       pendingTrimStateRef.current = null;
       if (trimStateRafRef.current !== null) {
         window.cancelAnimationFrame(trimStateRafRef.current);

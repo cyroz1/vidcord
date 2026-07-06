@@ -885,7 +885,6 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     () => ({
       ...containerStyle,
       aspectRatio: `${previewAspectRatio}`,
-      height: maxHeight === null ? undefined : `${maxHeight}px`,
       maxHeight: maxHeight === null ? undefined : `${maxHeight}px`,
     }),
     [maxHeight, previewAspectRatio]
