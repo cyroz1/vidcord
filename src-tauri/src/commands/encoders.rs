@@ -97,7 +97,7 @@ fn run_shell(command: &str) -> std::io::Result<std::process::ExitStatus> {
 pub async fn detect_encoders() -> Vec<serde_json::Value> {
     tokio::task::spawn_blocking(|| {
         let detected = get_available_encoders();
-        let ffmpeg_missing = detected.ffmpeg_missing || !ffmpeg_available();
+        let ffmpeg_missing = detected.ffmpeg_missing;
         detected
             .encoders
             .into_iter()

@@ -28,6 +28,7 @@ import {
   checkForUpdates,
   compressVideo,
   downloadAndOpenUpdateInstaller,
+  frontendReady,
   getOs,
   getVaapiDevice,
   installFfmpegDependency,
@@ -79,6 +80,7 @@ const MIN_FALLBACK_WINDOW_HEIGHT = 560;
 const WINDOW_SCREEN_MARGIN = 32;
 const WINDOW_CONTENT_FIT_PADDING = 2;
 const WINDOW_RESIZE_EPSILON = 2;
+const UPDATE_CHECK_DELAY_MS = 8000;
 
 function isH265Encoder(name: string): boolean {
   return name === "libx265" || name.startsWith("hevc_");
@@ -223,10 +225,22 @@ export default function App() {
       const contentHeight = measureContentHeight();
       if (contentHeight === null) return;
 
+      const desiredHeight = Math.max(MIN_WINDOW_HEIGHT, contentHeight + WINDOW_CONTENT_FIT_PADDING);
+      const currentHeight = Math.round(window.innerHeight);
+      const availableScreenHeight =
+        window.screen.availHeight > 0 ? window.screen.availHeight - WINDOW_SCREEN_MARGIN : Infinity;
+      if (
+        autoWindowHeightRef.current === null &&
+        currentHeight <= availableScreenHeight &&
+        Math.abs(currentHeight - desiredHeight) < WINDOW_RESIZE_EPSILON
+      ) {
+        autoWindowHeightRef.current = desiredHeight;
+        return;
+      }
+
       const maxLogicalHeight = await getMaxLogicalHeight();
       if (disposed) return;
 
-      const desiredHeight = Math.max(MIN_WINDOW_HEIGHT, contentHeight + WINDOW_CONTENT_FIT_PADDING);
       const targetHeight =
         maxLogicalHeight === null
           ? desiredHeight
@@ -270,12 +284,16 @@ export default function App() {
     const mutationObserver = new MutationObserver(scheduleResize);
 
     if (appRef.current) {
+      const scrollArea = appRef.current.querySelector<HTMLElement>(".scroll-area");
       resizeObserver.observe(appRef.current);
-      mutationObserver.observe(appRef.current, {
-        childList: true,
-        subtree: true,
-        characterData: true,
-      });
+      if (scrollArea) {
+        resizeObserver.observe(scrollArea);
+        mutationObserver.observe(scrollArea, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+        });
+      }
     }
 
     const onResize = () => {
@@ -606,8 +624,15 @@ export default function App() {
   }, [loadVideo]);
 
   useEffect(() => {
+    let disposed = false;
     const unsub = listen<string>("open-file", (e) => loadVideoRef.current(e.payload));
+    unsub
+      .then(() => {
+        if (!disposed) frontendReady().catch(() => {});
+      })
+      .catch(() => {});
     return () => {
+      disposed = true;
       unsub.then((fn) => fn());
     };
   }, []);
@@ -769,26 +794,35 @@ export default function App() {
     if (!settingsLoaded) return;
     const lastCheck = (settingsRef.current.update_last_check as number) ?? 0;
     if (Date.now() / 1000 - lastCheck < 6 * 3600) return;
-    checkForUpdates(CURRENT_VERSION)
-      .then((r) => {
-        if (r.update_available && r.latest_version && r.release_url) {
-          const dismissed = settingsRef.current.update_dismissed_version as string | undefined;
-          if (dismissed !== r.latest_version) {
-            setUpdateInfo({
-              version: r.latest_version,
-              url: r.release_url,
-              installerAvailable: r.installer_available === true,
-              installerName: r.installer_name,
-            });
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      checkForUpdates(CURRENT_VERSION)
+        .then((r) => {
+          if (cancelled) return;
+          if (r.update_available && r.latest_version && r.release_url) {
+            const dismissed = settingsRef.current.update_dismissed_version as string | undefined;
+            if (dismissed !== r.latest_version) {
+              setUpdateInfo({
+                version: r.latest_version,
+                url: r.release_url,
+                installerAvailable: r.installer_available === true,
+                installerName: r.installer_name,
+              });
+            }
           }
-        }
-      })
-      // Advance the throttle timestamp on both success and failure so a
-      // transient network error doesn't cause every subsequent app launch to
-      // re-fire the request immediately.
-      .finally(() => {
-        saveSettings({ update_last_check: Date.now() / 1000 });
-      });
+        })
+        // Advance the throttle timestamp on both success and failure so a
+        // transient network error doesn't cause every subsequent app launch to
+        // re-fire the request immediately.
+        .finally(() => {
+          if (!cancelled) saveSettings({ update_last_check: Date.now() / 1000 });
+        });
+    }, UPDATE_CHECK_DELAY_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [saveSettings, settingsLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Compression ---

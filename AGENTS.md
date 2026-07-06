@@ -302,6 +302,8 @@ The app re-renders on every trim-slider move. Established patterns:
 ### Commits / PRs
 
 - **Run the relevant quality gates before every commit.** If Rust changed: `cargo fmt --check --manifest-path src-tauri/Cargo.toml`, `cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings`, `cargo test --manifest-path src-tauri/Cargo.toml`. If frontend changed: `npm run lint`, `npm run typecheck`, `npm test`. Fix failures before committing — never push and let CI catch it.
+- Document significant changes where future users and agents will look for them. Update `AGENTS.md` for workflow, architecture, release, or repository-practice changes; update `README.md` for public product behavior, install/setup, supported-platform, or development changes; and update the website (`site/index.html`, JSON-LD, `llms.txt`, `llms-full.txt`, and related site assets) when public-facing product facts or download behavior change.
+- Keep a WIP changelog in `CHANGELOG.md` for user-visible changes made after the commit of the last release. Use the latest `vX.Y` tag as the baseline, keep notes concise and release-note-ready, and exclude pure refactors, tests, chores, or internal-only work unless they affect behavior.
 - Don't bump the version casually. A version bump implies a release; only do it when explicitly requested. Follow the "Bumping the version" steps below — partial bumps cause CI/release mismatches.
 - Add CHANGELOG entries under a new `## vX.Y` heading — the release workflow extracts that section as the GitHub release body.
 
@@ -324,7 +326,7 @@ When the user asks to change the version, update **every** reference in one comm
 When the user asks to tag and push `vX.Y`:
 
 1. **Confirm version alignment**: every reference listed under "Bumping the version" must already match the requested version. If anything lags, fix it in a preparatory commit first — never tag a tree where the source disagrees with the tag.
-2. **Update `CHANGELOG.md`**: add a `## vX.Y` section at the top with all user-visible changes since the previous tag. Source the list from `git log <previous-tag>..HEAD --no-merges --pretty=format:"%s"` and rewrite as user-facing release notes (drop refactor/chore/test-only commits unless they affect behaviour). The release workflow extracts this section verbatim as the GitHub release body, so it is the public changelog.
+2. **Update `CHANGELOG.md`**: convert the WIP notes into a `## vX.Y` section at the top with all user-visible changes since the previous tag. Cross-check against `git log <previous-tag>..HEAD --no-merges --pretty=format:"%s"` and rewrite as user-facing release notes (drop refactor/chore/test-only commits unless they affect behaviour). The release workflow extracts this section verbatim as the GitHub release body, so it is the public changelog.
 3. **Commit** the CHANGELOG (and any version edits, if step 1 needed them).
 4. **Tag with the `vX.Y` short form** (matching existing tags — see `git tag --list`): `git tag vX.Y`. Do **not** use `vX.Y.Z` — the existing tag history is short-form and the release workflow's CHANGELOG extraction matches `## vX.Y`.
 5. **Push** the commit and the tag to `main`: `git push origin main` then `git push origin vX.Y`. Pushing the tag triggers the release workflow (`build.yml` → `release` job) which builds the `release` profile and drafts a GitHub release.

@@ -62,6 +62,10 @@ export function saveSettings(settings: Settings): Promise<void> {
   return invoke("save_settings", { settings });
 }
 
+export function frontendReady(): Promise<void> {
+  return invoke("frontend_ready");
+}
+
 export function probe(path: string): Promise<ProbeData> {
   return invoke<ProbeData>("probe", { path });
 }

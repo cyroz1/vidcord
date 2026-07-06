@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use tauri::{Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_window_state::StateFlags;
 
 pub mod commands;
@@ -21,9 +21,29 @@ use commands::updates::{check_for_updates, download_and_open_update_installer};
 use log::vidcord_log;
 use settings::SettingsManager;
 
-// Tracks whether the WebView has fully loaded and React has had time to mount.
-// Used to decide whether RunEvent::Opened should emit directly or defer to on_page_load.
+// Tracks whether React has registered its open-file listener.
+// Used to decide whether file-open events can emit immediately or need deferral.
 struct WebviewReady(AtomicBool);
+
+fn emit_pending_file(app: &AppHandle) {
+    if let Ok(mut guard) = app.state::<PendingFile>().0.lock() {
+        if let Some(path) = guard.take() {
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.emit("open-file", &path);
+            }
+        }
+    }
+}
+
+fn emit_or_defer_open_file(app: &AppHandle, path: String) {
+    if app.state::<WebviewReady>().0.load(Ordering::SeqCst) {
+        if let Some(win) = app.get_webview_window("main") {
+            let _ = win.emit("open-file", &path);
+        }
+    } else if let Ok(mut guard) = app.state::<PendingFile>().0.lock() {
+        *guard = Some(path);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Tauri commands — settings
@@ -37,6 +57,12 @@ fn load_settings() -> serde_json::Value {
 #[tauri::command]
 fn save_settings(settings: serde_json::Value) -> Result<(), String> {
     SettingsManager::save(&settings).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn frontend_ready(app: AppHandle) {
+    app.state::<WebviewReady>().0.store(true, Ordering::SeqCst);
+    emit_pending_file(&app);
 }
 
 // ---------------------------------------------------------------------------
@@ -159,40 +185,13 @@ pub fn run() {
                 vidcord_log(&format!(
                     "Single-instance: forwarding file from second instance: {path}"
                 ));
-                if let Some(win) = app.get_webview_window("main") {
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(300));
-                        let _ = win.emit("open-file", &path);
-                    });
-                }
+                emit_or_defer_open_file(app, path);
             }
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(PendingFile(Mutex::new(None)))
         .manage(WebviewReady(AtomicBool::new(false)))
-        .on_page_load(|webview, payload| {
-            // PageLoadEvent::Finished fires once the WebView has fully loaded the app.
-            // We wait 200ms for React to mount and register its open-file listener,
-            // then emit any file path that arrived before the frontend was ready.
-            if payload.event() == tauri::webview::PageLoadEvent::Finished {
-                let handle = webview.app_handle().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(200));
-                    handle
-                        .state::<WebviewReady>()
-                        .0
-                        .store(true, Ordering::SeqCst);
-                    if let Ok(mut guard) = handle.state::<PendingFile>().0.lock() {
-                        if let Some(path) = guard.take() {
-                            if let Some(w) = handle.get_webview_window("main") {
-                                let _ = w.emit("open-file", &path);
-                            }
-                        }
-                    }
-                });
-            }
-        })
         .setup(|app| {
             // Handle CLI file argument: `vidcord myfile.mp4`
             let args: Vec<String> = std::env::args().collect();
@@ -212,6 +211,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_settings,
             save_settings,
+            frontend_ready,
             probe,
             get_preview_frame,
             get_preview_clip,
@@ -241,17 +241,7 @@ pub fn run() {
                 if let Some(path) = first_path {
                     let path_str = path.to_string_lossy().to_string();
                     vidcord_log(&format!("Received open-file path: {path_str}"));
-                    if app_handle.state::<WebviewReady>().0.load(Ordering::SeqCst) {
-                        // App already running — frontend listener is active, emit directly.
-                        if let Some(win) = app_handle.get_webview_window("main") {
-                            let _ = win.emit("open-file", &path_str);
-                        }
-                    } else {
-                        // Cold launch — store for on_page_load to emit once React is ready.
-                        if let Ok(mut guard) = app_handle.state::<PendingFile>().0.lock() {
-                            *guard = Some(path_str);
-                        }
-                    }
+                    emit_or_defer_open_file(app_handle, path_str);
                 }
             }
             #[cfg(not(target_os = "macos"))]
