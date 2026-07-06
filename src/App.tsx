@@ -251,6 +251,12 @@ export default function App() {
       return Math.floor(monitor.workArea.size.height / monitor.scaleFactor) - WINDOW_SCREEN_MARGIN;
     };
 
+    const getRenderedScrollOverflow = () => {
+      const scrollArea = appRef.current?.querySelector<HTMLElement>(".scroll-area");
+      if (!scrollArea) return 0;
+      return Math.max(0, scrollArea.scrollHeight - scrollArea.clientHeight);
+    };
+
     const updatePreviewMaxHeight = (height: number | null) => {
       const nextHeight = height === null ? null : Math.round(height);
       const currentHeight = previewMaxHeightRef.current;
@@ -265,6 +271,23 @@ export default function App() {
 
       previewMaxHeightRef.current = nextHeight;
       setPreviewMaxHeight(nextHeight);
+      return true;
+    };
+
+    const shrinkPreviewBy = (overflow: number, availableContentHeight: number | null) => {
+      if (overflow <= WINDOW_RESIZE_EPSILON) return false;
+      const previewPane = appRef.current?.querySelector<HTMLElement>(".preview-pane");
+      const previewHeight = previewPane?.getBoundingClientRect().height ?? 0;
+      if (previewHeight <= MIN_PREVIEW_HEIGHT + WINDOW_RESIZE_EPSILON) return false;
+
+      const nextPreviewHeight = Math.max(
+        MIN_PREVIEW_HEIGHT,
+        previewHeight - overflow - WINDOW_CONTENT_FIT_PADDING
+      );
+      if (!updatePreviewMaxHeight(nextPreviewHeight)) return false;
+
+      previewCapAvailableHeightRef.current = availableContentHeight;
+      scheduleResize();
       return true;
     };
 
@@ -286,42 +309,6 @@ export default function App() {
       ]);
       if (disposed) return;
 
-      if (maxLogicalHeight !== null) {
-        const availableContentHeight = maxLogicalHeight - chromeHeight - WINDOW_CONTENT_FIT_PADDING;
-        const overflow = contentHeight - availableContentHeight;
-        if (overflow > WINDOW_RESIZE_EPSILON) {
-          const previewPane = appRef.current?.querySelector<HTMLElement>(".preview-pane");
-          const previewHeight = previewPane?.getBoundingClientRect().height ?? 0;
-          if (previewHeight > MIN_PREVIEW_HEIGHT + WINDOW_RESIZE_EPSILON) {
-            const nextPreviewHeight = Math.max(
-              MIN_PREVIEW_HEIGHT,
-              previewHeight - overflow - WINDOW_CONTENT_FIT_PADDING
-            );
-            if (updatePreviewMaxHeight(nextPreviewHeight)) {
-              previewCapAvailableHeightRef.current = availableContentHeight;
-              scheduleResize();
-              return;
-            }
-          }
-        } else if (
-          previewMaxHeightRef.current !== null &&
-          previewCapAvailableHeightRef.current !== null &&
-          availableContentHeight - previewCapAvailableHeightRef.current > PREVIEW_CAP_RESET_DELTA
-        ) {
-          previewCapAvailableHeightRef.current = null;
-          if (updatePreviewMaxHeight(null)) {
-            scheduleResize();
-            return;
-          }
-        }
-      } else if (previewMaxHeightRef.current !== null) {
-        previewCapAvailableHeightRef.current = null;
-        if (updatePreviewMaxHeight(null)) {
-          scheduleResize();
-          return;
-        }
-      }
-
       const desiredHeight = Math.max(
         MIN_WINDOW_HEIGHT,
         contentHeight + chromeHeight + WINDOW_CONTENT_FIT_PADDING
@@ -339,6 +326,31 @@ export default function App() {
         maxLogicalHeight === null
           ? desiredHeight
           : Math.max(MIN_FALLBACK_WINDOW_HEIGHT, Math.min(desiredHeight, maxLogicalHeight));
+
+      const availableContentHeight = targetHeight - chromeHeight - WINDOW_CONTENT_FIT_PADDING;
+      const predictedOverflow = contentHeight - availableContentHeight;
+      const atTargetHeight = Math.abs(currentHeight - targetHeight) < WINDOW_RESIZE_EPSILON;
+      const renderedOverflow = atTargetHeight ? getRenderedScrollOverflow() : 0;
+      if (
+        shrinkPreviewBy(
+          Math.max(predictedOverflow, renderedOverflow),
+          maxLogicalHeight === null ? null : availableContentHeight
+        )
+      ) {
+        return;
+      }
+
+      if (
+        previewMaxHeightRef.current !== null &&
+        previewCapAvailableHeightRef.current !== null &&
+        availableContentHeight - previewCapAvailableHeightRef.current > PREVIEW_CAP_RESET_DELTA
+      ) {
+        previewCapAvailableHeightRef.current = null;
+        if (updatePreviewMaxHeight(null)) {
+          scheduleResize();
+          return;
+        }
+      }
 
       if (
         autoWindowHeightRef.current !== null &&
