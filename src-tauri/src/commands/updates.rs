@@ -120,6 +120,9 @@ fn safe_asset_filename(name: &str) -> Result<&str, String> {
         || name.contains('/')
         || name.contains('\\')
         || name.contains(std::path::MAIN_SEPARATOR)
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'_' || b == b'-')
     {
         Err("Release asset has an invalid filename.".to_string())
     } else {
@@ -163,9 +166,7 @@ fn open_installer(path: &Path) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        std::process::Command::new("cmd")
-            .args(["/C", "start", ""])
-            .arg(path)
+        std::process::Command::new(path)
             .creation_flags(0x08000000)
             .spawn()
             .map_err(|e| e.to_string())?;
@@ -371,6 +372,8 @@ mod tests {
         assert!(safe_asset_filename("vidcord_9.0.0.dmg").is_ok());
         assert!(safe_asset_filename("../vidcord.dmg").is_err());
         assert!(safe_asset_filename("nested/vidcord.dmg").is_err());
+        assert!(safe_asset_filename("vidcord_9.0.0&calc.exe").is_err());
+        assert!(safe_asset_filename("vidcord 9.0.0.dmg").is_err());
         assert!(safe_asset_filename("").is_err());
     }
 }

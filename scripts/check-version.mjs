@@ -32,7 +32,7 @@ expectMatch(
   "src-tauri/Cargo.lock vidcord version",
   matchFile(
     "src-tauri/Cargo.lock",
-    /\[\[package\]\]\nname = "vidcord"\nversion = "([^"]+)"/,
+    /\[\[package\]\]\r?\nname = "vidcord"\r?\nversion = "([^"]+)"/,
     "Cargo.lock vidcord version"
   ),
   expected
