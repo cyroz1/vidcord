@@ -5,6 +5,7 @@ use std::sync::OnceLock;
 
 static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static DOWNLOAD_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+const MAX_UPDATE_INSTALLER_BYTES: u64 = 512 * 1024 * 1024;
 
 fn http_client() -> &'static reqwest::Client {
     HTTP_CLIENT.get_or_init(|| {
@@ -42,6 +43,7 @@ fn normalize_semver(input: &str) -> String {
 struct ReleaseAsset {
     name: String,
     browser_download_url: String,
+    size: Option<u64>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -56,6 +58,7 @@ struct GitHubRelease {
 struct SelectedAsset {
     name: String,
     browser_download_url: String,
+    size: Option<u64>,
 }
 
 fn platform_asset_suffixes() -> Result<&'static [&'static str], String> {
@@ -84,6 +87,7 @@ fn select_platform_asset(release: &GitHubRelease) -> Result<SelectedAsset, Strin
         .map(|asset| SelectedAsset {
             name: asset.name.clone(),
             browser_download_url: asset.browser_download_url.clone(),
+            size: asset.size,
         })
         .ok_or_else(|| "No update installer was found for this platform.".to_string())
 }
@@ -139,26 +143,78 @@ fn download_target_path(asset_name: &str) -> Result<PathBuf, String> {
     Ok(dir.join(file_name))
 }
 
-fn write_download(path: PathBuf, bytes: Vec<u8>) -> Result<PathBuf, String> {
+fn validate_download_size(size: u64) -> Result<(), String> {
+    if size > MAX_UPDATE_INSTALLER_BYTES {
+        Err(format!(
+            "Update installer is too large ({size} bytes; limit is {MAX_UPDATE_INSTALLER_BYTES})."
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn temp_download_path(path: &Path) -> Result<PathBuf, String> {
     let dir = path
         .parent()
         .ok_or_else(|| "Update download path has no parent directory.".to_string())?;
-    let tmp = dir.join(format!(
+    Ok(dir.join(format!(
         ".{}.{}.download",
         path.file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("vidcord-update"),
         std::process::id()
-    ));
-    {
-        let mut file = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
-        file.write_all(&bytes).map_err(|e| e.to_string())?;
-        file.flush().map_err(|e| e.to_string())?;
+    )))
+}
+
+async fn write_download_stream(
+    path: PathBuf,
+    mut resp: reqwest::Response,
+) -> Result<PathBuf, String> {
+    if let Some(content_length) = resp.content_length() {
+        validate_download_size(content_length)?;
     }
+
+    let tmp = temp_download_path(&path)?;
+    let mut file = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+    let mut written = 0u64;
+
+    while let Some(chunk) = resp.chunk().await.map_err(|e| {
+        let msg = e.to_string();
+        vidcord_log(&format!("update install: download read failed: {msg}"));
+        let _ = std::fs::remove_file(&tmp);
+        msg
+    })? {
+        let Some(next_written) = written.checked_add(chunk.len() as u64) else {
+            let _ = std::fs::remove_file(&tmp);
+            return Err("Update installer size overflowed.".to_string());
+        };
+        written = next_written;
+        if let Err(err) = validate_download_size(written) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(err);
+        }
+        if let Err(err) = file.write_all(&chunk) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(err.to_string());
+        }
+    }
+
+    if let Err(err) = file.flush() {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(err.to_string());
+    }
+    drop(file);
+
     if path.exists() {
-        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+        if let Err(err) = std::fs::remove_file(&path) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(err.to_string());
+        }
     }
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    if let Err(err) = std::fs::rename(&tmp, &path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(err.to_string());
+    }
     Ok(path)
 }
 
@@ -248,6 +304,9 @@ pub async fn check_for_updates(current_version: String) -> Result<serde_json::Va
 pub async fn download_and_open_update_installer() -> Result<serde_json::Value, String> {
     let release = fetch_latest_release().await?;
     let asset = select_platform_asset(&release)?;
+    if let Some(size) = asset.size {
+        validate_download_size(size)?;
+    }
     let target_path = download_target_path(&asset.name)?;
 
     let resp = download_client()
@@ -267,18 +326,7 @@ pub async fn download_and_open_update_installer() -> Result<serde_json::Value, S
         return Err(format!("Download failed with HTTP {status}"));
     }
 
-    let bytes = resp.bytes().await.map_err(|e| {
-        let msg = e.to_string();
-        vidcord_log(&format!("update install: download read failed: {msg}"));
-        msg
-    })?;
-    let bytes = bytes.to_vec();
-
-    let path_for_write = target_path.clone();
-    let downloaded_path =
-        tokio::task::spawn_blocking(move || write_download(path_for_write, bytes))
-            .await
-            .map_err(|e| e.to_string())??;
+    let downloaded_path = write_download_stream(target_path, resp).await?;
     let path_for_open = downloaded_path.clone();
     tokio::task::spawn_blocking(move || open_installer(&path_for_open))
         .await
@@ -355,10 +403,12 @@ mod tests {
                 ReleaseAsset {
                     name: "vidcord_9.0.0_unrelated.zip".to_string(),
                     browser_download_url: "https://example.com/wrong".to_string(),
+                    size: Some(1024),
                 },
                 ReleaseAsset {
                     name: format!("vidcord_9.0.0{suffix}"),
                     browser_download_url: "https://example.com/right".to_string(),
+                    size: Some(2048),
                 },
             ],
         };
@@ -375,5 +425,11 @@ mod tests {
         assert!(safe_asset_filename("vidcord_9.0.0&calc.exe").is_err());
         assert!(safe_asset_filename("vidcord 9.0.0.dmg").is_err());
         assert!(safe_asset_filename("").is_err());
+    }
+
+    #[test]
+    fn rejects_oversized_update_installers() {
+        assert!(validate_download_size(MAX_UPDATE_INSTALLER_BYTES).is_ok());
+        assert!(validate_download_size(MAX_UPDATE_INSTALLER_BYTES + 1).is_err());
     }
 }

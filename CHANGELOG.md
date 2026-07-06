@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Updates
+
+- **In-app update installer prompt**: update notices can now download the matching installer for the current platform to Downloads and open it directly, with a release-page fallback.
+- **Safer update downloads**: update installers are streamed to disk with size limits instead of being buffered fully in memory.
+
+### FFmpeg Setup
+
+- **Automated FFmpeg setup assistance**: Windows installers and first launch can offer package-manager FFmpeg installation while still keeping FFmpeg as a system dependency.
+- **More accurate FFmpeg detection**: startup checks now require both `ffmpeg` and `ffprobe`, so missing `ffprobe` still shows setup help before video probing fails.
+
+### File Opening
+
+- **More reliable Open With routing**: file-open events now wait for the React listener to register before delivering cold-start or second-instance file paths.
+
+### Documentation
+
+- Updated the README, FFmpeg setup guide, website copy, structured data, and AI grounding files for package-manager FFmpeg setup and selectable encoder behavior.
+
 ## v6.6
 
 ### Preview
