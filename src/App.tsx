@@ -78,7 +78,7 @@ const WINDOW_WIDTH = 460;
 const MIN_WINDOW_HEIGHT = 690;
 const MIN_FALLBACK_WINDOW_HEIGHT = 560;
 const WINDOW_SCREEN_MARGIN = 32;
-const WINDOW_CONTENT_FIT_PADDING = 2;
+const WINDOW_CONTENT_FIT_PADDING = 8;
 const WINDOW_RESIZE_EPSILON = 2;
 const UPDATE_CHECK_DELAY_MS = 8000;
 
@@ -202,17 +202,42 @@ export default function App() {
       const scrollArea = app?.querySelector<HTMLElement>(".scroll-area");
       if (!app || !scrollArea) return null;
 
+      const scrollRect = scrollArea.getBoundingClientRect();
       const contentChildren = Array.from(scrollArea.children).filter(
         (child): child is HTMLElement => child instanceof HTMLElement
       );
-      const lastChild = contentChildren[contentChildren.length - 1];
       const scrollStyles = window.getComputedStyle(scrollArea);
       const paddingBottom = Number.parseFloat(scrollStyles.paddingBottom) || 0;
-      const scrollContentHeight = lastChild
-        ? lastChild.offsetTop + lastChild.offsetHeight + paddingBottom
-        : scrollArea.scrollHeight;
+      const childBottom = contentChildren.reduce((bottom, child) => {
+        const childRect = child.getBoundingClientRect();
+        return Math.max(bottom, childRect.bottom - scrollRect.top);
+      }, 0);
+      const scrollContentHeight = Math.max(scrollArea.scrollHeight, childBottom + paddingBottom);
 
       return Math.ceil(scrollArea.offsetTop + scrollContentHeight);
+    };
+
+    const getWindowChromeHeight = async () => {
+      try {
+        const [scaleFactor, innerSize, outerSize] = await Promise.all([
+          appWindow.scaleFactor(),
+          appWindow.innerSize(),
+          appWindow.outerSize(),
+        ]);
+        const innerHeight = innerSize.toLogical(scaleFactor).height;
+        const outerHeight = outerSize.toLogical(scaleFactor).height;
+        const chromeHeight = outerHeight - innerHeight;
+        if (Number.isFinite(chromeHeight) && chromeHeight > 0) {
+          return Math.ceil(chromeHeight);
+        }
+      } catch {
+        // Fall back to browser sizing below; resize itself reports failures.
+      }
+
+      const browserChromeHeight = window.outerHeight - window.innerHeight;
+      return Number.isFinite(browserChromeHeight) && browserChromeHeight > 0
+        ? Math.ceil(browserChromeHeight)
+        : 0;
     };
 
     const getMaxLogicalHeight = async () => {
@@ -225,21 +250,24 @@ export default function App() {
       const contentHeight = measureContentHeight();
       if (contentHeight === null) return;
 
-      const desiredHeight = Math.max(MIN_WINDOW_HEIGHT, contentHeight + WINDOW_CONTENT_FIT_PADDING);
-      const currentHeight = Math.round(window.innerHeight);
-      const availableScreenHeight =
-        window.screen.availHeight > 0 ? window.screen.availHeight - WINDOW_SCREEN_MARGIN : Infinity;
+      const [chromeHeight, maxLogicalHeight] = await Promise.all([
+        getWindowChromeHeight(),
+        getMaxLogicalHeight(),
+      ]);
+      if (disposed) return;
+
+      const desiredHeight = Math.max(
+        MIN_WINDOW_HEIGHT,
+        contentHeight + chromeHeight + WINDOW_CONTENT_FIT_PADDING
+      );
+      const currentHeight = Math.round(window.outerHeight || window.innerHeight + chromeHeight);
       if (
         autoWindowHeightRef.current === null &&
-        currentHeight <= availableScreenHeight &&
         Math.abs(currentHeight - desiredHeight) < WINDOW_RESIZE_EPSILON
       ) {
         autoWindowHeightRef.current = desiredHeight;
         return;
       }
-
-      const maxLogicalHeight = await getMaxLogicalHeight();
-      if (disposed) return;
 
       const targetHeight =
         maxLogicalHeight === null
