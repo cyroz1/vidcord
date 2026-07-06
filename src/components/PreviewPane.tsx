@@ -116,6 +116,7 @@ type Props = {
   startTime: number;
   endTime: number;
   previewTime: number | null;
+  maxHeight: number | null;
   isScrubbing: boolean;
   removeAudio: boolean;
   loopPlayback: boolean;
@@ -186,6 +187,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     startTime,
     endTime,
     previewTime,
+    maxHeight,
     isScrubbing,
     removeAudio,
     loopPlayback,
@@ -883,8 +885,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     () => ({
       ...containerStyle,
       aspectRatio: `${previewAspectRatio}`,
+      height: maxHeight === null ? undefined : `${maxHeight}px`,
+      maxHeight: maxHeight === null ? undefined : `${maxHeight}px`,
     }),
-    [previewAspectRatio]
+    [maxHeight, previewAspectRatio]
   );
   const showLiveScrubPreview =
     supportsLiveScrubPreview && isScrubbing && previewTime !== null && scrubVideoReady && !playing;
@@ -898,6 +902,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   return (
     <div
+      className="preview-pane"
       ref={previewContainerRef}
       style={previewContainerStyle}
       onMouseEnter={() => setHovered(true)}

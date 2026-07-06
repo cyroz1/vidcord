@@ -77,9 +77,11 @@ const FRAME_STEP_SECONDS = 1 / 30;
 const WINDOW_WIDTH = 460;
 const MIN_WINDOW_HEIGHT = 690;
 const MIN_FALLBACK_WINDOW_HEIGHT = 560;
-const WINDOW_SCREEN_MARGIN = 32;
+const WINDOW_SCREEN_MARGIN = 8;
 const WINDOW_CONTENT_FIT_PADDING = 8;
 const WINDOW_RESIZE_EPSILON = 2;
+const MIN_PREVIEW_HEIGHT = 168;
+const PREVIEW_CAP_RESET_DELTA = 24;
 const UPDATE_CHECK_DELAY_MS = 8000;
 
 function isH265Encoder(name: string): boolean {
@@ -147,6 +149,8 @@ export default function App() {
   const appRef = useRef<HTMLDivElement>(null);
   const autoWindowHeightRef = useRef<number | null>(null);
   const autoWindowCenteredRef = useRef(false);
+  const previewMaxHeightRef = useRef<number | null>(null);
+  const previewCapAvailableHeightRef = useRef<number | null>(null);
   const trimWrapRef = useRef<HTMLDivElement>(null);
   const activeHandleRef = useRef<"start" | "end">("start");
   const startValRef = useRef(0);
@@ -191,6 +195,7 @@ export default function App() {
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [encoderInputFocused, setEncoderInputFocused] = useState(false);
   const [activeEncoderOption, setActiveEncoderOption] = useState(0);
+  const [previewMaxHeight, setPreviewMaxHeight] = useState<number | null>(null);
 
   useEffect(() => {
     const appWindow = getCurrentWindow();
@@ -246,6 +251,31 @@ export default function App() {
       return Math.floor(monitor.workArea.size.height / monitor.scaleFactor) - WINDOW_SCREEN_MARGIN;
     };
 
+    const updatePreviewMaxHeight = (height: number | null) => {
+      const nextHeight = height === null ? null : Math.round(height);
+      const currentHeight = previewMaxHeightRef.current;
+      if (
+        currentHeight === nextHeight ||
+        (currentHeight !== null &&
+          nextHeight !== null &&
+          Math.abs(currentHeight - nextHeight) < WINDOW_RESIZE_EPSILON)
+      ) {
+        return false;
+      }
+
+      previewMaxHeightRef.current = nextHeight;
+      setPreviewMaxHeight(nextHeight);
+      return true;
+    };
+
+    function scheduleResize() {
+      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = null;
+        void resizeToContent();
+      });
+    }
+
     const resizeToContent = async () => {
       const contentHeight = measureContentHeight();
       if (contentHeight === null) return;
@@ -255,6 +285,42 @@ export default function App() {
         getMaxLogicalHeight(),
       ]);
       if (disposed) return;
+
+      if (maxLogicalHeight !== null) {
+        const availableContentHeight = maxLogicalHeight - chromeHeight - WINDOW_CONTENT_FIT_PADDING;
+        const overflow = contentHeight - availableContentHeight;
+        if (overflow > WINDOW_RESIZE_EPSILON) {
+          const previewPane = appRef.current?.querySelector<HTMLElement>(".preview-pane");
+          const previewHeight = previewPane?.getBoundingClientRect().height ?? 0;
+          if (previewHeight > MIN_PREVIEW_HEIGHT + WINDOW_RESIZE_EPSILON) {
+            const nextPreviewHeight = Math.max(
+              MIN_PREVIEW_HEIGHT,
+              previewHeight - overflow - WINDOW_CONTENT_FIT_PADDING
+            );
+            if (updatePreviewMaxHeight(nextPreviewHeight)) {
+              previewCapAvailableHeightRef.current = availableContentHeight;
+              scheduleResize();
+              return;
+            }
+          }
+        } else if (
+          previewMaxHeightRef.current !== null &&
+          previewCapAvailableHeightRef.current !== null &&
+          availableContentHeight - previewCapAvailableHeightRef.current > PREVIEW_CAP_RESET_DELTA
+        ) {
+          previewCapAvailableHeightRef.current = null;
+          if (updatePreviewMaxHeight(null)) {
+            scheduleResize();
+            return;
+          }
+        }
+      } else if (previewMaxHeightRef.current !== null) {
+        previewCapAvailableHeightRef.current = null;
+        if (updatePreviewMaxHeight(null)) {
+          scheduleResize();
+          return;
+        }
+      }
 
       const desiredHeight = Math.max(
         MIN_WINDOW_HEIGHT,
@@ -298,14 +364,6 @@ export default function App() {
       } catch (err) {
         console.warn("Unable to auto-size window", err);
       }
-    };
-
-    const scheduleResize = () => {
-      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
-      resizeFrame = window.requestAnimationFrame(() => {
-        resizeFrame = null;
-        void resizeToContent();
-      });
     };
 
     const resizeObserver = new ResizeObserver(scheduleResize);
@@ -570,6 +628,9 @@ export default function App() {
         setFileName("Unsupported file format.");
         return;
       }
+      previewMaxHeightRef.current = null;
+      previewCapAvailableHeightRef.current = null;
+      setPreviewMaxHeight(null);
       setFilePath(path);
       setFileName(path.split(/[\\/]/).pop() ?? path);
       pendingTrimStateRef.current = null;
@@ -1861,6 +1922,7 @@ export default function App() {
           startTime={startTime}
           endTime={endTime}
           previewTime={previewFocusTime}
+          maxHeight={previewMaxHeight}
           isScrubbing={previewScrubbing}
           loopPlayback={loopPlayback}
           probeData={probeData}
