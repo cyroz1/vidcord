@@ -1,6 +1,5 @@
 import { useEffect, useCallback, useState, useMemo, useRef, lazy, Suspense } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { currentMonitor, getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import "./App.css";
@@ -74,14 +73,6 @@ const SLIDER_MAX = 10000;
 const MIN_TRIM_GAP = 1;
 const UNDO_LIMIT = 200;
 const FRAME_STEP_SECONDS = 1 / 30;
-const WINDOW_WIDTH = 460;
-const MIN_WINDOW_HEIGHT = 690;
-const MIN_FALLBACK_WINDOW_HEIGHT = 560;
-const WINDOW_SCREEN_MARGIN = 8;
-const WINDOW_CONTENT_FIT_PADDING = 8;
-const WINDOW_RESIZE_EPSILON = 2;
-const MIN_PREVIEW_HEIGHT = 168;
-const PREVIEW_CAP_RESET_DELTA = 24;
 const UPDATE_CHECK_DELAY_MS = 8000;
 
 function isH265Encoder(name: string): boolean {
@@ -146,11 +137,6 @@ export default function App() {
     useCompression({ onToast: addToast });
 
   const previewRef = useRef<PreviewHandle>(null);
-  const appRef = useRef<HTMLDivElement>(null);
-  const autoWindowHeightRef = useRef<number | null>(null);
-  const autoWindowCenteredRef = useRef(false);
-  const previewMaxHeightRef = useRef<number | null>(null);
-  const previewCapAvailableHeightRef = useRef<number | null>(null);
   const trimWrapRef = useRef<HTMLDivElement>(null);
   const activeHandleRef = useRef<"start" | "end">("start");
   const startValRef = useRef(0);
@@ -195,220 +181,6 @@ export default function App() {
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [encoderInputFocused, setEncoderInputFocused] = useState(false);
   const [activeEncoderOption, setActiveEncoderOption] = useState(0);
-  const [previewMaxHeight, setPreviewMaxHeight] = useState<number | null>(null);
-
-  useEffect(() => {
-    const appWindow = getCurrentWindow();
-    let resizeFrame: number | null = null;
-    let disposed = false;
-
-    const measureContentHeight = () => {
-      const app = appRef.current;
-      const scrollArea = app?.querySelector<HTMLElement>(".scroll-area");
-      if (!app || !scrollArea) return null;
-
-      const scrollRect = scrollArea.getBoundingClientRect();
-      const contentChildren = Array.from(scrollArea.children).filter(
-        (child): child is HTMLElement => child instanceof HTMLElement
-      );
-      const scrollStyles = window.getComputedStyle(scrollArea);
-      const paddingBottom = Number.parseFloat(scrollStyles.paddingBottom) || 0;
-      const childBottom = contentChildren.reduce((bottom, child) => {
-        const childRect = child.getBoundingClientRect();
-        return Math.max(bottom, childRect.bottom - scrollRect.top);
-      }, 0);
-      const scrollContentHeight = Math.max(scrollArea.scrollHeight, childBottom + paddingBottom);
-
-      return Math.ceil(scrollArea.offsetTop + scrollContentHeight);
-    };
-
-    const getWindowChromeHeight = async () => {
-      try {
-        const [scaleFactor, innerSize, outerSize] = await Promise.all([
-          appWindow.scaleFactor(),
-          appWindow.innerSize(),
-          appWindow.outerSize(),
-        ]);
-        const innerHeight = innerSize.toLogical(scaleFactor).height;
-        const outerHeight = outerSize.toLogical(scaleFactor).height;
-        const chromeHeight = outerHeight - innerHeight;
-        if (Number.isFinite(chromeHeight) && chromeHeight > 0) {
-          return Math.ceil(chromeHeight);
-        }
-      } catch {
-        // Fall back to browser sizing below; resize itself reports failures.
-      }
-
-      const browserChromeHeight = window.outerHeight - window.innerHeight;
-      return Number.isFinite(browserChromeHeight) && browserChromeHeight > 0
-        ? Math.ceil(browserChromeHeight)
-        : 0;
-    };
-
-    const getMaxLogicalHeight = async () => {
-      const monitor = await currentMonitor();
-      if (!monitor) return null;
-      return Math.floor(monitor.workArea.size.height / monitor.scaleFactor) - WINDOW_SCREEN_MARGIN;
-    };
-
-    const getRenderedScrollOverflow = () => {
-      const scrollArea = appRef.current?.querySelector<HTMLElement>(".scroll-area");
-      if (!scrollArea) return 0;
-      return Math.max(0, scrollArea.scrollHeight - scrollArea.clientHeight);
-    };
-
-    const updatePreviewMaxHeight = (height: number | null) => {
-      const nextHeight = height === null ? null : Math.round(height);
-      const currentHeight = previewMaxHeightRef.current;
-      if (
-        currentHeight === nextHeight ||
-        (currentHeight !== null &&
-          nextHeight !== null &&
-          Math.abs(currentHeight - nextHeight) < WINDOW_RESIZE_EPSILON)
-      ) {
-        return false;
-      }
-
-      previewMaxHeightRef.current = nextHeight;
-      setPreviewMaxHeight(nextHeight);
-      return true;
-    };
-
-    const shrinkPreviewBy = (overflow: number, availableContentHeight: number | null) => {
-      if (overflow <= WINDOW_RESIZE_EPSILON) return false;
-      const previewPane = appRef.current?.querySelector<HTMLElement>(".preview-pane");
-      const previewHeight = previewPane?.getBoundingClientRect().height ?? 0;
-      if (previewHeight <= MIN_PREVIEW_HEIGHT + WINDOW_RESIZE_EPSILON) return false;
-
-      const nextPreviewHeight = Math.max(
-        MIN_PREVIEW_HEIGHT,
-        previewHeight - overflow - WINDOW_CONTENT_FIT_PADDING
-      );
-      if (!updatePreviewMaxHeight(nextPreviewHeight)) return false;
-
-      previewCapAvailableHeightRef.current = availableContentHeight;
-      scheduleResize();
-      return true;
-    };
-
-    function scheduleResize() {
-      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
-      resizeFrame = window.requestAnimationFrame(() => {
-        resizeFrame = null;
-        void resizeToContent();
-      });
-    }
-
-    const resizeToContent = async () => {
-      const contentHeight = measureContentHeight();
-      if (contentHeight === null) return;
-
-      const [chromeHeight, maxLogicalHeight] = await Promise.all([
-        getWindowChromeHeight(),
-        getMaxLogicalHeight(),
-      ]);
-      if (disposed) return;
-
-      const desiredHeight = Math.max(
-        MIN_WINDOW_HEIGHT,
-        contentHeight + chromeHeight + WINDOW_CONTENT_FIT_PADDING
-      );
-      const currentHeight = Math.round(window.outerHeight || window.innerHeight + chromeHeight);
-      if (
-        autoWindowHeightRef.current === null &&
-        Math.abs(currentHeight - desiredHeight) < WINDOW_RESIZE_EPSILON
-      ) {
-        autoWindowHeightRef.current = desiredHeight;
-        return;
-      }
-
-      const targetHeight =
-        maxLogicalHeight === null
-          ? desiredHeight
-          : Math.max(MIN_FALLBACK_WINDOW_HEIGHT, Math.min(desiredHeight, maxLogicalHeight));
-
-      const availableContentHeight = targetHeight - chromeHeight - WINDOW_CONTENT_FIT_PADDING;
-      const predictedOverflow = contentHeight - availableContentHeight;
-      const atTargetHeight = Math.abs(currentHeight - targetHeight) < WINDOW_RESIZE_EPSILON;
-      const renderedOverflow = atTargetHeight ? getRenderedScrollOverflow() : 0;
-      if (
-        shrinkPreviewBy(
-          Math.max(predictedOverflow, renderedOverflow),
-          maxLogicalHeight === null ? null : availableContentHeight
-        )
-      ) {
-        return;
-      }
-
-      if (
-        previewMaxHeightRef.current !== null &&
-        previewCapAvailableHeightRef.current !== null &&
-        availableContentHeight - previewCapAvailableHeightRef.current > PREVIEW_CAP_RESET_DELTA
-      ) {
-        previewCapAvailableHeightRef.current = null;
-        if (updatePreviewMaxHeight(null)) {
-          scheduleResize();
-          return;
-        }
-      }
-
-      if (
-        autoWindowHeightRef.current !== null &&
-        Math.abs(autoWindowHeightRef.current - targetHeight) < WINDOW_RESIZE_EPSILON
-      ) {
-        return;
-      }
-
-      try {
-        await appWindow.setSizeConstraints(null);
-        await appWindow.setSize(new LogicalSize(WINDOW_WIDTH, targetHeight));
-        await appWindow.setSizeConstraints({
-          minWidth: WINDOW_WIDTH,
-          minHeight: Math.min(MIN_WINDOW_HEIGHT, targetHeight),
-          maxWidth: WINDOW_WIDTH,
-          maxHeight: targetHeight,
-        });
-        if (!autoWindowCenteredRef.current) {
-          autoWindowCenteredRef.current = true;
-          await appWindow.center();
-        }
-        autoWindowHeightRef.current = targetHeight;
-      } catch (err) {
-        console.warn("Unable to auto-size window", err);
-      }
-    };
-
-    const resizeObserver = new ResizeObserver(scheduleResize);
-    const mutationObserver = new MutationObserver(scheduleResize);
-
-    if (appRef.current) {
-      const scrollArea = appRef.current.querySelector<HTMLElement>(".scroll-area");
-      resizeObserver.observe(appRef.current);
-      if (scrollArea) {
-        resizeObserver.observe(scrollArea);
-        mutationObserver.observe(scrollArea, {
-          childList: true,
-          subtree: true,
-          characterData: true,
-        });
-      }
-    }
-
-    const onResize = () => {
-      scheduleResize();
-    };
-
-    window.addEventListener("resize", onResize);
-    scheduleResize();
-
-    return () => {
-      disposed = true;
-      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
-      resizeObserver.disconnect();
-      mutationObserver.disconnect();
-      window.removeEventListener("resize", onResize);
-    };
-  }, []);
 
   const duration = probeData?.duration ?? 0;
   const sourceFrameRate =
@@ -640,9 +412,6 @@ export default function App() {
         setFileName("Unsupported file format.");
         return;
       }
-      previewMaxHeightRef.current = null;
-      previewCapAvailableHeightRef.current = null;
-      setPreviewMaxHeight(null);
       setFilePath(path);
       setFileName(path.split(/[\\/]/).pop() ?? path);
       setProbeData(null);
@@ -1527,7 +1296,7 @@ export default function App() {
   );
 
   return (
-    <div className="app" ref={appRef}>
+    <div className="app">
       {updateInfo && (
         <div
           className="update-modal-backdrop"
@@ -1935,7 +1704,6 @@ export default function App() {
           startTime={startTime}
           endTime={endTime}
           previewTime={previewFocusTime}
-          maxHeight={previewMaxHeight}
           isScrubbing={previewScrubbing}
           loopPlayback={loopPlayback}
           probeData={probeData}

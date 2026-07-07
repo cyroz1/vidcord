@@ -4,19 +4,16 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
-  useMemo,
   useRef,
   useState,
 } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getFilmstrip, getOs, getPreviewClip, getPreviewFrame } from "../ipc";
 
-const DEFAULT_PREVIEW_ASPECT_RATIO = 16 / 9;
-const FALLBACK_PREVIEW_CSS_WIDTH = 432;
-const MAX_PREVIEW_DEVICE_SCALE = 2;
-const MIN_PREVIEW_PIXEL_DIM = 240;
-const MAX_PREVIEW_PIXEL_WIDTH = 960;
-const MAX_PREVIEW_PIXEL_HEIGHT = 1080;
+const FIXED_PREVIEW_CSS_WIDTH = 432;
+const FIXED_PREVIEW_CSS_HEIGHT = 243;
+const FIXED_PREVIEW_PIXEL_WIDTH = 864;
+const FIXED_PREVIEW_PIXEL_HEIGHT = 486;
 const MAX_GENERATED_PREVIEW_CLIP_SECONDS = 12;
 
 // Module-scope static style objects. Hoisted so React doesn't allocate a
@@ -30,8 +27,9 @@ const containerStyle: React.CSSProperties = {
   borderRadius: "var(--radius)",
   overflow: "hidden",
   position: "relative",
-  width: "100%",
-  aspectRatio: `${DEFAULT_PREVIEW_ASPECT_RATIO}`,
+  width: `${FIXED_PREVIEW_CSS_WIDTH}px`,
+  height: `${FIXED_PREVIEW_CSS_HEIGHT}px`,
+  aspectRatio: "16 / 9",
   flexShrink: 0,
   display: "flex",
   alignItems: "center",
@@ -116,7 +114,6 @@ type Props = {
   startTime: number;
   endTime: number;
   previewTime: number | null;
-  maxHeight: number | null;
   isScrubbing: boolean;
   removeAudio: boolean;
   loopPlayback: boolean;
@@ -151,11 +148,6 @@ type FrameRequest = {
   previewHeight: number;
 };
 
-function clampEvenPixelDimension(value: number, min: number, max: number): number {
-  const clamped = Math.max(min, Math.min(max, Math.round(value)));
-  return clamped % 2 === 0 ? clamped : clamped + 1 <= max ? clamped + 1 : clamped - 1;
-}
-
 // Split a concatenated JPEG byte stream into individual frame buffers.
 // FFmpeg's image2pipe/mjpeg output places JPEG frames back-to-back;
 // each frame begins with SOI (FF D8) and ends with EOI (FF D9).
@@ -187,7 +179,6 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     startTime,
     endTime,
     previewTime,
-    maxHeight,
     isScrubbing,
     removeAudio,
     loopPlayback,
@@ -267,23 +258,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const urlCacheRef = useRef<Map<string, string[]>>(new Map());
 
   const getPreviewPixelSize = useCallback(() => {
-    const rect = previewContainerRef.current?.getBoundingClientRect();
-    const cssWidth = rect?.width && rect.width > 0 ? rect.width : FALLBACK_PREVIEW_CSS_WIDTH;
-    const cssHeight =
-      rect?.height && rect.height > 0 ? rect.height : cssWidth / DEFAULT_PREVIEW_ASPECT_RATIO;
-    const scale = Math.max(1, Math.min(window.devicePixelRatio || 1, MAX_PREVIEW_DEVICE_SCALE));
-
     return {
-      width: clampEvenPixelDimension(
-        cssWidth * scale,
-        MIN_PREVIEW_PIXEL_DIM,
-        MAX_PREVIEW_PIXEL_WIDTH
-      ),
-      height: clampEvenPixelDimension(
-        cssHeight * scale,
-        MIN_PREVIEW_PIXEL_DIM,
-        MAX_PREVIEW_PIXEL_HEIGHT
-      ),
+      width: FIXED_PREVIEW_PIXEL_WIDTH,
+      height: FIXED_PREVIEW_PIXEL_HEIGHT,
     };
   }, []);
 
@@ -875,20 +852,6 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // Render
   // ---------------------------------------------------------------------------
   const canPlay = !!filePath && !!probeData && endTime > startTime;
-  const previewAspectRatio = useMemo(() => {
-    const width = probeData?.display_width ?? probeData?.width ?? 0;
-    const height = probeData?.display_height ?? probeData?.height ?? 0;
-    if (width <= 0 || height <= 0) return DEFAULT_PREVIEW_ASPECT_RATIO;
-    return width / height;
-  }, [probeData]);
-  const previewContainerStyle = useMemo(
-    () => ({
-      ...containerStyle,
-      aspectRatio: `${previewAspectRatio}`,
-      maxHeight: maxHeight === null ? undefined : `${maxHeight}px`,
-    }),
-    [maxHeight, previewAspectRatio]
-  );
   const showLiveScrubPreview =
     supportsLiveScrubPreview && isScrubbing && previewTime !== null && scrubVideoReady && !playing;
 
@@ -903,7 +866,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     <div
       className="preview-pane"
       ref={previewContainerRef}
-      style={previewContainerStyle}
+      style={containerStyle}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >

@@ -16,6 +16,10 @@
 
 - **More reliable Open With routing**: file-open events now wait for the React listener to register before delivering cold-start or second-instance file paths.
 
+### UI
+
+- **Fixed app and preview sizing**: the main window now stays locked at 460×690, and preview/filmstrip thumbnails use a fixed 16:9 surface instead of resizing to content or source aspect ratio.
+
 ### Documentation
 
 - Updated the README, FFmpeg setup guide, website copy, structured data, and AI grounding files for package-manager FFmpeg setup and selectable encoder behavior.
