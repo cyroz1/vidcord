@@ -7,6 +7,16 @@
 - **In-app update installer prompt**: update notices can now download the matching installer for the current platform to Downloads and open it directly, with a release-page fallback.
 - **Safer update downloads**: update installers are streamed to disk with size limits instead of being buffered fully in memory.
 
+### Compression
+
+- **Race-free cancellation**: cancelling an encode now keeps the app in a cancelling state until FFmpeg exits, prevents overlapping compression jobs, and keeps stale cleanup from affecting a newer job.
+- **Faster size correction**: strict-size compression now caps adaptive work at three full attempts for hardware encoders and two for CPU encoding instead of retrying as many as six times.
+
+### Preview
+
+- **Cancellable preview work**: obsolete frame, filmstrip, and fallback-clip FFmpeg processes are terminated when a new file loads, compression starts, or the preview unmounts.
+- **Lighter filmstrips**: sparse seeking now starts at three minutes, and preview images scale to the actual display pixel ratio instead of always rendering at 2x resolution.
+
 ### FFmpeg Setup
 
 - **Automated FFmpeg setup assistance**: Windows installers and first launch can offer package-manager FFmpeg installation while still keeping FFmpeg as a system dependency.

@@ -1,6 +1,6 @@
 use crate::ffmpeg::{
-    clear_preview_caches, ffmpeg_missing_error, generate_filmstrip, generate_preview,
-    generate_preview_clip, get_ffmpeg_env, probe_video,
+    cancel_preview_jobs, clear_preview_caches, ffmpeg_missing_error, generate_filmstrip,
+    generate_preview, generate_preview_clip, get_ffmpeg_env, probe_video,
 };
 use crate::log::vidcord_log;
 use std::io::{BufRead, BufReader};
@@ -13,9 +13,61 @@ use tauri::{AppHandle, Emitter};
 // ---------------------------------------------------------------------------
 
 struct CompressionState {
+    next_job_id: u64,
+    active_job_id: Option<u64>,
     pid: Option<u32>,
     output_path: Option<String>,
     cancelled: bool,
+}
+
+impl CompressionState {
+    fn try_begin_job(&mut self) -> Option<u64> {
+        if self.active_job_id.is_some() {
+            return None;
+        }
+        self.next_job_id = self.next_job_id.wrapping_add(1).max(1);
+        let job_id = self.next_job_id;
+        self.active_job_id = Some(job_id);
+        self.pid = None;
+        self.output_path = None;
+        self.cancelled = false;
+        Some(job_id)
+    }
+
+    fn is_cancelled(&self, job_id: u64) -> bool {
+        self.active_job_id != Some(job_id) || self.cancelled
+    }
+
+    fn register_process(&mut self, job_id: u64, pid: u32, output_path: String) -> bool {
+        if self.is_cancelled(job_id) {
+            return false;
+        }
+        self.pid = Some(pid);
+        self.output_path = Some(output_path);
+        true
+    }
+
+    fn clear_process(&mut self, job_id: u64) {
+        if self.active_job_id == Some(job_id) {
+            self.pid = None;
+            self.output_path = None;
+        }
+    }
+
+    fn cancel_active(&mut self) -> Option<u32> {
+        self.active_job_id?;
+        self.cancelled = true;
+        self.pid.take()
+    }
+
+    fn finish_job(&mut self, job_id: u64) {
+        if self.active_job_id == Some(job_id) {
+            self.active_job_id = None;
+            self.pid = None;
+            self.output_path = None;
+            self.cancelled = false;
+        }
+    }
 }
 
 static COMPRESSION_STATE: OnceLock<Arc<Mutex<CompressionState>>> = OnceLock::new();
@@ -23,11 +75,36 @@ static COMPRESSION_STATE: OnceLock<Arc<Mutex<CompressionState>>> = OnceLock::new
 fn compression_state() -> &'static Arc<Mutex<CompressionState>> {
     COMPRESSION_STATE.get_or_init(|| {
         Arc::new(Mutex::new(CompressionState {
+            next_job_id: 0,
+            active_job_id: None,
             pid: None,
             output_path: None,
             cancelled: false,
         }))
     })
+}
+
+fn begin_compression_job() -> Result<u64, String> {
+    compression_state()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .try_begin_job()
+        .ok_or_else(|| "A compression job is already running.".to_string())
+}
+
+fn finish_compression_job(job_id: u64) {
+    compression_state()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .finish_job(job_id);
+}
+
+struct CompressionJobGuard(u64);
+
+impl Drop for CompressionJobGuard {
+    fn drop(&mut self) {
+        finish_compression_job(self.0);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -37,6 +114,7 @@ fn compression_state() -> &'static Arc<Mutex<CompressionState>> {
 #[tauri::command]
 pub async fn probe(path: String) -> Result<serde_json::Value, String> {
     tokio::task::spawn_blocking(move || {
+        cancel_preview_jobs();
         // Clear both preview caches when loading a new file
         clear_preview_caches();
         probe_video(&path).map_err(|e| e.to_string())
@@ -99,6 +177,13 @@ pub async fn get_filmstrip(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn cancel_preview_generation() -> Result<(), String> {
+    tokio::task::spawn_blocking(cancel_preview_jobs)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -207,7 +292,7 @@ fn video_filter_for_encoder(opts: &CompressOptions, encoder: &str) -> String {
     filters.join(",")
 }
 
-const OVERSIZE_RETRY_LIMIT_PER_ENCODER: usize = 2;
+const OVERSIZE_RETRY_LIMIT_PER_ENCODER: usize = 1;
 const OVERSIZE_RETRY_SAFETY: f64 = 0.96;
 
 fn initial_attempt(opts: &CompressOptions) -> CompressionAttempt {
@@ -225,7 +310,7 @@ fn max_adaptive_attempts(opts: &CompressOptions, has_target: bool) -> usize {
     if opts.encoder == "libx264" {
         1 + OVERSIZE_RETRY_LIMIT_PER_ENCODER
     } else {
-        2 + (OVERSIZE_RETRY_LIMIT_PER_ENCODER * 2)
+        2 + OVERSIZE_RETRY_LIMIT_PER_ENCODER
     }
 }
 
@@ -309,18 +394,11 @@ fn remove_partial_output(output_path: &str) {
     }
 }
 
-fn was_cancelled() -> bool {
+fn was_cancelled(job_id: u64) -> bool {
     let state = compression_state()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    state.cancelled
-}
-
-fn reset_cancelled() {
-    let mut state = compression_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    state.cancelled = false;
+    state.is_cancelled(job_id)
 }
 
 async fn run_ffmpeg_attempt(
@@ -330,8 +408,9 @@ async fn run_ffmpeg_attempt(
     attempt_index: usize,
     total_attempts: usize,
     clip_duration: f64,
+    job_id: u64,
 ) -> Result<FfmpegRunResult, String> {
-    if was_cancelled() {
+    if was_cancelled(job_id) {
         return Ok(FfmpegRunResult {
             exit_status: cancelled_exit_status(),
             last_lines: std::collections::VecDeque::new(),
@@ -421,12 +500,20 @@ async fn run_ffmpeg_attempt(
     })?;
 
     let pid = child.id();
-    {
+    let registered = {
         let mut state = compression_state()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        state.pid = Some(pid);
-        state.output_path = Some(opts.output_path.clone());
+        state.register_process(job_id, pid, opts.output_path.clone())
+    };
+    if !registered {
+        let _ = child.kill();
+        let exit_status = child.wait().map_err(|e| e.to_string())?;
+        return Ok(FfmpegRunResult {
+            exit_status,
+            last_lines: std::collections::VecDeque::new(),
+            cancelled: true,
+        });
     }
 
     let stderr = child.stderr.take().unwrap();
@@ -517,9 +604,8 @@ async fn run_ffmpeg_attempt(
         let mut state = compression_state()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let c = state.cancelled;
-        state.pid = None;
-        state.output_path = None;
+        let c = state.is_cancelled(job_id);
+        state.clear_process(job_id);
         c
     };
 
@@ -568,6 +654,11 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     }
 
     let target_bytes = target_size_bytes(opts.target_size_mb)?;
+    let job_id = begin_compression_job()?;
+    let _job_guard = CompressionJobGuard(job_id);
+    tokio::task::spawn_blocking(cancel_preview_jobs)
+        .await
+        .map_err(|e| e.to_string())?;
     let total_attempts = max_adaptive_attempts(&opts, target_bytes.is_some());
     let mut smallest_oversize_bytes: Option<u64> = None;
     let mut attempt = initial_attempt(&opts);
@@ -576,7 +667,6 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     let mut cpu_fallback_used = opts.encoder == "libx264";
     let mut seen_attempts: std::collections::HashSet<(String, u32)> =
         std::collections::HashSet::new();
-    reset_cancelled();
 
     loop {
         if attempt_index >= total_attempts {
@@ -606,12 +696,13 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             attempt_index,
             total_attempts,
             clip_duration,
+            job_id,
         )
         .await?;
         if run.cancelled {
             vidcord_log("Compression cancelled by user.");
             remove_partial_output(&opts.output_path);
-            reset_cancelled();
+            finish_compression_job(job_id);
             let _ = app.emit(
                 "compress-done",
                 serde_json::json!({"success": false, "cancelled": true, "message": "Cancelled."}),
@@ -656,6 +747,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 run.exit_status.code(),
                 all_lines.join("\n")
             ));
+            finish_compression_job(job_id);
             let _ = app.emit(
                 "compress-done",
                 serde_json::json!({"success": false, "message": err_msg}),
@@ -683,7 +775,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 "Compression finished successfully: {} bytes with {} at {}k.",
                 output_size, attempt.encoder, attempt.video_bitrate_k
             ));
-            reset_cancelled();
+            finish_compression_job(job_id);
             let _ = app.emit(
                 "compress-done",
                 serde_json::json!({
@@ -733,7 +825,6 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         cpu_fallback_used = next_cpu_fallback_used;
     }
 
-    reset_cancelled();
     let err_msg = match (smallest_oversize_bytes, target_bytes) {
         (Some(smallest), Some(limit)) => format!(
             "Compression could not reach target size. Smallest result was {}, above target {}.",
@@ -743,6 +834,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         _ => "Compression could not reach the requested target size after retrying lower bitrates."
             .to_string(),
     };
+    finish_compression_job(job_id);
     let _ = app.emit(
         "compress-done",
         serde_json::json!({
@@ -756,31 +848,39 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
 }
 
 #[tauri::command]
-pub fn cancel_compression() {
-    let (pid, output_path) = {
+pub async fn cancel_compression() -> bool {
+    let pid = {
         let mut state = compression_state()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        state.cancelled = true;
-        (state.pid.take(), state.output_path.take())
+        let had_active_job = state.active_job_id.is_some();
+        let pid = state.cancel_active();
+        if !had_active_job {
+            return false;
+        }
+        pid
     };
 
     if let Some(pid) = pid {
-        #[cfg(unix)]
-        unsafe {
-            libc::kill(pid as i32, libc::SIGTERM);
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            let _ = std::process::Command::new("taskkill")
-                .args(["/PID", &pid.to_string(), "/F"])
-                .creation_flags(0x08000000)
-                .output();
-        }
+        let _ = tokio::task::spawn_blocking(move || terminate_compression_process(pid)).await;
     }
+    true
+}
 
-    drop(output_path);
+#[cfg(unix)]
+fn terminate_compression_process(pid: u32) {
+    unsafe {
+        libc::kill(pid as i32, libc::SIGTERM);
+    }
+}
+
+#[cfg(windows)]
+fn terminate_compression_process(pid: u32) {
+    use std::os::windows::process::CommandExt;
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .creation_flags(0x08000000)
+        .output();
 }
 
 // ---------------------------------------------------------------------------
@@ -977,16 +1077,8 @@ mod tests {
         attempt = next;
         let (next, retries, cpu_used) =
             next_oversize_attempt(&attempt, 1_000, 1_500, retries, cpu_used).unwrap();
-        assert_eq!(next.encoder, "h264_nvenc");
-        assert_eq!(next.video_bitrate_k, 276);
-        assert_eq!(retries, 2);
-        assert!(!cpu_used);
-
-        attempt = next;
-        let (next, retries, cpu_used) =
-            next_oversize_attempt(&attempt, 1_000, 1_500, retries, cpu_used).unwrap();
         assert_eq!(next.encoder, "libx264");
-        assert_eq!(next.video_bitrate_k, 176);
+        assert_eq!(next.video_bitrate_k, 276);
         assert_eq!(retries, 0);
         assert!(cpu_used);
     }
@@ -1005,14 +1097,7 @@ mod tests {
         assert_eq!(retries, 1);
         assert!(cpu_used);
 
-        let (third, retries, cpu_used) =
-            next_oversize_attempt(&second, 1_000, 2_000, retries, cpu_used).unwrap();
-        assert_eq!(third.encoder, "libx264");
-        assert_eq!(third.video_bitrate_k, 207);
-        assert_eq!(retries, 2);
-        assert!(cpu_used);
-
-        assert!(next_oversize_attempt(&third, 1_000, 2_000, retries, cpu_used).is_none());
+        assert!(next_oversize_attempt(&second, 1_000, 2_000, retries, cpu_used).is_none());
     }
 
     #[test]
@@ -1027,10 +1112,33 @@ mod tests {
         let cpu = retry_test_options("libx264", Some(100.0));
         let no_target = retry_test_options("h264_nvenc", None);
 
-        assert_eq!(max_adaptive_attempts(&hardware, true), 6);
-        assert_eq!(max_adaptive_attempts(&cpu, true), 3);
+        assert_eq!(max_adaptive_attempts(&hardware, true), 3);
+        assert_eq!(max_adaptive_attempts(&cpu, true), 2);
         assert_eq!(max_adaptive_attempts(&no_target, false), 1);
         assert_eq!(initial_attempt(&no_target).video_bitrate_k, 900);
+    }
+
+    #[test]
+    fn compression_state_prevents_overlapping_jobs_and_stale_cleanup() {
+        let mut state = CompressionState {
+            next_job_id: 0,
+            active_job_id: None,
+            pid: None,
+            output_path: None,
+            cancelled: false,
+        };
+
+        let first = state.try_begin_job().unwrap();
+        assert!(state.try_begin_job().is_none());
+        assert!(state.register_process(first, 42, "first.mp4".into()));
+        assert_eq!(state.cancel_active(), Some(42));
+        assert!(state.is_cancelled(first));
+
+        state.finish_job(first);
+        let second = state.try_begin_job().unwrap();
+        assert_ne!(first, second);
+        state.finish_job(first);
+        assert_eq!(state.active_job_id, Some(second));
     }
 
     #[test]

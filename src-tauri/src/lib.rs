@@ -10,7 +10,8 @@ mod log;
 mod settings;
 
 use commands::compression::{
-    cancel_compression, compress_video, get_filmstrip, get_preview_clip, get_preview_frame, probe,
+    cancel_compression, cancel_preview_generation, compress_video, get_filmstrip, get_preview_clip,
+    get_preview_frame, probe,
 };
 use commands::encoders::{
     check_ffmpeg_available, detect_encoders, get_vaapi_device, install_ffmpeg_dependency,
@@ -216,6 +217,7 @@ pub fn run() {
             get_preview_frame,
             get_preview_clip,
             get_filmstrip,
+            cancel_preview_generation,
             detect_encoders,
             check_ffmpeg_available,
             install_ffmpeg_dependency,

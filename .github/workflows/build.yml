@@ -72,6 +72,9 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Check frontend bundle budget
+        run: npm run bundle:check
+
       - name: Upload dist
         uses: actions/upload-artifact@v7
         with:
@@ -301,6 +304,10 @@ jobs:
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
           awk -v tag="## $TAG" 'found && /^## /{exit} $0==tag{found=1;next} found' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "CHANGELOG.md has no non-empty ## $TAG release section" >&2
+            exit 1
+          fi
 
       - name: Download release artifacts
         uses: actions/download-artifact@v7

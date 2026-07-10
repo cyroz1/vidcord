@@ -133,7 +133,7 @@ export default function App() {
       savedEncoderIndex: (settingsRef.current.encoder_index as number) ?? 0,
       onFfmpegMissing: () => addToast("error", "FFmpeg Not Found", FFMPEG_MISSING_TOAST_MESSAGE),
     });
-  const { compressing, setCompressing, progress, eta, cancelCompress, resetProgress } =
+  const { compressing, setCompressing, cancelling, progress, eta, cancelCompress, resetProgress } =
     useCompression({ onToast: addToast });
 
   const previewRef = useRef<PreviewHandle>(null);
@@ -797,7 +797,9 @@ export default function App() {
       ),
       vaapi_device: vaapiDevice,
     }).catch((e) => {
-      if (isFfmpegMissingError(e)) {
+      if (String(e).includes("Cancelled")) {
+        return null;
+      } else if (isFfmpegMissingError(e)) {
         markFfmpegMissing();
         addToast("error", "FFmpeg Not Found", FFMPEG_MISSING_TOAST_MESSAGE);
       } else {
@@ -1722,9 +1724,9 @@ export default function App() {
                   startCompress();
                 }
           }
-          disabled={ffmpegMissing || (compressing && progress > 0 && progress < 5)}
+          disabled={ffmpegMissing || cancelling}
         >
-          {compressing ? "Cancel" : "Compress Video"}
+          {cancelling ? "Cancelling..." : compressing ? "Cancel" : "Compress Video"}
         </button>
 
         {/* Progress */}

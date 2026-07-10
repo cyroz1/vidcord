@@ -2,6 +2,7 @@ use crate::log::vidcord_log;
 use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 mod encoders;
@@ -13,6 +14,10 @@ static VAAPI_CACHE: OnceLock<Option<String>> = OnceLock::new();
 static FFMPEG_ENV: OnceLock<HashMap<String, String>> = OnceLock::new();
 
 pub const FFMPEG_MISSING_ERROR_MARKER: &str = "FFMPEG_MISSING:";
+const PREVIEW_CANCELLED_ERROR_MARKER: &str = "PREVIEW_CANCELLED:";
+
+static PREVIEW_GENERATION: AtomicU64 = AtomicU64::new(0);
+static PREVIEW_PIDS: OnceLock<Mutex<HashSet<u32>>> = OnceLock::new();
 
 pub fn ffmpeg_missing_error() -> String {
     format!(
@@ -30,16 +35,97 @@ fn command_output_or_ffmpeg_missing(
     }
 }
 
+fn preview_generation() -> u64 {
+    PREVIEW_GENERATION.load(Ordering::Acquire)
+}
+
+fn preview_cancelled_error() -> Box<dyn std::error::Error> {
+    format!("{PREVIEW_CANCELLED_ERROR_MARKER} Preview generation was cancelled.").into()
+}
+
+fn is_preview_cancelled_error(err: &dyn std::error::Error) -> bool {
+    err.to_string().starts_with(PREVIEW_CANCELLED_ERROR_MARKER)
+}
+
+#[cfg(unix)]
+fn terminate_preview_process(pid: u32) {
+    unsafe {
+        libc::kill(pid as i32, libc::SIGTERM);
+    }
+}
+
+#[cfg(windows)]
+fn terminate_preview_process(pid: u32) {
+    use std::os::windows::process::CommandExt;
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .creation_flags(0x08000000)
+        .output();
+}
+
+pub fn cancel_preview_jobs() {
+    PREVIEW_GENERATION.fetch_add(1, Ordering::AcqRel);
+    let pids = PREVIEW_PIDS.get_or_init(|| Mutex::new(HashSet::new()));
+    let active: Vec<u32> = pids
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .copied()
+        .collect();
+    for pid in active {
+        terminate_preview_process(pid);
+    }
+}
+
+fn preview_command_output(
+    cmd: &mut Command,
+    generation: u64,
+) -> Result<Output, Box<dyn std::error::Error>> {
+    if preview_generation() != generation {
+        return Err(preview_cancelled_error());
+    }
+
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Err(ffmpeg_missing_error().into()),
+        Err(err) => return Err(Box::new(err)),
+    };
+    let pid = child.id();
+    let pids = PREVIEW_PIDS.get_or_init(|| Mutex::new(HashSet::new()));
+    {
+        let mut guard = pids.lock().unwrap_or_else(|e| e.into_inner());
+        if preview_generation() != generation {
+            drop(guard);
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(preview_cancelled_error());
+        }
+        guard.insert(pid);
+    }
+
+    let output = child.wait_with_output();
+    pids.lock().unwrap_or_else(|e| e.into_inner()).remove(&pid);
+    let output = output?;
+    if preview_generation() != generation {
+        return Err(preview_cancelled_error());
+    }
+    Ok(output)
+}
+
 const PREVIEW_CLIP_SCALE_FILTER: &str =
     "scale=w=1280:h=720:flags=fast_bilinear:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1";
 const PREVIEW_CLIP_BITRATE: &str = "2500k";
 const MAX_GENERATED_PREVIEW_CLIP_SECONDS: f64 = 12.0;
-const SPARSE_FILMSTRIP_THRESHOLD_SEC: f64 = 10.0 * 60.0;
+const SPARSE_FILMSTRIP_THRESHOLD_SEC: f64 = 3.0 * 60.0;
 const DEFAULT_PREVIEW_IMAGE_WIDTH: u32 = 720;
 const DEFAULT_PREVIEW_IMAGE_HEIGHT: u32 = 480;
 const MIN_PREVIEW_IMAGE_DIM: u32 = 240;
 const MAX_PREVIEW_IMAGE_WIDTH: u32 = 960;
 const MAX_PREVIEW_IMAGE_HEIGHT: u32 = 1080;
+
+fn should_use_sparse_filmstrip(duration_sec: f64) -> bool {
+    duration_sec >= SPARSE_FILMSTRIP_THRESHOLD_SEC
+}
 
 fn push_auto_hwaccel_args(args: &mut Vec<String>) {
     args.extend(["-hwaccel".into(), "auto".into()]);
@@ -417,6 +503,7 @@ pub fn generate_preview(
     preview_width: Option<u32>,
     preview_height: Option<u32>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let generation = preview_generation();
     let (preview_width, preview_height) =
         normalize_preview_dimensions(preview_width, preview_height);
     // Round to 0.1 s resolution for cache key
@@ -436,8 +523,14 @@ pub fn generate_preview(
     // 3-decimal precision is millisecond-accurate — ffmpeg's -ss seek doesn't
     // need more than that and Rust's default `f64::to_string()` can emit a
     // long tail (e.g. 4.800000000000001) that yields a larger allocation.
-    let bytes =
-        generate_preview_frame_with_fallback(path, time_sec, "5", preview_width, preview_height)?;
+    let bytes = generate_preview_frame_with_fallback(
+        path,
+        time_sec,
+        "5",
+        preview_width,
+        preview_height,
+        generation,
+    )?;
     let shared = Arc::new(bytes);
     {
         let mut cache = get_frame_cache().lock().unwrap_or_else(|e| e.into_inner());
@@ -456,6 +549,7 @@ fn generate_preview_frame_with_fallback(
     quality: &str,
     preview_width: u32,
     preview_height: u32,
+    generation: u64,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     match generate_preview_frame_internal(
         path,
@@ -464,9 +558,15 @@ fn generate_preview_frame_with_fallback(
         preview_width,
         preview_height,
         true,
+        generation,
     ) {
         Ok(bytes) => Ok(bytes),
-        Err(err) if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER) => Err(err),
+        Err(err)
+            if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER)
+                || is_preview_cancelled_error(err.as_ref()) =>
+        {
+            Err(err)
+        }
         Err(err) => {
             vidcord_log(&format!(
                 "Hardware preview frame decode failed; retrying software decode: {err}"
@@ -478,6 +578,7 @@ fn generate_preview_frame_with_fallback(
                 preview_width,
                 preview_height,
                 false,
+                generation,
             )
         }
     }
@@ -490,6 +591,7 @@ fn generate_preview_frame_internal(
     preview_width: u32,
     preview_height: u32,
     use_auto_hwaccel: bool,
+    generation: u64,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     // 3-decimal precision is millisecond-accurate. ffmpeg's -ss seek doesn't
     // need more than that, and Rust's default f64 formatting can emit a long
@@ -537,7 +639,7 @@ fn generate_preview_frame_internal(
         cmd.creation_flags(0x08000000);
     }
 
-    let out = command_output_or_ffmpeg_missing(&mut cmd)?;
+    let out = preview_command_output(&mut cmd, generation)?;
 
     if !out.status.success() || out.stdout.is_empty() {
         return Err("FFmpeg preview failed".into());
@@ -555,6 +657,7 @@ pub fn generate_filmstrip(
     preview_width: Option<u32>,
     preview_height: Option<u32>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let generation = preview_generation();
     if !duration_sec.is_finite() || duration_sec <= 0.0 {
         return Err("Invalid filmstrip duration".into());
     }
@@ -566,13 +669,14 @@ pub fn generate_filmstrip(
     let frame_limit = max_frames.unwrap_or(60).clamp(2, 60);
     let frame_count = (duration_sec.floor() as usize).clamp(2, frame_limit);
 
-    if duration_sec >= SPARSE_FILMSTRIP_THRESHOLD_SEC {
+    if should_use_sparse_filmstrip(duration_sec) {
         return generate_sparse_seek_filmstrip(
             path,
             duration_sec,
             frame_count,
             preview_width,
             preview_height,
+            generation,
         );
     }
 
@@ -583,9 +687,12 @@ pub fn generate_filmstrip(
         preview_width,
         preview_height,
         true,
+        generation,
     )
     .or_else(|err| {
-        if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER) {
+        if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER)
+            || is_preview_cancelled_error(err.as_ref())
+        {
             return Err(err);
         }
         vidcord_log(&format!(
@@ -598,6 +705,7 @@ pub fn generate_filmstrip(
             preview_width,
             preview_height,
             false,
+            generation,
         )
     })
 }
@@ -609,6 +717,7 @@ fn generate_filmstrip_single_pass(
     preview_width: u32,
     preview_height: u32,
     use_auto_hwaccel: bool,
+    generation: u64,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let fps = frame_count as f64 / duration_sec;
     let mut args: Vec<String> = vec![
@@ -652,7 +761,7 @@ fn generate_filmstrip_single_pass(
         cmd.creation_flags(0x08000000);
     }
 
-    let out = command_output_or_ffmpeg_missing(&mut cmd)?;
+    let out = preview_command_output(&mut cmd, generation)?;
 
     if !out.status.success() || out.stdout.is_empty() {
         return Err("FFmpeg filmstrip failed".into());
@@ -667,6 +776,7 @@ fn generate_sparse_seek_filmstrip(
     frame_count: usize,
     preview_width: u32,
     preview_height: u32,
+    generation: u64,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut output = Vec::new();
     let mut last_error: Option<String> = None;
@@ -687,9 +797,13 @@ fn generate_sparse_seek_filmstrip(
             preview_width,
             preview_height,
             use_auto_hwaccel,
+            generation,
         ) {
             Ok(frame) => output.extend(frame),
-            Err(err) if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER) => {
+            Err(err)
+                if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER)
+                    || is_preview_cancelled_error(err.as_ref()) =>
+            {
                 return Err(err)
             }
             Err(err) if use_auto_hwaccel => {
@@ -704,9 +818,13 @@ fn generate_sparse_seek_filmstrip(
                     preview_width,
                     preview_height,
                     false,
+                    generation,
                 ) {
                     Ok(frame) => output.extend(frame),
-                    Err(err) if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER) => {
+                    Err(err)
+                        if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER)
+                            || is_preview_cancelled_error(err.as_ref()) =>
+                    {
                         return Err(err)
                     }
                     Err(err) => {
@@ -817,6 +935,7 @@ pub fn generate_preview_clip(
     start_time_sec: f64,
     end_time_sec: f64,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let generation = preview_generation();
     let start_time_sec = finite_non_negative(start_time_sec);
     let requested_end_time_sec = finite_non_negative(end_time_sec);
     let duration =
@@ -838,7 +957,8 @@ pub fn generate_preview_clip(
     }
 
     // Not in cache, generate it.
-    let clip = generate_preview_clip_with_fallbacks(path, start_time_sec, end_time_sec)?;
+    let clip =
+        generate_preview_clip_with_fallbacks(path, start_time_sec, end_time_sec, generation)?;
     let shared = Arc::new(clip);
 
     // Store in cache (refcount bump, no payload copy)
@@ -854,13 +974,18 @@ fn generate_preview_clip_with_fallbacks(
     path: &str,
     start_time_sec: f64,
     end_time_sec: f64,
+    generation: u64,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut last_error: Option<String> = None;
 
     for plan in preview_clip_plans() {
-        match generate_preview_clip_internal(path, start_time_sec, end_time_sec, &plan) {
+        match generate_preview_clip_internal(path, start_time_sec, end_time_sec, &plan, generation)
+        {
             Ok(clip) => return Ok(clip),
-            Err(err) if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER) => {
+            Err(err)
+                if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER)
+                    || is_preview_cancelled_error(err.as_ref()) =>
+            {
                 return Err(err)
             }
             Err(err) => {
@@ -883,6 +1008,7 @@ fn generate_preview_clip_internal(
     start_time_sec: f64,
     end_time_sec: f64,
     plan: &PreviewClipPlan,
+    generation: u64,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let duration = (end_time_sec - start_time_sec).max(0.2);
     let start_time = format_time_arg(start_time_sec);
@@ -1002,7 +1128,7 @@ fn generate_preview_clip_internal(
         cmd.creation_flags(0x08000000);
     }
 
-    let out = command_output_or_ffmpeg_missing(&mut cmd)?;
+    let out = preview_command_output(&mut cmd, generation)?;
 
     if !out.status.success() || out.stdout.is_empty() {
         return Err("FFmpeg preview clip failed".into());
@@ -1111,5 +1237,12 @@ mod tests {
         assert!(message.starts_with(FFMPEG_MISSING_ERROR_MARKER));
         assert!(message.contains("PATH"));
         assert!(message.contains("Install FFmpeg"));
+    }
+
+    #[test]
+    fn long_filmstrips_use_sparse_seeks_before_full_decode_becomes_expensive() {
+        assert!(!should_use_sparse_filmstrip(179.9));
+        assert!(should_use_sparse_filmstrip(180.0));
+        assert!(should_use_sparse_filmstrip(600.0));
     }
 }

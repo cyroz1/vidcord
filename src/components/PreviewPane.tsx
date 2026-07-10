@@ -8,12 +8,16 @@ import {
   useState,
 } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { getFilmstrip, getOs, getPreviewClip, getPreviewFrame } from "../ipc";
+import {
+  cancelPreviewGeneration,
+  getFilmstrip,
+  getOs,
+  getPreviewClip,
+  getPreviewFrame,
+} from "../ipc";
 
 const FIXED_PREVIEW_CSS_WIDTH = 432;
 const FIXED_PREVIEW_CSS_HEIGHT = 243;
-const FIXED_PREVIEW_PIXEL_WIDTH = 864;
-const FIXED_PREVIEW_PIXEL_HEIGHT = 486;
 const MAX_GENERATED_PREVIEW_CLIP_SECONDS = 12;
 
 // Module-scope static style objects. Hoisted so React doesn't allocate a
@@ -258,9 +262,17 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const urlCacheRef = useRef<Map<string, string[]>>(new Map());
 
   const getPreviewPixelSize = useCallback(() => {
+    const scale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+    const even = (value: number) => Math.ceil(value / 2) * 2;
     return {
-      width: FIXED_PREVIEW_PIXEL_WIDTH,
-      height: FIXED_PREVIEW_PIXEL_HEIGHT,
+      width: even(FIXED_PREVIEW_CSS_WIDTH * scale),
+      height: even(FIXED_PREVIEW_CSS_HEIGHT * scale),
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      cancelPreviewGeneration().catch(() => {});
     };
   }, []);
 

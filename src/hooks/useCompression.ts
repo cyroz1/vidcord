@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { cancelCompression, type ProbeData } from "../ipc";
 
@@ -29,16 +29,21 @@ export type CompressDonePayload = {
 
 export function useCompression({ onToast: _onToast }: Props) {
   const [compressing, setCompressing] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [progress, setProgress] = useState(0);
   const [eta, setEta] = useState("Ready");
+  const cancellingRef = useRef(false);
 
   // Subscribe to backend compression events
   useEffect(() => {
     const unsub1 = listen<CompressProgressPayload>("compress-progress", (e) => {
+      if (cancellingRef.current) return;
       setProgress(e.payload.percent);
       setEta(formatCompressionProgress(e.payload));
     });
     const unsub2 = listen<CompressDonePayload>("compress-done", (e) => {
+      cancellingRef.current = false;
+      setCancelling(false);
       setCompressing(false);
       setProgress(e.payload.success ? 100 : 0);
       setEta(formatCompressionDone(e.payload));
@@ -49,10 +54,24 @@ export function useCompression({ onToast: _onToast }: Props) {
     };
   }, []);
 
-  const cancelCompress = useCallback(() => {
-    cancelCompression().catch(() => {});
-    setCompressing(false);
-    setEta("Cancelled");
+  const cancelCompress = useCallback(async () => {
+    if (cancellingRef.current) return;
+    cancellingRef.current = true;
+    setCancelling(true);
+    setEta("Cancelling...");
+    try {
+      const hadActiveJob = await cancelCompression();
+      if (!hadActiveJob) {
+        cancellingRef.current = false;
+        setCancelling(false);
+        setCompressing(false);
+        setEta("Ready");
+      }
+    } catch {
+      cancellingRef.current = false;
+      setCancelling(false);
+      setEta("Could not cancel");
+    }
   }, []);
 
   const resetProgress = useCallback(() => {
@@ -63,6 +82,7 @@ export function useCompression({ onToast: _onToast }: Props) {
   return {
     compressing,
     setCompressing,
+    cancelling,
     progress,
     eta,
     cancelCompress,

@@ -97,6 +97,8 @@ FFmpeg must be on `PATH` for the app to probe videos or compress.
 npm run lint               # eslint src
 npm run typecheck          # tsc --noEmit
 npm test                   # vitest run
+npm run build              # production frontend bundle
+npm run bundle:check       # enforce JS/CSS bundle-size budgets after build
 npm run format             # prettier --write src
 cargo fmt --check --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings
@@ -223,6 +225,10 @@ Events flow the other direction via `AppHandle::emit` → `listen()` in the fron
 - `open-file` — path from single-instance forwarding, macOS Apple Events, or CLI args
 - `tauri://drag-drop` — built-in Tauri event for drops on the window
 
+Compression uses a single owned backend job ID. Cancellation keeps that job active until its FFmpeg
+process exits; do not clear frontend compression state before the matching `compress-done` event or
+replace the job-specific state with an unowned global PID.
+
 ### File-open routing (tricky)
 
 Open-with / right-click → Open must work across three delivery mechanisms:
@@ -260,7 +266,10 @@ Every `std::process::Command::new("ffmpeg"|"ffprobe")` in Rust must:
 - `FFMPEG_AVAIL_CACHE` (`src-tauri/src/commands/encoders.rs`) — 30 s TTL on `ffmpeg`/`ffprobe -version` probes, with `ffmpeg_available_fresh()` for post-install bypass.
 
 Call `clear_preview_caches()` when the frontend loads a new file (already done in `probe`).
-Preview frame and filmstrip IPC accepts optional preview dimensions; the backend clamps them to even values before building FFmpeg scale filters. Long videos (10+ minutes) use sparse seeks for filmstrip generation instead of a dense single-pass `fps` filter. Generated preview clips are bounded to a short playhead-relative window, try platform H.264 hardware encoders first, then fall back through software `libx264`.
+Preview FFmpeg child PIDs are tracked by a generation token. Call `cancel_preview_jobs()` before
+starting work that should supersede previews; `probe` and `compress_video` already do this, and the
+frontend invokes `cancel_preview_generation` when the preview unmounts.
+Preview frame and filmstrip IPC accepts optional preview dimensions; the backend clamps them to even values before building FFmpeg scale filters. Videos of 3+ minutes use sparse seeks for filmstrip generation instead of a dense single-pass `fps` filter. Generated preview clips are bounded to a short playhead-relative window, try platform H.264 hardware encoders first, then fall back through software `libx264`.
 
 ### Settings
 
@@ -287,6 +296,7 @@ The app re-renders on every trim-slider move. Established patterns:
 ### TypeScript / React
 
 - Prettier: double quotes, 2-space indent, semicolons, 100-column print width, ES5 trailing commas.
+- Text source files are normalized to LF by `.gitattributes` so Prettier checks behave consistently on Windows and CI.
 - Strict TS — no `any` without a `// eslint-disable-next-line @typescript-eslint/no-explicit-any` and a reason.
 - Unused args must be prefixed with `_` (see `useCompression.ts`'s `_onToast`).
 - No comment churn for removed code — delete it. Don't add "// removed" breadcrumbs.
@@ -337,7 +347,7 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 
 `.github/workflows/build.yml` has five jobs:
 
-1. **frontend** (ubuntu-latest) — `npm ci`, audit (high), lint, typecheck, test, build; uploads `dist/` as an artifact for every platform matrix job to download.
+1. **frontend** (ubuntu-latest) — `npm ci`, audit (high), lint, typecheck, test, build, bundle-size budget; uploads `dist/` as an artifact for every platform matrix job to download.
 2. **rust-lint** (ubuntu-latest) — `cargo fmt --check` + `cargo audit`. Fast, runs in parallel.
 3. **rust-compile-checks** (ubuntu-latest) — `cargo clippy -D warnings` + `cargo test`. Shares the `rust-linux` `Swatinem/rust-cache` key with the Linux x86_64 build job.
 4. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. Tagged `v*` refs use `release` profile; everything else uses `ci` profile.

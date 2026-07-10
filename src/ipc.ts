@@ -108,6 +108,10 @@ export function getFilmstrip(
   });
 }
 
+export function cancelPreviewGeneration(): Promise<void> {
+  return invoke("cancel_preview_generation");
+}
+
 export function detectEncoders(): Promise<Encoder[]> {
   return invoke<Encoder[]>("detect_encoders");
 }
@@ -130,8 +134,8 @@ export function compressVideo(opts: CompressOptions): Promise<string> {
   return invoke<string>("compress_video", { opts });
 }
 
-export function cancelCompression(): Promise<void> {
-  return invoke("cancel_compression");
+export function cancelCompression(): Promise<boolean> {
+  return invoke<boolean>("cancel_compression");
 }
 
 export function checkForUpdates(currentVersion: string): Promise<UpdateCheckResult> {
