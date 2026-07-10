@@ -91,7 +91,7 @@
             "description": "vidcord compresses MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord upload size limits locally on Windows, macOS, and Linux.",
             "featureList": [
               "Local video compression with FFmpeg",
-              "Discord upload targets: 10 MB, 25 MB, 50 MB, 100 MB, and 500 MB",
+              "Discord upload targets: current 10 MB, 50 MB, 100 MB, and 500 MB limits plus a legacy 25 MB target",
               "Output FPS controls with source-aware 24, 30, and 60 FPS presets plus advanced custom FPS",
               "Trim, scrub, and preview before compression",
               "GPU encoder detection for NVENC, AMF, QSV, VAAPI, and VideoToolbox",
@@ -124,7 +124,7 @@
                 "name": "Does vidcord upload videos?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "No. vidcord processes video files locally on your computer with your system FFmpeg binary. The app does not upload videos, require accounts, or collect telemetry."
+                  "text": "No. vidcord processes video files locally on your computer with your system FFmpeg binary. The app does not upload videos, require accounts, or collect telemetry. It checks GitHub Releases for updates and downloads an installer only after user approval."
                 }
               },
               {
@@ -132,7 +132,7 @@
                 "name": "Which Discord upload limits does vidcord target?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "vidcord includes Discord size targets for 10 MB, 25 MB, 50 MB, 100 MB, and 500 MB uploads, plus advanced custom target, resolution, FPS, and encoder controls."
+                  "text": "vidcord targets Discord's current 10 MB, 50 MB, 100 MB, and 500 MB upload limits and also provides a legacy 25 MB target, plus advanced custom target, resolution, FPS, and encoder controls."
                 }
               },
               {
@@ -199,8 +199,8 @@
           <h1 id="hero-title">vidcord</h1>
           <p class="hero-lede">Local video compression for Discord limits.</p>
           <p class="hero-body">
-            Shrink MP4, MOV, MKV, AVI, WebM, FLV, and WMV files to Discord's 10 / 25 / 50 / 100 /
-            500 MB upload tiers with FFmpeg on your own machine.
+            Shrink MP4, MOV, MKV, AVI, WebM, FLV, and WMV files to Discord's current 10 / 50 / 100 /
+            500 MB upload limits, or a legacy 25 MB target, with FFmpeg on your own machine.
           </p>
 
           <div class="hero-actions">
@@ -326,8 +326,8 @@
           </svg>
           <h2>Discord targets</h2>
           <p>
-            Pick 10, 25, 50, 100, or 500 MB, cap FPS if needed, and let the app calculate the
-            bitrate.
+            Pick a current 10, 50, 100, or 500 MB Discord limit—or the legacy 25 MB target—cap FPS
+            if needed, and let the app calculate the bitrate.
           </p>
         </article>
         <article>
@@ -516,14 +516,16 @@
             <h3>Does vidcord upload videos?</h3>
             <p>
               No. vidcord runs FFmpeg on your computer, keeps files local, and does not require an
-              account or telemetry.
+              account or telemetry. It checks GitHub Releases for updates and only downloads an
+              installer after you approve an available update.
             </p>
           </article>
           <article>
             <h3>Which Discord upload limits are supported?</h3>
             <p>
-              The presets target 10 MB, 25 MB, 50 MB, 100 MB, and 500 MB uploads. Advanced mode can
-              set a custom target size, resolution, FPS, and encoder.
+              The presets cover Discord's current 10 MB, 50 MB, 100 MB, and 500 MB upload limits,
+              plus a legacy 25 MB target. Advanced mode can set a custom target size, resolution,
+              FPS, and encoder.
             </p>
           </article>
           <article>

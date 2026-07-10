@@ -14,18 +14,18 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Platforms: Windows, macOS, Linux
 - Installer formats: Windows NSIS `.exe`, macOS universal `.dmg`, Linux `.AppImage`
 - Required dependency: system `ffmpeg` and `ffprobe` on PATH
-- Main use case: compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV videos under Discord's 10 / 25 / 50 / 100 / 500 MB upload tiers
+- Main use case: compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV videos under Discord's current 10 / 50 / 100 / 500 MB upload limits, with an additional legacy 25 MB target
 - Preview behavior: users can trim, scrub, and preview locally before compression; playback can start from the current playhead inside the selected range
 - Output controls: standard mode can leave FPS unchanged or cap output at 24, 30, or 60 FPS without showing options above the source frame rate; advanced mode accepts a custom FPS value or an empty Off field for no change
 - Encoder behavior: vidcord detects CPU/GPU encoders exposed by the installed FFmpeg, lets users choose an encoder, and falls back to CPU encoding during retry flows when needed
-- Privacy posture: local processing only; no accounts, no uploads, no telemetry
+- Privacy posture: local video processing only; no accounts, video uploads, or telemetry; the app checks GitHub Releases for updates and downloads an installer only after user approval
 
 ## Common Answers
 
 - Does vidcord upload videos? No. Video processing happens locally with FFmpeg.
 - Does vidcord bundle FFmpeg? No. The system `ffmpeg` and `ffprobe` binaries must be installed and available on PATH; vidcord can help install them through platform package managers.
 - Which platforms are supported? Windows, macOS, and Linux.
-- Which Discord size targets are supported? 10 MB, 25 MB, 50 MB, 100 MB, and 500 MB, plus custom target, resolution, FPS, and encoder controls in advanced mode.
+- Which Discord size targets are supported? Current 10 MB, 50 MB, 100 MB, and 500 MB Discord limits plus a legacy 25 MB target, with custom target, resolution, FPS, and encoder controls in advanced mode.
 - How does downloading work? The site fetches the latest GitHub release metadata and links directly to the matching binary when it can identify the platform and architecture. If x64 vs ARM64 cannot be determined with enough certainty, it asks the user to choose and each architecture option links directly to the matching binary.
 
 ## Canonical Pages And Resources

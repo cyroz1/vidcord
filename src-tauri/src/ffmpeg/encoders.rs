@@ -92,13 +92,13 @@ pub fn get_available_encoders() -> AvailableEncoders {
         ),
         (
             "h264_videotoolbox",
-            "Apple Silicon (h264_videotoolbox)",
+            "macOS (h264_videotoolbox)",
             false,
             "apple",
         ),
         (
             "hevc_videotoolbox",
-            "Apple Silicon H.265 (hevc_videotoolbox)",
+            "macOS H.265 (hevc_videotoolbox)",
             false,
             "apple",
         ),

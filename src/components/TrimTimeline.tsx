@@ -178,7 +178,7 @@ function TrimTimeline({
               <span className="sc-key">Space</span>
               <span>Play / Pause</span>
               <span className="sc-key">, / .</span>
-              <span>Step frame back / forward</span>
+              <span>Step 1/30s back / forward</span>
               <span className="sc-key">I</span>
               <span>Set in point to playhead</span>
               <span className="sc-key">O</span>

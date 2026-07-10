@@ -29,10 +29,12 @@
 ### UI
 
 - **Fixed app and preview sizing**: the main window now stays locked at 460×690, and preview/filmstrip thumbnails use a fixed 16:9 surface instead of resizing to content or source aspect ratio.
+- **Accurate VideoToolbox labels**: macOS hardware encoders are now labeled for macOS instead of implying they are limited to Apple Silicon.
 
 ### Documentation
 
 - Updated the README, FFmpeg setup guide, website copy, structured data, and AI grounding files for package-manager FFmpeg setup and selectable encoder behavior.
+- Corrected Discord tier, update-networking, package-size, trim-precision, retry-order, Linux compatibility, and encoder-selection claims across the README and website.
 
 ## v6.6
 
@@ -173,7 +175,7 @@
 | Key | Action |
 |-----|--------|
 | `Space` | Toggle play / stop |
-| `,` / `.` | Step one frame backward / forward |
+| `,` / `.` | Step 1/30 second backward / forward |
 | `J` / `K` | Jump playhead to trim start / end |
 | `[` / `]` | Nudge trim start / end |
 | `I` / `O` | Set trim in / out to current playhead |

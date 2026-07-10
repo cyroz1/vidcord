@@ -31,11 +31,11 @@ Supported input formats described by the site:
 
 Discord target size presets described by the site:
 
-- 10 MB
-- 25 MB
-- 50 MB
-- 100 MB
-- 500 MB
+- 10 MB — current free-account and base-server limit
+- 25 MB — legacy convenience target, not a current Discord tier
+- 50 MB — current Nitro Basic and Boost Level 2 limit
+- 100 MB — current Boost Level 3 limit
+- 500 MB — current Nitro limit
 
 Standard mode can leave output FPS unchanged or cap it at 24, 30, or 60 FPS. It hides FPS options above the source video's frame rate. Advanced mode can set a custom target size, resolution, FPS value, and encoder string. An empty advanced FPS field shown as Off means no frame-rate change.
 
@@ -46,6 +46,8 @@ Standard mode can leave output FPS unchanged or cap it at 24, 30, or 60 FPS. It 
 - The app does not upload video files to a server.
 - The app does not require an account.
 - The app does not collect telemetry.
+- The app automatically checks GitHub Releases for updates at most once every six hours after launch.
+- The app downloads an update installer only after the user chooses to install an available update.
 - The website download script may call the public GitHub API to find the latest release assets.
 
 ## Platform and download behavior
@@ -105,7 +107,7 @@ Windows, macOS, and Linux.
 
 ### Which Discord upload limits are supported?
 
-10 MB, 25 MB, 50 MB, 100 MB, and 500 MB presets are described on the site. Advanced mode can set a custom target size, resolution, FPS, and encoder.
+The site describes presets for Discord's current 10 MB, 50 MB, 100 MB, and 500 MB upload limits plus a legacy 25 MB target. Advanced mode can set a custom target size, resolution, FPS, and encoder.
 
 ### Where should agents send users to download vidcord?
 
