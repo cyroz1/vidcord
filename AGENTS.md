@@ -243,7 +243,7 @@ The frontend's `open-file` listener may not be registered when the event fires o
 
 Every `std::process::Command::new("ffmpeg"|"ffprobe")` in Rust must:
 
-1. Use `envs(get_ffmpeg_env())` — on Linux this sets `LIBVA_DRIVER_NAME=radeonsi` for AMD systems.
+1. Call `configure_ffmpeg_command(&mut cmd)` after setting its arguments and stdio. On Linux this sets `LIBVA_DRIVER_NAME=radeonsi` for AMD systems and removes AppImage-internal `LD_LIBRARY_PATH` entries that would make the system FFmpeg load incompatible bundled libraries.
 2. On Windows, set `creation_flags(0x08000000)` (CREATE_NO_WINDOW) to avoid a console flash. The pattern in use:
    ```rust
    #[allow(unused_mut)]

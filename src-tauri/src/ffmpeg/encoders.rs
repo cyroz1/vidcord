@@ -1,4 +1,4 @@
-use super::{find_vaapi_device, get_ffmpeg_env};
+use super::{configure_ffmpeg_command, find_vaapi_device};
 use crate::gpu::get_system_gpus;
 use std::collections::HashSet;
 use std::io::ErrorKind;
@@ -31,8 +31,8 @@ pub fn get_available_encoders() -> AvailableEncoders {
 
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
-    cmd.args(["-hide_banner", "-encoders"])
-        .envs(get_ffmpeg_env());
+    cmd.args(["-hide_banner", "-encoders"]);
+    configure_ffmpeg_command(&mut cmd);
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;

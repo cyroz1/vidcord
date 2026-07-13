@@ -280,6 +280,42 @@ pub fn get_ffmpeg_env() -> &'static HashMap<String, String> {
     })
 }
 
+#[cfg(any(target_os = "linux", test))]
+fn without_appimage_library_paths(appdir: &str, library_path: &str) -> String {
+    let appdir = appdir.trim_end_matches('/');
+    if appdir.is_empty() {
+        return library_path.to_string();
+    }
+    library_path
+        .split(':')
+        .filter(|entry| {
+            *entry != appdir
+                && !entry
+                    .strip_prefix(appdir)
+                    .is_some_and(|suffix| suffix.starts_with('/'))
+        })
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
+pub fn configure_ffmpeg_command(command: &mut Command) {
+    command.envs(get_ffmpeg_env());
+
+    #[cfg(target_os = "linux")]
+    if let (Ok(appdir), Ok(library_path)) =
+        (std::env::var("APPDIR"), std::env::var("LD_LIBRARY_PATH"))
+    {
+        // AppRun prepends bundled libraries so vidcord itself stays portable.
+        // Host FFmpeg binaries must use host libraries instead: mixing the two
+        // can fail before main() with symbol/version errors on newer distros.
+        let library_path = without_appimage_library_paths(&appdir, &library_path);
+        command.env_remove("LD_LIBRARY_PATH");
+        if !library_path.is_empty() {
+            command.env("LD_LIBRARY_PATH", library_path);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Video probing
 // ---------------------------------------------------------------------------
@@ -317,8 +353,8 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
         "-show_streams",
         "-show_format",
         path,
-    ])
-    .envs(get_ffmpeg_env());
+    ]);
+    configure_ffmpeg_command(&mut cmd);
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -629,9 +665,9 @@ fn generate_preview_frame_internal(
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
     cmd.args(&args)
-        .envs(get_ffmpeg_env())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
+    configure_ffmpeg_command(&mut cmd);
 
     #[cfg(target_os = "windows")]
     {
@@ -751,9 +787,9 @@ fn generate_filmstrip_single_pass(
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
     cmd.args(&args)
-        .envs(get_ffmpeg_env())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
+    configure_ffmpeg_command(&mut cmd);
 
     #[cfg(target_os = "windows")]
     {
@@ -1118,9 +1154,9 @@ fn generate_preview_clip_internal(
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
     cmd.args(&args)
-        .envs(get_ffmpeg_env())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
+    configure_ffmpeg_command(&mut cmd);
 
     #[cfg(target_os = "windows")]
     {
@@ -1174,30 +1210,28 @@ pub fn find_vaapi_device() -> Option<String> {
 
                 for node in &nodes {
                     let node_str = node.to_string_lossy().to_string();
-                    let ok = std::process::Command::new("ffmpeg")
-                        .args([
-                            "-y",
-                            "-hide_banner",
-                            "-init_hw_device",
-                            &format!("vaapi=va:{node_str}"),
-                            "-filter_hw_device",
-                            "va",
-                            "-f",
-                            "lavfi",
-                            "-i",
-                            "nullsrc=s=64x64",
-                            "-frames:v",
-                            "1",
-                            "-f",
-                            "null",
-                            "-",
-                        ])
-                        .envs(get_ffmpeg_env())
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
-                        .status()
-                        .map(|s| s.success())
-                        .unwrap_or(false);
+                    let mut cmd = std::process::Command::new("ffmpeg");
+                    cmd.args([
+                        "-y",
+                        "-hide_banner",
+                        "-init_hw_device",
+                        &format!("vaapi=va:{node_str}"),
+                        "-filter_hw_device",
+                        "va",
+                        "-f",
+                        "lavfi",
+                        "-i",
+                        "nullsrc=s=64x64",
+                        "-frames:v",
+                        "1",
+                        "-f",
+                        "null",
+                        "-",
+                    ])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null());
+                    configure_ffmpeg_command(&mut cmd);
+                    let ok = cmd.status().map(|s| s.success()).unwrap_or(false);
 
                     if ok {
                         return Some(node_str);
@@ -1237,6 +1271,36 @@ mod tests {
         assert!(message.starts_with(FFMPEG_MISSING_ERROR_MARKER));
         assert!(message.contains("PATH"));
         assert!(message.contains("Install FFmpeg"));
+    }
+
+    #[test]
+    fn appimage_library_paths_are_removed_for_host_ffmpeg() {
+        let cleaned = without_appimage_library_paths(
+            "/tmp/.mount_vidcord",
+            "/tmp/.mount_vidcord/usr/lib:/opt/custom/lib:/tmp/.mount_vidcord/usr/lib64:/usr/local/lib",
+        );
+
+        assert_eq!(cleaned, "/opt/custom/lib:/usr/local/lib");
+        assert_eq!(
+            without_appimage_library_paths(
+                "/tmp/.mount_vidcord",
+                "/tmp/.mount_vidcord-other/lib:/usr/lib",
+            ),
+            "/tmp/.mount_vidcord-other/lib:/usr/lib"
+        );
+    }
+
+    #[test]
+    fn appimage_only_library_path_is_cleared_for_host_ffmpeg() {
+        assert!(without_appimage_library_paths(
+            "/tmp/.mount_vidcord",
+            "/tmp/.mount_vidcord/usr/lib:/tmp/.mount_vidcord/usr/lib64",
+        )
+        .is_empty());
+        assert_eq!(
+            without_appimage_library_paths("", "/opt/custom/lib:/usr/local/lib"),
+            "/opt/custom/lib:/usr/local/lib"
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use crate::ffmpeg::{
-    cancel_preview_jobs, clear_preview_caches, ffmpeg_missing_error, generate_filmstrip,
-    generate_preview, generate_preview_clip, get_ffmpeg_env, probe_video,
+    cancel_preview_jobs, clear_preview_caches, configure_ffmpeg_command, ffmpeg_missing_error,
+    generate_filmstrip, generate_preview, generate_preview_clip, probe_video,
 };
 use crate::log::vidcord_log;
 use std::io::{BufRead, BufReader};
@@ -480,9 +480,9 @@ async fn run_ffmpeg_attempt(
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
     cmd.args(&cmd_args)
-        .envs(get_ffmpeg_env())
         .stderr(Stdio::piped())
         .stdout(Stdio::null());
+    configure_ffmpeg_command(&mut cmd);
 
     #[cfg(target_os = "windows")]
     {

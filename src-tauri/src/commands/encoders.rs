@@ -1,5 +1,6 @@
 use crate::ffmpeg::{
-    ffmpeg_missing_error, get_available_encoders, get_ffmpeg_env, invalidate_encoder_cache,
+    configure_ffmpeg_command, ffmpeg_missing_error, get_available_encoders,
+    invalidate_encoder_cache,
 };
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
@@ -42,9 +43,9 @@ fn ffmpeg_tool_probe(tool: &str) -> bool {
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new(tool);
     cmd.arg("-version")
-        .envs(get_ffmpeg_env())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    configure_ffmpeg_command(&mut cmd);
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -352,8 +353,8 @@ pub async fn list_ffmpeg_video_encoders() -> Result<String, String> {
     tokio::task::spawn_blocking(|| -> Result<String, String> {
         #[allow(unused_mut)]
         let mut cmd = std::process::Command::new("ffmpeg");
-        cmd.args(["-hide_banner", "-encoders"])
-            .envs(get_ffmpeg_env());
+        cmd.args(["-hide_banner", "-encoders"]);
+        configure_ffmpeg_command(&mut cmd);
 
         #[cfg(target_os = "windows")]
         {

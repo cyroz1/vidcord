@@ -21,6 +21,7 @@
 
 - **Automated FFmpeg setup assistance**: Windows installers and first launch can offer package-manager FFmpeg installation while still keeping FFmpeg as a system dependency.
 - **More accurate FFmpeg detection**: startup checks now require both `ffmpeg` and `ffprobe`, so missing `ffprobe` still shows setup help before video probing fails.
+- **Fixed Fedora AppImage detection**: system FFmpeg tools no longer inherit incompatible libraries bundled inside the AppImage, preventing false missing-FFmpeg errors on newer Fedora releases.
 
 ### File Opening
 
