@@ -26,6 +26,7 @@
 ### File Opening
 
 - **More reliable Open With routing**: file-open events now wait for the React listener to register before delivering cold-start or second-instance file paths.
+- **Fixed Linux output reveal**: Browse File now launches desktop helpers without AppImage-bundled library paths, preventing host file managers from failing with incompatible GLib symbols.
 
 ### UI
 

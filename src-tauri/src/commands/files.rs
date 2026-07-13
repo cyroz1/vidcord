@@ -1,5 +1,40 @@
 #[cfg(target_os = "linux")]
-use std::process::Stdio;
+use std::process::{Command, Stdio};
+
+#[cfg(any(target_os = "linux", test))]
+fn without_appimage_library_paths(appdir: &str, library_path: &str) -> String {
+    let appdir = appdir.trim_end_matches('/');
+    if appdir.is_empty() {
+        return library_path.to_string();
+    }
+
+    library_path
+        .split(':')
+        .filter(|entry| {
+            *entry != appdir
+                && !entry
+                    .strip_prefix(appdir)
+                    .is_some_and(|suffix| suffix.starts_with('/'))
+        })
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
+#[cfg(target_os = "linux")]
+fn configure_desktop_command(command: &mut Command) {
+    if let (Ok(appdir), Ok(library_path)) =
+        (std::env::var("APPDIR"), std::env::var("LD_LIBRARY_PATH"))
+    {
+        // AppRun prepends bundled libraries needed by vidcord itself. Host
+        // desktop helpers must use host libraries or file managers can fail to
+        // start with GLib symbol/version errors.
+        let library_path = without_appimage_library_paths(&appdir, &library_path);
+        command.env_remove("LD_LIBRARY_PATH");
+        if !library_path.is_empty() {
+            command.env("LD_LIBRARY_PATH", library_path);
+        }
+    }
+}
 
 /// State bucket for a file received via Apple Events or CLI args before the
 /// frontend listener is registered.
@@ -41,16 +76,18 @@ pub fn show_in_file_explorer(path: String) -> Result<(), String> {
         let file_uri = url::Url::from_file_path(&abs)
             .map(|u| u.to_string())
             .unwrap_or_else(|_| format!("file://{}", abs.display()));
-        let dbus_ok = std::process::Command::new("dbus-send")
-            .args([
-                "--session",
-                "--print-reply",
-                "--dest=org.freedesktop.FileManager1",
-                "/org/freedesktop/FileManager1",
-                "org.freedesktop.FileManager1.ShowItems",
-                &format!("array:string:{file_uri}"),
-                "string:",
-            ])
+        let mut dbus_command = Command::new("dbus-send");
+        dbus_command.args([
+            "--session",
+            "--print-reply",
+            "--dest=org.freedesktop.FileManager1",
+            "/org/freedesktop/FileManager1",
+            "org.freedesktop.FileManager1.ShowItems",
+            &format!("array:string:{file_uri}"),
+            "string:",
+        ]);
+        configure_desktop_command(&mut dbus_command);
+        let dbus_ok = dbus_command
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -62,10 +99,10 @@ pub fn show_in_file_explorer(path: String) -> Result<(), String> {
                 .parent()
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_else(|| abs.to_string_lossy().into_owned());
-            std::process::Command::new("xdg-open")
-                .arg(&parent)
-                .spawn()
-                .map_err(|e| e.to_string())?;
+            let mut open_command = Command::new("xdg-open");
+            open_command.arg(&parent);
+            configure_desktop_command(&mut open_command);
+            open_command.spawn().map_err(|e| e.to_string())?;
         }
     }
     Ok(())
@@ -94,4 +131,31 @@ pub fn resolve_output_path(input_path: String) -> Result<String, String> {
         counter += 1;
     }
     Ok(candidate.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::without_appimage_library_paths;
+
+    #[test]
+    fn removes_only_appimage_library_paths() {
+        assert_eq!(
+            without_appimage_library_paths(
+                "/tmp/.mount_vidcord",
+                "/tmp/.mount_vidcord/usr/lib:/usr/local/lib:/tmp/.mount_vidcord/lib:/usr/lib",
+            ),
+            "/usr/local/lib:/usr/lib"
+        );
+    }
+
+    #[test]
+    fn does_not_remove_similarly_prefixed_host_paths() {
+        assert_eq!(
+            without_appimage_library_paths(
+                "/tmp/.mount_vidcord",
+                "/tmp/.mount_vidcord-other/lib:/usr/lib",
+            ),
+            "/tmp/.mount_vidcord-other/lib:/usr/lib"
+        );
+    }
 }
