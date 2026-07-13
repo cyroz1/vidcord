@@ -41,7 +41,13 @@ fn configure_desktop_command(command: &mut Command) {
 pub struct PendingFile(pub std::sync::Mutex<Option<String>>);
 
 #[tauri::command]
-pub fn show_in_file_explorer(path: String) -> Result<(), String> {
+pub async fn show_in_file_explorer(path: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || show_in_file_explorer_blocking(path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn show_in_file_explorer_blocking(path: String) -> Result<(), String> {
     let abs = std::fs::canonicalize(&path).unwrap_or_else(|_| std::path::PathBuf::from(&path));
 
     #[cfg(target_os = "windows")]
@@ -114,7 +120,13 @@ pub fn get_os() -> &'static str {
 }
 
 #[tauri::command]
-pub fn resolve_output_path(input_path: String) -> Result<String, String> {
+pub async fn resolve_output_path(input_path: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || resolve_output_path_blocking(input_path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn resolve_output_path_blocking(input_path: String) -> Result<String, String> {
     let p = std::path::Path::new(&input_path);
     let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
 

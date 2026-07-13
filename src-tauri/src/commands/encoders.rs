@@ -2,6 +2,8 @@ use crate::ffmpeg::{
     configure_ffmpeg_command, ffmpeg_missing_error, get_available_encoders,
     invalidate_encoder_cache,
 };
+use crate::gpu::spawn_captured_command;
+use crate::log::vidcord_log;
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use std::sync::{Mutex, OnceLock};
@@ -14,6 +16,8 @@ static LIST_ENCODER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 // spawning a new process on every call during startup / rapid re-checks.
 static FFMPEG_AVAIL_CACHE: OnceLock<Mutex<Option<(bool, Instant)>>> = OnceLock::new();
 const FFMPEG_CACHE_TTL: Duration = Duration::from_secs(30);
+const COMMAND_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
+const ENCODER_LIST_TIMEOUT: Duration = Duration::from_secs(8);
 
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -30,13 +34,22 @@ pub struct FfmpegInstallOptions {
 }
 
 fn command_exists(cmd: &str) -> bool {
-    std::process::Command::new(cmd)
+    #[allow(unused_mut)]
+    let mut command = std::process::Command::new(cmd);
+    command
         .arg("--version")
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .stderr(Stdio::null());
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    matches!(
+        spawn_captured_command(&mut command)
+            .and_then(|child| child.wait_for_output(COMMAND_PROBE_TIMEOUT)),
+        Ok(Some(output)) if output.status.success()
+    )
 }
 
 fn ffmpeg_tool_probe(tool: &str) -> bool {
@@ -51,7 +64,21 @@ fn ffmpeg_tool_probe(tool: &str) -> bool {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000);
     }
-    cmd.status().map(|s| s.success()).unwrap_or(false)
+    match spawn_captured_command(&mut cmd)
+        .and_then(|child| child.wait_for_output(COMMAND_PROBE_TIMEOUT))
+    {
+        Ok(Some(output)) => output.status.success(),
+        Ok(None) => {
+            vidcord_log(&format!("FFmpeg tool probe timed out: {tool}"));
+            false
+        }
+        Err(error) => {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                vidcord_log(&format!("FFmpeg tool probe failed for {tool}: {error}"));
+            }
+            false
+        }
+    }
 }
 
 fn ffmpeg_probe() -> bool {
@@ -71,6 +98,27 @@ fn ffmpeg_available() -> bool {
     result
 }
 
+// `get_available_encoders` has already run `ffmpeg -encoders` successfully.
+// Reuse that proof and probe only the companion ffprobe executable instead of
+// launching both version commands again. A cached false is deliberately
+// re-checked because FFmpeg may have been installed outside vidcord meanwhile.
+fn ffprobe_available_after_ffmpeg_success() -> bool {
+    let cache = FFMPEG_AVAIL_CACHE.get_or_init(|| Mutex::new(None));
+    {
+        let guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((true, checked_at)) = *guard {
+            if checked_at.elapsed() < FFMPEG_CACHE_TTL {
+                return true;
+            }
+        }
+    }
+
+    let result = ffmpeg_tool_probe("ffprobe");
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    *guard = Some((result, Instant::now()));
+    result
+}
+
 // Used after an install attempt to bypass the TTL and get a fresh answer.
 // Called from platform-specific install branches (Windows, Linux).
 #[allow(dead_code)]
@@ -79,6 +127,7 @@ fn ffmpeg_available_fresh() -> bool {
     let result = ffmpeg_probe();
     let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     *guard = Some((result, Instant::now()));
+    drop(guard);
     // A fresh ffmpeg install may expose new hardware encoders; drop the
     // encoder-list cache so `detect_encoders` re-probes on next call.
     if result {
@@ -98,7 +147,12 @@ fn run_shell(command: &str) -> std::io::Result<std::process::ExitStatus> {
 pub async fn detect_encoders() -> Vec<serde_json::Value> {
     tokio::task::spawn_blocking(|| {
         let detected = get_available_encoders();
-        let ffmpeg_missing = detected.ffmpeg_missing || !ffmpeg_available();
+        let ffmpeg_missing = detected.ffmpeg_missing
+            || if detected.ffmpeg_freshly_probed {
+                !ffprobe_available_after_ffmpeg_success()
+            } else {
+                !ffmpeg_available()
+            };
         detected
             .encoders
             .into_iter()
@@ -221,13 +275,21 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
                 .status()
             {
                 Ok(status) if status.success() => {
-                    // Drop the encoder-list cache so a retry picks up the new install.
-                    invalidate_encoder_cache();
-                    FfmpegInstallResult {
-                        status: "installed".to_string(),
-                        message: "FFmpeg installed successfully with Homebrew.".to_string(),
-                        hint_command: None,
-                        guide_url: None,
+                    if ffmpeg_available_fresh() {
+                        FfmpegInstallResult {
+                            status: "installed".to_string(),
+                            message: "FFmpeg installed successfully with Homebrew.".to_string(),
+                            hint_command: None,
+                            guide_url: None,
+                        }
+                    } else {
+                        FfmpegInstallResult {
+                            status: "installed".to_string(),
+                            message: "FFmpeg install completed. If it is still not detected, restart vidcord."
+                                .to_string(),
+                            hint_command: None,
+                            guide_url: None,
+                        }
                     }
                 }
                 Ok(status) => FfmpegInstallResult {
@@ -362,13 +424,20 @@ pub async fn list_ffmpeg_video_encoders() -> Result<String, String> {
             cmd.creation_flags(0x08000000);
         }
 
-        let output = cmd.output().map_err(|e| {
+        let child = spawn_captured_command(&mut cmd).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 ffmpeg_missing_error()
             } else {
                 format!("Failed to run ffmpeg: {e}")
             }
         })?;
+        let output = child
+            .wait_for_output(ENCODER_LIST_TIMEOUT)
+            .map_err(|e| format!("Failed while listing FFmpeg encoders: {e}"))?
+            .ok_or_else(|| "FFmpeg encoder listing timed out.".to_string())?;
+        if !output.status.success() {
+            return Err("FFmpeg could not list its video encoders.".to_string());
+        }
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
         let re = LIST_ENCODER_RE.get_or_init(|| {
@@ -397,6 +466,8 @@ pub async fn list_ffmpeg_video_encoders() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn get_vaapi_device() -> Option<String> {
-    crate::ffmpeg::find_vaapi_device()
+pub async fn get_vaapi_device() -> Option<String> {
+    tokio::task::spawn_blocking(crate::ffmpeg::find_vaapi_device)
+        .await
+        .unwrap_or(None)
 }

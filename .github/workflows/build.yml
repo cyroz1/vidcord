@@ -10,6 +10,10 @@ on:
       - "CHANGELOG.md"
       - ".gitignore"
       - "site/**"
+      - "scripts/check-sitemap.mjs"
+      - "scripts/check-site-structured-data.mjs"
+      - "wrangler.jsonc"
+      - ".github/workflows/site.yml"
   pull_request:
     branches: [main]
     paths-ignore:
@@ -17,11 +21,17 @@ on:
       - "CHANGELOG.md"
       - ".gitignore"
       - "site/**"
+      - "scripts/check-sitemap.mjs"
+      - "scripts/check-site-structured-data.mjs"
+      - "wrangler.jsonc"
+      - ".github/workflows/site.yml"
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseded branch/PR runs waste build minutes; published tag builds must
+  # finish because cancellation can strand a release without artifacts.
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   # Lint, type-check, audit and build the frontend once, reuse the dist/ output
@@ -46,12 +56,6 @@ jobs:
         run: npm ci --prefer-offline --no-audit --fund=false
 
       - name: Audit npm dependencies
-        if: github.event_name != 'pull_request'
-        run: npm audit --audit-level=high
-
-      - name: Audit npm dependencies (PR advisory)
-        if: github.event_name == 'pull_request'
-        continue-on-error: true
         run: npm audit --audit-level=high
 
       - name: Check version alignment
@@ -81,6 +85,7 @@ jobs:
           name: frontend-dist
           path: dist/
           if-no-files-found: error
+          retention-days: 1
 
   # Fast Rust quality checks that don't require compilation: rustfmt and
   # cargo-audit. These finish in ~1 minute and surface issues early, without
@@ -113,11 +118,13 @@ jobs:
 
   # Slow Rust quality checks that require compilation: clippy and tests.
   # Runs in parallel with rust-lint so format/audit errors surface without
-  # waiting on compilation. The populated Rust cache is shared with the
-  # Linux x86_64 build job (same target, same shared-key) so that job
-  # doesn't have to recompile dependencies from scratch.
+  # waiting on compilation. The cache key is shared with the Linux x86_64
+  # build job so registry/source data and any compatible artifacts carry
+  # forward; Cargo still builds profile-specific artifacts when required.
   rust-compile-checks:
-    runs-on: ubuntu-latest
+    # Match the Linux x86_64 bundle runner so both apt and Rust caches are
+    # distro-compatible and reusable by the gated build job.
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
     steps:
@@ -128,7 +135,9 @@ jobs:
       - name: Install system dependencies
         uses: awalsh128/cache-apt-pkgs-action@v1
         with:
-          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          # Keep this identical to the Linux build package set so its gated
+          # x86_64 job restores the cache populated by these compile checks.
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
           version: 1.0
 
       - name: Set up Rust
@@ -152,8 +161,8 @@ jobs:
   build:
     # Gate the expensive cross-platform bundle matrix on the frontend artifact
     # plus the Rust quality jobs so known-bad revisions fail before fan-out.
-    # Linux x86_64 still reuses the warmed `rust-linux` cache populated by
-    # rust-compile-checks.
+    # Linux x86_64 still reuses the `rust-linux` registry/source cache and
+    # any compatible artifacts populated by rust-compile-checks.
     needs: [frontend, rust-lint, rust-compile-checks]
     permissions:
       contents: read
@@ -225,9 +234,9 @@ jobs:
           cache-on-failure: true
           shared-key: rust-linux
 
-      # Both Windows matrix jobs (x86_64 and aarch64) compile on the same host
-      # toolchain and pull the same dependency sources — sharing a cache key
-      # keyed by target avoids two parallel cold compiles.
+      # Windows target artifacts are not interchangeable. Keep target-specific
+      # keys so each architecture reuses its own prior builds without cache
+      # contamination or two jobs racing to publish the same entry.
       - name: Cache Rust dependencies (Windows)
         if: startsWith(matrix.platform, 'windows-latest')
         uses: Swatinem/rust-cache@v2
@@ -288,6 +297,10 @@ jobs:
           name: ${{ matrix.artifact-name }}
           path: artifacts/
           if-no-files-found: error
+          # AppImage, DMG and NSIS outputs are already compressed. Avoid a
+          # second CPU-heavy compression pass and bound transient CI storage.
+          compression-level: 0
+          retention-days: 7
 
   release:
     needs: build
@@ -317,7 +330,8 @@ jobs:
           pattern: vidcord-*
 
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        # v3.0.0, pinned because this job has contents:write.
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
         with:
           files: release-artifacts/**/*
           draft: true

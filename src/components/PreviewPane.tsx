@@ -31,8 +31,9 @@ const containerStyle: React.CSSProperties = {
   borderRadius: "var(--radius)",
   overflow: "hidden",
   position: "relative",
-  width: `${FIXED_PREVIEW_CSS_WIDTH}px`,
-  height: `${FIXED_PREVIEW_CSS_HEIGHT}px`,
+  width: "100%",
+  maxWidth: `${FIXED_PREVIEW_CSS_WIDTH}px`,
+  height: "auto",
   aspectRatio: "16 / 9",
   flexShrink: 0,
   display: "flex",
@@ -45,11 +46,6 @@ const imgStyle: React.CSSProperties = {
   width: "100%",
   height: "100%",
   objectFit: "contain",
-};
-
-const placeholderStyle: React.CSSProperties = {
-  color: "var(--text-disabled)",
-  fontSize: "13px",
 };
 
 const videoBaseStyle: React.CSSProperties = {
@@ -221,7 +217,6 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     }
   }, [removeAudio]);
   const [loading, setLoading] = useState(false);
-  const [hovered, setHovered] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [scrubVideoReady, setScrubVideoReady] = useState(false);
   const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0);
@@ -610,12 +605,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   const stopPlayback = useCallback(() => {
     const vid = videoRef.current;
-    const hadActivePlayback =
-      playingRef.current ||
-      timeUpdateHandlerRef.current !== null ||
-      clipUrlRef.current !== null ||
-      usingGeneratedClipRef.current;
-    if (!hadActivePlayback) return;
+    // Always invalidate the session. A direct play() or generated-clip IPC
+    // request can still be pending before playingRef/handlers are populated;
+    // returning early in that window allowed stale media to start later.
     playbackSessionRef.current += 1;
     clearEndBoundaryTimer();
     schedulePlaybackBoundaryRef.current = null;
@@ -876,22 +868,40 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   return (
     <div
-      className="preview-pane"
+      className={`preview-pane${filePath ? " has-media" : " is-empty"}`}
       ref={previewContainerRef}
       style={containerStyle}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
     >
       {/* Static frame preview */}
       {displayUrl && !playing && !showLiveScrubPreview ? (
-        <img src={displayUrl} alt="preview" style={imgStyle} />
+        <img src={displayUrl} alt="Video frame preview" style={imgStyle} />
       ) : !playing && !showLiveScrubPreview ? (
-        <span style={placeholderStyle}>
-          {loading && filmstripUrlsRef.current.length === 0
-            ? "Loading preview…"
-            : filePath
-              ? "Preview"
-              : "No file selected"}
+        <span className="preview-placeholder" role="status" aria-live="polite">
+          {!filePath && (
+            <svg
+              className="preview-placeholder-icon"
+              width="28"
+              height="28"
+              viewBox="0 0 28 28"
+              fill="none"
+              aria-hidden="true"
+            >
+              <rect x="4.5" y="5.5" width="19" height="17" rx="2.5" stroke="currentColor" />
+              <path
+                d="M8 5.5v17M20 5.5v17M4.5 10h3.5M4.5 18h3.5M20 10h3.5M20 18h3.5"
+                stroke="currentColor"
+                strokeLinecap="round"
+              />
+              <path d="m11.5 10.5 6 3.5-6 3.5v-7Z" stroke="currentColor" strokeLinejoin="round" />
+            </svg>
+          )}
+          <span>
+            {loading && filmstripUrlsRef.current.length === 0
+              ? "Loading preview…"
+              : filePath
+                ? "Preview"
+                : "No file selected"}
+          </span>
         </span>
       ) : null}
 
@@ -907,16 +917,30 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       />
 
       {/* Play/Stop overlay — shown on hover; disabled on Linux (GStreamer crash) */}
-      {canPlay && hovered && !isLinux && (
-        <div style={overlayGroupStyle}>
+      {canPlay && !isLinux && (
+        <div className="preview-controls" style={overlayGroupStyle}>
           {!playing ? (
-            <button onClick={startPlayback} title="Play trim segment" style={overlayBtnStyle}>
+            <button
+              type="button"
+              className="preview-control-button"
+              onClick={startPlayback}
+              title="Play trim segment"
+              aria-label="Play trim segment"
+              style={overlayBtnStyle}
+            >
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                 <polygon points="5,3 17,10 5,17" fill="white" />
               </svg>
             </button>
           ) : (
-            <button onClick={stopPlayback} title="Stop playback" style={overlayBtnStyle}>
+            <button
+              type="button"
+              className="preview-control-button"
+              onClick={stopPlayback}
+              title="Stop playback"
+              aria-label="Stop playback"
+              style={overlayBtnStyle}
+            >
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                 <rect x="4" y="4" width="12" height="12" rx="2" fill="white" />
               </svg>

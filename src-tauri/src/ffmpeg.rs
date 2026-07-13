@@ -4,6 +4,9 @@ use std::io::ErrorKind;
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
+#[cfg(target_os = "linux")]
+use std::time::Instant;
 
 mod encoders;
 
@@ -15,6 +18,11 @@ static FFMPEG_ENV: OnceLock<HashMap<String, String>> = OnceLock::new();
 
 pub const FFMPEG_MISSING_ERROR_MARKER: &str = "FFMPEG_MISSING:";
 const PREVIEW_CANCELLED_ERROR_MARKER: &str = "PREVIEW_CANCELLED:";
+const FFPROBE_TIMEOUT: Duration = Duration::from_secs(20);
+#[cfg(target_os = "linux")]
+const VAAPI_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(6);
+#[cfg(target_os = "linux")]
+const VAAPI_DEVICE_TIMEOUT: Duration = Duration::from_secs(2);
 
 static PREVIEW_GENERATION: AtomicU64 = AtomicU64::new(0);
 static PREVIEW_PIDS: OnceLock<Mutex<HashSet<u32>>> = OnceLock::new();
@@ -28,8 +36,15 @@ pub fn ffmpeg_missing_error() -> String {
 fn command_output_or_ffmpeg_missing(
     cmd: &mut Command,
 ) -> Result<Output, Box<dyn std::error::Error>> {
-    match cmd.output() {
-        Ok(output) => Ok(output),
+    match crate::gpu::spawn_captured_command(cmd)
+        .and_then(|child| child.wait_for_output(FFPROBE_TIMEOUT))
+    {
+        Ok(Some(output)) => Ok(output),
+        Ok(None) => Err(format!(
+            "ffprobe timed out after {} seconds.",
+            FFPROBE_TIMEOUT.as_secs()
+        )
+        .into()),
         Err(err) if err.kind() == ErrorKind::NotFound => Err(ffmpeg_missing_error().into()),
         Err(err) => Err(Box::new(err)),
     }
@@ -210,6 +225,17 @@ impl ClipCache {
 
     fn insert(&mut self, key: (u64, u64, u64), data: Arc<Vec<u8>>) {
         let clip_size = data.len();
+        // An oversized result is not cacheable and should not evict otherwise
+        // useful entries merely because this request happened to be large.
+        if clip_size > self.max_size {
+            return;
+        }
+
+        // Concurrent requests for the same clip can both miss and then finish.
+        // Account for replacement so total_size continues to reflect the map.
+        if let Some(existing) = self.clips.remove(&key) {
+            self.total_size = self.total_size.saturating_sub(existing.size);
+        }
 
         // Remove least recently used entries until it fits. Pick the victim
         // key first (without cloning the payload), then remove.
@@ -229,18 +255,15 @@ impl ClipCache {
             }
         }
 
-        // Only insert if it's not too large by itself
-        if clip_size <= self.max_size {
-            self.total_size += clip_size;
-            self.clips.insert(
-                key,
-                ClipCacheEntry {
-                    data,
-                    last_used: std::time::Instant::now(),
-                    size: clip_size,
-                },
-            );
-        }
+        self.total_size += clip_size;
+        self.clips.insert(
+            key,
+            ClipCacheEntry {
+                data,
+                last_used: std::time::Instant::now(),
+                size: clip_size,
+            },
+        );
     }
 
     fn clear(&mut self) {
@@ -264,14 +287,18 @@ fn get_clip_cache() -> &'static Mutex<ClipCache> {
 pub fn get_ffmpeg_env() -> &'static HashMap<String, String> {
     FFMPEG_ENV.get_or_init(|| {
         #[allow(unused_mut)]
-        let mut env: HashMap<String, String> = std::env::vars().collect();
+        let mut env = HashMap::new();
 
         #[cfg(target_os = "linux")]
         {
             use crate::gpu::get_system_gpus;
 
             let gpus = get_system_gpus();
-            if *gpus.get("amd").unwrap_or(&false) && !env.contains_key("LIBVA_DRIVER_NAME") {
+            // Command inherits the process environment automatically. Only
+            // retain vidcord's override rather than cloning every environment
+            // variable on the first FFmpeg invocation.
+            if *gpus.get("amd").unwrap_or(&false) && std::env::var_os("LIBVA_DRIVER_NAME").is_none()
+            {
                 env.insert("LIBVA_DRIVER_NAME".to_string(), "radeonsi".to_string());
             }
         }
@@ -1208,7 +1235,16 @@ pub fn find_vaapi_device() -> Option<String> {
                     }
                 });
 
+                let deadline = Instant::now()
+                    .checked_add(VAAPI_DISCOVERY_TIMEOUT)
+                    .unwrap_or_else(Instant::now);
+
                 for node in &nodes {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        vidcord_log("VAAPI discovery timed out before all devices were checked");
+                        break;
+                    }
                     let node_str = node.to_string_lossy().to_string();
                     let mut cmd = std::process::Command::new("ffmpeg");
                     cmd.args([
@@ -1231,7 +1267,26 @@ pub fn find_vaapi_device() -> Option<String> {
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null());
                     configure_ffmpeg_command(&mut cmd);
-                    let ok = cmd.status().map(|s| s.success()).unwrap_or(false);
+                    let timeout = remaining.min(VAAPI_DEVICE_TIMEOUT);
+                    let ok = match crate::gpu::spawn_captured_command(&mut cmd)
+                        .and_then(|child| child.wait_for_output(timeout))
+                    {
+                        Ok(Some(output)) => output.status.success(),
+                        Ok(None) => {
+                            vidcord_log(&format!(
+                                "VAAPI discovery timed out for {}",
+                                node.display()
+                            ));
+                            false
+                        }
+                        Err(error) => {
+                            vidcord_log(&format!(
+                                "VAAPI discovery failed for {}: {error}",
+                                node.display()
+                            ));
+                            false
+                        }
+                    };
 
                     if ok {
                         return Some(node_str);
@@ -1252,12 +1307,14 @@ pub fn find_vaapi_device() -> Option<String> {
 // ---------------------------------------------------------------------------
 
 pub fn clear_preview_caches() {
-    if let Ok(mut cache) = get_clip_cache().lock() {
-        cache.clear();
-    }
-    if let Ok(mut cache) = get_frame_cache().lock() {
-        cache.clear();
-    }
+    get_clip_cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+    get_frame_cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
 }
 
 #[cfg(test)]
@@ -1301,6 +1358,37 @@ mod tests {
             without_appimage_library_paths("", "/opt/custom/lib:/usr/local/lib"),
             "/opt/custom/lib:/usr/local/lib"
         );
+    }
+
+    #[test]
+    fn clip_cache_replacement_keeps_size_accounting_exact() {
+        let mut cache = ClipCache {
+            clips: HashMap::new(),
+            total_size: 0,
+            max_size: 10,
+        };
+
+        cache.insert((1, 2, 3), Arc::new(vec![0; 4]));
+        cache.insert((1, 2, 3), Arc::new(vec![0; 6]));
+
+        assert_eq!(cache.clips.len(), 1);
+        assert_eq!(cache.total_size, 6);
+    }
+
+    #[test]
+    fn oversized_clip_does_not_evict_cached_entries() {
+        let mut cache = ClipCache {
+            clips: HashMap::new(),
+            total_size: 0,
+            max_size: 10,
+        };
+
+        cache.insert((1, 2, 3), Arc::new(vec![0; 4]));
+        cache.insert((4, 5, 6), Arc::new(vec![0; 11]));
+
+        assert!(cache.clips.contains_key(&(1, 2, 3)));
+        assert!(!cache.clips.contains_key(&(4, 5, 6)));
+        assert_eq!(cache.total_size, 4);
     }
 
     #[test]

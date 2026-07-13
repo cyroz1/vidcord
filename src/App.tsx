@@ -1,7 +1,5 @@
 import { useEffect, useCallback, useState, useMemo, useRef, lazy, Suspense } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import "./App.css";
 import Toast from "./components/Toast";
 import ProgressSection from "./components/ProgressSection";
@@ -74,6 +72,48 @@ const MIN_TRIM_GAP = 1;
 const UNDO_LIMIT = 200;
 const FRAME_STEP_SECONDS = 1 / 30;
 const UPDATE_CHECK_DELAY_MS = 8000;
+const SUPPORTED_VIDEO_EXTENSION = /\.(mp4|avi|mov|mkv|flv|wmv|webm)$/i;
+const EDITABLE_TARGET_SELECTOR =
+  "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
+const NATIVE_CONTEXT_MENU_SELECTOR = `${EDITABLE_TARGET_SELECTOR}, pre, code`;
+const INTERACTIVE_TARGET_SELECTOR = [
+  EDITABLE_TARGET_SELECTOR,
+  "button",
+  "a[href]",
+  "summary",
+  "audio[controls]",
+  "video[controls]",
+  "[role='button']",
+  "[role='link']",
+  "[role='checkbox']",
+  "[role='radio']",
+  "[role='switch']",
+  "[role='menuitem']",
+  "[role='option']",
+  "[role='slider']",
+  "[tabindex]:not([tabindex='-1'])",
+].join(", ");
+
+function targetMatches(target: EventTarget | null, selector: string): boolean {
+  return target instanceof Element && target.closest(selector) !== null;
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  return targetMatches(target, EDITABLE_TARGET_SELECTOR);
+}
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return targetMatches(target, INTERACTIVE_TARGET_SELECTOR);
+}
+
+function preservesNativeContextMenu(target: EventTarget | null): boolean {
+  return targetMatches(target, NATIVE_CONTEXT_MENU_SELECTOR);
+}
+
+async function openExternalUrl(url: string): Promise<void> {
+  const { openUrl } = await import("@tauri-apps/plugin-opener");
+  await openUrl(url);
+}
 
 function isH265Encoder(name: string): boolean {
   return name === "libx265" || name.startsWith("hevc_");
@@ -150,9 +190,19 @@ export default function App() {
   const pendingPlayheadClientXRef = useRef<number | null>(null);
   const suppressNextTimelineClickRef = useRef(false);
   const autoFfmpegInstallPromptedRef = useRef(false);
+  const loadGenerationRef = useRef(0);
+  const selectedFilePathRef = useRef<string | null>(null);
+  const probeDataRef = useRef<ProbeData | null>(null);
+  const appContentRef = useRef<HTMLDivElement>(null);
+  const updateModalRef = useRef<HTMLDivElement>(null);
+  const updatePrimaryActionRef = useRef<HTMLButtonElement>(null);
+  const updatePreviousFocusRef = useRef<HTMLElement | null>(null);
+  const installingUpdateRef = useRef(false);
   const pointerHistoryStartRef = useRef<{ start: number; end: number } | null>(null);
+  const pointerGestureCleanupRef = useRef<(() => void) | null>(null);
   const undoStackRef = useRef<Array<{ start: number; end: number }>>([]);
   const redoStackRef = useRef<Array<{ start: number; end: number }>>([]);
+  const [trimHistorySize, setTrimHistorySize] = useState({ undo: 0, redo: 0 });
   const [previewFocusTime, setPreviewFocusTime] = useState<number | null>(null);
   const [previewScrubbing, setPreviewScrubbing] = useState(false);
   const [playheadTime, setPlayheadTime] = useState<number | null>(null);
@@ -181,6 +231,8 @@ export default function App() {
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [encoderInputFocused, setEncoderInputFocused] = useState(false);
   const [activeEncoderOption, setActiveEncoderOption] = useState(0);
+  const showUpdateModal = updateInfo !== null && encodersDialogText === null;
+  const modalOpen = updateInfo !== null || encodersDialogText !== null;
 
   const duration = probeData?.duration ?? 0;
   const sourceFrameRate =
@@ -267,6 +319,14 @@ export default function App() {
     }
   }, []);
 
+  const syncTrimHistorySize = useCallback(() => {
+    const undo = undoStackRef.current.length;
+    const redo = redoStackRef.current.length;
+    setTrimHistorySize((current) =>
+      current.undo === undo && current.redo === redo ? current : { undo, redo }
+    );
+  }, []);
+
   const snapSliderValue = useCallback(
     (value: number) => {
       if (snapMode === "off" || duration <= 0) return Math.round(value);
@@ -341,6 +401,7 @@ export default function App() {
       if (record) {
         pushUndoSnapshot(prev);
         redoStackRef.current = [];
+        syncTrimHistorySize();
       }
       // Update refs synchronously so any same-frame read (commitPointerTrimChange,
       // rapid undo/redo) sees the new values rather than waiting for useEffect.
@@ -349,7 +410,7 @@ export default function App() {
       scheduleTrimState(next);
       return next;
     },
-    [normalizeTrim, pushUndoSnapshot, scheduleTrimState]
+    [normalizeTrim, pushUndoSnapshot, scheduleTrimState, syncTrimHistorySize]
   );
 
   const undoTrim = useCallback(() => {
@@ -365,8 +426,9 @@ export default function App() {
     }
     setStartVal(target.start);
     setEndVal(target.end);
+    syncTrimHistorySize();
     setPreviewFocusNow(sliderValueToTime(target.start), false);
-  }, [setPreviewFocusNow, sliderValueToTime]);
+  }, [setPreviewFocusNow, sliderValueToTime, syncTrimHistorySize]);
 
   const redoTrim = useCallback(() => {
     const target = redoStackRef.current.pop();
@@ -381,8 +443,9 @@ export default function App() {
     }
     setStartVal(target.start);
     setEndVal(target.end);
+    syncTrimHistorySize();
     setPreviewFocusNow(sliderValueToTime(target.start), false);
-  }, [pushUndoSnapshot, setPreviewFocusNow, sliderValueToTime]);
+  }, [pushUndoSnapshot, setPreviewFocusNow, sliderValueToTime, syncTrimHistorySize]);
 
   const playheadTimeRef = useRef<number | null>(null);
   useEffect(() => {
@@ -408,13 +471,24 @@ export default function App() {
   // --- File loading ---
   const loadVideo = useCallback(
     async (path: string) => {
-      if (!/\.(mp4|avi|mov|mkv|flv|wmv|webm)$/i.test(path)) {
-        setFileName("Unsupported file format.");
+      if (!SUPPORTED_VIDEO_EXTENSION.test(path)) {
+        addToast(
+          "warning",
+          "Unsupported Video",
+          "Choose an MP4, AVI, MOV, MKV, FLV, WMV, or WebM file."
+        );
         return;
       }
+      const loadGeneration = loadGenerationRef.current + 1;
+      loadGenerationRef.current = loadGeneration;
+      selectedFilePathRef.current = path;
       setFilePath(path);
       setFileName(path.split(/[\\/]/).pop() ?? path);
+      probeDataRef.current = null;
       setProbeData(null);
+      pointerGestureCleanupRef.current?.();
+      pointerGestureCleanupRef.current = null;
+      pointerHistoryStartRef.current = null;
       pendingTrimStateRef.current = null;
       if (trimStateRafRef.current !== null) {
         window.cancelAnimationFrame(trimStateRafRef.current);
@@ -438,21 +512,29 @@ export default function App() {
       setTimelineZoom(1);
       undoStackRef.current = [];
       redoStackRef.current = [];
+      syncTrimHistorySize();
       resetProgress();
       try {
         const data = await probeVideo(path);
+        if (loadGenerationRef.current !== loadGeneration) return;
+        probeDataRef.current = data;
         setProbeData(data);
       } catch (e) {
+        if (loadGenerationRef.current !== loadGeneration) return;
         if (isFfmpegMissingError(e)) {
           markFfmpegMissing();
           setFileName(FFMPEG_MISSING_LOAD_MESSAGE);
         } else {
+          // The path is retained separately for diagnostics, but the preview
+          // must not enter its selected-media state when probing failed.
+          setFilePath(null);
           setFileName(`Error loading video: ${e}`);
         }
+        probeDataRef.current = null;
         setProbeData(null);
       }
     },
-    [markFfmpegMissing, resetProgress]
+    [addToast, markFfmpegMissing, resetProgress, syncTrimHistorySize]
   );
 
   useEffect(() => {
@@ -472,17 +554,26 @@ export default function App() {
       if (playheadSeekRafRef.current !== null) {
         window.cancelAnimationFrame(playheadSeekRafRef.current);
       }
+      pointerGestureCleanupRef.current?.();
+      pointerGestureCleanupRef.current = null;
     },
     []
   );
 
   const browseFile = useCallback(async () => {
-    const selected = await open({
-      multiple: false,
-      filters: [{ name: "Video", extensions: ["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"] }],
-    });
-    if (selected && typeof selected === "string") await loadVideo(selected);
-  }, [loadVideo]);
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
+        multiple: false,
+        filters: [
+          { name: "Video", extensions: ["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"] },
+        ],
+      });
+      if (selected && typeof selected === "string") await loadVideo(selected);
+    } catch (error) {
+      addToast("error", "Could Not Open File Picker", String(error));
+    }
+  }, [addToast, loadVideo]);
 
   // --- OS file-open integrations ---
   // Route listener callbacks through a ref so we subscribe exactly once per
@@ -519,6 +610,7 @@ export default function App() {
 
   useEffect(() => {
     const suppressContextMenu = (event: MouseEvent) => {
+      if (preservesNativeContextMenu(event.target)) return;
       event.preventDefault();
     };
     window.addEventListener("contextmenu", suppressContextMenu);
@@ -527,15 +619,14 @@ export default function App() {
     };
   }, []);
 
-  // Keyboard shortcuts (only when a file is loaded and focus is not in a text input)
+  // Keyboard shortcuts (only when a file is loaded and focus is outside native controls)
   useEffect(() => {
-    if (!filePath) return;
+    if (!filePath || modalOpen) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-
-      if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z")) {
+      const undoShortcut = (e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z");
+      const trimRangeFocused = targetMatches(e.target, "input[type='range']");
+      if (undoShortcut && (!isEditableTarget(e.target) || trimRangeFocused)) {
         e.preventDefault();
         if (e.shiftKey) {
           redoTrim();
@@ -545,7 +636,10 @@ export default function App() {
         return;
       }
 
+      if (isEditableTarget(e.target)) return;
+
       if (e.key === " ") {
+        if (isInteractiveTarget(e.target)) return;
         e.preventDefault();
         if (previewRef.current?.isPlaying()) {
           previewRef.current.stopPlayback();
@@ -658,6 +752,7 @@ export default function App() {
     applyTrim,
     setPreviewFocusNow,
     sliderValueToTime,
+    modalOpen,
   ]);
 
   // --- Update check ---
@@ -682,6 +777,7 @@ export default function App() {
             }
           }
         })
+        .catch(() => {})
         // Advance the throttle timestamp on both success and failure so a
         // transient network error doesn't cause every subsequent app launch to
         // re-fire the request immediately.
@@ -852,6 +948,10 @@ export default function App() {
     setEncodersDialogText(text);
   }, [loadListedEncoders]);
 
+  const closeEncodersDialog = useCallback(() => {
+    setEncodersDialogText(null);
+  }, []);
+
   useEffect(() => {
     if (!settingsLoaded || !advancedMode || listedEncoderNames.length > 0) return;
     loadListedEncoders().catch(() => {});
@@ -874,15 +974,116 @@ export default function App() {
     }
   }, [addToast]);
 
+  const dismissUpdate = useCallback(() => {
+    if (!updateInfo || installingUpdate) return;
+    saveSettings({ update_dismissed_version: updateInfo.version });
+    setUpdateInfo(null);
+  }, [installingUpdate, saveSettings, updateInfo]);
+
+  useEffect(() => {
+    installingUpdateRef.current = installingUpdate;
+  }, [installingUpdate]);
+
+  useEffect(() => {
+    const appContent = appContentRef.current;
+    if (!modalOpen || !appContent) return;
+
+    appContent.inert = true;
+    return () => {
+      appContent.inert = false;
+    };
+  }, [modalOpen]);
+
+  useEffect(() => {
+    if (!showUpdateModal || !updateInfo) return;
+
+    const previouslyFocused =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    updatePreviousFocusRef.current = previouslyFocused;
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      const primaryAction = updatePrimaryActionRef.current;
+      if (primaryAction && !primaryAction.disabled) {
+        primaryAction.focus();
+        return;
+      }
+      updateModalRef.current
+        ?.querySelector<HTMLElement>(
+          "button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])"
+        )
+        ?.focus();
+    });
+
+    const handleModalKeyDown = (event: KeyboardEvent) => {
+      const modal = updateModalRef.current;
+      if (!modal) return;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!installingUpdateRef.current) {
+          saveSettings({ update_dismissed_version: updateInfo.version });
+          setUpdateInfo(null);
+        }
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+
+      const focusable = Array.from(
+        modal.querySelectorAll<HTMLElement>(
+          "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), " +
+            "textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"
+        )
+      ).filter((element) => element.getClientRects().length > 0);
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (focusable.length === 0) {
+        modal.focus();
+        return;
+      }
+
+      const activeIndex = focusable.indexOf(document.activeElement as HTMLElement);
+      const nextIndex = event.shiftKey
+        ? activeIndex <= 0
+          ? focusable.length - 1
+          : activeIndex - 1
+        : activeIndex < 0 || activeIndex === focusable.length - 1
+          ? 0
+          : activeIndex + 1;
+      focusable[nextIndex].focus();
+    };
+
+    document.addEventListener("keydown", handleModalKeyDown, true);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handleModalKeyDown, true);
+
+      const focusTarget = updatePreviousFocusRef.current;
+      updatePreviousFocusRef.current = null;
+      if (focusTarget?.isConnected) {
+        window.requestAnimationFrame(() => focusTarget.focus());
+      }
+    };
+  }, [saveSettings, showUpdateModal, updateInfo]);
+
+  const reprobeSelectedVideo = useCallback(async () => {
+    const selectedPath = selectedFilePathRef.current;
+    if (!selectedPath || probeDataRef.current) return;
+    await loadVideoRef.current(selectedPath);
+  }, []);
+
   const retryFfmpegDetection = useCallback(async () => {
     const available = await checkFfmpegAvailable().catch(() => false);
     await refreshEncoders().catch(() => {});
     if (available) {
+      await reprobeSelectedVideo();
       addToast("success", "FFmpeg Ready", "FFmpeg is now available.");
     } else {
       addToast("warning", "Still Missing", "FFmpeg is still not detected on PATH.");
     }
-  }, [addToast, refreshEncoders]);
+  }, [addToast, refreshEncoders, reprobeSelectedVideo]);
 
   const installFfmpeg = useCallback(async () => {
     setInstallingFfmpeg(true);
@@ -904,7 +1105,7 @@ export default function App() {
         addToast("info", "Install Command", result.hint_command);
       }
       if (result.guide_url) {
-        openUrl(result.guide_url).catch(() => {});
+        openExternalUrl(result.guide_url).catch(() => {});
       }
     };
 
@@ -930,10 +1131,14 @@ export default function App() {
     }
 
     await refreshEncoders().catch(() => {});
+    const available = await checkFfmpegAvailable().catch(() => false);
+    if (available) {
+      await reprobeSelectedVideo();
+    }
     showInstallResult(result);
 
     setInstallingFfmpeg(false);
-  }, [addToast, refreshEncoders]);
+  }, [addToast, refreshEncoders, reprobeSelectedVideo]);
 
   useEffect(() => {
     if (!settingsLoaded || !ffmpegMissing || installingFfmpeg) return;
@@ -989,6 +1194,20 @@ export default function App() {
 
   const startPct = useMemo(() => toViewPct(startVal), [startVal, toViewPct]);
   const endPct = useMemo(() => toViewPct(endVal), [endVal, toViewPct]);
+
+  const trimReady = Boolean(filePath && probeData && duration > 0);
+
+  const canSetInPoint = useMemo(() => {
+    if (!trimReady || playheadTime === null) return false;
+    const next = normalizeTrim(Math.round((playheadTime / duration) * SLIDER_MAX), endVal, "start");
+    return next.start !== startVal || next.end !== endVal;
+  }, [duration, endVal, normalizeTrim, playheadTime, startVal, trimReady]);
+
+  const canSetOutPoint = useMemo(() => {
+    if (!trimReady || playheadTime === null) return false;
+    const next = normalizeTrim(startVal, Math.round((playheadTime / duration) * SLIDER_MAX), "end");
+    return next.start !== startVal || next.end !== endVal;
+  }, [duration, endVal, normalizeTrim, playheadTime, startVal, trimReady]);
 
   // Single memo computes the predicted encoder name. The prior
   // implementation built a parallel array of { ...e, lowerName } on every
@@ -1060,28 +1279,13 @@ export default function App() {
   const trimPlayheadLeftPct = useMemo(() => {
     if (playheadTime === null || duration <= 0) return null;
     const val = (playheadTime / duration) * SLIDER_MAX;
+    if (val < viewStartVal || val > viewEndVal) return null;
     return toViewPct(val);
-  }, [playheadTime, duration, toViewPct]);
-
-  useEffect(() => {
-    if (timelineZoom <= 1) return;
-    const center = (startVal + endVal) / 2;
-    if (center < viewStartVal || center > viewEndVal) {
-      setTimelineCenterVal(center);
-    }
-  }, [timelineZoom, startVal, endVal, viewStartVal, viewEndVal]);
-
-  const beginPointerTrimChange = useCallback(() => {
-    previewRef.current?.stopPlayback();
-    const activeValue = activeHandleRef.current === "end" ? endValRef.current : startValRef.current;
-    setPreviewFocusNow(sliderValueToTime(activeValue), true);
-    pointerHistoryStartRef.current = {
-      start: startValRef.current,
-      end: endValRef.current,
-    };
-  }, [setPreviewFocusNow, sliderValueToTime]);
+  }, [playheadTime, duration, toViewPct, viewEndVal, viewStartVal]);
 
   const commitPointerTrimChange = useCallback(() => {
+    pointerGestureCleanupRef.current?.();
+    pointerGestureCleanupRef.current = null;
     const started = pointerHistoryStartRef.current;
     pointerHistoryStartRef.current = null;
     const activeValue = activeHandleRef.current === "end" ? endValRef.current : startValRef.current;
@@ -1092,7 +1296,37 @@ export default function App() {
     flushPendingTrimStateNow();
     pushUndoSnapshot(started);
     redoStackRef.current = [];
-  }, [finishPreviewScrub, flushPendingTrimStateNow, pushUndoSnapshot, sliderValueToTime]);
+    syncTrimHistorySize();
+  }, [
+    finishPreviewScrub,
+    flushPendingTrimStateNow,
+    pushUndoSnapshot,
+    sliderValueToTime,
+    syncTrimHistorySize,
+  ]);
+
+  const beginPointerTrimChange = useCallback(() => {
+    if (pointerHistoryStartRef.current) {
+      commitPointerTrimChange();
+    }
+    previewRef.current?.stopPlayback();
+    const activeValue = activeHandleRef.current === "end" ? endValRef.current : startValRef.current;
+    setPreviewFocusNow(sliderValueToTime(activeValue), true);
+    pointerHistoryStartRef.current = {
+      start: startValRef.current,
+      end: endValRef.current,
+    };
+
+    const finishGesture = () => commitPointerTrimChange();
+    window.addEventListener("pointerup", finishGesture, { once: true });
+    window.addEventListener("pointercancel", finishGesture, { once: true });
+    window.addEventListener("blur", finishGesture, { once: true });
+    pointerGestureCleanupRef.current = () => {
+      window.removeEventListener("pointerup", finishGesture);
+      window.removeEventListener("pointercancel", finishGesture);
+      window.removeEventListener("blur", finishGesture);
+    };
+  }, [commitPointerTrimChange, setPreviewFocusNow, sliderValueToTime]);
 
   const handleRangeDragStart = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -1281,39 +1515,67 @@ export default function App() {
     beginPointerTrimChange();
   }, [beginPointerTrimChange]);
 
+  const handleStartHandleFocus = useCallback(() => {
+    activeHandleRef.current = "start";
+  }, []);
+
+  const handleEndHandleFocus = useCallback(() => {
+    activeHandleRef.current = "end";
+  }, []);
+
   const handleStartChange = useCallback(
     (next: number) => {
-      const trim = applyTrim(next, endValRef.current, { record: false, anchor: "start" });
-      schedulePreviewFocus(sliderValueToTime(trim?.start ?? startValRef.current), true);
+      const pointerGestureActive = pointerHistoryStartRef.current !== null;
+      const trim = applyTrim(next, endValRef.current, {
+        record: !pointerGestureActive,
+        anchor: "start",
+      });
+      const previewTime = sliderValueToTime(trim?.start ?? startValRef.current);
+      if (pointerGestureActive) {
+        schedulePreviewFocus(previewTime, true);
+      } else {
+        setPreviewFocusNow(previewTime, false);
+      }
     },
-    [applyTrim, schedulePreviewFocus, sliderValueToTime]
+    [applyTrim, schedulePreviewFocus, setPreviewFocusNow, sliderValueToTime]
   );
 
   const handleEndChange = useCallback(
     (next: number) => {
-      const trim = applyTrim(startValRef.current, next, { record: false, anchor: "end" });
-      schedulePreviewFocus(sliderValueToTime(trim?.end ?? endValRef.current), true);
+      const pointerGestureActive = pointerHistoryStartRef.current !== null;
+      const trim = applyTrim(startValRef.current, next, {
+        record: !pointerGestureActive,
+        anchor: "end",
+      });
+      const previewTime = sliderValueToTime(trim?.end ?? endValRef.current);
+      if (pointerGestureActive) {
+        schedulePreviewFocus(previewTime, true);
+      } else {
+        setPreviewFocusNow(previewTime, false);
+      }
     },
-    [applyTrim, schedulePreviewFocus, sliderValueToTime]
+    [applyTrim, schedulePreviewFocus, setPreviewFocusNow, sliderValueToTime]
   );
 
   return (
     <div className="app">
-      {updateInfo && (
+      {showUpdateModal && updateInfo && (
         <div
           className="update-modal-backdrop"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
-              saveSettings({ update_dismissed_version: updateInfo.version });
-              setUpdateInfo(null);
+              dismissUpdate();
             }
           }}
         >
           <div
+            ref={updateModalRef}
             className="update-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="update-title"
+            aria-describedby="update-description"
+            tabIndex={-1}
           >
             <div className="update-modal-header">
               <div>
@@ -1324,16 +1586,14 @@ export default function App() {
                 className="update-close-btn"
                 type="button"
                 aria-label="Dismiss update"
-                onClick={() => {
-                  saveSettings({ update_dismissed_version: updateInfo.version });
-                  setUpdateInfo(null);
-                }}
+                onClick={dismissUpdate}
+                disabled={installingUpdate}
               >
                 ✕
               </button>
             </div>
 
-            <p className="update-modal-copy">
+            <p id="update-description" className="update-modal-copy">
               A newer vidcord release is available. Install will download the matching
               {updateInfo.installerName ? ` ${updateInfo.installerName}` : " installer"} for this
               computer and open it.
@@ -1341,6 +1601,7 @@ export default function App() {
 
             <div className="update-modal-actions">
               <button
+                ref={updatePrimaryActionRef}
                 className="update-primary-btn"
                 type="button"
                 onClick={installUpdate}
@@ -1351,17 +1612,15 @@ export default function App() {
               <button
                 className="update-secondary-btn"
                 type="button"
-                onClick={() => openUrl(updateInfo.url)}
+                onClick={() => void openExternalUrl(updateInfo.url).catch(() => {})}
               >
                 Release Page
               </button>
               <button
                 className="update-secondary-btn"
                 type="button"
-                onClick={() => {
-                  saveSettings({ update_dismissed_version: updateInfo.version });
-                  setUpdateInfo(null);
-                }}
+                onClick={dismissUpdate}
+                disabled={installingUpdate}
               >
                 Later
               </button>
@@ -1370,437 +1629,495 @@ export default function App() {
         </div>
       )}
 
-      {ffmpegMissing && (
-        <div className="ffmpeg-banner">
-          <span>FFmpeg is missing. Install it to enable compression.</span>
-          <button
-            className="ffmpeg-install-btn"
-            onClick={installFfmpeg}
-            disabled={installingFfmpeg}
-          >
-            {installingFfmpeg ? "Installing..." : "Install FFmpeg"}
-          </button>
-          <button className="ffmpeg-link-btn" onClick={retryFfmpegDetection}>
-            Retry
-          </button>
-          <button
-            className="ffmpeg-link-btn"
-            onClick={() => openUrl("https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md")}
-          >
-            Setup Guide
-          </button>
-        </div>
-      )}
-
-      <div className="scroll-area">
-        {/* Drop zone */}
-        <div
-          className={`drop-zone${filePath ? " has-file" : ""}`}
-          onClick={browseFile}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault();
-            const f = e.dataTransfer.files[0];
-            if (f) loadVideo((f as File & { path?: string }).path ?? f.name);
-          }}
-        >
-          <span className="drop-label">{fileName}</span>
-          <button
-            className="browse-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              browseFile();
-            }}
-          >
-            Browse File
-          </button>
-        </div>
-
-        {/* Basic settings */}
-        {!advancedMode && (
-          <div className="row settings-row">
-            <label className="target-label">
-              Target
-              <select
-                value={qualityIdx}
-                onChange={(e) => {
-                  setQualityIdx(+e.target.value);
-                  saveSettings({ quality_index: +e.target.value });
-                }}
-              >
-                {QUALITY_PRESETS.map((p, i) => (
-                  <option key={p.label} value={i}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="fps-label">
-              FPS
-              <select
-                value={standardFpsValue}
-                onChange={(e) => {
-                  setFpsOption(e.target.value);
-                  saveSettings({ fps_option: e.target.value });
-                }}
-              >
-                {standardFpsOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="settings-field encoder-field">
-              <div className="encoder-heading">
-                <label htmlFor="encoder-select">Encoder</label>
-                {isH265Encoder(encoders[encoderIdx]?.name ?? "") && (
-                  <span
-                    className="encoder-warning"
-                    tabIndex={0}
-                    aria-label={H265_WARNING_MESSAGE}
-                    aria-describedby="h265-warning-tooltip"
-                  >
-                    <span aria-hidden="true">!</span>
-                    <span
-                      id="h265-warning-tooltip"
-                      className="encoder-warning-tooltip"
-                      role="tooltip"
-                    >
-                      {H265_WARNING_MESSAGE}
-                    </span>
-                  </span>
-                )}
-              </div>
-              <div className="encoder-row">
-                <select
-                  id="encoder-select"
-                  value={encoderIdx}
-                  onChange={(e) => {
-                    setEncoderIdx(+e.target.value);
-                    saveSettings({
-                      encoder_index: +e.target.value,
-                      encoder_label: encoders[+e.target.value]?.label,
-                    });
-                  }}
-                >
-                  <optgroup label="H.264 — universally compatible">
-                    {encoders.map(
-                      (e, i) =>
-                        !isH265Encoder(e.name) && (
-                          <option key={e.name} value={i}>
-                            {e.label}
-                          </option>
-                        )
-                    )}
-                  </optgroup>
-                  <optgroup label="H.265 — more efficient, may not play for all recipients">
-                    {encoders.map(
-                      (e, i) =>
-                        isH265Encoder(e.name) && (
-                          <option key={e.name} value={i}>
-                            {e.label}
-                          </option>
-                        )
-                    )}
-                  </optgroup>
-                </select>
-                <button
-                  type="button"
-                  className={`mute-btn${removeAudio ? " active" : ""}`}
-                  onClick={() => {
-                    const next = !removeAudio;
-                    setRemoveAudio(next);
-                    saveSettings({ remove_audio: next });
-                  }}
-                >
-                  {removeAudio ? "Unmute" : "Mute"}
-                </button>
-              </div>
-            </div>
+      <div
+        ref={appContentRef}
+        className={`app-content${ffmpegMissing ? " has-ffmpeg-banner" : ""}`}
+        aria-hidden={modalOpen ? true : undefined}
+      >
+        {ffmpegMissing && (
+          <div className="ffmpeg-banner">
+            <span className="ffmpeg-banner-copy" role="status">
+              FFmpeg required for compression.
+            </span>
+            <button
+              className="ffmpeg-install-btn"
+              type="button"
+              onClick={installFfmpeg}
+              disabled={installingFfmpeg}
+            >
+              {installingFfmpeg ? "Installing…" : "Install"}
+            </button>
+            <button className="ffmpeg-link-btn" type="button" onClick={retryFfmpegDetection}>
+              Retry
+            </button>
+            <button
+              className="ffmpeg-link-btn"
+              type="button"
+              onClick={() =>
+                void openExternalUrl(
+                  "https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
+                ).catch(() => {})
+              }
+            >
+              Guide
+            </button>
           </div>
         )}
 
-        {/* Advanced settings */}
-        {advancedMode && (
-          <div className="row settings-row advanced">
-            <label>
-              Size (MB)
-              <input
-                type="number"
-                min="0.1"
-                step="0.1"
-                placeholder="MB"
-                value={advSize}
-                onChange={(e) => {
-                  setAdvSize(e.target.value);
-                  saveSettings({ advanced_target_size: e.target.value });
-                }}
-              />
-            </label>
-            <label>
-              Resolution
-              <select
-                value={advResolution}
-                onChange={(e) => {
-                  setAdvResolution(e.target.value);
-                  saveSettings({ advanced_resolution: e.target.value });
-                }}
-              >
-                {RESOLUTION_OPTIONS.map((r) => (
-                  <option key={r}>{r}</option>
-                ))}
-              </select>
-            </label>
-            <label className="fps-label">
-              FPS
-              <input
-                type="number"
-                min="0.1"
-                step="1"
-                placeholder="Off"
-                value={advFps}
-                onChange={(e) => {
-                  setAdvFps(e.target.value);
-                  saveSettings({ advanced_fps: e.target.value });
-                }}
-              />
-            </label>
-            <label className="encoder-label">
-              Encoder
-              <div className="encoder-row">
-                <div className="encoder-autocomplete">
-                  {showPrediction && (
-                    <div className="encoder-ghost" aria-hidden="true">
-                      {predictedEncoder}
-                    </div>
-                  )}
-                  <input
-                    type="text"
-                    autoComplete="off"
-                    placeholder="e.g. libx264"
-                    value={advEncoder}
-                    aria-autocomplete="list"
-                    aria-expanded={showEncoderOptions}
-                    onFocus={() => {
-                      setEncoderInputFocused(true);
-                      if (listedEncoderNames.length === 0) loadListedEncoders().catch(() => {});
-                    }}
-                    onBlur={() => {
-                      window.setTimeout(() => setEncoderInputFocused(false), 80);
-                    }}
+        <div className="scroll-area">
+          <div className="workflow-card">
+            {/* Drop zone */}
+            <button
+              type="button"
+              className={`drop-zone${filePath ? " has-file" : ""}`}
+              onClick={browseFile}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const f = e.dataTransfer.files[0];
+                if (f) loadVideo((f as File & { path?: string }).path ?? f.name);
+              }}
+            >
+              <span className="drop-label" title={filePath ? fileName : undefined}>
+                {fileName}
+              </span>
+              <span className="browse-btn" aria-hidden="true">
+                Browse File
+              </span>
+            </button>
+
+            {/* Basic settings */}
+            {!advancedMode && (
+              <div className="row settings-row">
+                <label className="target-label">
+                  Target
+                  <select
+                    value={qualityIdx}
                     onChange={(e) => {
-                      setAdvEncoder(e.target.value);
-                      saveSettings({ advanced_encoder: e.target.value });
-                      setEncoderInputFocused(true);
+                      setQualityIdx(+e.target.value);
+                      saveSettings({ quality_index: +e.target.value });
                     }}
-                    onKeyDown={(e) => {
-                      if ((e.key === "Tab" || e.key === "ArrowRight") && showPrediction) {
-                        e.preventDefault();
-                        acceptEncoderOption(predictedEncoder!);
-                        return;
-                      }
-                      if (e.key === "ArrowDown" && showEncoderOptions) {
-                        e.preventDefault();
-                        setActiveEncoderOption((idx) =>
-                          Math.min(idx + 1, filteredEncoderOptions.length - 1)
-                        );
-                        return;
-                      }
-                      if (e.key === "ArrowUp" && showEncoderOptions) {
-                        e.preventDefault();
-                        setActiveEncoderOption((idx) => Math.max(idx - 1, 0));
-                        return;
-                      }
-                      if (e.key === "Enter" && showEncoderOptions) {
-                        e.preventDefault();
-                        acceptEncoderOption(filteredEncoderOptions[activeEncoderOption]);
-                        return;
-                      }
-                      if (e.key === "Escape") {
-                        setEncoderInputFocused(false);
-                      }
+                  >
+                    {QUALITY_PRESETS.map((p, i) => (
+                      <option key={p.label} value={i}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="fps-label">
+                  FPS
+                  <select
+                    value={standardFpsValue}
+                    onChange={(e) => {
+                      setFpsOption(e.target.value);
+                      saveSettings({ fps_option: e.target.value });
+                    }}
+                  >
+                    {standardFpsOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="settings-field encoder-field">
+                  <div className="encoder-heading">
+                    <label htmlFor="encoder-select">Encoder</label>
+                    {isH265Encoder(encoders[encoderIdx]?.name ?? "") && (
+                      <span
+                        className="encoder-warning"
+                        tabIndex={0}
+                        aria-label={H265_WARNING_MESSAGE}
+                        aria-describedby="h265-warning-tooltip"
+                      >
+                        <span aria-hidden="true">!</span>
+                        <span
+                          id="h265-warning-tooltip"
+                          className="encoder-warning-tooltip"
+                          role="tooltip"
+                        >
+                          {H265_WARNING_MESSAGE}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                  <div className="encoder-row">
+                    <select
+                      id="encoder-select"
+                      value={encoderIdx}
+                      onChange={(e) => {
+                        setEncoderIdx(+e.target.value);
+                        saveSettings({
+                          encoder_index: +e.target.value,
+                          encoder_label: encoders[+e.target.value]?.label,
+                        });
+                      }}
+                    >
+                      <optgroup label="H.264 — universally compatible">
+                        {encoders.map(
+                          (e, i) =>
+                            !isH265Encoder(e.name) && (
+                              <option key={e.name} value={i}>
+                                {e.label}
+                              </option>
+                            )
+                        )}
+                      </optgroup>
+                      <optgroup label="H.265 — more efficient, may not play for all recipients">
+                        {encoders.map(
+                          (e, i) =>
+                            isH265Encoder(e.name) && (
+                              <option key={e.name} value={i}>
+                                {e.label}
+                              </option>
+                            )
+                        )}
+                      </optgroup>
+                    </select>
+                    <button
+                      type="button"
+                      className={`mute-btn${removeAudio ? " active" : ""}`}
+                      onClick={() => {
+                        const next = !removeAudio;
+                        setRemoveAudio(next);
+                        saveSettings({ remove_audio: next });
+                      }}
+                    >
+                      {removeAudio ? "Unmute" : "Mute"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Advanced settings */}
+            {advancedMode && (
+              <div className="row settings-row advanced">
+                <label>
+                  Size (MB)
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    placeholder="MB"
+                    value={advSize}
+                    onChange={(e) => {
+                      setAdvSize(e.target.value);
+                      saveSettings({ advanced_target_size: e.target.value });
                     }}
                   />
-                  {showEncoderOptions && (
-                    <div className="encoder-options" role="listbox">
-                      {filteredEncoderOptions.map((option, index) => (
-                        <button
-                          type="button"
-                          className={`encoder-option${
-                            index === activeEncoderOption ? " active" : ""
-                          }`}
-                          key={option}
-                          onMouseDown={(e) => {
+                </label>
+                <label>
+                  Resolution
+                  <select
+                    value={advResolution}
+                    onChange={(e) => {
+                      setAdvResolution(e.target.value);
+                      saveSettings({ advanced_resolution: e.target.value });
+                    }}
+                  >
+                    {RESOLUTION_OPTIONS.map((r) => (
+                      <option key={r}>{r}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="fps-label">
+                  FPS
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="1"
+                    placeholder="Off"
+                    value={advFps}
+                    onChange={(e) => {
+                      setAdvFps(e.target.value);
+                      saveSettings({ advanced_fps: e.target.value });
+                    }}
+                  />
+                </label>
+                <div className="settings-field encoder-label">
+                  <span id="advanced-encoder-label">Encoder</span>
+                  <div className="encoder-row">
+                    <div className="encoder-autocomplete">
+                      {showPrediction && (
+                        <div className="encoder-ghost" aria-hidden="true">
+                          {predictedEncoder}
+                        </div>
+                      )}
+                      <input
+                        id="advanced-encoder-input"
+                        type="text"
+                        role="combobox"
+                        autoComplete="off"
+                        placeholder="libx264"
+                        value={advEncoder}
+                        aria-labelledby="advanced-encoder-label"
+                        aria-autocomplete="list"
+                        aria-expanded={showEncoderOptions}
+                        aria-controls={showEncoderOptions ? "advanced-encoder-options" : undefined}
+                        aria-activedescendant={
+                          showEncoderOptions
+                            ? `advanced-encoder-option-${activeEncoderOption}`
+                            : undefined
+                        }
+                        onFocus={() => {
+                          setEncoderInputFocused(true);
+                          if (listedEncoderNames.length === 0) loadListedEncoders().catch(() => {});
+                        }}
+                        onBlur={() => {
+                          window.setTimeout(() => setEncoderInputFocused(false), 80);
+                        }}
+                        onChange={(e) => {
+                          setAdvEncoder(e.target.value);
+                          saveSettings({ advanced_encoder: e.target.value });
+                          setEncoderInputFocused(true);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Tab" && showPrediction) {
+                            acceptEncoderOption(predictedEncoder!);
+                            return;
+                          }
+                          if (
+                            e.key === "ArrowRight" &&
+                            showPrediction &&
+                            e.currentTarget.selectionStart === advEncoder.length &&
+                            e.currentTarget.selectionEnd === advEncoder.length
+                          ) {
                             e.preventDefault();
-                            acceptEncoderOption(option);
-                          }}
+                            acceptEncoderOption(predictedEncoder!);
+                            return;
+                          }
+                          if (e.key === "ArrowDown" && showEncoderOptions) {
+                            e.preventDefault();
+                            setActiveEncoderOption((idx) =>
+                              Math.min(idx + 1, filteredEncoderOptions.length - 1)
+                            );
+                            return;
+                          }
+                          if (e.key === "ArrowUp" && showEncoderOptions) {
+                            e.preventDefault();
+                            setActiveEncoderOption((idx) => Math.max(idx - 1, 0));
+                            return;
+                          }
+                          if (e.key === "Enter" && showEncoderOptions) {
+                            e.preventDefault();
+                            acceptEncoderOption(filteredEncoderOptions[activeEncoderOption]);
+                            return;
+                          }
+                          if (e.key === "Escape") {
+                            setEncoderInputFocused(false);
+                          }
+                        }}
+                      />
+                      {showEncoderOptions && (
+                        <div
+                          id="advanced-encoder-options"
+                          className="encoder-options"
+                          role="listbox"
+                          aria-label="Encoder suggestions"
                         >
-                          {option}
-                        </button>
-                      ))}
+                          {filteredEncoderOptions.map((option, index) => (
+                            <div
+                              id={`advanced-encoder-option-${index}`}
+                              role="option"
+                              aria-selected={index === activeEncoderOption}
+                              className={`encoder-option${
+                                index === activeEncoderOption ? " active" : ""
+                              }`}
+                              key={option}
+                              onMouseEnter={() => setActiveEncoderOption(index)}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                acceptEncoderOption(option);
+                              }}
+                            >
+                              {option}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
+                    <button
+                      type="button"
+                      className={`mute-btn${removeAudio ? " active" : ""}`}
+                      onClick={() => {
+                        const next = !removeAudio;
+                        setRemoveAudio(next);
+                        saveSettings({ remove_audio: next });
+                      }}
+                    >
+                      {removeAudio ? "Unmute" : "Mute"}
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title="Show FFmpeg encoders"
+                      aria-label="Show FFmpeg encoders"
+                      onClick={showEncoders}
+                    >
+                      ℹ
+                    </button>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  className={`mute-btn${removeAudio ? " active" : ""}`}
-                  onClick={() => {
-                    const next = !removeAudio;
-                    setRemoveAudio(next);
-                    saveSettings({ remove_audio: next });
-                  }}
-                >
-                  {removeAudio ? "Unmute" : "Mute"}
-                </button>
-                <button className="icon-btn" title="Show FFmpeg encoders" onClick={showEncoders}>
-                  ℹ
-                </button>
               </div>
+            )}
+
+            <TrimTimeline
+              selectedDuration={selectedDuration}
+              selectedDurationPct={selectedDurationPct}
+              trimReady={trimReady}
+              canSetInPoint={canSetInPoint}
+              canSetOutPoint={canSetOutPoint}
+              canUndoTrim={trimHistorySize.undo > 0}
+              canRedoTrim={trimHistorySize.redo > 0}
+              snapMode={snapMode}
+              timelineZoom={timelineZoom}
+              trimWrapRef={trimWrapRef}
+              startTime={startTime}
+              endTime={endTime}
+              viewStartVal={viewStartVal}
+              viewEndVal={viewEndVal}
+              startVal={startVal}
+              endVal={endVal}
+              startPct={startPct}
+              endPct={endPct}
+              trimPlayheadLeftPct={trimPlayheadLeftPct}
+              onSetInPoint={setInPoint}
+              onSetOutPoint={setOutPoint}
+              onSnapModeChange={setSnapModeFromTimeline}
+              onZoomOut={zoomTimelineOut}
+              onZoomReset={resetTimelineZoom}
+              onZoomIn={zoomTimelineIn}
+              onUndoTrim={undoTrim}
+              onRedoTrim={redoTrim}
+              loopPlayback={loopPlayback}
+              onLoopPlaybackChange={setLoopPlaybackFromTimeline}
+              onTrimWheel={handleTrimWheel}
+              onTimelineClick={handleTimelineClick}
+              onRangeDragStart={handleRangeDragStart}
+              onPlayheadDragStart={handlePlayheadDragStart}
+              onStartHandlePointerDown={handleStartHandlePointerDown}
+              onEndHandlePointerDown={handleEndHandlePointerDown}
+              onStartHandleFocus={handleStartHandleFocus}
+              onEndHandleFocus={handleEndHandleFocus}
+              onPointerUp={commitPointerTrimChange}
+              onStartChange={handleStartChange}
+              onEndChange={handleEndChange}
+            />
+          </div>
+
+          {/* Preview */}
+          <PreviewPane
+            ref={previewRef}
+            filePath={filePath}
+            startTime={startTime}
+            endTime={endTime}
+            previewTime={previewFocusTime}
+            isScrubbing={previewScrubbing}
+            loopPlayback={loopPlayback}
+            probeData={probeData}
+            removeAudio={removeAudio}
+            onTimeUpdate={handlePreviewTimeUpdate}
+          />
+
+          {/* Compress button */}
+          <button
+            className={`compress-btn${compressing ? " cancel" : ""}`}
+            onClick={
+              compressing
+                ? cancelCompress
+                : () => {
+                    setCompressing(true);
+                    startCompress();
+                  }
+            }
+            disabled={ffmpegMissing || cancelling || (!compressing && (!filePath || !probeData))}
+          >
+            {cancelling ? "Cancelling..." : compressing ? "Cancel" : "Compress Video"}
+          </button>
+
+          {/* Progress */}
+          <ProgressSection progress={progress} eta={eta} />
+
+          {/* Footer */}
+          <div className="footer">
+            <div className="footer-meta">
+              <span className="version">{DISPLAY_VERSION}</span>
+              <a
+                href="https://vidcord.app/"
+                onClick={(e) => {
+                  e.preventDefault();
+                  void openExternalUrl("https://vidcord.app/").catch(() => {});
+                }}
+                className="gh-link"
+                aria-label="Website"
+                title="Website"
+              >
+                <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
+                  <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4" />
+                  <path
+                    d="M1.75 8h12.5M8 1.5c1.7 1.74 2.55 3.9 2.55 6.5S9.7 12.76 8 14.5C6.3 12.76 5.45 10.6 5.45 8S6.3 3.24 8 1.5Z"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="1.4"
+                  />
+                </svg>
+              </a>
+              <a
+                href="https://github.com/cyroz1/vidcord"
+                onClick={(e) => {
+                  e.preventDefault();
+                  void openExternalUrl("https://github.com/cyroz1/vidcord").catch(() => {});
+                }}
+                className="gh-link"
+                aria-label="GitHub"
+                title="GitHub"
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  width="16"
+                  height="16"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+                </svg>
+              </a>
+            </div>
+            <label className="toggle-label footer-toggle advanced-toggle">
+              <span>Advanced Mode</span>
+              <span className="toggle-track">
+                <input
+                  type="checkbox"
+                  className="toggle-input"
+                  checked={advancedMode}
+                  onChange={(e) => {
+                    setAdvancedMode(e.target.checked);
+                    saveSettings({ advanced_mode: e.target.checked });
+                  }}
+                />
+                <span className="toggle-thumb" />
+              </span>
             </label>
           </div>
-        )}
+        </div>
 
-        <TrimTimeline
-          selectedDuration={selectedDuration}
-          selectedDurationPct={selectedDurationPct}
-          playheadTime={playheadTime}
-          snapMode={snapMode}
-          timelineZoom={timelineZoom}
-          trimWrapRef={trimWrapRef}
-          filePath={filePath}
-          startTime={startTime}
-          endTime={endTime}
-          viewStartVal={viewStartVal}
-          viewEndVal={viewEndVal}
-          startVal={startVal}
-          endVal={endVal}
-          startPct={startPct}
-          endPct={endPct}
-          trimPlayheadLeftPct={trimPlayheadLeftPct}
-          onSetInPoint={setInPoint}
-          onSetOutPoint={setOutPoint}
-          onSnapModeChange={setSnapModeFromTimeline}
-          onZoomOut={zoomTimelineOut}
-          onZoomReset={resetTimelineZoom}
-          onZoomIn={zoomTimelineIn}
-          onUndoTrim={undoTrim}
-          onRedoTrim={redoTrim}
-          loopPlayback={loopPlayback}
-          onLoopPlaybackChange={setLoopPlaybackFromTimeline}
-          onTrimWheel={handleTrimWheel}
-          onTimelineClick={handleTimelineClick}
-          onRangeDragStart={handleRangeDragStart}
-          onPlayheadDragStart={handlePlayheadDragStart}
-          onStartHandlePointerDown={handleStartHandlePointerDown}
-          onEndHandlePointerDown={handleEndHandlePointerDown}
-          onPointerUp={commitPointerTrimChange}
-          onStartChange={handleStartChange}
-          onEndChange={handleEndChange}
-        />
-
-        {/* Preview */}
-        <PreviewPane
-          ref={previewRef}
-          filePath={filePath}
-          startTime={startTime}
-          endTime={endTime}
-          previewTime={previewFocusTime}
-          isScrubbing={previewScrubbing}
-          loopPlayback={loopPlayback}
-          probeData={probeData}
-          removeAudio={removeAudio}
-          onTimeUpdate={handlePreviewTimeUpdate}
-        />
-
-        {/* Compress button */}
-        <button
-          className={`compress-btn${compressing ? " cancel" : ""}`}
-          onClick={
-            compressing
-              ? cancelCompress
-              : () => {
-                  setCompressing(true);
-                  startCompress();
-                }
-          }
-          disabled={ffmpegMissing || cancelling}
-        >
-          {cancelling ? "Cancelling..." : compressing ? "Cancel" : "Compress Video"}
-        </button>
-
-        {/* Progress */}
-        <ProgressSection progress={progress} eta={eta} />
-
-        {/* Footer */}
-        <div className="footer">
-          <span className="version">{DISPLAY_VERSION}</span>
-          <a
-            href="https://vidcord.app/"
-            onClick={(e) => {
-              e.preventDefault();
-              openUrl("https://vidcord.app/");
-            }}
-            className="gh-link"
-            aria-label="Website"
-            title="Website"
-          >
-            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
-              <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4" />
-              <path
-                d="M1.75 8h12.5M8 1.5c1.7 1.74 2.55 3.9 2.55 6.5S9.7 12.76 8 14.5C6.3 12.76 5.45 10.6 5.45 8S6.3 3.24 8 1.5Z"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="1.4"
-              />
-            </svg>
-          </a>
-          <a
-            href="https://github.com/cyroz1/vidcord"
-            onClick={(e) => {
-              e.preventDefault();
-              openUrl("https://github.com/cyroz1/vidcord");
-            }}
-            className="gh-link"
-            aria-label="GitHub"
-            title="GitHub"
-          >
-            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
-              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
-            </svg>
-          </a>
-          <label className="toggle-label footer-toggle advanced-toggle">
-            <span>Advanced Mode</span>
-            <span className="toggle-track">
-              <input
-                type="checkbox"
-                className="toggle-input"
-                checked={advancedMode}
-                onChange={(e) => {
-                  setAdvancedMode(e.target.checked);
-                  saveSettings({ advanced_mode: e.target.checked });
-                }}
-              />
-              <span className="toggle-thumb" />
-            </span>
-          </label>
+        {/* Toasts */}
+        <div className="toast-container">
+          {toasts.map((t) => (
+            <Toast key={t.id} {...t} onClose={() => removeToast(t.id)} />
+          ))}
         </div>
       </div>
 
       {/* Encoders dialog — lazy-loaded, only rendered after user opens it */}
       {encodersDialogText !== null && (
         <Suspense fallback={null}>
-          <EncodersDialog text={encodersDialogText} onClose={() => setEncodersDialogText(null)} />
+          <EncodersDialog text={encodersDialogText} onClose={closeEncodersDialog} />
         </Suspense>
       )}
-
-      {/* Toasts */}
-      <div className="toast-container">
-        {toasts.map((t) => (
-          <Toast key={t.id} {...t} onClose={() => removeToast(t.id)} />
-        ))}
-      </div>
     </div>
   );
 }

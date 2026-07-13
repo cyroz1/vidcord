@@ -8,6 +8,46 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{AppHandle, Emitter};
 
+const MAX_FFMPEG_STDERR_RECORD_BYTES: usize = 16 * 1024;
+const MAX_FFMPEG_DIAGNOSTIC_BYTES: usize = 256 * 1024;
+const MAX_FFMPEG_DIAGNOSTIC_LINES: usize = 200;
+
+fn read_bounded_records<R, F>(reader: &mut R, mut on_record: F) -> std::io::Result<()>
+where
+    R: BufRead,
+    F: FnMut(&[u8], bool),
+{
+    let mut record = Vec::with_capacity(4096);
+    let mut truncated = false;
+
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            break;
+        }
+        let consumed = available.len();
+        for &byte in available {
+            if byte == b'\r' || byte == b'\n' {
+                if !record.is_empty() || truncated {
+                    on_record(&record, truncated);
+                    record.clear();
+                    truncated = false;
+                }
+            } else if record.len() < MAX_FFMPEG_STDERR_RECORD_BYTES {
+                record.push(byte);
+            } else {
+                truncated = true;
+            }
+        }
+        reader.consume(consumed);
+    }
+
+    if !record.is_empty() || truncated {
+        on_record(&record, truncated);
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Shared compression-process state (PID + output path for partial cleanup)
 // ---------------------------------------------------------------------------
@@ -104,6 +144,44 @@ struct CompressionJobGuard(u64);
 impl Drop for CompressionJobGuard {
     fn drop(&mut self) {
         finish_compression_job(self.0);
+    }
+}
+
+struct OutputReservation {
+    path: std::path::PathBuf,
+    committed: bool,
+}
+
+impl OutputReservation {
+    fn create(path: String) -> Result<Self, String> {
+        let path = std::path::PathBuf::from(path);
+        match std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&path)
+        {
+            Ok(_) => Ok(Self {
+                path,
+                committed: false,
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Err(
+                "The output filename became unavailable. Try Compress again to choose a new name."
+                    .to_string(),
+            ),
+            Err(error) => Err(format!("Could not reserve the output file: {error}")),
+        }
+    }
+
+    fn commit(&mut self) {
+        self.committed = true;
+    }
+}
+
+impl Drop for OutputReservation {
+    fn drop(&mut self) {
+        if !self.committed {
+            let _ = std::fs::remove_file(&self.path);
+        }
     }
 }
 
@@ -254,6 +332,49 @@ fn valid_output_fps(fps: Option<f64>) -> bool {
     }
 }
 
+fn valid_scale_filter(filter: Option<&str>) -> bool {
+    let Some(filter) = filter else {
+        return true;
+    };
+    if filter == "scale=trunc(iw/2)*2:trunc(ih/2)*2" || filter == "iw:ih" {
+        return true;
+    }
+
+    let dimensions = filter.strip_prefix("scale=").unwrap_or(filter);
+    let mut parts = dimensions.split(':');
+    let (Some(width), Some(height), None) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    [width, height].into_iter().all(|value| {
+        value
+            .parse::<u32>()
+            .is_ok_and(|dimension| (1..=32_768).contains(&dimension))
+    })
+}
+
+fn valid_vaapi_device(device: Option<&str>) -> bool {
+    if device.is_none() {
+        return true;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let device = device.expect("device was checked above");
+        let path = std::path::Path::new(device);
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            return false;
+        };
+        path.parent() == Some(std::path::Path::new("/dev/dri"))
+            && name.strip_prefix("renderD").is_some_and(|suffix| {
+                !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit())
+            })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
 fn format_fps_filter_value(fps: f64) -> String {
     let mut value = format!("{fps:.3}");
     while value.contains('.') && value.ends_with('0') {
@@ -304,14 +425,19 @@ fn initial_attempt(opts: &CompressOptions) -> CompressionAttempt {
 }
 
 fn max_adaptive_attempts(opts: &CompressOptions, has_target: bool) -> usize {
-    if !has_target {
-        return 1;
-    }
-    if opts.encoder == "libx264" {
+    // A hardware selection has two encoder phases: the requested encoder and
+    // a CPU fallback. Each phase gets its initial encode, and target-size jobs
+    // get the same bounded number of adaptive bitrate retries per encoder.
+    // Deriving the cap from that policy keeps it aligned with
+    // `next_oversize_attempt` instead of silently discarding its final CPU
+    // retry.
+    let encoder_phases = if opts.encoder == "libx264" { 1 } else { 2 };
+    let attempts_per_encoder = if has_target {
         1 + OVERSIZE_RETRY_LIMIT_PER_ENCODER
     } else {
-        2 + OVERSIZE_RETRY_LIMIT_PER_ENCODER
-    }
+        1
+    };
+    encoder_phases * attempts_per_encoder
 }
 
 fn cpu_fallback_attempt(video_bitrate_k: u32, status: String) -> CompressionAttempt {
@@ -377,9 +503,53 @@ fn next_oversize_attempt(
 
 fn target_size_bytes(target_size_mb: Option<f64>) -> Result<Option<u64>, String> {
     match target_size_mb {
-        Some(size) if size.is_finite() && size > 0.0 => Ok(Some((size * 1024.0 * 1024.0) as u64)),
+        Some(size)
+            if size.is_finite() && size > 0.0 && size <= u64::MAX as f64 / (1024.0 * 1024.0) =>
+        {
+            Ok(Some((size * 1024.0 * 1024.0) as u64))
+        }
         Some(_) => Err("Invalid target size".to_string()),
         None => Ok(None),
+    }
+}
+
+fn valid_time_range(start_time: f64, end_time: f64) -> bool {
+    start_time.is_finite() && end_time.is_finite() && start_time >= 0.0 && end_time > start_time
+}
+
+struct ChildProcessGuard {
+    child: std::process::Child,
+    finished: bool,
+}
+
+impl ChildProcessGuard {
+    fn new(child: std::process::Child) -> Self {
+        Self {
+            child,
+            finished: false,
+        }
+    }
+
+    fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        let result = self.child.wait();
+        if result.is_ok() {
+            self.finished = true;
+        }
+        result
+    }
+}
+
+impl Drop for ChildProcessGuard {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+
+        // Dropping std::process::Child does not terminate or reap it. Ensure a
+        // stderr read error, wait error, or panic cannot leave an unowned
+        // encoder running after the compression job state is released.
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
@@ -419,7 +589,7 @@ async fn run_ffmpeg_attempt(
     }
 
     let mut cmd_args: Vec<String> = Vec::new();
-    cmd_args.extend(["-hide_banner".into(), "-y".into()]);
+    cmd_args.extend(["-hide_banner".into(), "-nostdin".into(), "-y".into()]);
 
     if attempt.encoder.ends_with("_vaapi") {
         if let Some(ref dev) = opts.vaapi_device {
@@ -524,81 +694,94 @@ async fn run_ffmpeg_attempt(
     let video_bitrate_k = attempt.video_bitrate_k;
     let status_text = attempt.status.clone();
 
-    let (exit_status, last_lines) =
-        tokio::task::spawn_blocking(move || -> Result<_, std::io::Error> {
-            let mut reader = BufReader::new(stderr);
-            let start_instant = std::time::Instant::now();
-            let mut last_progress_emit: Option<std::time::Instant> = None;
-            let mut last_lines: std::collections::VecDeque<String> =
-                std::collections::VecDeque::with_capacity(200);
-            let mut chunk_buf = Vec::with_capacity(4096);
+    let run_result = tokio::task::spawn_blocking(move || -> Result<_, std::io::Error> {
+        let mut child = ChildProcessGuard::new(child);
+        let mut reader = BufReader::new(stderr);
+        let start_instant = std::time::Instant::now();
+        let mut last_progress_emit: Option<std::time::Instant> = None;
+        let mut completion_emitted = false;
+        let mut last_lines: std::collections::VecDeque<String> =
+            std::collections::VecDeque::with_capacity(MAX_FFMPEG_DIAGNOSTIC_LINES);
+        let mut last_lines_bytes = 0usize;
 
-            loop {
-                chunk_buf.clear();
-                let n = reader.read_until(b'\r', &mut chunk_buf)?;
-                if n == 0 {
-                    break;
-                }
-                for seg in chunk_buf.split(|&b| b == b'\r' || b == b'\n') {
-                    let line = std::str::from_utf8(seg).unwrap_or("").trim();
-                    if line.is_empty() {
-                        continue;
-                    }
-                    let is_progress = line.contains("time=");
-                    let line_has_issue =
-                        !is_progress && contains_ascii_ci_any(line, &[b"error", b"warning"]);
-                    if line_has_issue {
-                        vidcord_log(&format!("FFMPEG: {line}"));
-                    }
-                    if !is_progress {
-                        last_lines.push_back(line.to_string());
-                        if last_lines.len() > 200 {
-                            last_lines.pop_front();
-                        }
-                    }
-                    if is_progress {
-                        if let Some(time_str) = parse_ffmpeg_time(line) {
-                            let pct = ((time_str / clip_duration) * 100.0).min(100.0);
-                            let now = std::time::Instant::now();
-                            let should_emit = last_progress_emit
-                                .map(|last| now.duration_since(last).as_millis() >= 250)
-                                .unwrap_or(true)
-                                || pct >= 99.9;
-                            if !should_emit {
-                                continue;
-                            }
-                            last_progress_emit = Some(now);
-                            let elapsed = start_instant.elapsed().as_secs_f64();
-                            let eta = if time_str > 0.0 && elapsed > 0.0 {
-                                let rate = time_str / elapsed;
-                                let remaining = clip_duration - time_str;
-                                format_eta(remaining / rate)
-                            } else {
-                                "Calculating...".to_string()
-                            };
-                            let _ = app_for_progress.emit(
-                                "compress-progress",
-                                serde_json::json!({
-                                    "percent": pct as u32,
-                                    "eta": eta,
-                                    "status": status_text.as_str(),
-                                    "attempt": attempt_number,
-                                    "attempt_total": attempt_total,
-                                    "encoder": encoder_name.as_str(),
-                                    "video_bitrate_k": video_bitrate_k
-                                }),
-                            );
-                        }
-                    }
-                }
+        read_bounded_records(&mut reader, |record, truncated| {
+            let line = String::from_utf8_lossy(record);
+            let line = line.trim();
+            if line.is_empty() {
+                return;
             }
 
-            let status = child.wait()?;
-            Ok((status, last_lines))
-        })
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
+            let is_progress = line.contains("time=");
+            let diagnostic = if truncated {
+                format!("{line} … [truncated]")
+            } else {
+                line.to_string()
+            };
+            let line_has_issue =
+                !is_progress && contains_ascii_ci_any(line, &[b"error", b"warning"]);
+            if line_has_issue {
+                vidcord_log(&format!("FFMPEG: {diagnostic}"));
+            }
+
+            if !is_progress {
+                while !last_lines.is_empty()
+                    && (last_lines.len() >= MAX_FFMPEG_DIAGNOSTIC_LINES
+                        || last_lines_bytes.saturating_add(diagnostic.len())
+                            > MAX_FFMPEG_DIAGNOSTIC_BYTES)
+                {
+                    if let Some(removed) = last_lines.pop_front() {
+                        last_lines_bytes = last_lines_bytes.saturating_sub(removed.len());
+                    }
+                }
+                if diagnostic.len() <= MAX_FFMPEG_DIAGNOSTIC_BYTES {
+                    last_lines_bytes += diagnostic.len();
+                    last_lines.push_back(diagnostic);
+                }
+                return;
+            }
+
+            let Some(time_str) = parse_ffmpeg_time(line) else {
+                return;
+            };
+            let pct = ((time_str / clip_duration) * 100.0).min(100.0);
+            let now = std::time::Instant::now();
+            let should_emit = last_progress_emit
+                .map(|last| now.duration_since(last).as_millis() >= 250)
+                .unwrap_or(true)
+                || (pct >= 99.9 && !completion_emitted);
+            if !should_emit {
+                return;
+            }
+            if pct >= 99.9 {
+                completion_emitted = true;
+            }
+            last_progress_emit = Some(now);
+            let elapsed = start_instant.elapsed().as_secs_f64();
+            let eta = if time_str > 0.0 && elapsed > 0.0 {
+                let rate = time_str / elapsed;
+                let remaining = clip_duration - time_str;
+                format_eta(remaining / rate)
+            } else {
+                "Calculating...".to_string()
+            };
+            let _ = app_for_progress.emit(
+                "compress-progress",
+                serde_json::json!({
+                    "percent": pct as u32,
+                    "eta": eta,
+                    "status": status_text.as_str(),
+                    "attempt": attempt_number,
+                    "attempt_total": attempt_total,
+                    "encoder": encoder_name.as_str(),
+                    "video_bitrate_k": video_bitrate_k
+                }),
+            );
+        })?;
+
+        let status = child.wait()?;
+        Ok((status, last_lines))
+    })
+    .await;
 
     let cancelled = {
         let mut state = compression_state()
@@ -608,6 +791,10 @@ async fn run_ffmpeg_attempt(
         state.clear_process(job_id);
         c
     };
+
+    let (exit_status, last_lines) = run_result
+        .map_err(|e| format!("FFmpeg worker failed: {e}"))?
+        .map_err(|e| format!("Failed while monitoring FFmpeg: {e}"))?;
 
     Ok(FfmpegRunResult {
         exit_status,
@@ -648,14 +835,30 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     if !valid_output_fps(opts.output_fps) {
         return Err("Invalid output FPS".to_string());
     }
-    let clip_duration = opts.end_time - opts.start_time;
-    if clip_duration <= 0.0 {
-        return Err("Invalid clip duration".to_string());
+    if !valid_scale_filter(opts.scale_filter.as_deref()) {
+        return Err("Invalid scale filter".to_string());
     }
+    if !valid_vaapi_device(opts.vaapi_device.as_deref()) {
+        return Err("Invalid VAAPI device".to_string());
+    }
+    if !valid_time_range(opts.start_time, opts.end_time) {
+        return Err("Invalid clip time range".to_string());
+    }
+    let clip_duration = opts.end_time - opts.start_time;
 
     let target_bytes = target_size_bytes(opts.target_size_mb)?;
     let job_id = begin_compression_job()?;
     let _job_guard = CompressionJobGuard(job_id);
+
+    // resolve_output_path is advisory; atomically reserve the selected name
+    // before FFmpeg's `-y` can touch it. The reservation remains owned across
+    // adaptive retries, so another process cannot claim a retry gap. Begin the
+    // owned job first so an immediate Cancel cannot race this async reservation.
+    let reservation_path = opts.output_path.clone();
+    let mut output_reservation =
+        tokio::task::spawn_blocking(move || OutputReservation::create(reservation_path))
+            .await
+            .map_err(|error| error.to_string())??;
     tokio::task::spawn_blocking(cancel_preview_jobs)
         .await
         .map_err(|e| e.to_string())?;
@@ -689,7 +892,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             }),
         );
 
-        let run = run_ffmpeg_attempt(
+        let run = match run_ffmpeg_attempt(
             &app,
             &opts,
             &attempt,
@@ -698,11 +901,22 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             clip_duration,
             job_id,
         )
-        .await?;
+        .await
+        {
+            Ok(run) => run,
+            Err(error) => {
+                vidcord_log(&format!("Compression worker failed: {error}"));
+                remove_partial_output(&opts.output_path);
+                let _ = app.emit(
+                    "compress-done",
+                    serde_json::json!({"success": false, "message": error}),
+                );
+                return Err(error);
+            }
+        };
         if run.cancelled {
             vidcord_log("Compression cancelled by user.");
             remove_partial_output(&opts.output_path);
-            finish_compression_job(job_id);
             let _ = app.emit(
                 "compress-done",
                 serde_json::json!({"success": false, "cancelled": true, "message": "Cancelled."}),
@@ -719,7 +933,6 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                     run.exit_status.code(),
                     all_lines.join("\n")
                 ));
-                remove_partial_output(&opts.output_path);
                 cpu_fallback_used = true;
                 oversize_retries_for_encoder = 0;
                 attempt_index += 1;
@@ -747,7 +960,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 run.exit_status.code(),
                 all_lines.join("\n")
             ));
-            finish_compression_job(job_id);
+            remove_partial_output(&opts.output_path);
             let _ = app.emit(
                 "compress-done",
                 serde_json::json!({"success": false, "message": err_msg}),
@@ -755,9 +968,20 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             return Err(err_msg);
         }
 
-        let output_size = std::fs::metadata(&opts.output_path)
-            .map_err(|e| format!("Compression finished but output file could not be read: {e}"))?
-            .len();
+        let output_size = match std::fs::metadata(&opts.output_path) {
+            Ok(metadata) => metadata.len(),
+            Err(error) => {
+                let message =
+                    format!("Compression finished but output file could not be read: {error}");
+                vidcord_log(&message);
+                remove_partial_output(&opts.output_path);
+                let _ = app.emit(
+                    "compress-done",
+                    serde_json::json!({"success": false, "message": message}),
+                );
+                return Err(message);
+            }
+        };
         let output_is_small_enough = match target_bytes {
             Some(limit) => output_size <= limit,
             None => true,
@@ -775,7 +999,6 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 "Compression finished successfully: {} bytes with {} at {}k.",
                 output_size, attempt.encoder, attempt.video_bitrate_k
             ));
-            finish_compression_job(job_id);
             let _ = app.emit(
                 "compress-done",
                 serde_json::json!({
@@ -790,6 +1013,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                     "video_bitrate_k": attempt.video_bitrate_k
                 }),
             );
+            output_reservation.commit();
             return Ok(opts.output_path);
         }
 
@@ -803,7 +1027,6 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             output_size,
             target_bytes.unwrap_or(0)
         ));
-        remove_partial_output(&opts.output_path);
 
         let Some(limit) = target_bytes else {
             break;
@@ -834,7 +1057,6 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         _ => "Compression could not reach the requested target size after retrying lower bitrates."
             .to_string(),
     };
-    finish_compression_job(job_id);
     let _ = app.emit(
         "compress-done",
         serde_json::json!({
@@ -991,6 +1213,42 @@ mod tests {
     }
 
     #[test]
+    fn bounded_record_reader_splits_cr_and_lf() {
+        let mut reader = std::io::Cursor::new(b"first\nsecond\r\nthird".as_slice());
+        let mut records = Vec::new();
+        read_bounded_records(&mut reader, |record, truncated| {
+            records.push((record.to_vec(), truncated));
+        })
+        .unwrap();
+
+        assert_eq!(
+            records,
+            vec![
+                (b"first".to_vec(), false),
+                (b"second".to_vec(), false),
+                (b"third".to_vec(), false),
+            ]
+        );
+    }
+
+    #[test]
+    fn bounded_record_reader_discards_oversized_record_tail() {
+        let mut input = vec![b'x'; MAX_FFMPEG_STDERR_RECORD_BYTES + 4096];
+        input.extend_from_slice(b"\nnext\r");
+        let mut reader = std::io::Cursor::new(input);
+        let mut records = Vec::new();
+        read_bounded_records(&mut reader, |record, truncated| {
+            records.push((record.len(), truncated));
+        })
+        .unwrap();
+
+        assert_eq!(
+            records,
+            vec![(MAX_FFMPEG_STDERR_RECORD_BYTES, true), (4, false)]
+        );
+    }
+
+    #[test]
     fn test_format_eta_seconds_only() {
         assert_eq!(format_eta(45.0), "0m 45s");
     }
@@ -1060,6 +1318,54 @@ mod tests {
     }
 
     #[test]
+    fn test_scale_filter_validation_accepts_only_generated_forms() {
+        assert!(valid_scale_filter(None));
+        assert!(valid_scale_filter(Some("scale=1280:720")));
+        assert!(valid_scale_filter(Some("1280:720")));
+        assert!(valid_scale_filter(Some(
+            "scale=trunc(iw/2)*2:trunc(ih/2)*2"
+        )));
+        assert!(valid_scale_filter(Some("iw:ih")));
+        assert!(!valid_scale_filter(Some("scale=0:720")));
+        assert!(!valid_scale_filter(Some("scale=1280:720,movie=secret")));
+        assert!(!valid_scale_filter(Some("movie=/tmp/secret")));
+    }
+
+    #[test]
+    fn test_vaapi_device_validation_rejects_untrusted_values() {
+        assert!(valid_vaapi_device(None));
+        #[cfg(target_os = "linux")]
+        {
+            assert!(valid_vaapi_device(Some("/dev/dri/renderD128")));
+            assert!(!valid_vaapi_device(Some("/dev/dri/card0")));
+            assert!(!valid_vaapi_device(Some("/tmp/renderD128")));
+            assert!(!valid_vaapi_device(Some("/dev/dri/renderD128,extra=value")));
+        }
+        #[cfg(not(target_os = "linux"))]
+        assert!(!valid_vaapi_device(Some("/dev/dri/renderD128")));
+    }
+
+    #[test]
+    fn test_time_range_validation_rejects_non_finite_and_negative_values() {
+        assert!(valid_time_range(0.0, 60.0));
+        assert!(valid_time_range(10.0, 10.001));
+        assert!(!valid_time_range(-1.0, 60.0));
+        assert!(!valid_time_range(10.0, 10.0));
+        assert!(!valid_time_range(10.0, 9.0));
+        assert!(!valid_time_range(f64::NAN, 60.0));
+        assert!(!valid_time_range(0.0, f64::INFINITY));
+    }
+
+    #[test]
+    fn test_target_size_validation_rejects_invalid_and_overflowing_values() {
+        assert_eq!(target_size_bytes(None), Ok(None));
+        assert_eq!(target_size_bytes(Some(1.0)), Ok(Some(1024 * 1024)));
+        assert!(target_size_bytes(Some(0.0)).is_err());
+        assert!(target_size_bytes(Some(f64::NAN)).is_err());
+        assert!(target_size_bytes(Some(f64::MAX)).is_err());
+    }
+
+    #[test]
     fn test_adaptive_retry_reduces_selected_encoder_before_cpu_fallback() {
         let mut attempt = CompressionAttempt {
             encoder: "h264_nvenc".into(),
@@ -1112,10 +1418,51 @@ mod tests {
         let cpu = retry_test_options("libx264", Some(100.0));
         let no_target = retry_test_options("h264_nvenc", None);
 
-        assert_eq!(max_adaptive_attempts(&hardware, true), 3);
+        assert_eq!(max_adaptive_attempts(&hardware, true), 4);
         assert_eq!(max_adaptive_attempts(&cpu, true), 2);
-        assert_eq!(max_adaptive_attempts(&no_target, false), 1);
+        assert_eq!(max_adaptive_attempts(&no_target, false), 2);
+        assert_eq!(max_adaptive_attempts(&cpu, false), 1);
         assert_eq!(initial_attempt(&no_target).video_bitrate_k, 900);
+    }
+
+    #[test]
+    fn test_hardware_target_policy_runs_cpu_adjusted_retry() {
+        let opts = retry_test_options("h264_nvenc", Some(100.0));
+        let mut attempts = vec![initial_attempt(&opts)];
+        let mut oversize_retries = 0;
+        let mut cpu_fallback_used = false;
+
+        for output_size in [2_000, 1_500, 1_300] {
+            let (next, next_retries, next_cpu_used) = next_oversize_attempt(
+                attempts.last().unwrap(),
+                1_000,
+                output_size,
+                oversize_retries,
+                cpu_fallback_used,
+            )
+            .unwrap();
+            attempts.push(next);
+            oversize_retries = next_retries;
+            cpu_fallback_used = next_cpu_used;
+        }
+
+        assert_eq!(attempts.len(), max_adaptive_attempts(&opts, true));
+        assert_eq!(
+            attempts
+                .iter()
+                .map(|attempt| attempt.encoder.as_str())
+                .collect::<Vec<_>>(),
+            vec!["h264_nvenc", "h264_nvenc", "libx264", "libx264"]
+        );
+        assert!(attempts[3].video_bitrate_k < attempts[2].video_bitrate_k);
+        assert!(next_oversize_attempt(
+            attempts.last().unwrap(),
+            1_000,
+            1_300,
+            oversize_retries,
+            cpu_fallback_used,
+        )
+        .is_none());
     }
 
     #[test]
@@ -1142,22 +1489,53 @@ mod tests {
     }
 
     #[test]
+    fn output_reservation_never_clobbers_and_cleans_uncommitted_files() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "vidcord-output-reservation-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let existing = dir.join("existing.mp4");
+        std::fs::write(&existing, b"original").unwrap();
+        assert!(OutputReservation::create(existing.to_string_lossy().into_owned()).is_err());
+        assert_eq!(std::fs::read(&existing).unwrap(), b"original");
+
+        let temporary = dir.join("temporary.mp4");
+        let reservation =
+            OutputReservation::create(temporary.to_string_lossy().into_owned()).unwrap();
+        assert!(temporary.exists());
+        drop(reservation);
+        assert!(!temporary.exists());
+
+        let completed = dir.join("completed.mp4");
+        let mut reservation =
+            OutputReservation::create(completed.to_string_lossy().into_owned()).unwrap();
+        std::fs::write(&completed, b"encoded").unwrap();
+        reservation.commit();
+        drop(reservation);
+        assert_eq!(std::fs::read(&completed).unwrap(), b"encoded");
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn test_encoder_name_valid() {
-        let valid =
-            |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-        assert!(valid("libx264"));
-        assert!(valid("h264_nvenc"));
-        assert!(valid("h264_vaapi"));
+        assert!(valid_encoder_name("libx264"));
+        assert!(valid_encoder_name("h264_nvenc"));
+        assert!(valid_encoder_name("h264_vaapi"));
     }
 
     #[test]
     fn test_encoder_name_invalid() {
-        let valid =
-            |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-        assert!(!valid(""));
-        assert!(!valid("libx264; rm -rf /"));
-        assert!(!valid("../../../bin/sh"));
-        assert!(!valid("libx264 -vf evil"));
+        assert!(!valid_encoder_name(""));
+        assert!(!valid_encoder_name("libx264; rm -rf /"));
+        assert!(!valid_encoder_name("../../../bin/sh"));
+        assert!(!valid_encoder_name("libx264 -vf evil"));
     }
 
     #[test]

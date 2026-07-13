@@ -1,11 +1,14 @@
 use crate::log::vidcord_log;
-use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
+use tokio::io::AsyncWriteExt;
 
 static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static DOWNLOAD_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+static TEMP_DOWNLOAD_COUNTER: AtomicU64 = AtomicU64::new(0);
 const MAX_UPDATE_INSTALLER_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_DOWNLOAD_NAME_COLLISIONS: usize = 10_000;
 
 fn http_client() -> &'static reqwest::Client {
     HTTP_CLIENT.get_or_init(|| {
@@ -139,7 +142,6 @@ fn download_target_path(asset_name: &str) -> Result<PathBuf, String> {
     let dir = dirs::download_dir()
         .or_else(dirs::data_local_dir)
         .unwrap_or_else(std::env::temp_dir);
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join(file_name))
 }
 
@@ -158,64 +160,183 @@ fn temp_download_path(path: &Path) -> Result<PathBuf, String> {
         .parent()
         .ok_or_else(|| "Update download path has no parent directory.".to_string())?;
     Ok(dir.join(format!(
-        ".{}.{}.download",
+        ".{}.{}.{}.download",
         path.file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("vidcord-update"),
-        std::process::id()
+        std::process::id(),
+        TEMP_DOWNLOAD_COUNTER.fetch_add(1, Ordering::Relaxed),
     )))
+}
+
+async fn create_temp_download_file(path: &Path) -> Result<(PathBuf, tokio::fs::File), String> {
+    for _ in 0..64 {
+        let tmp = temp_download_path(path)?;
+        match tokio::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&tmp)
+            .await
+        {
+            Ok(file) => return Ok((tmp, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    Err("Could not allocate a temporary update download file.".to_string())
+}
+
+fn collision_safe_download_path(path: &Path, collision_index: usize) -> Result<PathBuf, String> {
+    if collision_index == 0 {
+        return Ok(path.to_path_buf());
+    }
+
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Update download path has no parent directory.".to_string())?;
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .ok_or_else(|| "Update download path has an invalid filename.".to_string())?;
+    let extension = path.extension().and_then(|extension| extension.to_str());
+    let file_name = match extension {
+        Some(extension) => format!("{stem} ({collision_index}).{extension}"),
+        None => format!("{stem} ({collision_index})"),
+    };
+    Ok(parent.join(file_name))
+}
+
+async fn publish_download_without_clobber(
+    tmp: &Path,
+    preferred_path: &Path,
+) -> Result<PathBuf, String> {
+    // `rename` overwrites an existing destination on Unix. Creating a hard
+    // link instead gives us the same atomic visibility while also providing
+    // create-new semantics on every supported platform. The temporary file is
+    // in the destination directory, so the link stays on the same filesystem.
+    for collision_index in 0..MAX_DOWNLOAD_NAME_COLLISIONS {
+        let candidate = collision_safe_download_path(preferred_path, collision_index)?;
+        match tokio::fs::hard_link(tmp, &candidate).await {
+            Ok(()) => {
+                if let Err(error) = tokio::fs::remove_file(tmp).await {
+                    vidcord_log(&format!(
+                        "update install: could not remove completed temporary download: {error}"
+                    ));
+                }
+                return Ok(candidate);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(link_error) => {
+                // FAT/exFAT and some SMB mounts do not support hard links. A
+                // create-new copy is not atomically visible, but it preserves
+                // the critical no-clobber guarantee and keeps updates working
+                // on those common Downloads filesystems.
+                vidcord_log(&format!(
+                    "update install: hard-link publish unavailable ({link_error}); using create-new copy"
+                ));
+                match copy_download_without_clobber(tmp, &candidate).await {
+                    Ok(()) => {
+                        if let Err(error) = tokio::fs::remove_file(tmp).await {
+                            vidcord_log(&format!(
+                                "update install: could not remove completed temporary download: {error}"
+                            ));
+                        }
+                        return Ok(candidate);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => return Err(error.to_string()),
+                }
+            }
+        }
+    }
+
+    Err("Could not choose an unused update installer filename.".to_string())
+}
+
+async fn copy_download_without_clobber(source: &Path, destination: &Path) -> std::io::Result<()> {
+    let mut source_file = tokio::fs::File::open(source).await?;
+    let mut destination_file = tokio::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(destination)
+        .await?;
+
+    let copy_result = async {
+        tokio::io::copy(&mut source_file, &mut destination_file).await?;
+        destination_file.flush().await?;
+        destination_file.sync_all().await
+    }
+    .await;
+
+    if copy_result.is_err() {
+        drop(destination_file);
+        let _ = tokio::fs::remove_file(destination).await;
+    }
+    copy_result
 }
 
 async fn write_download_stream(
     path: PathBuf,
     mut resp: reqwest::Response,
 ) -> Result<PathBuf, String> {
-    if let Some(content_length) = resp.content_length() {
+    let content_length = resp.content_length();
+    if let Some(content_length) = content_length {
         validate_download_size(content_length)?;
     }
 
-    let tmp = temp_download_path(&path)?;
-    let mut file = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+    let (tmp, mut file) = create_temp_download_file(&path).await?;
     let mut written = 0u64;
 
-    while let Some(chunk) = resp.chunk().await.map_err(|e| {
-        let msg = e.to_string();
-        vidcord_log(&format!("update install: download read failed: {msg}"));
-        let _ = std::fs::remove_file(&tmp);
-        msg
-    })? {
+    loop {
+        let chunk = match resp.chunk().await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => break,
+            Err(err) => {
+                let msg = err.to_string();
+                vidcord_log(&format!("update install: download read failed: {msg}"));
+                drop(file);
+                let _ = tokio::fs::remove_file(&tmp).await;
+                return Err(msg);
+            }
+        };
         let Some(next_written) = written.checked_add(chunk.len() as u64) else {
-            let _ = std::fs::remove_file(&tmp);
+            drop(file);
+            let _ = tokio::fs::remove_file(&tmp).await;
             return Err("Update installer size overflowed.".to_string());
         };
         written = next_written;
         if let Err(err) = validate_download_size(written) {
-            let _ = std::fs::remove_file(&tmp);
+            drop(file);
+            let _ = tokio::fs::remove_file(&tmp).await;
             return Err(err);
         }
-        if let Err(err) = file.write_all(&chunk) {
-            let _ = std::fs::remove_file(&tmp);
+        if let Err(err) = file.write_all(&chunk).await {
+            drop(file);
+            let _ = tokio::fs::remove_file(&tmp).await;
             return Err(err.to_string());
         }
     }
 
-    if let Err(err) = file.flush() {
-        let _ = std::fs::remove_file(&tmp);
+    if let Err(err) = file.flush().await {
+        drop(file);
+        let _ = tokio::fs::remove_file(&tmp).await;
         return Err(err.to_string());
     }
     drop(file);
 
-    if path.exists() {
-        if let Err(err) = std::fs::remove_file(&path) {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(err.to_string());
+    if content_length.is_some_and(|expected| expected != written) {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Err("Update installer download was incomplete.".to_string());
+    }
+
+    let published_path = match publish_download_without_clobber(&tmp, &path).await {
+        Ok(published_path) => published_path,
+        Err(err) => {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err(err);
         }
-    }
-    if let Err(err) = std::fs::rename(&tmp, &path) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(err.to_string());
-    }
-    Ok(path)
+    };
+    Ok(published_path)
 }
 
 fn open_installer(path: &Path) -> Result<(), String> {
@@ -308,6 +429,12 @@ pub async fn download_and_open_update_installer() -> Result<serde_json::Value, S
         validate_download_size(size)?;
     }
     let target_path = download_target_path(&asset.name)?;
+    let target_dir = target_path
+        .parent()
+        .ok_or_else(|| "Update download path has no parent directory.".to_string())?;
+    tokio::fs::create_dir_all(target_dir)
+        .await
+        .map_err(|e| e.to_string())?;
 
     let resp = download_client()
         .get(&asset.browser_download_url)
@@ -341,6 +468,16 @@ pub async fn download_and_open_update_installer() -> Result<serde_json::Value, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    static TEST_DIRECTORY_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn unique_test_directory() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "vidcord-update-test-{}-{}",
+            std::process::id(),
+            TEST_DIRECTORY_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
 
     #[test]
     fn normalize_semver_strips_v_prefix() {
@@ -431,5 +568,71 @@ mod tests {
     fn rejects_oversized_update_installers() {
         assert!(validate_download_size(MAX_UPDATE_INSTALLER_BYTES).is_ok());
         assert!(validate_download_size(MAX_UPDATE_INSTALLER_BYTES + 1).is_err());
+    }
+
+    #[test]
+    fn collision_names_preserve_the_installer_extension() {
+        let path = PathBuf::from("vidcord_7.0.0_x64-setup.exe");
+        assert_eq!(
+            collision_safe_download_path(&path, 1).unwrap(),
+            PathBuf::from("vidcord_7.0.0_x64-setup (1).exe")
+        );
+        assert_eq!(collision_safe_download_path(&path, 0).unwrap(), path);
+    }
+
+    #[tokio::test]
+    async fn publishing_update_never_replaces_existing_downloads() {
+        let directory = unique_test_directory();
+        tokio::fs::create_dir(&directory).await.unwrap();
+        let preferred = directory.join("vidcord.exe");
+        let first_collision = directory.join("vidcord (1).exe");
+        let tmp = directory.join(".vidcord.download");
+        tokio::fs::write(&preferred, b"original").await.unwrap();
+        tokio::fs::write(&first_collision, b"also original")
+            .await
+            .unwrap();
+        tokio::fs::write(&tmp, b"new installer").await.unwrap();
+
+        let published = publish_download_without_clobber(&tmp, &preferred)
+            .await
+            .unwrap();
+
+        assert_eq!(published, directory.join("vidcord (2).exe"));
+        assert_eq!(tokio::fs::read(&preferred).await.unwrap(), b"original");
+        assert_eq!(
+            tokio::fs::read(&first_collision).await.unwrap(),
+            b"also original"
+        );
+        assert_eq!(tokio::fs::read(&published).await.unwrap(), b"new installer");
+        assert!(!tmp.exists());
+
+        tokio::fs::remove_file(preferred).await.unwrap();
+        tokio::fs::remove_file(first_collision).await.unwrap();
+        tokio::fs::remove_file(published).await.unwrap();
+        tokio::fs::remove_dir(directory).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn copy_fallback_uses_create_new_and_preserves_existing_file() {
+        let directory = unique_test_directory();
+        tokio::fs::create_dir_all(&directory).await.unwrap();
+        let tmp = directory.join(".vidcord.download");
+        let destination = directory.join("vidcord.exe");
+        tokio::fs::write(&tmp, b"new installer").await.unwrap();
+        tokio::fs::write(&destination, b"original").await.unwrap();
+
+        let error = copy_download_without_clobber(&tmp, &destination)
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(tokio::fs::read(&destination).await.unwrap(), b"original");
+
+        let collision = directory.join("vidcord (1).exe");
+        copy_download_without_clobber(&tmp, &collision)
+            .await
+            .unwrap();
+        assert_eq!(tokio::fs::read(&collision).await.unwrap(), b"new installer");
+
+        tokio::fs::remove_dir_all(directory).await.unwrap();
     }
 }

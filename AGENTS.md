@@ -164,10 +164,11 @@ Website validation:
 npm run site:check
 ```
 
-The site check runs Prettier, `node --check`, JSON-LD / manifest parsing, asset organization checks, version alignment, and `xmllint` for the sitemap. If you need to run the structured-data parser directly:
+The site check runs Prettier, `node --check`, JSON-LD / manifest parsing, semantic sitemap validation, asset organization checks, and version alignment. If you need to run the structured-data or sitemap parsers directly:
 
 ```sh
 node scripts/check-site-structured-data.mjs
+node scripts/check-sitemap.mjs
 ```
 
 Deploy the website:
@@ -197,7 +198,7 @@ For browser QA, use the in-app browser when available and check:
 - FAQ and download sections render on desktop and mobile
 - screenshot aspect ratios remain uncropped
 
-Site-only changes should not trigger the multi-platform app CI: `.github/workflows/build.yml` ignores `site/**` for `push` and `pull_request`.
+Site-only changes should not trigger the multi-platform app CI: `.github/workflows/build.yml` ignores `site/**`, `wrangler.jsonc`, the Site Checks workflow, and site-only validator scripts for `push` and `pull_request`.
 
 ### Build profiles (src-tauri/Cargo.toml)
 
@@ -237,7 +238,7 @@ Open-with / right-click → Open must work across three delivery mechanisms:
 - **macOS Apple Events**: `RunEvent::Opened` in the top-level `.run(|app, event| …)` handler — fires after `setup()`, may fire hot or cold.
 - **Second instance launched while running**: `tauri_plugin_single_instance::init` focuses the existing window and emits `open-file` directly.
 
-The frontend's `open-file` listener may not be registered when the event fires on cold start, so `on_page_load` (200 ms after `PageLoadEvent::Finished`) drains `PendingFile`. Do **not** collapse these paths into one — each handles a real race that exists on at least one platform.
+The frontend registers its `open-file` listener and then invokes `frontend_ready`; that command marks the listener ready and drains `PendingFile` under the same mutex used by event delivery. `on_page_load` resets readiness at `PageLoadEvent::Started` so a WebView reload cannot emit into a stale React listener. Do **not** collapse these paths into one — each handles a real race that exists on at least one platform.
 
 ### FFmpeg invocations
 
@@ -256,6 +257,7 @@ Every `std::process::Command::new("ffmpeg"|"ffprobe")` in Rust must:
    }
    ```
 3. Validate any string interpolated into arguments. Encoder names are validated with `c.is_ascii_alphanumeric() || c == '_'` before being passed as `-c:v`; extend that pattern when adding new user-string args.
+4. Short discovery/version commands must use `spawn_captured_command()` plus `wait_for_output()` with a finite deadline, output cap, and kill/reap cleanup. Do not use unbounded `.status()` or `.output()` on startup-facing FFmpeg, FFprobe, GPU, or package-manager probes. Long preview/compression jobs keep their existing generation/job cancellation paths instead.
 
 ### Caches
 
@@ -280,6 +282,7 @@ Preview frame and filmstrip IPC accepts optional preview dimensions; the backend
 3. Call `saveSettings({ your_key: … })`; writes are debounced 250 ms and flushed on unmount.
 
 Persisted to `~/.local/share/vidcord/settings.json` (Linux), `~/Library/Application Support/vidcord/settings.json` (macOS), or `%LOCALAPPDATA%\vidcord\settings.json` (Windows) via `dirs::data_local_dir()`.
+Writes use a flushed temporary file plus atomic replacement. Windows must use `MoveFileExW` with replace/write-through flags because `std::fs::rename` cannot replace an existing destination there; do not regress repeated settings saves to a plain rename.
 
 ### Frontend performance conventions
 
@@ -349,7 +352,7 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 
 1. **frontend** (ubuntu-latest) — `npm ci`, audit (high), lint, typecheck, test, build, bundle-size budget; uploads `dist/` as an artifact for every platform matrix job to download.
 2. **rust-lint** (ubuntu-latest) — `cargo fmt --check` + `cargo audit`. Fast, runs in parallel.
-3. **rust-compile-checks** (ubuntu-latest) — `cargo clippy -D warnings` + `cargo test`. Shares the `rust-linux` `Swatinem/rust-cache` key with the Linux x86_64 build job.
+3. **rust-compile-checks** (ubuntu-22.04) — `cargo clippy -D warnings` + `cargo test`. Shares the `rust-linux` `Swatinem/rust-cache` key with the Linux x86_64 build job for registry/source data and any profile-compatible artifacts.
 4. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. Tagged `v*` refs use `release` profile; everything else uses `ci` profile.
 5. **release** (ubuntu-latest, only on tags) — extracts the matching CHANGELOG section, downloads artifacts, creates a draft GitHub release.
 
