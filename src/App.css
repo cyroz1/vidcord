@@ -1338,12 +1338,16 @@ select optgroup {
     0 3px 10px var(--accent-glow),
     inset 0 1px 0 rgba(255, 255, 255, 0.24);
   transition:
-    background 140ms,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
     transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-.compress-btn:hover {
-  background: var(--accent-hover);
+.compress-btn:not(.cancel):hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 58%, white 42%);
+  box-shadow:
+    0 5px 16px var(--accent-glow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .compress-btn:active:not(:disabled) {

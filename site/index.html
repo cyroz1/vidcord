@@ -93,7 +93,7 @@
               "Local video compression with FFmpeg",
               "Discord upload targets: current 10 MB, 50 MB, 100 MB, and 500 MB limits plus a legacy 25 MB target",
               "Output FPS controls with source-aware 24, 30, and 60 FPS presets plus advanced custom FPS",
-              "Trim, scrub, and preview before compression",
+              "Live video scrubbing and trim playback on Windows, macOS, and Linux, with FFmpeg-generated frame and filmstrip fallbacks",
               "GPU encoder detection for NVENC, AMF, QSV, VAAPI, and VideoToolbox",
               "Open With integration from Windows File Explorer and macOS Finder",
               "No uploads, accounts, or telemetry"
@@ -149,6 +149,14 @@
                 "acceptedAnswer": {
                   "@type": "Answer",
                   "text": "vidcord ships builds for Windows, macOS, and Linux. The site download button detects the visitor platform, links directly to the matching latest GitHub release asset when available, and prompts for architecture when the browser cannot report x64 or ARM64 with enough certainty."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Are scrubbing and playback previews available on Linux?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. The Linux AppImage bundles the GStreamer media framework for live video scrubbing and trim playback. FFmpeg-generated filmstrip and individual-frame previews remain available as a codec-independent fallback."
                 }
               },
               {
@@ -337,7 +345,8 @@
           <h2>Trim and preview</h2>
           <p>
             Cut the part you need, scrub the timeline, preview from the playhead, then compress only
-            that segment.
+            that segment. Linux bundles the GStreamer media framework for live previews and retains
+            FFmpeg-generated scrub frames as a codec-independent fallback.
           </p>
         </article>
         <article>
@@ -534,6 +543,14 @@
               Yes. Standard mode can leave FPS unchanged or cap output at 24, 30, or 60 FPS without
               showing choices above the source frame rate. Advanced mode accepts a custom FPS value
               or an empty Off field for no change.
+            </p>
+          </article>
+          <article>
+            <h3>Are scrubbing and playback previews available on Linux?</h3>
+            <p>
+              Yes. The Linux AppImage bundles the GStreamer media framework for live video scrubbing
+              and trim playback. FFmpeg-generated filmstrip and individual-frame previews remain
+              available as a codec-independent fallback.
             </p>
           </article>
           <article>

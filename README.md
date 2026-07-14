@@ -106,11 +106,14 @@ FFmpeg's first pass lands too large.
   mode accepts a custom FPS value, or an empty field shown as Off for no change.
 - **Trim timeline** with fine-grained handles, draggable playhead, snap
   controls, zoom, pan, undo/redo, and optional looped playback.
-- **In-app preview** of the trimmed segment before you commit to a compress,
+- **In-app playback preview** of the trimmed segment on Windows, macOS, and Linux,
   starting from the current playhead when it is inside the selected range.
 - **Responsive scrub previews** with display-sized filmstrip/frame thumbnails,
   sparse thumbnail generation for long videos, playhead-aware fallback preview clips,
   and hardware-accelerated preview clips where FFmpeg supports them.
+- **Linux media support** — the AppImage bundles the GStreamer media framework
+  needed for live video scrubbing and trim playback, with FFmpeg-generated
+  filmstrip and individual-frame previews retained as a codec-independent fallback.
 - **Hardware acceleration**, auto-detected at startup:
   - NVIDIA NVENC (`h264_nvenc`, `hevc_nvenc`)
   - AMD AMF (`h264_amf`, `hevc_amf`)
@@ -480,6 +483,9 @@ guarantee the output fits.
 Yes. vidcord ships as an `.AppImage` for x86_64 and aarch64 and is
 tested on GNOME, KDE Plasma, LXQt, Sway, and Hyprland on both X11 and
 Wayland. Hardware-accelerated encoding uses VAAPI via `/dev/dri/renderD*`.
+The AppImage bundles the GStreamer media framework for live video scrubbing and
+trim playback, while FFmpeg-generated filmstrip and frame previews remain
+available as a codec-independent fallback.
 
 ### Is there a CLI version?
 

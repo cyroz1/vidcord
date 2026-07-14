@@ -137,7 +137,7 @@ jobs:
         with:
           # Keep this identical to the Linux build package set so its gated
           # x86_64 job restores the cache populated by these compile checks.
-          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav gstreamer1.0-alsa gstreamer1.0-pulseaudio
           version: 1.0
 
       - name: Set up Rust
@@ -213,7 +213,7 @@ jobs:
         if: startsWith(matrix.platform, 'ubuntu')
         uses: awalsh128/cache-apt-pkgs-action@v1
         with:
-          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav gstreamer1.0-alsa gstreamer1.0-pulseaudio
           version: 1.0
 
       - name: Set up Node

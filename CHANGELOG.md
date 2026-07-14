@@ -16,6 +16,7 @@
 
 ### Preview
 
+- **Linux live previews**: Linux AppImages now bundle the GStreamer media framework and expose live video scrubbing and trim playback, while retaining FFmpeg-generated frame and filmstrip fallbacks.
 - **Cancellable preview work**: obsolete frame, filmstrip, fallback-clip, and pending playback work is invalidated when a new file loads, compression starts, playback stops, or the preview unmounts.
 - **Lighter filmstrips**: sparse seeking now starts at three minutes, and preview images scale to the actual display pixel ratio instead of always rendering at 2x resolution.
 - **More stable preview caching**: duplicate clip replacements now keep exact cache accounting, while oversized clips no longer evict useful cached previews.
@@ -45,6 +46,7 @@
 - **Responsive trim previews**: dragging either the in or out handle now keeps the thumbnail updated even when the WebView cannot seek the source directly or filmstrip generation is unavailable.
 - **Native switch proportions**: the Advanced Mode toggle now uses a properly inset, full-size thumb in both states.
 - **Selection-centered timeline zoom**: zoom buttons and Ctrl/Cmd-wheel zoom now focus the visible timeline on the current in/out range instead of the full clip midpoint.
+- **Stable compression hover state**: the Compress Video button now keeps its gradient surface while hovering instead of flashing between gradient and solid-color paints.
 
 - **More reliable preferences**: repeated settings changes now replace the persisted file atomically on Windows instead of failing after the first save.
 - **Tighter footer actions**: the version, website, and GitHub controls now read as one compact utility group instead of being spread across the footer.
@@ -53,6 +55,7 @@
 
 - Updated the README, FFmpeg setup guide, website copy, structured data, and AI grounding files for package-manager FFmpeg setup and selectable encoder behavior.
 - Corrected Discord tier, update-networking, package-size, trim-precision, retry-order, Linux compatibility, and encoder-selection claims across the README and website.
+- Updated the README, website, structured data, AI grounding files, and contributor guidance for Linux live preview support and its bundled GStreamer dependencies.
 
 ## v6.6
 
