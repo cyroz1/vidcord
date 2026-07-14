@@ -352,7 +352,7 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 
 1. **frontend** (ubuntu-latest) — `npm ci`, audit (high), lint, typecheck, test, build, bundle-size budget; uploads `dist/` as an artifact for every platform matrix job to download.
 2. **rust-lint** (ubuntu-latest) — `cargo fmt --check` + `cargo audit`. Fast, runs in parallel.
-3. **rust-compile-checks** (ubuntu-22.04) — `cargo clippy -D warnings` + `cargo test`. Shares the `rust-linux` `Swatinem/rust-cache` key with the Linux x86_64 build job for registry/source data and any profile-compatible artifacts.
+3. **rust-compile-checks** (ubuntu-22.04) — `cargo clippy -D warnings` + `cargo test`. Shares the `rust-linux-ubuntu-22.04-v1` `Swatinem/rust-cache` key with the Linux x86_64 build job for registry/source data and any profile-compatible artifacts.
 4. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. Tagged `v*` refs use `release` profile; everything else uses `ci` profile.
 5. **release** (ubuntu-latest, only on tags) — extracts the matching CHANGELOG section, downloads artifacts, creates a draft GitHub release.
 

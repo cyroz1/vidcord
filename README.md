@@ -119,8 +119,8 @@ FFmpeg's first pass lands too large.
   - macOS VideoToolbox (`h264_videotoolbox`, `hevc_videotoolbox`)
 - **Three ways to open a video:** drag-and-drop onto the window, "Open with
   vidcord" from Explorer/Finder, or the in-app **Browse** button.
-- **Compact fixed-size window** — stays fixed at 460×690 and keeps scrolling
-  inside the app surface when content needs more room.
+- **Compact fixed-size window** — stays fixed at 460×690, with standard and
+  advanced controls fitted into the app surface without scrollbars.
 - **Remove audio** — strip the audio track to reclaim space.
 - **Strict size checks** — finished files are measured against the selected
   target; oversized results are retried with `libx264` and lower safety
