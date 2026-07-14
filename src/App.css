@@ -861,7 +861,7 @@ select optgroup {
 .trim-control-group {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
   flex: 0 0 auto;
 }
 
@@ -894,7 +894,7 @@ select optgroup {
 .trim-zoom-controls {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
 }
 
 .trim-mini-btn {
