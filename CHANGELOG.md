@@ -16,7 +16,7 @@
 
 ### Preview
 
-- **Linux live previews**: Linux AppImages now bundle the GStreamer media framework and expose live video scrubbing and trim playback, while retaining FFmpeg-generated frame and filmstrip fallbacks.
+- **Documented Linux preview limits**: Linux continues to use FFmpeg-generated frame and filmstrip scrub previews; live video scrubbing and trim playback remain disabled because WebKitGTK's playback path can crash the renderer on some systems.
 - **Cancellable preview work**: obsolete frame, filmstrip, fallback-clip, and pending playback work is invalidated when a new file loads, compression starts, playback stops, or the preview unmounts.
 - **Lighter filmstrips**: sparse seeking now starts at three minutes, and preview images scale to the actual display pixel ratio instead of always rendering at 2x resolution.
 - **More stable preview caching**: duplicate clip replacements now keep exact cache accounting, while oversized clips no longer evict useful cached previews.
@@ -55,7 +55,7 @@
 
 - Updated the README, FFmpeg setup guide, website copy, structured data, and AI grounding files for package-manager FFmpeg setup and selectable encoder behavior.
 - Corrected Discord tier, update-networking, package-size, trim-precision, retry-order, Linux compatibility, and encoder-selection claims across the README and website.
-- Updated the README, website, structured data, AI grounding files, and contributor guidance for Linux live preview support and its bundled GStreamer dependencies.
+- Updated the README, website, structured data, AI grounding files, and contributor guidance to document Linux preview limitations and the FFmpeg-generated scrub-preview fallback.
 
 ## v6.6
 

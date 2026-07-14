@@ -93,7 +93,7 @@
               "Local video compression with FFmpeg",
               "Discord upload targets: current 10 MB, 50 MB, 100 MB, and 500 MB limits plus a legacy 25 MB target",
               "Output FPS controls with source-aware 24, 30, and 60 FPS presets plus advanced custom FPS",
-              "Live video scrubbing and trim playback on Windows, macOS, and Linux, with FFmpeg-generated frame and filmstrip fallbacks",
+              "Live video scrubbing and trim playback on Windows and macOS, with FFmpeg-generated frame and filmstrip scrub previews on Linux",
               "GPU encoder detection for NVENC, AMF, QSV, VAAPI, and VideoToolbox",
               "Open With integration from Windows File Explorer and macOS Finder",
               "No uploads, accounts, or telemetry"
@@ -156,7 +156,7 @@
                 "name": "Are scrubbing and playback previews available on Linux?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Yes. The Linux AppImage bundles the GStreamer media framework for live video scrubbing and trim playback. FFmpeg-generated filmstrip and individual-frame previews remain available as a codec-independent fallback."
+                  "text": "Linux supports FFmpeg-generated filmstrip and individual-frame previews while scrubbing. Live video scrubbing and trim playback are disabled because WebKitGTK's GStreamer playback path can crash the renderer on some systems."
                 }
               },
               {
@@ -345,8 +345,8 @@
           <h2>Trim and preview</h2>
           <p>
             Cut the part you need, scrub the timeline, preview from the playhead, then compress only
-            that segment. Linux bundles the GStreamer media framework for live previews and retains
-            FFmpeg-generated scrub frames as a codec-independent fallback.
+            that segment. On Linux, FFmpeg-generated filmstrip and frame previews remain available
+            while live video scrubbing and trim playback are disabled for stability.
           </p>
         </article>
         <article>
@@ -548,9 +548,9 @@
           <article>
             <h3>Are scrubbing and playback previews available on Linux?</h3>
             <p>
-              Yes. The Linux AppImage bundles the GStreamer media framework for live video scrubbing
-              and trim playback. FFmpeg-generated filmstrip and individual-frame previews remain
-              available as a codec-independent fallback.
+              Linux provides FFmpeg-generated filmstrip and individual-frame previews while
+              scrubbing. Live video scrubbing and trim playback are disabled because WebKitGTK's
+              GStreamer playback path can crash the renderer on some systems.
             </p>
           </article>
           <article>

@@ -17,7 +17,7 @@ This file gives web crawlers and AI agents a more complete grounding source than
 
 ## What vidcord does
 
-vidcord compresses local video files under Discord upload size limits. It is intended for people who have a video clip that is too large for Discord and want a small native desktop app to trim, inspect scrub previews, compress, and save a Discord-ready MP4. Windows, macOS, and Linux support live video scrubbing and trim playback from the playhead.
+vidcord compresses local video files under Discord upload size limits. It is intended for people who have a video clip that is too large for Discord and want a small native desktop app to trim, inspect scrub previews, compress, and save a Discord-ready MP4. Windows and macOS support live video scrubbing and trim playback from the playhead. Linux uses FFmpeg-generated filmstrip and individual-frame previews while scrubbing.
 
 Supported input formats described by the site:
 
@@ -74,8 +74,8 @@ The site documents Open With behavior:
 
 - Local compression using FFmpeg
 - Trim and FFmpeg-generated filmstrip/frame scrubbing before compression on all platforms
-- Live video scrubbing and trim playback from the playhead on Windows, macOS, and Linux
-- Linux AppImages bundle the GStreamer media framework needed for live previews while retaining FFmpeg-generated preview fallbacks
+- Live video scrubbing and trim playback from the playhead on Windows and macOS
+- Linux retains FFmpeg-generated filmstrip/frame scrub previews, but live video scrubbing and trim playback are disabled because WebKitGTK's playback path can crash the renderer on some systems
 - Discord size targets
 - Output FPS controls: unchanged, 24 FPS, 30 FPS, 60 FPS, or custom advanced FPS
 - Optional audio removal to reserve more bitrate for video
