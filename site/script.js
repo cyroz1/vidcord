@@ -3,6 +3,7 @@
 
   const repo = "cyroz1/vidcord";
   const apiUrl = `https://api.github.com/repos/${repo}/releases/latest`;
+  const downloadsBadgeUrl = `https://img.shields.io/github/downloads/${repo}/total`;
   const latestReleaseUrl = `https://github.com/${repo}/releases/latest`;
 
   const platformNames = {
@@ -27,6 +28,7 @@
   };
 
   const primaryDownload = document.getElementById("primaryDownload");
+  const downloadCount = document.getElementById("downloadCount");
   const downloadStatus = document.getElementById("downloadStatus");
   const ffmpegInstruction = document.getElementById("ffmpegInstruction");
   const ffmpegCommandBlock = document.getElementById("ffmpegCommandBlock");
@@ -555,6 +557,37 @@
     }
   }
 
+  async function fetchDownloadCount() {
+    if (!downloadCount) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 8000);
+
+    try {
+      const response = await fetch(downloadsBadgeUrl, { signal: controller.signal });
+
+      if (!response.ok) {
+        throw new Error(`Shields returned ${response.status}`);
+      }
+
+      const badge = await response.text();
+      const match = badge.match(/aria-label=["']downloads:\s*([^"']+)["']/i);
+      const count = match?.[1]?.trim();
+
+      if (!count || !/^\d+(?:\.\d+)?[kKmMbB]?$/.test(count)) {
+        throw new Error("Shields returned an unexpected download count");
+      }
+
+      downloadCount.textContent = count;
+    } catch (_error) {
+      downloadCount.textContent = "—";
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
   function openArchDialog(platform) {
     if (!archDialog || !platform || platform === "unknown") {
       return;
@@ -706,8 +739,10 @@
     await detectEnvironment();
 
     updateDownloadLinks();
+    const downloadCountRequest = fetchDownloadCount();
     await fetchLatestRelease();
     updateDownloadLinks();
+    await downloadCountRequest;
   }
 
   window.vidcordDownload = {

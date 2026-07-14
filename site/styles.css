@@ -207,6 +207,28 @@ main {
   margin-top: 30px;
 }
 
+.download-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  width: fit-content;
+  margin: 14px 0 0;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(8, 23, 43, 0.52);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.download-count strong {
+  margin-right: 5px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+
 .ffmpeg-prereq {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
