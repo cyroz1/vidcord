@@ -39,17 +39,16 @@
 - **Accurate VideoToolbox labels**: macOS hardware encoders are now labeled for macOS instead of implying they are limited to Apple Silicon.
 - **Safer file switching**: rapid file selections can no longer let an older probe replace the newest video, and unsupported drops leave the current selection intact.
 - **More accessible controls**: the file picker is fully keyboard-operable, compression progress is exposed to assistive technology, update/encoder dialogs trap and restore focus correctly, and native Space/right-click behavior is preserved on interactive fields.
-- **Unified native desktop styling**: the interface now combines SwiftUI-like material depth and typography with WinUI-like command density, borders, focus treatment, light/dark colors, and accessibility fallbacks.
+- **Restored liquid-glass window styling**: the app shell, cards, controls, footer, and light/dark palette once again match the established main-branch design while retaining the denser trim toolbar.
 - **Clearer trim editing**: trim commands are grouped into an intuitive native toolbar with a recognizable magnet, honest zoomed/off-screen handles, undoable keyboard edits, and `?` shortcut help.
-- **Scrollbar-free fixed layout**: standard and advanced controls and shortcut help now fit the full 460×690 window, including the shorter macOS webview below the native title bar, without overflow or clipping; import and empty-preview surfaces now use one clean outline instead of nested borders.
+- **Fixed-size window layout**: standard and advanced controls continue to fit the 460×690 window without horizontal overflow, while the main-branch vertical scroll behavior remains available when platform title-bar space is tighter.
 - **Readable encoder suggestions**: the advanced encoder dropdown now uses a fully opaque, content-sized surface so names remain visible without controls showing through.
 - **Responsive trim previews**: dragging either the in or out handle now keeps the thumbnail updated even when the WebView cannot seek the source directly or filmstrip generation is unavailable.
-- **Native switch proportions**: the Advanced Mode toggle now uses a properly inset, full-size thumb in both states.
 - **Selection-centered timeline zoom**: zoom buttons and Ctrl/Cmd-wheel zoom now focus the visible timeline on the current in/out range instead of the full clip midpoint.
 - **Stable compression hover state**: the Compress Video button now keeps its gradient surface while hovering instead of flashing between gradient and solid-color paints.
 
 - **More reliable preferences**: repeated settings changes now replace the persisted file atomically on Windows instead of failing after the first save.
-- **Tighter footer actions**: the version, website, and GitHub controls now read as one compact utility group instead of being spread across the footer.
+- **Restored footer spacing**: version and link controls use the main-branch spacing, with Advanced Mode anchored at the opposite edge.
 
 ### Documentation
 
