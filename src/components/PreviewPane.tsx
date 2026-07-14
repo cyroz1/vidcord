@@ -15,7 +15,12 @@ import {
   getPreviewClip,
   getPreviewFrame,
 } from "../ipc";
-import { shouldFetchScrubFrame } from "../previewScrub";
+import {
+  canPreserveDirectVideoSource,
+  shouldFetchReleasedScrubFrame,
+  shouldFetchScrubFrame,
+  shouldShowDirectPreviewVideo,
+} from "../previewScrub";
 
 const FIXED_PREVIEW_CSS_WIDTH = 432;
 const FIXED_PREVIEW_CSS_HEIGHT = 243;
@@ -205,11 +210,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // the backend for the actual OS.
   const [isLinux, setIsLinux] = useState(false);
   const [supportsLiveScrubPreview, setSupportsLiveScrubPreview] = useState(false);
+  const supportsLiveScrubPreviewRef = useRef(false);
   useEffect(() => {
     getOs().then((os) => {
       const linux = os === "linux";
       setIsLinux(linux);
       setSupportsLiveScrubPreview(!linux);
+      supportsLiveScrubPreviewRef.current = !linux;
     });
   }, []);
   useEffect(() => {
@@ -239,6 +246,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const startFrameFetchRef = useRef<(request: FrameRequest) => void>(() => {});
   const prevStartTimeRef = useRef(startTime);
   const prevEndTimeRef = useRef(endTime);
+  const prevIsScrubbingRef = useRef(isScrubbing);
   const prevFilePathRef = useRef<string | null>(filePath);
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -373,7 +381,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   }, []);
 
   useEffect(() => {
-    if (!supportsLiveScrubPreview || !filePath || !probeData || playing) {
+    if (!supportsLiveScrubPreview || !filePath || !probeData) {
       setScrubVideoReady(false);
       if (!filePath || !probeData) {
         scrubVideoSrcRef.current = null;
@@ -385,6 +393,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       }
       return;
     }
+
+    // Direct playback reuses this same media element and source. Keep its
+    // ready state while playing so Stop can reveal the paused frame without
+    // swapping through the static preview first.
+    if (playing) return;
 
     const vid = videoRef.current;
     if (!vid || usingGeneratedClipRef.current || clipUrlRef.current) return;
@@ -411,7 +424,6 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   useEffect(() => {
     if (
       !supportsLiveScrubPreview ||
-      !isScrubbing ||
       previewTime === null ||
       playing ||
       usingGeneratedClipRef.current
@@ -527,6 +539,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   );
 
   useEffect(() => {
+    const wasScrubbing = prevIsScrubbingRef.current;
+    prevIsScrubbingRef.current = isScrubbing;
     if (!filePath || !probeData) {
       frameRequestIdRef.current += 1;
       queuedFrameRequestRef.current = null;
@@ -552,6 +566,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       previewTime !== null && Number.isFinite(previewTime)
         ? Math.max(0, Math.min(previewTime, probeData.duration))
         : null;
+    const fetchReleasedScrubFrame = shouldFetchReleasedScrubFrame(
+      wasScrubbing,
+      isScrubbing,
+      explicitPreviewTime !== null
+    );
     const frameTime =
       explicitPreviewTime ??
       (isNewFile || isInitialRange ? startTime : endChanged && !startChanged ? endTime : startTime);
@@ -589,7 +608,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     // optional filmstrip may still be loading or may have failed. Keep one
     // FFmpeg frame request in flight and retain only the newest queued target
     // so dragging either trim handle still updates the preview.
-    if (fetchScrubFrame) {
+    if (fetchScrubFrame || fetchReleasedScrubFrame) {
       void fetchFrame(filePath, frameTime, requestId);
       return () => {
         if (frameRequestIdRef.current === requestId) {
@@ -635,6 +654,14 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   const stopPlayback = useCallback(() => {
     const vid = videoRef.current;
+    const directSourceMatches =
+      !!vid && scrubVideoSrcRef.current !== null && vid.src === scrubVideoSrcRef.current;
+    const preserveDirectSource = canPreserveDirectVideoSource(
+      supportsLiveScrubPreviewRef.current,
+      (vid?.readyState ?? 0) >= 1,
+      usingGeneratedClipRef.current,
+      directSourceMatches
+    );
     // Always invalidate the session. A direct play() or generated-clip IPC
     // request can still be pending before playingRef/handlers are populated;
     // returning early in that window allowed stale media to start later.
@@ -650,11 +677,15 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       vid.onseeked = null;
       vid.onerror = null;
       vid.pause();
-      vid.src = "";
-      vid.load(); // abort any in-flight load
+      if (!preserveDirectSource) {
+        vid.src = "";
+        vid.load(); // abort any in-flight load
+      }
     }
-    scrubVideoSrcRef.current = null;
-    setScrubVideoReady(false);
+    if (!preserveDirectSource) {
+      scrubVideoSrcRef.current = null;
+      setScrubVideoReady(false);
+    }
     generatedClipEndTimeRef.current = null;
     playbackOffsetRef.current = 0;
     usingGeneratedClipRef.current = false;
@@ -796,7 +827,18 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       usingGeneratedClipRef.current = false;
       generatedClipEndTimeRef.current = null;
       playbackOffsetRef.current = 0;
-      vid.src = sources[index];
+      const source = sources[index];
+      const reuseDirectSource = canPreserveDirectVideoSource(
+        supportsLiveScrubPreviewRef.current,
+        vid.readyState >= 1,
+        false,
+        index === 0 && scrubVideoSrcRef.current === source && vid.src === source
+      );
+      if (reuseDirectSource) {
+        seekVideoElement(resumeTime);
+      } else {
+        vid.src = source;
+      }
       vid
         .play()
         .then(() => {
@@ -845,6 +887,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     stopPlayback,
     buildPlaybackUrls,
     getPlaybackTime,
+    seekVideoElement,
     clearEndBoundaryTimer,
     handlePlaybackBoundary,
   ]);
@@ -886,11 +929,16 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // Render
   // ---------------------------------------------------------------------------
   const canPlay = !!filePath && !!probeData && endTime > startTime;
-  const showLiveScrubPreview =
-    supportsLiveScrubPreview && isScrubbing && previewTime !== null && scrubVideoReady && !playing;
+  const showDirectPreviewVideo = shouldShowDirectPreviewVideo(
+    supportsLiveScrubPreview,
+    previewTime !== null,
+    scrubVideoReady,
+    playing
+  );
 
-  // Filmstrip frame takes priority while the user is scrubbing; exact on-demand
-  // frame replaces it once scrubbing settles and the idle fetch completes.
+  // Static previews remain the fallback for Linux and unsupported codecs. When
+  // direct seeking works, the already-seeked video stays visible after release
+  // while the exact FFmpeg frame finishes in the background.
   const displayUrl =
     filmstripIdx !== null && filmstripUrlsRef.current[filmstripIdx]
       ? filmstripUrlsRef.current[filmstripIdx]
@@ -903,9 +951,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       style={containerStyle}
     >
       {/* Static frame preview */}
-      {displayUrl && !playing && !showLiveScrubPreview ? (
+      {displayUrl && !playing && !showDirectPreviewVideo ? (
         <img src={displayUrl} alt="Video frame preview" style={imgStyle} />
-      ) : !playing && !showLiveScrubPreview ? (
+      ) : !playing && !showDirectPreviewVideo ? (
         <span className="preview-placeholder" role="status" aria-live="polite">
           {!filePath && (
             <svg
@@ -939,7 +987,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       <video
         ref={videoRef}
         muted={removeAudio}
-        style={playing || showLiveScrubPreview ? videoVisibleStyle : videoHiddenStyle}
+        style={playing || showDirectPreviewVideo ? videoVisibleStyle : videoHiddenStyle}
         onLoadedMetadata={handleVideoReady}
         onCanPlay={handleVideoReady}
         onError={() => setScrubVideoReady(false)}

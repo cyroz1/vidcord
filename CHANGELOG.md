@@ -43,7 +43,7 @@
 - **Clearer trim editing**: trim commands are grouped into an intuitive native toolbar with a recognizable magnet, honest zoomed/off-screen handles, undoable keyboard edits, and `?` shortcut help.
 - **Fixed-size window layout**: standard and advanced controls continue to fit the 460×690 window without horizontal overflow, while the main-branch vertical scroll behavior remains available when platform title-bar space is tighter.
 - **Readable encoder suggestions**: the advanced encoder dropdown now uses a fully opaque, content-sized surface so names remain visible without controls showing through.
-- **Responsive trim previews**: dragging either the in or out handle now keeps the thumbnail updated even when the WebView cannot seek the source directly or filmstrip generation is unavailable.
+- **Responsive trim previews**: dragging either the in or out handle keeps the thumbnail updated even when the WebView cannot seek the source directly or filmstrip generation is unavailable; on supported platforms, releasing a handle keeps the already-seeked video frame visible immediately while the exact FFmpeg fallback frame is generated in the background, and Play/Stop no longer reloads or clears that frame.
 - **Selection-centered timeline zoom**: zoom buttons and Ctrl/Cmd-wheel zoom now focus the visible timeline on the current in/out range instead of the full clip midpoint.
 - **Stable compression hover state**: the Compress Video button now keeps its gradient surface while hovering instead of flashing between gradient and solid-color paints.
 
