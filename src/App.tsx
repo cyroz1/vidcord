@@ -35,6 +35,7 @@ import {
   showInFileExplorer,
   type FfmpegInstallResult,
 } from "./ipc";
+import { getSelectionCenter, getTimelineViewBounds } from "./timelineZoom";
 import pkg from "../package.json";
 
 // EncodersDialog is only shown after an explicit user click from Advanced
@@ -1169,17 +1170,10 @@ export default function App() {
     return Math.max(0, Math.min(100, (selectedDuration / duration) * 100));
   }, [duration, selectedDuration]);
 
-  const viewSpan = useMemo(
-    () => Math.max(MIN_TRIM_GAP, SLIDER_MAX / Math.max(1, timelineZoom)),
-    [timelineZoom]
+  const { start: viewStartVal, end: viewEndVal } = useMemo(
+    () => getTimelineViewBounds(timelineCenterVal, timelineZoom, SLIDER_MAX, MIN_TRIM_GAP),
+    [timelineCenterVal, timelineZoom]
   );
-
-  const viewStartVal = useMemo(() => {
-    const half = viewSpan / 2;
-    return Math.max(0, Math.min(timelineCenterVal - half, SLIDER_MAX - viewSpan));
-  }, [timelineCenterVal, viewSpan]);
-
-  const viewEndVal = useMemo(() => viewStartVal + viewSpan, [viewStartVal, viewSpan]);
 
   const toViewPct = useCallback(
     (value: number) => {
@@ -1381,11 +1375,16 @@ export default function App() {
     ]
   );
 
+  const centerTimelineOnSelection = useCallback(() => {
+    setTimelineCenterVal(getSelectionCenter(startValRef.current, endValRef.current, SLIDER_MAX));
+  }, []);
+
   const handleTrimWheel = useCallback(
     (e: React.WheelEvent<HTMLDivElement>) => {
       e.preventDefault();
       if (e.ctrlKey || e.metaKey) {
         const zoomDelta = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        centerTimelineOnSelection();
         setTimelineZoom((prev) => Math.max(1, Math.min(20, prev * zoomDelta)));
         return;
       }
@@ -1396,7 +1395,7 @@ export default function App() {
         return Math.max(0, Math.min(SLIDER_MAX, next));
       });
     },
-    [viewStartVal, viewEndVal]
+    [centerTimelineOnSelection, viewStartVal, viewEndVal]
   );
 
   const seekToTimelinePosition = useCallback(
@@ -1489,17 +1488,19 @@ export default function App() {
   }, []);
 
   const zoomTimelineOut = useCallback(() => {
+    centerTimelineOnSelection();
     setTimelineZoom((prev) => Math.max(1, prev / 1.25));
-  }, []);
+  }, [centerTimelineOnSelection]);
 
   const resetTimelineZoom = useCallback(() => {
     setTimelineZoom(1);
-    setTimelineCenterVal((startValRef.current + endValRef.current) / 2);
-  }, []);
+    centerTimelineOnSelection();
+  }, [centerTimelineOnSelection]);
 
   const zoomTimelineIn = useCallback(() => {
+    centerTimelineOnSelection();
     setTimelineZoom((prev) => Math.min(20, prev * 1.25));
-  }, []);
+  }, [centerTimelineOnSelection]);
 
   const setLoopPlaybackFromTimeline = useCallback((enabled: boolean) => {
     setLoopPlayback(enabled);

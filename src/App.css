@@ -219,10 +219,10 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding: 10px 14px 6px;
+  padding: 6px 14px 2px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -247,9 +247,11 @@
 }
 
 .workflow-card {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
   padding: 10px;
   min-width: 0;
   background: var(--surface);
@@ -262,14 +264,12 @@
 
 /* ── Drop zone ───────────────────────────────────────────────────────── */
 .drop-zone {
-  position: relative;
-  isolation: isolate;
   width: 100%;
-  min-height: 98px;
+  min-height: 92px;
   background: color-mix(in srgb, var(--control-bg) 72%, transparent);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 18px 16px;
+  padding: 15px 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -281,21 +281,6 @@
   transition:
     border-color 150ms,
     background 150ms;
-}
-
-.drop-zone::before {
-  content: "";
-  position: absolute;
-  inset: 9px;
-  z-index: -1;
-  pointer-events: none;
-  border: 1px dashed color-mix(in srgb, var(--border) 80%, transparent);
-  border-radius: calc(var(--radius-sm) - 3px);
-}
-
-.drop-zone > * {
-  position: relative;
-  z-index: 1;
 }
 
 .drop-zone:focus-visible {
@@ -313,11 +298,6 @@
 
 .drop-zone.has-file {
   border-color: var(--border-subtle);
-}
-
-.drop-zone.has-file::before {
-  border-style: solid;
-  opacity: 0.45;
 }
 
 .drop-label {
@@ -369,6 +349,10 @@
 
 .settings-row {
   position: relative;
+}
+
+.settings-row:not(.advanced) {
+  flex-wrap: nowrap;
 }
 
 .settings-row label,
@@ -566,6 +550,7 @@ select optgroup {
 }
 .encoder-row select {
   flex: 1;
+  min-width: 0;
 }
 
 .encoder-autocomplete {
@@ -601,14 +586,17 @@ select optgroup {
 .encoder-options {
   position: absolute;
   top: calc(100% + 4px);
-  left: 0;
+  left: auto;
   right: 0;
   z-index: 10;
+  width: max-content;
+  min-width: 100%;
+  max-width: min(300px, calc(100vw - 28px));
   max-height: 168px;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 4px;
-  background: rgba(28, 28, 32, 0.98);
+  background: rgb(28, 28, 32);
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: var(--radius-xs);
   box-shadow: var(--shadow-overlay);
@@ -638,7 +626,7 @@ select optgroup {
 
 @media (prefers-color-scheme: light) {
   .encoder-options {
-    background: rgba(248, 248, 250, 0.98);
+    background: rgb(248, 248, 250);
     border-color: rgba(0, 0, 0, 0.12);
   }
 
@@ -801,7 +789,7 @@ select optgroup {
   position: absolute;
   inset: 0;
   background: var(--track);
-  border: 1.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: 20px;
   transition:
     background 0.2s,
@@ -813,10 +801,10 @@ select optgroup {
   content: "";
   position: absolute;
   top: 50%;
-  left: 3px;
+  left: 2px;
   transform: translate(0, -50%);
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: var(--text-secondary);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
@@ -831,7 +819,7 @@ select optgroup {
 }
 .toggle-input:checked + .toggle-thumb::after {
   background: #ffffff;
-  transform: translate(20px, -50%);
+  transform: translate(18px, -50%);
 }
 .toggle-input:focus-visible + .toggle-thumb {
   box-shadow: 0 0 0 3px var(--accent-glow);
@@ -1117,8 +1105,9 @@ select optgroup {
 
 .trim-shortcuts-panel {
   position: absolute;
+  top: calc(100% + 4px);
   right: -8px;
-  bottom: calc(100% + 4px);
+  bottom: auto;
   z-index: 100;
   width: min(276px, calc(100vw - 28px));
   padding: 6px 9px;
@@ -1424,14 +1413,8 @@ select optgroup {
   color: var(--accent);
 }
 
-.preview-pane.is-empty::after {
-  content: "";
-  position: absolute;
-  inset: 11px;
-  z-index: 0;
-  pointer-events: none;
-  border: 1px solid color-mix(in srgb, var(--border) 54%, transparent);
-  border-radius: calc(var(--radius) - 3px);
+.preview-pane {
+  align-self: center;
 }
 
 .preview-placeholder {

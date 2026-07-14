@@ -40,7 +40,11 @@
 - **More accessible controls**: the file picker is fully keyboard-operable, compression progress is exposed to assistive technology, update/encoder dialogs trap and restore focus correctly, and native Space/right-click behavior is preserved on interactive fields.
 - **Unified native desktop styling**: the interface now combines SwiftUI-like material depth and typography with WinUI-like command density, borders, focus treatment, light/dark colors, and accessibility fallbacks.
 - **Clearer trim editing**: trim commands are grouped into an intuitive native toolbar with a recognizable magnet, honest zoomed/off-screen handles, undoable keyboard edits, and `?` shortcut help.
-- **Scrollbar-free fixed layout**: standard and advanced controls now fit the full 460×690 window without page or internal overflow, clipping, or a reserved scrollbar gutter.
+- **Scrollbar-free fixed layout**: standard and advanced controls and shortcut help now fit the full 460×690 window, including the shorter macOS webview below the native title bar, without overflow or clipping; import and empty-preview surfaces now use one clean outline instead of nested borders.
+- **Readable encoder suggestions**: the advanced encoder dropdown now uses a fully opaque, content-sized surface so names remain visible without controls showing through.
+- **Responsive trim previews**: dragging either the in or out handle now keeps the thumbnail updated even when the WebView cannot seek the source directly or filmstrip generation is unavailable.
+- **Native switch proportions**: the Advanced Mode toggle now uses a properly inset, full-size thumb in both states.
+- **Selection-centered timeline zoom**: zoom buttons and Ctrl/Cmd-wheel zoom now focus the visible timeline on the current in/out range instead of the full clip midpoint.
 
 - **More reliable preferences**: repeated settings changes now replace the persisted file atomically on Windows instead of failing after the first save.
 - **Tighter footer actions**: the version, website, and GitHub controls now read as one compact utility group instead of being spread across the footer.

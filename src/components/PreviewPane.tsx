@@ -15,6 +15,7 @@ import {
   getPreviewClip,
   getPreviewFrame,
 } from "../ipc";
+import { shouldFetchScrubFrame } from "../previewScrub";
 
 const FIXED_PREVIEW_CSS_WIDTH = 432;
 const FIXED_PREVIEW_CSS_HEIGHT = 243;
@@ -397,7 +398,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     vid.preload = "auto";
     vid.src = src;
     vid.load();
-  }, [buildPlaybackUrls, filePath, playing, probeData, supportsLiveScrubPreview]);
+  }, [buildPlaybackUrls, filePath, isScrubbing, playing, probeData, supportsLiveScrubPreview]);
 
   const handleVideoReady = useCallback(() => {
     setScrubVideoReady(true);
@@ -567,7 +568,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     }
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (isScrubbing) {
+    const fetchScrubFrame = shouldFetchScrubFrame(
+      isScrubbing,
+      strip.length > 0,
+      supportsLiveScrubPreview,
+      scrubVideoReady
+    );
+    if (isScrubbing && !fetchScrubFrame) {
       queuedFrameRequestRef.current = null;
       setLoading(false);
       return () => {
@@ -575,6 +582,19 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
           frameRequestIdRef.current += 1;
         }
         if (debounceRef.current) clearTimeout(debounceRef.current);
+      };
+    }
+
+    // Direct media seeking is not available for every codec/WebView, and the
+    // optional filmstrip may still be loading or may have failed. Keep one
+    // FFmpeg frame request in flight and retain only the newest queued target
+    // so dragging either trim handle still updates the preview.
+    if (fetchScrubFrame) {
+      void fetchFrame(filePath, frameTime, requestId);
+      return () => {
+        if (frameRequestIdRef.current === requestId) {
+          frameRequestIdRef.current += 1;
+        }
       };
     }
 
@@ -591,7 +611,17 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filePath, startTime, endTime, previewTime, isScrubbing, fetchFrame, probeData]);
+  }, [
+    filePath,
+    startTime,
+    endTime,
+    previewTime,
+    isScrubbing,
+    fetchFrame,
+    probeData,
+    scrubVideoReady,
+    supportsLiveScrubPreview,
+  ]);
 
   // ---------------------------------------------------------------------------
   // Video playback
