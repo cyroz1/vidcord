@@ -375,10 +375,12 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
     cmd.args([
         "-v",
         "quiet",
+        "-select_streams",
+        "v:0",
         "-print_format",
         "json",
-        "-show_streams",
-        "-show_format",
+        "-show_entries",
+        "format=duration,bit_rate:stream=codec_type,width,height,avg_frame_rate,r_frame_rate,sample_aspect_ratio,display_aspect_ratio,bit_rate:stream_side_data=rotation",
         path,
     ]);
     configure_ffmpeg_command(&mut cmd);

@@ -17,11 +17,11 @@ export function shouldFetchReleasedScrubFrame(
 
 export function shouldShowDirectPreviewVideo(
   supportsLiveScrubPreview: boolean,
-  hasExplicitPreviewTime: boolean,
+  hasProbeData: boolean,
   scrubVideoReady: boolean,
   playing: boolean
 ): boolean {
-  return supportsLiveScrubPreview && hasExplicitPreviewTime && scrubVideoReady && !playing;
+  return supportsLiveScrubPreview && hasProbeData && scrubVideoReady && !playing;
 }
 
 export function canPreserveDirectVideoSource(

@@ -381,9 +381,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   }, []);
 
   useEffect(() => {
-    if (!supportsLiveScrubPreview || !filePath || !probeData) {
+    if (!supportsLiveScrubPreview || !filePath) {
       setScrubVideoReady(false);
-      if (!filePath || !probeData) {
+      if (!filePath) {
         scrubVideoSrcRef.current = null;
         const vid = videoRef.current;
         if (vid && !playingRef.current) {
@@ -931,7 +931,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const canPlay = !!filePath && !!probeData && endTime > startTime;
   const showDirectPreviewVideo = shouldShowDirectPreviewVideo(
     supportsLiveScrubPreview,
-    previewTime !== null,
+    probeData !== null,
     scrubVideoReady,
     playing
   );

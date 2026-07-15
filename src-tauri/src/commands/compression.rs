@@ -6,6 +6,7 @@ use crate::log::vidcord_log;
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 
 const MAX_FFMPEG_STDERR_RECORD_BYTES: usize = 16 * 1024;
@@ -191,14 +192,25 @@ impl Drop for OutputReservation {
 
 #[tauri::command]
 pub async fn probe(path: String) -> Result<serde_json::Value, String> {
-    tokio::task::spawn_blocking(move || {
+    let started_at = Instant::now();
+    let result = tokio::task::spawn_blocking(move || {
         cancel_preview_jobs();
         // Clear both preview caches when loading a new file
         clear_preview_caches();
         probe_video(&path).map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    vidcord_log(&format!(
+        "File import: probe {} in {} ms",
+        if result.is_ok() {
+            "completed"
+        } else {
+            "failed"
+        },
+        started_at.elapsed().as_millis()
+    ));
+    result
 }
 
 #[tauri::command]

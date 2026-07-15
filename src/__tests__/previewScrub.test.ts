@@ -43,6 +43,10 @@ describe("shouldFetchReleasedScrubFrame", () => {
 });
 
 describe("shouldShowDirectPreviewVideo", () => {
+  it("shows a ready direct source as soon as probing completes", () => {
+    expect(shouldShowDirectPreviewVideo(true, true, true, false)).toBe(true);
+  });
+
   it("keeps the direct video frame visible after scrubbing settles", () => {
     expect(shouldShowDirectPreviewVideo(true, true, true, false)).toBe(true);
   });
@@ -56,7 +60,7 @@ describe("shouldShowDirectPreviewVideo", () => {
     expect(shouldShowDirectPreviewVideo(true, true, true, true)).toBe(false);
   });
 
-  it("does not show the video without an explicit preview position", () => {
+  it("does not show the video until probing validates the selected file", () => {
     expect(shouldShowDirectPreviewVideo(true, false, true, false)).toBe(false);
   });
 });

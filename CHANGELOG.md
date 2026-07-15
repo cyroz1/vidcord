@@ -16,6 +16,7 @@
 
 ### Preview
 
+- **Faster startup and file import**: encoder discovery now overlaps settings loading, native media loading begins while FFprobe validates the file, and probes request only the metadata vidcord uses.
 - **Documented Linux preview limits**: Linux continues to use FFmpeg-generated frame and filmstrip scrub previews; live video scrubbing and trim playback remain disabled because WebKitGTK's playback path can crash the renderer on some systems.
 - **Cancellable preview work**: obsolete frame, filmstrip, fallback-clip, and pending playback work is invalidated when a new file loads, compression starts, playback stops, or the preview unmounts.
 - **Lighter filmstrips**: sparse seeking now starts at three minutes, and preview images scale to the actual display pixel ratio instead of always rendering at 2x resolution.
