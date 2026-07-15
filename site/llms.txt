@@ -17,8 +17,10 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Main use case: compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV videos under Discord's current 10 / 50 / 100 / 500 MB upload limits, with an additional legacy 25 MB target
 - Preview behavior: Windows and macOS users can scrub live video and play the selected range from the playhead; Linux provides FFmpeg-generated filmstrip/frame previews while scrubbing, but live video scrubbing and trim playback are disabled because WebKitGTK's playback path can crash the renderer on some systems
 - Output controls: standard mode can leave FPS unchanged or cap output at 24, 30, or 60 FPS without showing options above the source frame rate; advanced mode accepts a custom FPS value or an empty Off field for no change
+- Output locations: Downloads by default, the imported clip's directory, a remembered custom directory, or a save prompt after compression finishes
+- Completion actions: copy the saved output file itself to the system clipboard by default, fall back to revealing it if copying fails, or always reveal it in the platform file manager
 - Encoder behavior: vidcord detects CPU/GPU encoders exposed by the installed FFmpeg, lets users choose an encoder, and falls back to CPU encoding during retry flows when needed
-- Reliability: cancellation remains active until FFmpeg exits, partial output is removed, and output paths are atomically reserved so late filename collisions are never overwritten
+- Reliability: cancellation remains active until FFmpeg exits, partial output is removed, and auto-named output paths are atomically reserved so late filename collisions are never overwritten
 - Update behavior: automatic checks are deferred until startup settles and run at most once every six hours; after user approval, the matching installer is streamed to Downloads and verified for size, completeness, and GitHub-published SHA-256 integrity before it is opened
 - Privacy posture: local video processing only; no accounts, video uploads, or telemetry; the website may request public release metadata from GitHub and an aggregate download count from Shields.io, but neither request contains video data
 

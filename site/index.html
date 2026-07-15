@@ -93,6 +93,8 @@
               "Local video compression with FFmpeg",
               "Discord upload targets: current 10 MB, 50 MB, 100 MB, and 500 MB limits plus a legacy 25 MB target",
               "Output FPS controls with source-aware 24, 30, and 60 FPS presets plus advanced custom FPS",
+              "Output destinations for Downloads, the imported clip folder, a remembered custom folder, or an after-compression save prompt",
+              "Completion actions that copy the output file to the system clipboard by default or reveal it in the platform file manager",
               "Live video scrubbing and trim playback on Windows and macOS, with FFmpeg-generated frame and filmstrip scrub previews on Linux",
               "GPU encoder detection for NVENC, AMF, QSV, VAAPI, and VideoToolbox",
               "Open With integration from Windows File Explorer and macOS Finder",
@@ -396,7 +398,11 @@
           <article>
             <span class="step-number">3</span>
             <h3>Compress and save</h3>
-            <p>vidcord runs FFmpeg locally, verifies the size, and saves to Downloads.</p>
+            <p>
+              vidcord runs FFmpeg locally, verifies the size, and saves to Downloads, beside the
+              clip, to a custom folder, or wherever you choose when it finishes. Then it copies the
+              file itself to your clipboard by default or reveals it in your file manager.
+            </p>
           </article>
         </div>
       </section>
@@ -413,7 +419,9 @@
             <li>Output FPS controls for 24, 30, 60, or a custom advanced value.</li>
             <li>Optional audio removal for more video bitrate.</li>
             <li>Race-safe cancellation that waits for FFmpeg to exit and cleans partial output.</li>
-            <li>Atomically reserved output filenames so exports never overwrite your files.</li>
+            <li>Atomically reserved auto-named outputs that never overwrite your files.</li>
+            <li>Downloads, source-folder, remembered custom-folder, and ask-when-done options.</li>
+            <li>Copy the output file itself to the clipboard or reveal it in your file manager.</li>
             <li>User-approved update installers verified against GitHub's SHA-256 digest.</li>
           </ul>
         </div>
@@ -447,7 +455,7 @@
             <h2 id="integrations-title">Open videos from Explorer or Finder</h2>
             <p>
               vidcord registers as a video app, so you can start from your file manager and get the
-              compressed MP4 back in Downloads.
+              compressed MP4 back in Downloads by default or choose another output location.
             </p>
           </div>
         </div>
@@ -508,7 +516,10 @@
           <article class="integration-panel">
             <div>
               <h3>Saved output file</h3>
-              <p>Exports land in Downloads with a safe auto-incremented filename.</p>
+              <p>
+                Exports use a safe auto-incremented filename in Downloads, beside the clip, or in
+                your saved custom folder. Ask when done opens a save prompt after compression.
+              </p>
             </div>
             <picture>
               <source

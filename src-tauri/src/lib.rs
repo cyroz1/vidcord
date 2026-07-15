@@ -18,7 +18,10 @@ use commands::encoders::{
     check_ffmpeg_available, detect_encoders, get_vaapi_device, install_ffmpeg_dependency,
     list_ffmpeg_video_encoders,
 };
-use commands::files::{get_os, resolve_output_path, show_in_file_explorer, PendingFile};
+use commands::files::{
+    copy_file_to_clipboard, discard_staged_output, get_os, publish_staged_output,
+    resolve_output_path, resolve_staging_output_path, show_in_file_explorer, PendingFile,
+};
 use commands::updates::{check_for_updates, download_and_open_update_installer};
 use log::vidcord_log;
 use settings::SettingsManager;
@@ -264,8 +267,12 @@ pub fn run() {
             check_for_updates,
             download_and_open_update_installer,
             show_in_file_explorer,
+            copy_file_to_clipboard,
             get_vaapi_device,
             resolve_output_path,
+            resolve_staging_output_path,
+            publish_staged_output,
+            discard_staged_output,
             get_os,
         ])
         .build(tauri::generate_context!())

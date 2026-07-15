@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { loadSettings, saveSettings as persistSettings, type Settings } from "../ipc";
 
+export type OutputDestination = "downloads" | "source" | "ask" | "custom";
+export type CompletionAction = "reveal" | "copy";
+
 export function useSettings() {
   const settingsRef = useRef<Settings>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -15,6 +18,9 @@ export function useSettings() {
   const [advFps, setAdvFps] = useState("");
   const [advEncoder, setAdvEncoder] = useState("");
   const [removeAudio, setRemoveAudio] = useState(false);
+  const [outputDestination, setOutputDestination] = useState<OutputDestination>("downloads");
+  const [customOutputDirectory, setCustomOutputDirectory] = useState("");
+  const [completionAction, setCompletionAction] = useState<CompletionAction>("copy");
 
   useEffect(() => {
     (async () => {
@@ -28,6 +34,20 @@ export function useSettings() {
       if (typeof s.advanced_fps === "string") setAdvFps(s.advanced_fps);
       if (typeof s.advanced_encoder === "string") setAdvEncoder(s.advanced_encoder);
       if (typeof s.remove_audio === "boolean") setRemoveAudio(s.remove_audio);
+      if (
+        s.output_destination === "downloads" ||
+        s.output_destination === "source" ||
+        s.output_destination === "ask" ||
+        s.output_destination === "custom"
+      ) {
+        setOutputDestination(s.output_destination);
+      }
+      if (typeof s.custom_output_directory === "string") {
+        setCustomOutputDirectory(s.custom_output_directory);
+      }
+      if (s.completion_action === "reveal" || s.completion_action === "copy") {
+        setCompletionAction(s.completion_action);
+      }
       setSettingsLoaded(true);
     })();
   }, []);
@@ -74,6 +94,12 @@ export function useSettings() {
     setAdvEncoder,
     removeAudio,
     setRemoveAudio,
+    outputDestination,
+    setOutputDestination,
+    customOutputDirectory,
+    setCustomOutputDirectory,
+    completionAction,
+    setCompletionAction,
     saveSettings,
   };
 }

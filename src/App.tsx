@@ -1,12 +1,13 @@
 import { useEffect, useCallback, useState, useMemo, useRef, lazy, Suspense } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 import Toast from "./components/Toast";
 import ProgressSection from "./components/ProgressSection";
 import PreviewPane, { type PreviewHandle } from "./components/PreviewPane";
 import TrimTimeline, { type SnapMode } from "./components/TrimTimeline";
 import { useToasts } from "./hooks/useToasts";
-import { useSettings } from "./hooks/useSettings";
+import { useSettings, type CompletionAction, type OutputDestination } from "./hooks/useSettings";
 import { useEncoders } from "./hooks/useEncoders";
 import {
   FFMPEG_MISSING_LOAD_MESSAGE,
@@ -24,6 +25,8 @@ import {
   checkFfmpegAvailable,
   checkForUpdates,
   compressVideo,
+  copyFileToClipboard,
+  discardStagedOutput,
   downloadAndOpenUpdateInstaller,
   frontendReady,
   getOs,
@@ -31,7 +34,9 @@ import {
   installFfmpegDependency,
   listFfmpegVideoEncoders,
   probe as probeVideo,
+  publishStagedOutput,
   resolveOutputPath,
+  resolveStagingOutputPath,
   showInFileExplorer,
   type FfmpegInstallResult,
 } from "./ipc";
@@ -165,6 +170,12 @@ export default function App() {
     setAdvEncoder,
     removeAudio,
     setRemoveAudio,
+    outputDestination,
+    setOutputDestination,
+    customOutputDirectory,
+    setCustomOutputDirectory,
+    completionAction,
+    setCompletionAction,
     saveSettings,
   } = useSettings();
   const { encoders, encoderIdx, setEncoderIdx, ffmpegMissing, refreshEncoders, markFfmpegMissing } =
@@ -230,6 +241,7 @@ export default function App() {
   const [listedEncoderNames, setListedEncoderNames] = useState<string[]>([]);
   const [installingFfmpeg, setInstallingFfmpeg] = useState(false);
   const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [finalizingOutput, setFinalizingOutput] = useState(false);
   const [encoderInputFocused, setEncoderInputFocused] = useState(false);
   const [activeEncoderOption, setActiveEncoderOption] = useState(0);
   const showUpdateModal = updateInfo !== null && encodersDialogText === null;
@@ -563,8 +575,7 @@ export default function App() {
 
   const browseFile = useCallback(async () => {
     try {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const selected = await open({
+      const selected = await openDialog({
         multiple: false,
         filters: [
           { name: "Video", extensions: ["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"] },
@@ -575,6 +586,75 @@ export default function App() {
       addToast("error", "Could Not Open File Picker", String(error));
     }
   }, [addToast, loadVideo]);
+
+  const chooseCustomOutputDirectory = useCallback(async (): Promise<string | null> => {
+    try {
+      const selected = await openDialog({ directory: true, multiple: false });
+      if (selected && typeof selected === "string") {
+        setCustomOutputDirectory(selected);
+        saveSettings({ custom_output_directory: selected });
+        return selected;
+      }
+    } catch (error) {
+      addToast("error", "Could Not Choose Folder", String(error));
+    }
+    return null;
+  }, [addToast, saveSettings, setCustomOutputDirectory]);
+
+  const changeOutputDestination = useCallback(
+    async (destination: OutputDestination) => {
+      if (destination === "custom" && !customOutputDirectory) {
+        const selected = await chooseCustomOutputDirectory();
+        if (!selected) return;
+      }
+      setOutputDestination(destination);
+      saveSettings({ output_destination: destination });
+    },
+    [chooseCustomOutputDirectory, customOutputDirectory, saveSettings, setOutputDestination]
+  );
+
+  const completeOutput = useCallback(
+    async (outputPath: string) => {
+      if (completionAction === "copy") {
+        try {
+          await copyFileToClipboard(outputPath);
+          addToast(
+            "success",
+            "Compression Complete",
+            "The output file was copied to the clipboard."
+          );
+          return;
+        } catch (clipboardError) {
+          try {
+            await showInFileExplorer(outputPath);
+            addToast(
+              "warning",
+              "Clipboard Unavailable",
+              "The output file was saved and revealed instead."
+            );
+            return;
+          } catch (revealError) {
+            addToast("success", "Compression Complete", "The output file was saved.");
+            addToast(
+              "error",
+              "Complete Action Failed",
+              `${String(clipboardError)} Reveal also failed: ${String(revealError)}`
+            );
+            return;
+          }
+        }
+      }
+
+      try {
+        await showInFileExplorer(outputPath);
+        addToast("success", "Compression Complete", "The output file was revealed.");
+      } catch (error) {
+        addToast("success", "Compression Complete", "The output file was saved.");
+        addToast("error", "Complete Action Failed", String(error));
+      }
+    },
+    [addToast, completionAction]
+  );
 
   // --- OS file-open integrations ---
   // Route listener callbacks through a ref so we subscribe exactly once per
@@ -862,18 +942,30 @@ export default function App() {
     let videoBitrate = calculateBitrate(targetSize, clipDuration, removeAudio);
     if (probeData.bitrate > 0 && videoBitrate > probeData.bitrate) videoBitrate = probeData.bitrate;
 
-    // resolve_output_path and get_vaapi_device are independent — run them in
-    // parallel so we save one round-trip latency before the encode starts.
+    // Output-path resolution and VAAPI discovery are independent, so keep
+    // their IPC work parallel. Ask mode stages privately until encoding ends.
     const isVaapi = encoderName.endsWith("_vaapi");
-    const [resolvedOutput, vaapiDevice] = await Promise.all([
-      resolveOutputPath(filePath).catch(() => null),
+    const outputPromise =
+      outputDestination === "ask"
+        ? resolveStagingOutputPath(filePath)
+        : resolveOutputPath(
+            filePath,
+            outputDestination === "custom" ? customOutputDirectory : undefined,
+            outputDestination === "source"
+          );
+    const [outputResult, vaapiDevice] = await Promise.all([
+      outputPromise.then(
+        (path) => ({ path, error: null }),
+        (error: unknown) => ({ path: null, error: String(error) })
+      ),
       isVaapi ? getVaapiDevice().catch(() => null) : Promise.resolve(null),
     ]);
-    if (!resolvedOutput) {
-      addToast("error", "Error", "Could not resolve output path.");
+    if (!outputResult.path) {
+      addToast("error", "Could Not Choose Output", outputResult.error ?? "Unknown error");
       setCompressing(false);
       return;
     }
+    const resolvedOutput = outputResult.path;
 
     const outputPath = await compressVideo({
       input_path: filePath,
@@ -906,9 +998,37 @@ export default function App() {
       return null;
     });
 
-    if (outputPath) {
-      addToast("success", "Success", "Compression complete!");
-      showInFileExplorer(outputPath).catch(() => {});
+    if (outputPath && outputDestination === "ask") {
+      setFinalizingOutput(true);
+      try {
+        const stem = fileName.replace(/\.[^.]+$/, "") || "video";
+        let savedOutput: string | null = null;
+        while (!savedOutput) {
+          const selected = await saveDialog({
+            title: "Save compressed video",
+            defaultPath: `${stem}-vidcord.mp4`,
+            filters: [{ name: "MP4 Video", extensions: ["mp4"] }],
+          });
+          if (!selected) {
+            await discardStagedOutput(outputPath).catch(() => {});
+            addToast("warning", "Save Cancelled", "The compressed output was discarded.");
+            return;
+          }
+          const destination = /\.mp4$/i.test(selected) ? selected : `${selected}.mp4`;
+          savedOutput = await publishStagedOutput(outputPath, destination).catch((error) => {
+            addToast("error", "Could Not Save Output", String(error));
+            return null;
+          });
+        }
+        await completeOutput(savedOutput);
+      } catch (error) {
+        await discardStagedOutput(outputPath).catch(() => {});
+        addToast("error", "Could Not Save Output", String(error));
+      } finally {
+        setFinalizingOutput(false);
+      }
+    } else if (outputPath) {
+      await completeOutput(outputPath);
     }
   }, [
     filePath,
@@ -925,6 +1045,10 @@ export default function App() {
     encoderIdx,
     encoders,
     removeAudio,
+    outputDestination,
+    customOutputDirectory,
+    fileName,
+    completeOutput,
     addToast,
     markFfmpegMissing,
     setCompressing,
@@ -1667,25 +1791,27 @@ export default function App() {
 
         <div className="scroll-area">
           <div className="workflow-card">
-            {/* Drop zone */}
-            <button
-              type="button"
-              className={`drop-zone${filePath ? " has-file" : ""}`}
-              onClick={browseFile}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                const f = e.dataTransfer.files[0];
-                if (f) loadVideo((f as File & { path?: string }).path ?? f.name);
-              }}
-            >
-              <span className="drop-label" title={filePath ? fileName : undefined}>
-                {fileName}
-              </span>
-              <span className="browse-btn" aria-hidden="true">
-                Browse File
-              </span>
-            </button>
+            {/* File import */}
+            <div className={`file-section${filePath ? " has-file" : ""}`}>
+              <button
+                type="button"
+                className={`drop-zone${filePath ? " has-file" : ""}`}
+                onClick={browseFile}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const f = e.dataTransfer.files[0];
+                  if (f) loadVideo((f as File & { path?: string }).path ?? f.name);
+                }}
+              >
+                <span className="drop-label" title={filePath ? fileName : undefined}>
+                  {fileName}
+                </span>
+                <span className="browse-btn" aria-hidden="true">
+                  Browse File
+                </span>
+              </button>
+            </div>
 
             {/* Basic settings */}
             {!advancedMode && (
@@ -2022,6 +2148,55 @@ export default function App() {
             onTimeUpdate={handlePreviewTimeUpdate}
           />
 
+          {filePath && (
+            <div className="output-options" aria-label="Output options">
+              <div className="output-option">
+                <label htmlFor="output-destination-select">Save to</label>
+                <div className="output-select-row">
+                  <select
+                    id="output-destination-select"
+                    value={outputDestination}
+                    onChange={(event) =>
+                      void changeOutputDestination(event.target.value as OutputDestination)
+                    }
+                  >
+                    <option value="downloads">Downloads</option>
+                    <option value="source">Clip folder</option>
+                    <option value="ask">Ask when done</option>
+                    <option value="custom">Custom folder</option>
+                  </select>
+                  {outputDestination === "custom" && (
+                    <button
+                      type="button"
+                      className="custom-folder-btn"
+                      title={customOutputDirectory || "Choose a custom output folder"}
+                      aria-label="Choose a custom output folder"
+                      onClick={() => void chooseCustomOutputDirectory()}
+                    >
+                      {customOutputDirectory.split(/[\\/]/).filter(Boolean).pop() || "Choose"}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="output-option">
+                <label htmlFor="completion-action-select">Complete action</label>
+                <select
+                  id="completion-action-select"
+                  value={completionAction}
+                  onChange={(event) => {
+                    const action = event.target.value as CompletionAction;
+                    setCompletionAction(action);
+                    saveSettings({ completion_action: action });
+                  }}
+                >
+                  <option value="copy">Copy output file</option>
+                  <option value="reveal">Reveal output file</option>
+                </select>
+              </div>
+            </div>
+          )}
+
           {/* Compress button */}
           <button
             className={`compress-btn${compressing ? " cancel" : ""}`}
@@ -2033,9 +2208,20 @@ export default function App() {
                     startCompress();
                   }
             }
-            disabled={ffmpegMissing || cancelling || (!compressing && (!filePath || !probeData))}
+            disabled={
+              ffmpegMissing ||
+              cancelling ||
+              finalizingOutput ||
+              (!compressing && (!filePath || !probeData))
+            }
           >
-            {cancelling ? "Cancelling..." : compressing ? "Cancel" : "Compress Video"}
+            {cancelling
+              ? "Cancelling..."
+              : finalizingOutput
+                ? "Saving Output..."
+                : compressing
+                  ? "Cancel"
+                  : "Compress Video"}
           </button>
 
           {/* Progress */}

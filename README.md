@@ -66,9 +66,13 @@ Boost Level 2), 100 MB (Boost Level 3), and 500 MB (Nitro). vidcord also keeps
 a legacy 25 MB target for users who still want that size. It picks a
 target bitrate for the clip length you want, lets you choose from the video
 encoders exposed by your FFmpeg install, and drops the result in your
-**Downloads** folder. It verifies the finished file against your selected size
-limit and automatically retries with CPU encoding and safer bitrates when
-FFmpeg's first pass lands too large.
+**Downloads** folder by default. You can instead save beside the imported clip,
+choose a persistent custom folder, or have vidcord ask for a location when the
+encode finishes. By default, the completed file itself is copied to the system
+clipboard; if that fails, vidcord reveals it in the platform file manager. It
+can also be set to always reveal the output. It verifies the finished file against your selected size limit
+and automatically retries with CPU encoding and safer bitrates when FFmpeg's
+first pass lands too large.
 
 - **Platform-native packaging.** Tauri uses the system WebView (Edge on Windows,
   WebKit on macOS/Linux) instead of bundling Chromium. Package size varies by
@@ -80,14 +84,14 @@ FFmpeg's first pass lands too large.
 
 ## Best for
 
-| Need | How vidcord helps |
-|---|---|
-| Compress a video for Discord free upload limits | Use the 10 MB preset, trim the clip, and remove audio if needed. |
-| Compress large MP4, MOV, MKV, AVI, or WebM files | FFmpeg handles the input format and vidcord exports a Discord-friendly `.mp4`. |
-| Make a video fit Discord Nitro or boosted server limits | Pick 50 MB, 100 MB, or 500 MB presets without calculating bitrates by hand. |
-| Keep video compression private | Everything runs locally on your computer; no web upload step. |
-| Use GPU video encoding from a simple GUI | vidcord auto-detects NVENC, AMF, QSV, VAAPI, and VideoToolbox encoders. |
-| Cap output frame rate for smaller files | Leave FPS unchanged, or choose a lower output FPS when Discord size is tight. |
+| Need                                                    | How vidcord helps                                                              |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Compress a video for Discord free upload limits         | Use the 10 MB preset, trim the clip, and remove audio if needed.               |
+| Compress large MP4, MOV, MKV, AVI, or WebM files        | FFmpeg handles the input format and vidcord exports a Discord-friendly `.mp4`. |
+| Make a video fit Discord Nitro or boosted server limits | Pick 50 MB, 100 MB, or 500 MB presets without calculating bitrates by hand.    |
+| Keep video compression private                          | Everything runs locally on your computer; no web upload step.                  |
+| Use GPU video encoding from a simple GUI                | vidcord auto-detects NVENC, AMF, QSV, VAAPI, and VideoToolbox encoders.        |
+| Cap output frame rate for smaller files                 | Leave FPS unchanged, or choose a lower output FPS when Discord size is tight.  |
 
 ## Features
 
@@ -104,6 +108,9 @@ FFmpeg's first pass lands too large.
 - **Output FPS controls** — standard mode can leave FPS unchanged or cap it
   at 24, 30, or 60 FPS, hiding options above the source frame rate. Advanced
   mode accepts a custom FPS value, or an empty field shown as Off for no change.
+- **Completion actions** — copy the finished output file itself to the system
+  clipboard by default, with an automatic reveal fallback, or always reveal it
+  in Explorer/Finder instead.
 - **Trim timeline** with fine-grained handles, draggable playhead, snap
   controls, zoom, pan, undo/redo, and optional looped playback.
 - **In-app playback preview** of the trimmed segment on Windows and macOS,
@@ -133,9 +140,11 @@ FFmpeg's first pass lands too large.
   bitrate parsed from FFmpeg's stderr.
 - **Race-safe cancellation** — cancelling keeps the job owned until FFmpeg
   exits, prevents another encode from starting early, and removes partial output.
-- **Collision-safe output** — atomically reserves `name-vidcord.mp4` before
-  encoding and bumps `-1`, `-2`, … if needed, even if another file appears at
-  the intended path just before compression starts.
+- **Collision-safe auto-named output** — direct destination modes atomically
+  reserve `name-vidcord.mp4` before encoding and bump `-1`, `-2`, … if needed,
+  even if another file appears at the intended path just before compression starts.
+- **Flexible output location** — save to Downloads, beside the imported clip,
+  to a remembered custom folder, or choose a filename after compression finishes.
 - **Verified in-app updates** — update checks run after startup settles and no
   more than once every six hours. After approval, vidcord streams the matching
   installer to Downloads, validates its size, completeness, and GitHub-published
@@ -155,12 +164,12 @@ mode.
 
 ## Screenshots
 
-| Main window | Advanced mode |
-|---|---|
+| Main window                                                                                             | Advanced mode                                                                                                              |
+| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | ![vidcord main window with trim timeline, size preset picker, and progress bar](site/assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/assets/advancedmode.png) |
 
-| Output file | Windows context menu | macOS Finder |
-|---|---|---|
+| Output file                                                                                 | Windows context menu                                                                                            | macOS Finder                                                                                          |
+| ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | ![Compressed video saved to the Downloads folder as name-vidcord.mp4](site/assets/file.png) | ![Windows File Explorer right-click menu with Open with vidcord entry on a video file](site/assets/context.png) | ![macOS Finder right-click menu with Open with vidcord entry on a video file](site/assets/finder.png) |
 
 ## Download vidcord
@@ -169,13 +178,13 @@ Grab the latest installer for your platform from the releases page:
 
 **→ [Download latest release](https://github.com/cyroz1/vidcord/releases/latest)**
 
-| Platform | Architecture | File |
-|---|---|---|
-| Windows 10/11 | x86_64 | `vidcord_<version>_x64-setup.exe` |
-| Windows 10/11 | aarch64 | `vidcord_<version>_arm64-setup.exe` |
-| macOS 11+ | universal | `vidcord_<version>_universal.dmg` |
-| Linux (modern glibc desktop distro) | x86_64 | `vidcord_<version>_amd64.AppImage` |
-| Linux (modern glibc desktop distro) | aarch64 | `vidcord_<version>_aarch64.AppImage` |
+| Platform                            | Architecture | File                                 |
+| ----------------------------------- | ------------ | ------------------------------------ |
+| Windows 10/11                       | x86_64       | `vidcord_<version>_x64-setup.exe`    |
+| Windows 10/11                       | aarch64      | `vidcord_<version>_arm64-setup.exe`  |
+| macOS 11+                           | universal    | `vidcord_<version>_universal.dmg`    |
+| Linux (modern glibc desktop distro) | x86_64       | `vidcord_<version>_amd64.AppImage`   |
+| Linux (modern glibc desktop distro) | aarch64      | `vidcord_<version>_aarch64.AppImage` |
 
 > **You still need FFmpeg.** vidcord does not bundle FFmpeg. See the next
 > section. The installer or first launch can offer to install it for you.
@@ -222,36 +231,40 @@ For more distros, manual installs, or troubleshooting, read
 
 ## Usage
 
-1. **Open a video** — drop it onto the window, right-click → *Open with
-   vidcord* from Explorer/Finder, or click **Browse File**.
-2. **Pick a preset** — 10/25/50/100/500 MB, or flip on **Advanced mode** for
+1. **Open a video** — drop it onto the window, right-click → _Open with
+   vidcord_ from Explorer/Finder, or click **Browse File**.
+2. **Choose where to save** — use Downloads, the imported clip's folder, a
+   remembered custom folder, or **Ask when done**. Choose whether completion
+   copies the output file or reveals it.
+3. **Pick a preset** — 10/25/50/100/500 MB, or flip on **Advanced mode** for
    a custom target size, resolution, FPS, and encoder. Standard mode can
    also cap output FPS at 24, 30, or 60 when those values do not exceed the
    source frame rate.
-3. **Trim** (optional) — drag the handles or use `I` / `O` to stamp the
+4. **Trim** (optional) — drag the handles or use `I` / `O` to stamp the
    playhead. `Space` plays the selected range from the current playhead when it
    is inside the trim.
-4. **Toggle Remove Audio** to strip audio if you need more video bitrate.
-5. **Click Compress.** Progress shows the current attempt, encoder, bitrate,
-   and ETA. When it's done, vidcord reports the final output size and
-   highlights the file in your file explorer.
+5. **Toggle Remove Audio** to strip audio if you need more video bitrate.
+6. **Click Compress.** Progress shows the current attempt, encoder, bitrate,
+   and ETA. When it's done, vidcord reports the final output size and runs your
+   selected completion action.
 
 Output goes to `~/Downloads/<original-name>-vidcord.mp4` by default, with
-`-1`, `-2`, … appended if the name is taken.
+`-1`, `-2`, … appended if the name is taken. The selected destination mode,
+custom folder, and completion action are saved for the next launch.
 
 ## Keyboard shortcuts
 
-| Key | Action |
-|-----|--------|
-| `Space` | Play / stop preview from the playhead |
-| `,` / `.` | Step 1/30 second back / forward |
-| `Shift` + `←` / `→` | Nudge active trim handle by a small step |
-| `J` / `K` | Jump playhead to trim start / end |
-| `[` / `]` | Nudge trim start / end by a small step |
-| `I` / `O` | Set trim in / out to current playhead |
-| `R` / `U` | Reset trim to full clip |
-| `Cmd/Ctrl` + `Z` | Undo trim |
-| `Cmd/Ctrl` + `Shift` + `Z` | Redo trim |
+| Key                        | Action                                   |
+| -------------------------- | ---------------------------------------- |
+| `Space`                    | Play / stop preview from the playhead    |
+| `,` / `.`                  | Step 1/30 second back / forward          |
+| `Shift` + `←` / `→`        | Nudge active trim handle by a small step |
+| `J` / `K`                  | Jump playhead to trim start / end        |
+| `[` / `]`                  | Nudge trim start / end by a small step   |
+| `I` / `O`                  | Set trim in / out to current playhead    |
+| `R` / `U`                  | Reset trim to full clip                  |
+| `Cmd/Ctrl` + `Z`           | Undo trim                                |
+| `Cmd/Ctrl` + `Shift` + `Z` | Redo trim                                |
 
 ## Hardware acceleration
 
@@ -260,14 +273,14 @@ encoders, and lets you choose the encoder to use. Advanced mode can accept any
 FFmpeg video encoder string; the **Encoders** dialog shows what your installed
 FFmpeg exposes.
 
-| Vendor / Platform | Encoder | Notes |
-|---|---|---|
-| NVIDIA | `h264_nvenc`, `hevc_nvenc` | Maxwell 2nd-gen and newer |
-| AMD | `h264_amf`, `hevc_amf` | Windows only; Linux uses VAAPI |
-| Intel | `h264_qsv`, `hevc_qsv` | HD Graphics 500-series and newer |
-| Linux (any GPU) | `h264_vaapi`, `hevc_vaapi` | Requires a working `/dev/dri/renderD*` |
-| macOS | `h264_videotoolbox`, `hevc_videotoolbox` | Available on Intel or Apple Silicon when exposed by FFmpeg |
-| Fallback (CPU) | `libx264`, `libx265` | Always available |
+| Vendor / Platform | Encoder                                  | Notes                                                      |
+| ----------------- | ---------------------------------------- | ---------------------------------------------------------- |
+| NVIDIA            | `h264_nvenc`, `hevc_nvenc`               | Maxwell 2nd-gen and newer                                  |
+| AMD               | `h264_amf`, `hevc_amf`                   | Windows only; Linux uses VAAPI                             |
+| Intel             | `h264_qsv`, `hevc_qsv`                   | HD Graphics 500-series and newer                           |
+| Linux (any GPU)   | `h264_vaapi`, `hevc_vaapi`               | Requires a working `/dev/dri/renderD*`                     |
+| macOS             | `h264_videotoolbox`, `hevc_videotoolbox` | Available on Intel or Apple Silicon when exposed by FFmpeg |
+| Fallback (CPU)    | `libx264`, `libx265`                     | Always available                                           |
 
 On Linux, vidcord probes `/dev/dri/renderD*` once per session to pick the
 right VAAPI device, and sets `LIBVA_DRIVER_NAME=radeonsi` for AMD systems.
@@ -276,13 +289,13 @@ right VAAPI device, and sets `LIBVA_DRIVER_NAME=radeonsi` for AMD systems.
 
 ### Prerequisites
 
-| Tool | Version | Notes |
-|---|---|---|
-| [Rust](https://rustup.rs) | stable (2021 edition) | `rustup default stable` |
-| [Node.js](https://nodejs.org) | `^20.19` or `>=22.12` | see `package.json` engines |
-| [FFmpeg](https://ffmpeg.org/download.html) | any recent | must be on `PATH` at runtime |
-| **Linux extras** | — | `libwebkit2gtk-4.1-dev`, `libappindicator3-dev`, `librsvg2-dev`, `patchelf` |
-| **Windows extras** | — | [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (pre-installed on Windows 11) |
+| Tool                                       | Version               | Notes                                                                                                      |
+| ------------------------------------------ | --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| [Rust](https://rustup.rs)                  | stable (2021 edition) | `rustup default stable`                                                                                    |
+| [Node.js](https://nodejs.org)              | `^20.19` or `>=22.12` | see `package.json` engines                                                                                 |
+| [FFmpeg](https://ffmpeg.org/download.html) | any recent            | must be on `PATH` at runtime                                                                               |
+| **Linux extras**                           | —                     | `libwebkit2gtk-4.1-dev`, `libappindicator3-dev`, `librsvg2-dev`, `patchelf`                                |
+| **Windows extras**                         | —                     | [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (pre-installed on Windows 11) |
 
 ### Run the dev build
 
@@ -392,11 +405,11 @@ Shouldn't happen — every FFmpeg invocation sets `CREATE_NO_WINDOW`
 
 **Where do settings live?**
 
-| OS | Path |
-|---|---|
-| Windows | `%LOCALAPPDATA%\vidcord\settings.json` |
-| macOS | `~/Library/Application Support/vidcord/settings.json` |
-| Linux | `~/.local/share/vidcord/settings.json` |
+| OS      | Path                                                  |
+| ------- | ----------------------------------------------------- |
+| Windows | `%LOCALAPPDATA%\vidcord\settings.json`                |
+| macOS   | `~/Library/Application Support/vidcord/settings.json` |
+| Linux   | `~/.local/share/vidcord/settings.json`                |
 
 Logs live alongside `settings.json` as `vidcord.log` (rotated at 5 MB).
 
@@ -488,7 +501,10 @@ size limit, detects supported CPU and hardware encoders for you to choose from,
 remembers your selection, streams attempt
 details and ETA back while FFmpeg runs, verifies the final file size, retries
 oversized results, handles visual trimming, and writes to a predictable,
-auto-incremented path in your Downloads folder.
+auto-incremented path in Downloads, beside the source clip, or in a remembered
+custom folder. It can also ask for the final filename after compression.
+The completed file can then be copied as a file object to the system clipboard
+or revealed in the platform file manager.
 Under the hood it's still FFmpeg — Advanced mode exposes the encoder
 string so you can override any of it.
 
@@ -559,6 +575,8 @@ redistribute them.
 - [React](https://react.dev/) + [Vite](https://vitejs.dev/) — frontend.
 - [YABDP4Nitro](https://github.com/riolubruh/YABDP4Nitro) — documented the
   Discord Clips size-limit quirk that the 100 MB preset targets.
+- [wvbzy](https://github.com/wvbzy) ([WubzyFN on X](https://x.com/WubzyFN)) —
+  suggested the output destination and completion action features.
 
 ---
 

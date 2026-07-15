@@ -1,5 +1,14 @@
 # Changelog
 
+## WIP
+
+### UI
+
+- **Flexible output completion**: compact settings-style controls above Compress let you choose Downloads, the imported clip's folder, a remembered custom folder, or an after-compression save prompt. Completed files are copied to the system clipboard by default, with a reveal fallback if copying fails, or can always be revealed instead.
+- **Feature idea credit**: output destination and completion action ideas were suggested by [wvbzy](https://github.com/wvbzy) ([WubzyFN on X](https://x.com/WubzyFN)).
+- **Reliable folder selection**: custom output folders now open through the already-loaded native dialog API instead of failing when a deferred module cannot be fetched.
+- **Fixed-window output layout**: loaded-file, trim, settings, and output controls are more compact so the standard workflow fits the fixed app window without vertical overflow while retaining the full-size preview.
+
 ## v6.7
 
 ### Updates

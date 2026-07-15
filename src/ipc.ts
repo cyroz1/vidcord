@@ -150,12 +150,36 @@ export function showInFileExplorer(path: string): Promise<void> {
   return invoke("show_in_file_explorer", { path });
 }
 
+export function copyFileToClipboard(path: string): Promise<void> {
+  return invoke("copy_file_to_clipboard", { path });
+}
+
+export function publishStagedOutput(stagedPath: string, destinationPath: string): Promise<string> {
+  return invoke<string>("publish_staged_output", { stagedPath, destinationPath });
+}
+
+export function discardStagedOutput(stagedPath: string): Promise<void> {
+  return invoke("discard_staged_output", { stagedPath });
+}
+
 export function getVaapiDevice(): Promise<string | null> {
   return invoke<string | null>("get_vaapi_device");
 }
 
-export function resolveOutputPath(inputPath: string): Promise<string> {
-  return invoke<string>("resolve_output_path", { inputPath });
+export function resolveOutputPath(
+  inputPath: string,
+  outputDirectory?: string,
+  useInputDirectory = false
+): Promise<string> {
+  return invoke<string>("resolve_output_path", {
+    inputPath,
+    outputDirectory,
+    useInputDirectory,
+  });
+}
+
+export function resolveStagingOutputPath(inputPath: string): Promise<string> {
+  return invoke<string>("resolve_staging_output_path", { inputPath });
 }
 
 export function getOs(): Promise<string> {

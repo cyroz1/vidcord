@@ -22,12 +22,9 @@ export default defineConfig(async () => ({
           if (id.includes("node_modules/react") || id.includes("node_modules/react-dom")) {
             return "react";
           }
-          // Keep user-gesture-only plugins out of the startup Tauri chunk.
-          // App.tsx imports these dynamically, so each remains deferred until
-          // the file picker or an external link is actually opened.
-          if (id.includes("node_modules/@tauri-apps/plugin-dialog")) {
-            return "tauri-dialog";
-          }
+          // Keep the user-gesture-only opener out of the startup Tauri chunk.
+          // The dialog plugin is loaded eagerly so native file/folder pickers
+          // cannot fail on a stale late-loaded module after a WebView refresh.
           if (id.includes("node_modules/@tauri-apps/plugin-opener")) {
             return "tauri-opener";
           }

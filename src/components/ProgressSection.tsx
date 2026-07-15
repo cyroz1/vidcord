@@ -7,7 +7,7 @@ type Props = { progress: number; eta: string };
 const wrapperStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: "6px",
+  gap: "4px",
 };
 
 const trackStyle: React.CSSProperties = {

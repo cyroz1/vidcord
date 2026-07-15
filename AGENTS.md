@@ -49,7 +49,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   │   └── commands/          # #[tauri::command] handlers
 │   │       ├── compression.rs # compress_video, cancel_compression, preview/probe wrappers
 │   │       ├── encoders.rs    # detect/install/list FFmpeg; platform install flows
-│   │       ├── files.rs       # show_in_file_explorer, resolve_output_path, get_os, PendingFile
+│   │       ├── files.rs       # output locations/staging, file reveal/clipboard, get_os, PendingFile
 │   │       └── updates.rs     # GitHub latest-release checker (semver)
 │   ├── capabilities/default.json  # Tauri permissions (dialog, opener, core)
 │   ├── tauri.conf.json        # Product config, CSP, file associations, bundle targets
@@ -144,7 +144,7 @@ Site behavior and content:
 - The social/link embed image intentionally uses the logo: `https://vidcord.app/assets/icon.png` via `og:image` and `twitter:image`.
 - Discord and other chat clients may cache old embeds. Use a temporary query string such as `https://vidcord.app/?v=2` when checking a changed preview image.
 - Product screenshots should not be cropped in CSS. Keep `width: 100%` and `height: auto` for screenshot images unless the user explicitly asks for a cropped composition.
-- The website documents local processing, FFmpeg as a required system dependency, Discord target sizes, Open With integration, and output-to-Downloads behavior.
+- The website documents local processing, FFmpeg as a required system dependency, Discord target sizes, Open With integration, and selectable output destinations (Downloads by default).
 
 SEO and crawler/agent files:
 

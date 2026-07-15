@@ -28,6 +28,12 @@ pub struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remove_audio: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_destination: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_output_directory: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completion_action: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub encoder_index: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encoder_label: Option<String>,
@@ -47,7 +53,7 @@ fn settings_path() -> &'static PathBuf {
 
 pub struct SettingsManager;
 
-fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+pub(crate) fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
     #[cfg(target_os = "windows")]
     {
         use std::iter::once;
@@ -177,6 +183,9 @@ mod tests {
             "quality_index": 2,
             "advanced_mode": true,
             "remove_audio": false,
+            "output_destination": "custom",
+            "custom_output_directory": "/tmp/vidcord-exports",
+            "completion_action": "copy",
             "encoder_label": "CPU (libx264)"
         });
 
@@ -186,6 +195,9 @@ mod tests {
         assert_eq!(loaded["quality_index"], 2);
         assert_eq!(loaded["advanced_mode"], true);
         assert_eq!(loaded["remove_audio"], false);
+        assert_eq!(loaded["output_destination"], "custom");
+        assert_eq!(loaded["custom_output_directory"], "/tmp/vidcord-exports");
+        assert_eq!(loaded["completion_action"], "copy");
         assert_eq!(loaded["encoder_label"], "CPU (libx264)");
 
         std::fs::remove_dir_all(&dir).ok();

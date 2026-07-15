@@ -10,6 +10,7 @@
     "core:window:allow-set-size-constraints",
     "dialog:default",
     "dialog:allow-open",
+    "dialog:allow-save",
     "opener:default"
   ]
 }

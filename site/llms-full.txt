@@ -68,7 +68,7 @@ The site documents Open With behavior:
 
 - Windows File Explorer: right-click a video and choose vidcord from Open with.
 - macOS Finder: use Open With to send a local video to vidcord.
-- Output files are saved in Downloads under atomically reserved, auto-incremented filenames so an existing or newly created file is never overwritten.
+- Output files are saved in Downloads by default. Users can instead save beside the imported clip, use a remembered custom folder, or choose a location after compression finishes. Direct destination modes use atomically reserved, auto-incremented filenames so an existing or newly created file is never overwritten. After saving, vidcord copies the output file itself to the system clipboard by default and reveals it if copying fails; users can instead choose to always reveal it in the platform file manager.
 
 ## Features and capabilities
 
@@ -78,10 +78,12 @@ The site documents Open With behavior:
 - Linux retains FFmpeg-generated filmstrip/frame scrub previews, but live video scrubbing and trim playback are disabled because WebKitGTK's playback path can crash the renderer on some systems
 - Discord size targets
 - Output FPS controls: unchanged, 24 FPS, 30 FPS, 60 FPS, or custom advanced FPS
+- Output destination controls: Downloads, the imported clip's folder, a remembered custom folder, or an ask-when-done save prompt
+- Completion action controls: copy the saved output file itself to the system clipboard by default with a reveal fallback, or always reveal the output
 - Optional audio removal to reserve more bitrate for video
 - Strict output size checks with bounded adaptive retries: up to four full attempts for a hardware encoder selection and two for CPU encoding
 - Race-safe cancellation that keeps the job owned until FFmpeg exits and removes partial output
-- Atomically reserved, auto-incremented output filenames
+- Atomically reserved, auto-incremented filenames for auto-named output destinations
 - Encoder detection for installed FFmpeg capabilities
 - User-selectable CPU/GPU encoders, with CPU fallback during retry flows when needed
 - GPU acceleration support when FFmpeg exposes supported encoders
