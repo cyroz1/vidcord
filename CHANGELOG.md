@@ -6,6 +6,7 @@
 
 - **In-app update installer prompt**: update notices can now download the matching installer for the current platform to Downloads and open it directly, with a release-page fallback.
 - **Safer update downloads**: update installers are streamed asynchronously to disk with size, completeness, and GitHub-published SHA-256 integrity checks, then published under a collision-safe filename without replacing an existing Downloads file, including on FAT, exFAT, and network filesystems without hard-link support.
+- **Less intrusive update checks**: automatic GitHub release checks now wait until startup work has settled instead of competing with initial file loading and encoder detection.
 
 ### Compression
 
@@ -50,6 +51,16 @@
 
 - **More reliable preferences**: repeated settings changes now replace the persisted file atomically on Windows instead of failing after the first save.
 - **Restored footer spacing**: version and link controls use the main-branch spacing, with Advanced Mode anchored at the opposite edge.
+
+### Website
+
+- **Live release download count**: the landing page now shows the aggregate GitHub release download total and falls back cleanly when the count service is unavailable.
+
+### Build and Release
+
+- **Stronger release safeguards**: CI now enforces frontend bundle-size budgets and high-severity npm audits on pull requests, validates structured data and the sitemap, rejects empty tagged changelog sections, pins the write-enabled release action, and prevents published tag builds from being cancelled by later pushes.
+- **More reliable cross-platform builds**: Rust caches are isolated by compatible Linux runner and Windows target architecture, packaged artifacts use bounded retention without redundant recompression, site-only validation avoids installing the full app dependency tree, and source text uses consistent LF line endings across platforms.
+- **Dependency hardening**: updated `anyhow` to 1.0.103 to resolve its `Error::downcast_mut()` soundness advisory.
 
 ### Documentation
 
