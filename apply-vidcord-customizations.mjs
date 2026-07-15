@@ -136,21 +136,31 @@ function patchRustFiles() {
 
 function patchRustLib() {
   let text = read(files.rustLib);
-  if (text.includes("copy_file_to_clipboard, get_os")) return;
 
-  text = uniqueRegexReplace(
-    text,
-    /use commands::files::\{get_os, resolve_output_path, show_in_file_explorer, PendingFile\};/,
-    `use commands::files::{\n    copy_file_to_clipboard, get_os, resolve_output_path, show_in_file_explorer, PendingFile,\n};`,
-    "Rust file-command import",
-  );
+  if (!/use commands::files::\{[^}]*\bcopy_file_to_clipboard\b[^}]*\};/s.test(text)) {
+    text = uniqueRegexReplace(
+      text,
+      /use commands::files::\{\s*get_os,\s*resolve_output_path,\s*show_in_file_explorer,\s*PendingFile,?\s*\};/s,
+      `use commands::files::{\n    copy_file_to_clipboard, get_os, resolve_output_path, show_in_file_explorer, PendingFile,\n};`,
+      "Rust file-command import",
+    );
+  }
 
-  text = uniqueStringReplace(
-    text,
-    `        show_in_file_explorer,\n        get_vaapi_device,`,
-    `        show_in_file_explorer,\n        copy_file_to_clipboard,\n        get_vaapi_device,`,
-    "Tauri command registration",
-  );
+  const handlerBlockRegex = /tauri::generate_handler!\[[\s\S]*?\]/;
+  const handlerMatch = text.match(handlerBlockRegex);
+  if (!handlerMatch) {
+    throw new Error("Could not find the Tauri generate_handler block.");
+  }
+
+  if (!/\bcopy_file_to_clipboard\b/.test(handlerMatch[0])) {
+    const patchedHandler = uniqueRegexReplace(
+      handlerMatch[0],
+      /show_in_file_explorer,\s*(?=get_vaapi_device,)/,
+      `show_in_file_explorer,\n            copy_file_to_clipboard,\n            `,
+      "Tauri command registration insertion point",
+    );
+    text = text.replace(handlerMatch[0], patchedHandler);
+  }
 
   write(files.rustLib, text);
 }
@@ -266,18 +276,21 @@ function verifyPatch() {
       "output_directory: Option<String>",
       "custom directory command argument",
     ],
-    [files.rustLib, "copy_file_to_clipboard, get_os", "Rust command import"],
-    [
-      files.rustLib,
-      "        copy_file_to_clipboard,",
-      "Tauri command registration",
-    ],
   ];
 
   for (const [filename, needle, label] of expectations) {
     if (!read(filename).includes(needle)) {
       throw new Error(`Verification failed: missing ${label} in ${filename}.`);
     }
+  }
+
+  const rustLib = read(files.rustLib);
+  if (!/use commands::files::\{[^}]*\bcopy_file_to_clipboard\b[^}]*\};/s.test(rustLib)) {
+    throw new Error("Verification failed: missing Rust clipboard command import.");
+  }
+  const handlerMatch = rustLib.match(/tauri::generate_handler!\[[\s\S]*?\]/);
+  if (!handlerMatch || !/\bcopy_file_to_clipboard\b/.test(handlerMatch[0])) {
+    throw new Error("Verification failed: missing Tauri clipboard command registration.");
   }
 
   if (
