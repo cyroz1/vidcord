@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v6.7
 
 ### Updates
 
@@ -67,6 +67,7 @@
 - Updated the README, FFmpeg setup guide, website copy, structured data, and AI grounding files for package-manager FFmpeg setup and selectable encoder behavior.
 - Corrected Discord tier, update-networking, package-size, trim-precision, retry-order, Linux compatibility, and encoder-selection claims across the README and website.
 - Updated the README, website, structured data, AI grounding files, and contributor guidance to document Linux preview limitations and the FFmpeg-generated scrub-preview fallback.
+- Aligned the public and maintainer documentation with bounded compression retries, race-safe cancellation, collision-safe output reservation, verified update downloads, and website network behavior.
 
 ## v6.6
 
