@@ -1,8 +1,9 @@
 use std::io::Write;
-use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 static SETTINGS_PATH: OnceLock<PathBuf> = OnceLock::new();
+static SETTINGS_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Typed schema for persisted settings.
 /// Unknown keys in the JSON file are silently dropped on load by deserializing
@@ -40,25 +41,87 @@ fn settings_path() -> &'static PathBuf {
     SETTINGS_PATH.get_or_init(|| {
         let base = dirs::data_local_dir()
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")));
-        let dir = base.join("vidcord");
-        let _ = std::fs::create_dir_all(&dir);
-        dir.join("settings.json")
+        base.join("vidcord").join("settings.json")
     })
 }
 
 pub struct SettingsManager;
 
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::iter::once;
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+        };
+
+        let source_wide: Vec<u16> = source.as_os_str().encode_wide().chain(once(0)).collect();
+        let destination_wide: Vec<u16> = destination
+            .as_os_str()
+            .encode_wide()
+            .chain(once(0))
+            .collect();
+
+        // std::fs::rename does not replace an existing destination on Windows.
+        // MoveFileExW keeps the old file intact if replacement fails and asks
+        // Windows to flush the move before returning.
+        let replaced = unsafe {
+            MoveFileExW(
+                source_wide.as_ptr(),
+                destination_wide.as_ptr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        if replaced == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::fs::rename(source, destination)
+    }
+}
+
+fn write_atomically(
+    data: &serde_json::Value,
+    path: &Path,
+    temp_name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let dir = path.parent().ok_or("No parent directory")?;
+    std::fs::create_dir_all(dir)?;
+
+    let tmp = dir.join(temp_name);
+    let write_result = (|| -> Result<(), Box<dyn std::error::Error>> {
+        let mut file = std::fs::File::create(&tmp)?;
+        serde_json::to_writer(&mut file, data)?;
+        file.flush()?;
+        file.sync_all()?;
+        replace_file(&tmp, path)?;
+
+        #[cfg(unix)]
+        std::fs::File::open(dir)?.sync_all()?;
+
+        Ok(())
+    })();
+
+    if write_result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    write_result
+}
+
 impl SettingsManager {
     pub fn load() -> serde_json::Value {
         let path = settings_path();
-        if path.exists() {
-            if let Ok(content) = std::fs::read_to_string(path) {
-                // Deserialize through the typed struct to silently drop unknown or
-                // invalid keys, then re-serialize to plain JSON for the frontend.
-                if let Ok(typed) = serde_json::from_str::<Settings>(&content) {
-                    if let Ok(v) = serde_json::to_value(typed) {
-                        return v;
-                    }
+        if let Ok(content) = std::fs::read_to_string(path) {
+            // Deserialize through the typed struct to silently drop unknown or
+            // invalid keys, then re-serialize to plain JSON for the frontend.
+            if let Ok(typed) = serde_json::from_str::<Settings>(&content) {
+                if let Ok(v) = serde_json::to_value(typed) {
+                    return v;
                 }
             }
         }
@@ -66,18 +129,11 @@ impl SettingsManager {
     }
 
     pub fn save(data: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
+        let _write_guard = SETTINGS_WRITE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let path = settings_path();
-        let dir = path.parent().ok_or("No parent directory")?;
-
-        // Atomic write: write to temp file, then rename
-        let tmp = dir.join(format!("settings_{}.tmp", std::process::id()));
-        {
-            let mut f = std::fs::File::create(&tmp)?;
-            f.write_all(serde_json::to_string(data)?.as_bytes())?;
-            f.flush()?;
-        }
-        std::fs::rename(&tmp, path)?;
-        Ok(())
+        write_atomically(data, path, &format!("settings_{}.tmp", std::process::id()))
     }
 
     /// Save to an explicit path (used in tests to avoid touching the real settings file).
@@ -86,26 +142,20 @@ impl SettingsManager {
         data: &serde_json::Value,
         path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let dir = path.parent().ok_or("No parent directory")?;
-        let tmp = dir.join(format!("settings_test_{}.tmp", std::process::id()));
-        {
-            let mut f = std::fs::File::create(&tmp)?;
-            f.write_all(serde_json::to_string(data)?.as_bytes())?;
-            f.flush()?;
-        }
-        std::fs::rename(&tmp, path)?;
-        Ok(())
+        write_atomically(
+            data,
+            path,
+            &format!("settings_test_{}.tmp", std::process::id()),
+        )
     }
 
     /// Load from an explicit path (used in tests).
     #[cfg(test)]
     pub fn load_from(path: &std::path::Path) -> serde_json::Value {
-        if path.exists() {
-            if let Ok(content) = std::fs::read_to_string(path) {
-                if let Ok(typed) = serde_json::from_str::<Settings>(&content) {
-                    if let Ok(v) = serde_json::to_value(typed) {
-                        return v;
-                    }
+        if let Ok(content) = std::fs::read_to_string(path) {
+            if let Ok(typed) = serde_json::from_str::<Settings>(&content) {
+                if let Ok(v) = serde_json::to_value(typed) {
+                    return v;
                 }
             }
         }
@@ -137,6 +187,23 @@ mod tests {
         assert_eq!(loaded["advanced_mode"], true);
         assert_eq!(loaded["remove_audio"], false);
         assert_eq!(loaded["encoder_label"], "CPU (libx264)");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_settings_repeated_save_replaces_existing_file() {
+        let dir = std::env::temp_dir().join(format!("vidcord_test_replace_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+
+        SettingsManager::save_to(&serde_json::json!({ "quality_index": 1 }), &path).unwrap();
+        SettingsManager::save_to(&serde_json::json!({ "quality_index": 4 }), &path).unwrap();
+
+        assert_eq!(SettingsManager::load_from(&path)["quality_index"], 4);
+        assert!(!dir
+            .join(format!("settings_test_{}.tmp", std::process::id()))
+            .exists());
 
         std::fs::remove_dir_all(&dir).ok();
     }

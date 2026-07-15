@@ -28,7 +28,6 @@ const wrapperBaseStyle: React.CSSProperties = {
   flexDirection: "column",
   gap: "4px",
   boxShadow: "var(--shadow-overlay), var(--card-top)",
-  animation: "toast-in 0.18s ease",
   maxWidth: "340px",
   wordBreak: "break-word",
 };
@@ -63,8 +62,6 @@ const messageStyle: React.CSSProperties = {
   whiteSpace: "pre-wrap",
 };
 
-const KEYFRAMES = `@keyframes toast-in { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }`;
-
 function Toast({ type, title, message, onClose }: ToastProps) {
   const color = COLORS[type] ?? COLORS.info;
   // Only the left-border accent varies with type, so shallow-merge once.
@@ -73,15 +70,24 @@ function Toast({ type, title, message, onClose }: ToastProps) {
     borderLeft: `3px solid ${color}`,
   };
   return (
-    <div style={wrapperStyle}>
+    <div
+      className="toast"
+      style={wrapperStyle}
+      role={type === "error" ? "alert" : "status"}
+      aria-atomic="true"
+    >
       <div style={headerStyle}>
         <span style={titleStyle}>{title}</span>
-        <button onClick={onClose} style={closeBtnStyle}>
+        <button
+          type="button"
+          onClick={onClose}
+          style={closeBtnStyle}
+          aria-label={`Dismiss ${title} notification`}
+        >
           ✕
         </button>
       </div>
       {message && <span style={messageStyle}>{message}</span>}
-      <style>{KEYFRAMES}</style>
     </div>
   );
 }

@@ -93,7 +93,7 @@
               "Local video compression with FFmpeg",
               "Discord upload targets: current 10 MB, 50 MB, 100 MB, and 500 MB limits plus a legacy 25 MB target",
               "Output FPS controls with source-aware 24, 30, and 60 FPS presets plus advanced custom FPS",
-              "Trim, scrub, and preview before compression",
+              "Live video scrubbing and trim playback on Windows and macOS, with FFmpeg-generated frame and filmstrip scrub previews on Linux",
               "GPU encoder detection for NVENC, AMF, QSV, VAAPI, and VideoToolbox",
               "Open With integration from Windows File Explorer and macOS Finder",
               "No uploads, accounts, or telemetry"
@@ -149,6 +149,14 @@
                 "acceptedAnswer": {
                   "@type": "Answer",
                   "text": "vidcord ships builds for Windows, macOS, and Linux. The site download button detects the visitor platform, links directly to the matching latest GitHub release asset when available, and prompts for architecture when the browser cannot report x64 or ARM64 with enough certainty."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Are scrubbing and playback previews available on Linux?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Linux supports FFmpeg-generated filmstrip and individual-frame previews while scrubbing. Live video scrubbing and trim playback are disabled because WebKitGTK's GStreamer playback path can crash the renderer on some systems."
                 }
               },
               {
@@ -342,7 +350,8 @@
           <h2>Trim and preview</h2>
           <p>
             Cut the part you need, scrub the timeline, preview from the playhead, then compress only
-            that segment.
+            that segment. On Linux, FFmpeg-generated filmstrip and frame previews remain available
+            while live video scrubbing and trim playback are disabled for stability.
           </p>
         </article>
         <article>
@@ -539,6 +548,14 @@
               Yes. Standard mode can leave FPS unchanged or cap output at 24, 30, or 60 FPS without
               showing choices above the source frame rate. Advanced mode accepts a custom FPS value
               or an empty Off field for no change.
+            </p>
+          </article>
+          <article>
+            <h3>Are scrubbing and playback previews available on Linux?</h3>
+            <p>
+              Linux provides FFmpeg-generated filmstrip and individual-frame previews while
+              scrubbing. Live video scrubbing and trim playback are disabled because WebKitGTK's
+              GStreamer playback path can crash the renderer on some systems.
             </p>
           </article>
           <article>

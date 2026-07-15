@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager};
+use std::time::Instant;
+use tauri::{webview::PageLoadEvent, AppHandle, Emitter, Manager};
 use tauri_plugin_window_state::StateFlags;
 
 pub mod commands;
@@ -26,23 +27,23 @@ use settings::SettingsManager;
 // Used to decide whether file-open events can emit immediately or need deferral.
 struct WebviewReady(AtomicBool);
 
-fn emit_pending_file(app: &AppHandle) {
-    if let Ok(mut guard) = app.state::<PendingFile>().0.lock() {
-        if let Some(path) = guard.take() {
-            if let Some(win) = app.get_webview_window("main") {
-                let _ = win.emit("open-file", &path);
-            }
-        }
-    }
+struct StartupTiming {
+    started_at: Instant,
+    logged_frontend_ready: AtomicBool,
 }
 
 fn emit_or_defer_open_file(app: &AppHandle, path: String) {
-    if app.state::<WebviewReady>().0.load(Ordering::SeqCst) {
+    // The pending-file mutex is also the readiness-transition gate. Holding it
+    // through the readiness check and emit linearizes file-open delivery with a
+    // page reload's Started event, when the old React listener is torn down.
+    let pending_file = app.state::<PendingFile>();
+    let mut pending = pending_file.0.lock().unwrap_or_else(|e| e.into_inner());
+    if app.state::<WebviewReady>().0.load(Ordering::Acquire) {
         if let Some(win) = app.get_webview_window("main") {
             let _ = win.emit("open-file", &path);
         }
-    } else if let Ok(mut guard) = app.state::<PendingFile>().0.lock() {
-        *guard = Some(path);
+    } else {
+        *pending = Some(path);
     }
 }
 
@@ -51,19 +52,37 @@ fn emit_or_defer_open_file(app: &AppHandle, path: String) {
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-fn load_settings() -> serde_json::Value {
-    SettingsManager::load()
+async fn load_settings() -> serde_json::Value {
+    tokio::task::spawn_blocking(SettingsManager::load)
+        .await
+        .unwrap_or_else(|_| serde_json::json!({}))
 }
 
 #[tauri::command]
-fn save_settings(settings: serde_json::Value) -> Result<(), String> {
-    SettingsManager::save(&settings).map_err(|e| e.to_string())
+async fn save_settings(settings: serde_json::Value) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || SettingsManager::save(&settings).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 fn frontend_ready(app: AppHandle) {
-    app.state::<WebviewReady>().0.store(true, Ordering::SeqCst);
-    emit_pending_file(&app);
+    let timing = app.state::<StartupTiming>();
+    if !timing.logged_frontend_ready.swap(true, Ordering::AcqRel) {
+        vidcord_log(&format!(
+            "Startup: frontend ready in {} ms",
+            timing.started_at.elapsed().as_millis()
+        ));
+    }
+
+    let pending_file = app.state::<PendingFile>();
+    let mut pending = pending_file.0.lock().unwrap_or_else(|e| e.into_inner());
+    app.state::<WebviewReady>().0.store(true, Ordering::Release);
+    if let Some(path) = pending.take() {
+        if let Some(win) = app.get_webview_window("main") {
+            let _ = win.emit("open-file", &path);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -72,6 +91,7 @@ fn frontend_ready(app: AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let startup_started_at = Instant::now();
     log::setup_crash_log();
 
     #[cfg(target_os = "linux")]
@@ -193,19 +213,36 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(PendingFile(Mutex::new(None)))
         .manage(WebviewReady(AtomicBool::new(false)))
+        .manage(StartupTiming {
+            started_at: startup_started_at,
+            logged_frontend_ready: AtomicBool::new(false),
+        })
+        .on_page_load(|webview, payload| {
+            if webview.label() == "main" && payload.event() == PageLoadEvent::Started {
+                // A reload destroys the current React listener. Reset readiness
+                // before accepting more OS file-open events; the new frontend
+                // will mark itself ready after its replacement listener exists.
+                let pending_file = webview.state::<PendingFile>();
+                let _pending = pending_file.0.lock().unwrap_or_else(|e| e.into_inner());
+                webview
+                    .state::<WebviewReady>()
+                    .0
+                    .store(false, Ordering::Release);
+            }
+        })
         .setup(|app| {
             // Handle CLI file argument: `vidcord myfile.mp4`
-            let args: Vec<String> = std::env::args().collect();
-            vidcord_log(&format!("Startup args: {:?}", args));
-            if args.len() > 1 {
-                let path = args[1].clone();
-                // Filter out macOS -psn_* pseudo-args and flag args
-                if !path.starts_with('-') && std::path::Path::new(&path).exists() {
-                    vidcord_log(&format!("Received open-file path: {path}"));
-                    if let Ok(mut guard) = app.state::<PendingFile>().0.lock() {
-                        *guard = Some(path);
-                    }
-                }
+            // Filter out macOS -psn_* pseudo-args and flag args. Avoid collecting
+            // every argument because only the first existing file is actionable.
+            let path = std::env::args()
+                .skip(1)
+                .find(|arg| !arg.starts_with('-') && std::path::Path::new(arg).exists());
+            if let Some(path) = path {
+                vidcord_log(&format!("Received open-file path: {path}"));
+                *app.state::<PendingFile>()
+                    .0
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = Some(path);
             }
             Ok(())
         })

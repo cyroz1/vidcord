@@ -106,11 +106,14 @@ FFmpeg's first pass lands too large.
   mode accepts a custom FPS value, or an empty field shown as Off for no change.
 - **Trim timeline** with fine-grained handles, draggable playhead, snap
   controls, zoom, pan, undo/redo, and optional looped playback.
-- **In-app preview** of the trimmed segment before you commit to a compress,
+- **In-app playback preview** of the trimmed segment on Windows and macOS,
   starting from the current playhead when it is inside the selected range.
 - **Responsive scrub previews** with display-sized filmstrip/frame thumbnails,
   sparse thumbnail generation for long videos, playhead-aware fallback preview clips,
   and hardware-accelerated preview clips where FFmpeg supports them.
+- **Linux preview fallback** — WebKitGTK live video scrubbing and trim playback are
+  disabled for stability; FFmpeg-generated filmstrip and individual-frame previews
+  remain available while scrubbing.
 - **Hardware acceleration**, auto-detected at startup:
   - NVIDIA NVENC (`h264_nvenc`, `hevc_nvenc`)
   - AMD AMF (`h264_amf`, `hevc_amf`)
@@ -119,8 +122,8 @@ FFmpeg's first pass lands too large.
   - macOS VideoToolbox (`h264_videotoolbox`, `hevc_videotoolbox`)
 - **Three ways to open a video:** drag-and-drop onto the window, "Open with
   vidcord" from Explorer/Finder, or the in-app **Browse** button.
-- **Compact fixed-size window** — stays fixed at 460×690 and keeps scrolling
-  inside the app surface when content needs more room.
+- **Compact fixed-size window** — stays fixed at 460×690, with standard and
+  advanced controls fitted into the app surface without scrollbars.
 - **Remove audio** — strip the audio track to reclaim space.
 - **Strict size checks** — finished files are measured against the selected
   target; oversized results are retried with `libx264` and lower safety
@@ -369,10 +372,10 @@ limit, the status line reports the smallest oversized result. Try **Remove
 audio**, drop to a lower resolution in Advanced mode, or pick `hevc_*`
 (H.265) if your recipient can decode it.
 
-**Preview is blank on Linux.**
-WebKit2GTK's `<video>` element has spotty codec coverage. Install
-`gstreamer1.0-libav` and `gstreamer1.0-plugins-bad` (Debian/Ubuntu naming)
-and relaunch.
+**Live scrubbing or trim playback is unavailable on Linux.**
+These controls are disabled because WebKitGTK's GStreamer playback path can crash
+the renderer on some Linux systems. The timeline still provides FFmpeg-generated
+filmstrip and individual-frame previews while scrubbing.
 
 **Windows console flashes during a compress.**
 Shouldn't happen — every FFmpeg invocation sets `CREATE_NO_WINDOW`
@@ -480,6 +483,9 @@ guarantee the output fits.
 Yes. vidcord ships as an `.AppImage` for x86_64 and aarch64 and is
 tested on GNOME, KDE Plasma, LXQt, Sway, and Hyprland on both X11 and
 Wayland. Hardware-accelerated encoding uses VAAPI via `/dev/dri/renderD*`.
+Live video scrubbing and trim playback are disabled on Linux because WebKitGTK's
+GStreamer playback path can crash the renderer on some systems. FFmpeg-generated
+filmstrip and frame previews remain available while scrubbing.
 
 ### Is there a CLI version?
 

@@ -37,6 +37,7 @@ Thumbs.db
 *.sw?
 
 # Legacy / App specific temporary bin downloads
+*.bundle
 ffmpeg.exe
 ffprobe.exe
 ffplay.exe

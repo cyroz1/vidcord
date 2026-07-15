@@ -5,36 +5,57 @@
 ### Updates
 
 - **In-app update installer prompt**: update notices can now download the matching installer for the current platform to Downloads and open it directly, with a release-page fallback.
-- **Safer update downloads**: update installers are streamed to disk with size limits instead of being buffered fully in memory.
+- **Safer update downloads**: update installers are streamed asynchronously to disk with size, completeness, and GitHub-published SHA-256 integrity checks, then published under a collision-safe filename without replacing an existing Downloads file, including on FAT, exFAT, and network filesystems without hard-link support.
 
 ### Compression
 
 - **Race-free cancellation**: cancelling an encode now keeps the app in a cancelling state until FFmpeg exits, prevents overlapping compression jobs, and keeps stale cleanup from affecting a newer job.
-- **Faster size correction**: strict-size compression now caps adaptive work at three full attempts for hardware encoders and two for CPU encoding instead of retrying as many as six times.
+- **Faster size correction**: strict-size compression now caps adaptive work at four full attempts for hardware encoders and two for CPU encoding, giving both the selected encoder and CPU fallback one measured bitrate correction instead of retrying as many as six times.
+- **More resilient encoding**: hardware failures fall back to CPU even without a target-size retry, invalid command options are rejected early, malformed FFmpeg output is memory-bounded, and failed jobs are killed, reaped, and cleaned up consistently.
+- **Collision-safe output files**: output names are atomically reserved before FFmpeg starts and remain owned across adaptive retries, preventing a late Downloads-file collision from being overwritten.
 
 ### Preview
 
-- **Cancellable preview work**: obsolete frame, filmstrip, and fallback-clip FFmpeg processes are terminated when a new file loads, compression starts, or the preview unmounts.
+- **Faster startup and file import**: encoder discovery now overlaps settings loading, native media loading begins while FFprobe validates the file, and probes request only the metadata vidcord uses.
+- **Documented Linux preview limits**: Linux continues to use FFmpeg-generated frame and filmstrip scrub previews; live video scrubbing and trim playback remain disabled because WebKitGTK's playback path can crash the renderer on some systems.
+- **Cancellable preview work**: obsolete frame, filmstrip, fallback-clip, and pending playback work is invalidated when a new file loads, compression starts, playback stops, or the preview unmounts.
 - **Lighter filmstrips**: sparse seeking now starts at three minutes, and preview images scale to the actual display pixel ratio instead of always rendering at 2x resolution.
+- **More stable preview caching**: duplicate clip replacements now keep exact cache accounting, while oversized clips no longer evict useful cached previews.
 
 ### FFmpeg Setup
 
 - **Automated FFmpeg setup assistance**: Windows installers and first launch can offer package-manager FFmpeg installation while still keeping FFmpeg as a system dependency.
 - **More accurate FFmpeg detection**: startup checks now require both `ffmpeg` and `ffprobe`, so missing `ffprobe` still shows setup help before video probing fails.
+- **Faster startup detection**: GPU discovery now overlaps encoder enumeration where safe, skips unnecessary work when FFmpeg cannot launch, reuses that successful probe instead of spawning a redundant version check, and terminates stalled GPU, FFprobe, encoder, and VAAPI discovery commands at bounded deadlines.
+- **Fixed Fedora AppImage detection**: system FFmpeg tools no longer inherit incompatible libraries bundled inside the AppImage, preventing false missing-FFmpeg errors on newer Fedora releases.
 
 ### File Opening
 
-- **More reliable Open With routing**: file-open events now wait for the React listener to register before delivering cold-start or second-instance file paths.
+- **More reliable Open With routing**: file-open events now wait for the React listener to register before delivering cold-start, reload, or second-instance file paths.
+- **Fixed Linux output reveal**: Browse File now launches desktop helpers without AppImage-bundled library paths, preventing host file managers from failing with incompatible GLib symbols.
 
 ### UI
 
 - **Fixed app and preview sizing**: the main window now stays locked at 460×690, and preview/filmstrip thumbnails use a fixed 16:9 surface instead of resizing to content or source aspect ratio.
 - **Accurate VideoToolbox labels**: macOS hardware encoders are now labeled for macOS instead of implying they are limited to Apple Silicon.
+- **Safer file switching**: rapid file selections can no longer let an older probe replace the newest video, and unsupported drops leave the current selection intact.
+- **More accessible controls**: the file picker is fully keyboard-operable, compression progress is exposed to assistive technology, update/encoder dialogs trap and restore focus correctly, and native Space/right-click behavior is preserved on interactive fields.
+- **Restored liquid-glass window styling**: the app shell, cards, controls, footer, and light/dark palette once again match the established main-branch design while retaining the denser trim toolbar.
+- **Clearer trim editing**: trim commands are grouped into an intuitive native toolbar with a recognizable magnet, honest zoomed/off-screen handles, undoable keyboard edits, and `?` shortcut help.
+- **Fixed-size window layout**: standard and advanced controls continue to fit the 460×690 window without horizontal overflow, while the main-branch vertical scroll behavior remains available when platform title-bar space is tighter.
+- **Readable encoder suggestions**: the advanced encoder dropdown now uses a fully opaque, content-sized surface so names remain visible without controls showing through.
+- **Responsive trim previews**: dragging either the in or out handle keeps the thumbnail updated even when the WebView cannot seek the source directly or filmstrip generation is unavailable; on supported platforms, releasing a handle keeps the already-seeked video frame visible immediately while the exact FFmpeg fallback frame is generated in the background, and Play/Stop no longer reloads or clears that frame.
+- **Selection-centered timeline zoom**: zoom buttons and Ctrl/Cmd-wheel zoom now focus the visible timeline on the current in/out range instead of the full clip midpoint.
+- **Stable compression hover state**: the Compress Video button now keeps its gradient surface while hovering instead of flashing between gradient and solid-color paints.
+
+- **More reliable preferences**: repeated settings changes now replace the persisted file atomically on Windows instead of failing after the first save.
+- **Restored footer spacing**: version and link controls use the main-branch spacing, with Advanced Mode anchored at the opposite edge.
 
 ### Documentation
 
 - Updated the README, FFmpeg setup guide, website copy, structured data, and AI grounding files for package-manager FFmpeg setup and selectable encoder behavior.
 - Corrected Discord tier, update-networking, package-size, trim-precision, retry-order, Linux compatibility, and encoder-selection claims across the README and website.
+- Updated the README, website, structured data, AI grounding files, and contributor guidance to document Linux preview limitations and the FFmpeg-generated scrub-preview fallback.
 
 ## v6.6
 
@@ -172,16 +193,16 @@
 
 ### Keyboard shortcuts (new / expanded)
 
-| Key | Action |
-|-----|--------|
-| `Space` | Toggle play / stop |
-| `,` / `.` | Step 1/30 second backward / forward |
-| `J` / `K` | Jump playhead to trim start / end |
-| `[` / `]` | Nudge trim start / end |
-| `I` / `O` | Set trim in / out to current playhead |
+| Key             | Action                                |
+| --------------- | ------------------------------------- |
+| `Space`         | Toggle play / stop                    |
+| `,` / `.`       | Step 1/30 second backward / forward   |
+| `J` / `K`       | Jump playhead to trim start / end     |
+| `[` / `]`       | Nudge trim start / end                |
+| `I` / `O`       | Set trim in / out to current playhead |
 | `Shift + Arrow` | Fine-nudge active handle by one frame |
-| `R` | Reset trim to full duration |
-| `?` | Open shortcuts overlay |
+| `R`             | Reset trim to full duration           |
+| `?`             | Open shortcuts overlay                |
 
 ### Performance
 

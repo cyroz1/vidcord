@@ -1,17 +1,21 @@
-use super::{find_vaapi_device, get_ffmpeg_env};
-use crate::gpu::get_system_gpus;
+use super::{configure_ffmpeg_command, find_vaapi_device};
+use crate::gpu::{get_system_gpus, spawn_captured_command};
+use crate::log::vidcord_log;
 use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 type EncoderList = Vec<(String, String)>;
 
 static ENCODER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static ENCODER_CACHE: OnceLock<Mutex<Option<EncoderList>>> = OnceLock::new();
+const ENCODER_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub struct AvailableEncoders {
     pub encoders: EncoderList,
     pub ffmpeg_missing: bool,
+    pub ffmpeg_freshly_probed: bool,
 }
 
 fn fallback_encoder_list() -> EncoderList {
@@ -19,46 +23,107 @@ fn fallback_encoder_list() -> EncoderList {
 }
 
 pub fn get_available_encoders() -> AvailableEncoders {
+    let discovery_started = Instant::now();
     let cache = ENCODER_CACHE.get_or_init(|| Mutex::new(None));
-    if let Ok(guard) = cache.lock() {
-        if let Some(cached) = guard.as_ref() {
-            return AvailableEncoders {
-                encoders: cached.clone(),
-                ffmpeg_missing: false,
-            };
-        }
+    let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(cached) = cache_guard.as_ref() {
+        vidcord_log(&format!(
+            "Encoder discovery: cache hit in {} ms",
+            discovery_started.elapsed().as_millis()
+        ));
+        return AvailableEncoders {
+            encoders: cached.clone(),
+            ffmpeg_missing: false,
+            ffmpeg_freshly_probed: false,
+        };
     }
 
+    // GPU discovery is independent of FFmpeg's compiled encoder list. On
+    // Windows and macOS it starts a comparatively slow system query, so overlap
+    // it with `ffmpeg -encoders` to make cold detection take the slower of the
+    // two operations instead of their sum. Linux detection also supplies the
+    // FFmpeg environment override and therefore must remain synchronous.
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
-    cmd.args(["-hide_banner", "-encoders"])
-        .envs(get_ffmpeg_env());
+    cmd.args(["-hide_banner", "-encoders"]);
+    configure_ffmpeg_command(&mut cmd);
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000);
     }
 
-    let out = match cmd.output() {
-        Ok(o) => o,
+    let child = match spawn_captured_command(&mut cmd) {
+        Ok(child) => child,
         // Don't cache the fallback: ffmpeg might not be installed *yet*.
         // If the user installs it and retries, we want a fresh probe.
         Err(err) => {
+            vidcord_log(&format!(
+                "Encoder discovery: FFmpeg launch failed after {} ms",
+                discovery_started.elapsed().as_millis()
+            ));
             return AvailableEncoders {
                 encoders: fallback_encoder_list(),
                 ffmpeg_missing: err.kind() == ErrorKind::NotFound,
-            }
+                ffmpeg_freshly_probed: false,
+            };
+        }
+    };
+
+    // Start the slow platform query only after FFmpeg launches successfully.
+    // This preserves fast missing-FFmpeg detection without giving up the
+    // overlap on systems where both probes are available.
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    let gpu_probe = std::thread::spawn(get_system_gpus);
+
+    // Treat the timeout as one end-to-end cold-discovery budget. On Linux,
+    // configuring the FFmpeg environment performs the bounded GPU probe first;
+    // FFmpeg receives the remaining budget rather than adding another full
+    // timeout on top.
+    let remaining = ENCODER_DISCOVERY_TIMEOUT.saturating_sub(discovery_started.elapsed());
+    let out = match child.wait_for_output(remaining) {
+        Ok(Some(out)) => out,
+        Ok(None) => {
+            vidcord_log(&format!(
+                "Encoder discovery: FFmpeg timed out after {} ms",
+                discovery_started.elapsed().as_millis()
+            ));
+            return AvailableEncoders {
+                encoders: fallback_encoder_list(),
+                ffmpeg_missing: true,
+                ffmpeg_freshly_probed: false,
+            };
+        }
+        Err(error) => {
+            vidcord_log(&format!(
+                "Encoder discovery: FFmpeg probe failed after {} ms: {error}",
+                discovery_started.elapsed().as_millis()
+            ));
+            return AvailableEncoders {
+                encoders: fallback_encoder_list(),
+                ffmpeg_missing: true,
+                ffmpeg_freshly_probed: false,
+            };
         }
     };
 
     if !out.status.success() {
+        vidcord_log(&format!(
+            "Encoder discovery: FFmpeg exited unsuccessfully after {} ms",
+            discovery_started.elapsed().as_millis()
+        ));
         return AvailableEncoders {
             encoders: fallback_encoder_list(),
             ffmpeg_missing: true,
+            ffmpeg_freshly_probed: false,
         };
     }
 
-    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    let gpus = gpu_probe.join().unwrap_or_else(|_| get_system_gpus());
+
+    let text = String::from_utf8_lossy(&out.stdout);
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let gpus = get_system_gpus();
     let system = std::env::consts::OS;
 
@@ -126,13 +191,18 @@ pub fn get_available_encoders() -> AvailableEncoders {
 
     // Memoise so repeat invocations (initial load + Advanced-mode open +
     // post-install retry) don't re-spawn ffmpeg.
-    if let Ok(mut guard) = cache.lock() {
-        *guard = Some(result.clone());
-    }
+    *cache_guard = Some(result.clone());
+
+    vidcord_log(&format!(
+        "Encoder discovery: completed in {} ms ({} available)",
+        discovery_started.elapsed().as_millis(),
+        result.len()
+    ));
 
     AvailableEncoders {
         encoders: result,
         ffmpeg_missing: false,
+        ffmpeg_freshly_probed: true,
     }
 }
 
@@ -141,8 +211,6 @@ pub fn get_available_encoders() -> AvailableEncoders {
 /// hardware encoders without requiring a restart.
 pub fn invalidate_encoder_cache() {
     if let Some(cache) = ENCODER_CACHE.get() {
-        if let Ok(mut guard) = cache.lock() {
-            *guard = None;
-        }
+        *cache.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 }

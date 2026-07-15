@@ -3,6 +3,19 @@ import { detectEncoders, type Encoder } from "../ipc";
 
 export type { Encoder };
 
+export function selectEncoderIndex(
+  encoders: Encoder[],
+  savedEncoderLabel: string | undefined,
+  savedEncoderIndex: number
+): number {
+  if (encoders.length === 0) return 0;
+  if (savedEncoderLabel) {
+    const labelIndex = encoders.findIndex((encoder) => encoder.label === savedEncoderLabel);
+    if (labelIndex >= 0) return labelIndex;
+  }
+  return Math.max(0, Math.min(savedEncoderIndex, encoders.length - 1));
+}
+
 type Props = {
   settingsLoaded: boolean;
   savedEncoderLabel: string | undefined;
@@ -22,18 +35,21 @@ export function useEncoders({
   const [encoderIdx, setEncoderIdx] = useState(0);
   const [ffmpegMissing, setFfmpegMissing] = useState(false);
   const missingNotifiedRef = useRef(false);
+  const detectedEncodersRef = useRef<Encoder[] | null>(null);
 
   // Keep the latest prop values in refs so the stable marker callbacks below
   // can notify through the current toast handler without invalidating
   // downstream useCallbacks in App.tsx on every render.
   const savedEncoderLabelRef = useRef(savedEncoderLabel);
   const savedEncoderIndexRef = useRef(savedEncoderIndex);
+  const settingsLoadedRef = useRef(settingsLoaded);
   const onFfmpegMissingRef = useRef(onFfmpegMissing);
   useEffect(() => {
     savedEncoderLabelRef.current = savedEncoderLabel;
     savedEncoderIndexRef.current = savedEncoderIndex;
+    settingsLoadedRef.current = settingsLoaded;
     onFfmpegMissingRef.current = onFfmpegMissing;
-  }, [savedEncoderLabel, savedEncoderIndex, onFfmpegMissing]);
+  }, [savedEncoderLabel, savedEncoderIndex, settingsLoaded, onFfmpegMissing]);
 
   const markFfmpegMissing = useCallback(() => {
     setFfmpegMissing(true);
@@ -54,24 +70,34 @@ export function useEncoders({
         const missing = Boolean(list[0].ffmpeg_missing);
         if (missing) markFfmpegMissing();
         else clearFfmpegMissing();
-        setEncoders(list.map(({ name, label }) => ({ name, label })));
-        const label = savedEncoderLabelRef.current;
-        if (label) {
-          const idx = list.findIndex((e) => e.label === label);
-          if (idx >= 0) {
-            setEncoderIdx(idx);
-            return;
-          }
+        const detected = list.map(({ name, label }) => ({ name, label }));
+        detectedEncodersRef.current = detected;
+        setEncoders(detected);
+        if (settingsLoadedRef.current) {
+          setEncoderIdx(
+            selectEncoderIndex(
+              detected,
+              savedEncoderLabelRef.current,
+              savedEncoderIndexRef.current
+            )
+          );
         }
-        setEncoderIdx(Math.min(savedEncoderIndexRef.current, list.length - 1));
       }
     });
   }, [clearFfmpegMissing, markFfmpegMissing]);
 
   useEffect(() => {
-    if (!settingsLoaded) return;
+    // Encoder discovery does not depend on settings I/O. Start it immediately,
+    // then reconcile the saved selection once both operations have completed.
     refreshEncoders().catch(() => {});
-  }, [settingsLoaded, refreshEncoders]);
+  }, [refreshEncoders]);
+
+  useEffect(() => {
+    if (!settingsLoaded || !detectedEncodersRef.current) return;
+    setEncoderIdx(
+      selectEncoderIndex(detectedEncodersRef.current, savedEncoderLabel, savedEncoderIndex)
+    );
+  }, [savedEncoderIndex, savedEncoderLabel, settingsLoaded]);
 
   return { encoders, encoderIdx, setEncoderIdx, ffmpegMissing, refreshEncoders, markFfmpegMissing };
 }

@@ -5,18 +5,20 @@
 }
 
 :root {
-  /* Base surfaces */
+  /* Main-branch glass surfaces */
   --bg: rgb(16, 16, 20);
   --surface: rgba(255, 255, 255, 0.07);
   --surface2: rgba(255, 255, 255, 0.11);
   --surface-subtle: rgba(255, 255, 255, 0.05);
+  --control-bg: var(--surface);
+  --control-hover: var(--surface2);
+  --track: rgba(255, 255, 255, 0.14);
 
-  /* Borders — glass edge */
   --border: rgba(255, 255, 255, 0.13);
   --border-subtle: rgba(255, 255, 255, 0.07);
+  --separator: var(--border-subtle);
   --border-focus: #0a84ff;
 
-  /* Accent — macOS blue */
   --accent: #0a84ff;
   --accent-hover: #409cff;
   --accent-pressed: #0071e3;
@@ -33,20 +35,16 @@
   --error: #ff453a;
   --warning: #ff9f0a;
 
-  /* Glass shadows */
   --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.5), 0 1px 4px rgba(0, 0, 0, 0.28);
   --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.7), 0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-hover: 0 6px 28px rgba(0, 0, 0, 0.6);
 
-  /* Radii — macOS Tahoe: rounder */
   --radius: 12px;
   --radius-sm: 8px;
   --radius-xs: 6px;
 
-  /* Glass card highlight — top edge shine */
   --card-top: inset 0 1px 0 rgba(255, 255, 255, 0.18), inset 0 -1px 0 rgba(0, 0, 0, 0.14);
-
-  /* Backdrop blur shorthand */
+  --control-highlight: var(--card-top);
   --blur: blur(20px) saturate(180%);
 
   font-family: -apple-system, "SF Pro Text", system-ui, sans-serif;
@@ -59,9 +57,13 @@
     --surface: rgba(255, 255, 255, 0.55);
     --surface2: rgba(255, 255, 255, 0.72);
     --surface-subtle: rgba(0, 0, 0, 0.04);
+    --control-bg: var(--surface);
+    --control-hover: var(--surface2);
+    --track: rgba(0, 0, 0, 0.12);
 
     --border: rgba(0, 0, 0, 0.09);
     --border-subtle: rgba(0, 0, 0, 0.05);
+    --separator: var(--border-subtle);
     --border-focus: #007aff;
 
     --accent: #007aff;
@@ -83,6 +85,7 @@
     --shadow-hover: 0 4px 20px rgba(0, 0, 0, 0.14);
 
     --card-top: inset 0 1px 0 rgba(255, 255, 255, 0.92), inset 0 -1px 0 rgba(0, 0, 0, 0.04);
+    --control-highlight: var(--card-top);
   }
 }
 
@@ -106,12 +109,22 @@ button {
   cursor: pointer;
   font-family: inherit;
   font-size: 14px;
+  -webkit-tap-highlight-color: transparent;
 }
 
 input,
 select {
   font-family: inherit;
   font-size: 14px;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+:where(button, input, select, a):focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
 }
 
 ::-webkit-scrollbar {

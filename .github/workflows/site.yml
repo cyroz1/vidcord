@@ -9,6 +9,7 @@ on:
       - "package.json"
       - "package-lock.json"
       - "scripts/check-assets.mjs"
+      - "scripts/check-sitemap.mjs"
       - "scripts/check-site-structured-data.mjs"
       - "scripts/check-version.mjs"
       - ".github/workflows/site.yml"
@@ -20,6 +21,7 @@ on:
       - "package.json"
       - "package-lock.json"
       - "scripts/check-assets.mjs"
+      - "scripts/check-sitemap.mjs"
       - "scripts/check-site-structured-data.mjs"
       - "scripts/check-version.mjs"
       - ".github/workflows/site.yml"
@@ -43,11 +45,19 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install npm dependencies
-        run: npm ci --prefer-offline --no-audit --fund=false
-
-      - name: Install XML tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxml2-utils
+      # Site checks only need Prettier from the frontend dependency tree. Resolve
+      # its exact locked version and integrity instead of installing every
+      # app/build package.
+      - name: Resolve locked tool versions
+        id: tools
+        run: |
+          node -p '"prettier=" + require("./package-lock.json").packages["node_modules/prettier"].version' >> "$GITHUB_OUTPUT"
+          node -p '"prettier_integrity=" + require("./package-lock.json").packages["node_modules/prettier"].integrity' >> "$GITHUB_OUTPUT"
 
       - name: Validate site
-        run: npm run site:check
+        env:
+          PRETTIER_VERSION: ${{ steps.tools.outputs.prettier }}
+          PRETTIER_INTEGRITY: ${{ steps.tools.outputs.prettier_integrity }}
+        run: |
+          test "$(npm view "prettier@$PRETTIER_VERSION" dist.integrity)" = "$PRETTIER_INTEGRITY"
+          npm exec --yes --package "prettier@$PRETTIER_VERSION" -- npm run site:check
