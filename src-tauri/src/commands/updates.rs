@@ -1,4 +1,5 @@
 use crate::log::vidcord_log;
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
@@ -47,6 +48,7 @@ struct ReleaseAsset {
     name: String,
     browser_download_url: String,
     size: Option<u64>,
+    digest: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -62,6 +64,23 @@ struct SelectedAsset {
     name: String,
     browser_download_url: String,
     size: Option<u64>,
+    sha256: [u8; 32],
+}
+
+fn parse_sha256_digest(digest: Option<&str>) -> Result<[u8; 32], String> {
+    let digest = digest
+        .and_then(|value| value.strip_prefix("sha256:"))
+        .ok_or_else(|| "Update installer is missing a valid SHA-256 digest.".to_string())?;
+    if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("Update installer is missing a valid SHA-256 digest.".to_string());
+    }
+
+    let mut parsed = [0u8; 32];
+    for (index, byte) in parsed.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&digest[index * 2..index * 2 + 2], 16)
+            .map_err(|_| "Update installer is missing a valid SHA-256 digest.".to_string())?;
+    }
+    Ok(parsed)
 }
 
 fn platform_asset_suffixes() -> Result<&'static [&'static str], String> {
@@ -77,7 +96,7 @@ fn platform_asset_suffixes() -> Result<&'static [&'static str], String> {
 
 fn select_platform_asset(release: &GitHubRelease) -> Result<SelectedAsset, String> {
     let suffixes = platform_asset_suffixes()?;
-    release
+    let asset = release
         .assets
         .iter()
         .find(|asset| {
@@ -87,12 +106,13 @@ fn select_platform_asset(release: &GitHubRelease) -> Result<SelectedAsset, Strin
                     .iter()
                     .any(|suffix| name.ends_with(&suffix.to_ascii_lowercase()))
         })
-        .map(|asset| SelectedAsset {
-            name: asset.name.clone(),
-            browser_download_url: asset.browser_download_url.clone(),
-            size: asset.size,
-        })
-        .ok_or_else(|| "No update installer was found for this platform.".to_string())
+        .ok_or_else(|| "No update installer was found for this platform.".to_string())?;
+    Ok(SelectedAsset {
+        name: asset.name.clone(),
+        browser_download_url: asset.browser_download_url.clone(),
+        size: asset.size,
+        sha256: parse_sha256_digest(asset.digest.as_deref())?,
+    })
 }
 
 async fn fetch_latest_release() -> Result<GitHubRelease, String> {
@@ -278,6 +298,7 @@ async fn copy_download_without_clobber(source: &Path, destination: &Path) -> std
 async fn write_download_stream(
     path: PathBuf,
     mut resp: reqwest::Response,
+    expected_sha256: [u8; 32],
 ) -> Result<PathBuf, String> {
     let content_length = resp.content_length();
     if let Some(content_length) = content_length {
@@ -286,6 +307,7 @@ async fn write_download_stream(
 
     let (tmp, mut file) = create_temp_download_file(&path).await?;
     let mut written = 0u64;
+    let mut hasher = Sha256::new();
 
     loop {
         let chunk = match resp.chunk().await {
@@ -315,6 +337,7 @@ async fn write_download_stream(
             let _ = tokio::fs::remove_file(&tmp).await;
             return Err(err.to_string());
         }
+        hasher.update(&chunk);
     }
 
     if let Err(err) = file.flush().await {
@@ -324,15 +347,38 @@ async fn write_download_stream(
     }
     drop(file);
 
+    finish_verified_download(
+        &tmp,
+        &path,
+        content_length,
+        written,
+        expected_sha256,
+        hasher.finalize().into(),
+    )
+    .await
+}
+
+async fn finish_verified_download(
+    tmp: &Path,
+    path: &Path,
+    content_length: Option<u64>,
+    written: u64,
+    expected_sha256: [u8; 32],
+    actual_sha256: [u8; 32],
+) -> Result<PathBuf, String> {
     if content_length.is_some_and(|expected| expected != written) {
-        let _ = tokio::fs::remove_file(&tmp).await;
+        let _ = tokio::fs::remove_file(tmp).await;
         return Err("Update installer download was incomplete.".to_string());
     }
+    if actual_sha256 != expected_sha256 {
+        let _ = tokio::fs::remove_file(tmp).await;
+        return Err("Update installer failed its SHA-256 integrity check.".to_string());
+    }
 
-    let published_path = match publish_download_without_clobber(&tmp, &path).await {
+    let published_path = match publish_download_without_clobber(tmp, path).await {
         Ok(published_path) => published_path,
         Err(err) => {
-            let _ = tokio::fs::remove_file(&tmp).await;
+            let _ = tokio::fs::remove_file(tmp).await;
             return Err(err);
         }
     };
@@ -453,7 +499,7 @@ pub async fn download_and_open_update_installer() -> Result<serde_json::Value, S
         return Err(format!("Download failed with HTTP {status}"));
     }
 
-    let downloaded_path = write_download_stream(target_path, resp).await?;
+    let downloaded_path = write_download_stream(target_path, resp, asset.sha256).await?;
     let path_for_open = downloaded_path.clone();
     tokio::task::spawn_blocking(move || open_installer(&path_for_open))
         .await
@@ -541,17 +587,40 @@ mod tests {
                     name: "vidcord_9.0.0_unrelated.zip".to_string(),
                     browser_download_url: "https://example.com/wrong".to_string(),
                     size: Some(1024),
+                    digest: Some(format!("sha256:{}", "00".repeat(32))),
                 },
                 ReleaseAsset {
                     name: format!("vidcord_9.0.0{suffix}"),
                     browser_download_url: "https://example.com/right".to_string(),
                     size: Some(2048),
+                    digest: Some(format!("sha256:{}", "11".repeat(32))),
                 },
             ],
         };
 
         let asset = select_platform_asset(&release).unwrap();
         assert_eq!(asset.browser_download_url, "https://example.com/right");
+        assert_eq!(asset.sha256, [0x11; 32]);
+    }
+
+    #[test]
+    fn rejects_assets_without_a_valid_sha256_digest() {
+        assert!(parse_sha256_digest(None).is_err());
+        assert!(parse_sha256_digest(Some("sha512:00")).is_err());
+        assert!(parse_sha256_digest(Some("sha256:not-hex")).is_err());
+        assert!(parse_sha256_digest(Some(&format!("sha256:{}", "00".repeat(31)))).is_err());
+        assert_eq!(
+            parse_sha256_digest(Some(&format!("sha256:{}", "aB".repeat(32)))).unwrap(),
+            [0xab; 32]
+        );
+        let actual: [u8; 32] = Sha256::digest(b"abc").into();
+        assert_eq!(
+            parse_sha256_digest(Some(
+                "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+            ))
+            .unwrap(),
+            actual
+        );
     }
 
     #[test]
@@ -608,6 +677,51 @@ mod tests {
 
         tokio::fs::remove_file(preferred).await.unwrap();
         tokio::fs::remove_file(first_collision).await.unwrap();
+        tokio::fs::remove_file(published).await.unwrap();
+        tokio::fs::remove_dir(directory).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn digest_mismatch_removes_temp_file_without_publishing() {
+        let directory = unique_test_directory();
+        tokio::fs::create_dir(&directory).await.unwrap();
+        let preferred = directory.join("vidcord.exe");
+        let tmp = directory.join(".vidcord.download");
+        tokio::fs::write(&tmp, b"tampered installer").await.unwrap();
+
+        let error =
+            finish_verified_download(&tmp, &preferred, Some(18), 18, [0x11; 32], [0x22; 32])
+                .await
+                .unwrap_err();
+
+        assert_eq!(
+            error,
+            "Update installer failed its SHA-256 integrity check."
+        );
+        assert!(!tmp.exists());
+        assert!(!preferred.exists());
+        tokio::fs::remove_dir(directory).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn matching_digest_allows_publication() {
+        let directory = unique_test_directory();
+        tokio::fs::create_dir(&directory).await.unwrap();
+        let preferred = directory.join("vidcord.exe");
+        let tmp = directory.join(".vidcord.download");
+        tokio::fs::write(&tmp, b"verified installer").await.unwrap();
+
+        let published =
+            finish_verified_download(&tmp, &preferred, Some(18), 18, [0x33; 32], [0x33; 32])
+                .await
+                .unwrap();
+
+        assert_eq!(published, preferred);
+        assert_eq!(
+            tokio::fs::read(&published).await.unwrap(),
+            b"verified installer"
+        );
+        assert!(!tmp.exists());
         tokio::fs::remove_file(published).await.unwrap();
         tokio::fs::remove_dir(directory).await.unwrap();
     }

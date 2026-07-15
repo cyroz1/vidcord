@@ -5,7 +5,7 @@
 ### Updates
 
 - **In-app update installer prompt**: update notices can now download the matching installer for the current platform to Downloads and open it directly, with a release-page fallback.
-- **Safer update downloads**: update installers are streamed asynchronously to disk with size and completeness checks, then published under a collision-safe filename without replacing an existing Downloads file, including on FAT, exFAT, and network filesystems without hard-link support.
+- **Safer update downloads**: update installers are streamed asynchronously to disk with size, completeness, and GitHub-published SHA-256 integrity checks, then published under a collision-safe filename without replacing an existing Downloads file, including on FAT, exFAT, and network filesystems without hard-link support.
 
 ### Compression
 
