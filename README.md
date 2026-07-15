@@ -53,6 +53,7 @@ no uploads, no telemetry.
 - [Project layout](#project-layout)
 - [Troubleshooting](#troubleshooting)
 - [FAQ](#faq)
+- [Contributors](#contributors)
 - [Contributing](#contributing)
 - [License](#license)
 - [Acknowledgements](#acknowledgements)
@@ -544,6 +545,11 @@ website's live download count simply remain unavailable while offline.
 - Disk space for the app package and FFmpeg; exact sizes vary substantially by
   platform and package source.
 
+## Contributors
+
+- [wvbzy](https://github.com/wvbzy) ([WubzyFN on X](https://x.com/WubzyFN)) —
+  suggested the output destination and completion action features.
+
 ## Contributing
 
 Issues and PRs are welcome. Before opening a PR:
@@ -575,8 +581,6 @@ redistribute them.
 - [React](https://react.dev/) + [Vite](https://vitejs.dev/) — frontend.
 - [YABDP4Nitro](https://github.com/riolubruh/YABDP4Nitro) — documented the
   Discord Clips size-limit quirk that the 100 MB preset targets.
-- [wvbzy](https://github.com/wvbzy) ([WubzyFN on X](https://x.com/WubzyFN)) —
-  suggested the output destination and completion action features.
 
 ---
 
