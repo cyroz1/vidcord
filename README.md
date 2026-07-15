@@ -125,13 +125,21 @@ FFmpeg's first pass lands too large.
 - **Compact fixed-size window** — stays fixed at 460×690, with standard and
   advanced controls fitted into the app surface without scrollbars.
 - **Remove audio** — strip the audio track to reclaim space.
-- **Strict size checks** — finished files are measured against the selected
-  target; oversized results are retried with `libx264` and lower safety
-  bitrates before reporting the smallest result.
+- **Strict size checks with bounded retries** — finished files are measured
+  against the selected target. Hardware jobs use at most four full attempts
+  and CPU jobs use at most two, including measured bitrate correction and CPU
+  fallback before reporting the smallest result.
 - **Real-time progress** with ETA, current attempt number, encoder, and
   bitrate parsed from FFmpeg's stderr.
-- **Auto-increment output** — saves `name-vidcord.mp4` and bumps `-1`, `-2`,
-  … if the filename is taken, never overwriting.
+- **Race-safe cancellation** — cancelling keeps the job owned until FFmpeg
+  exits, prevents another encode from starting early, and removes partial output.
+- **Collision-safe output** — atomically reserves `name-vidcord.mp4` before
+  encoding and bumps `-1`, `-2`, … if needed, even if another file appears at
+  the intended path just before compression starts.
+- **Verified in-app updates** — update checks run after startup settles and no
+  more than once every six hours. After approval, vidcord streams the matching
+  installer to Downloads, validates its size, completeness, and GitHub-published
+  SHA-256 digest, chooses an unused filename, and opens it.
 - **Automated FFmpeg setup assistance** — Windows installers offer `winget`,
   and first launch prompts to install through the platform package manager.
   No FFmpeg binaries are bundled with vidcord.
@@ -419,9 +427,21 @@ source on GitHub. There are no paid tiers, accounts, or trials.
 
 No. vidcord runs video processing entirely on your computer — no compression
 server, no account, and no telemetry. The app automatically checks the GitHub
-Releases API for updates at most once every six hours after launch. It only
-downloads an installer after you choose to install an available update.
-Compression itself works without an internet connection.
+Releases API for updates at most once every six hours, deferred for eight
+seconds after startup. It only downloads an installer after you choose to
+install an available update. The website also requests public release metadata
+from GitHub and an aggregate download count from Shields.io; no video data is
+included in either request. Compression itself works without an internet
+connection.
+
+### How do in-app updates work?
+
+When an update is available, vidcord offers the matching Windows, macOS, or
+Linux installer and keeps the GitHub release page as a fallback. After you
+approve the download, the app streams it to Downloads, enforces size and
+completeness limits, compares the bytes with the SHA-256 digest published in
+GitHub release metadata, and only then gives the installer an unused filename
+and opens it. This integrity check does not replace platform code signing.
 
 ### What are Discord's video upload size limits?
 
@@ -495,7 +515,8 @@ the presets in vidcord are just wrappers around standard FFmpeg arguments.
 ### Does vidcord work offline?
 
 Yes. Once vidcord and FFmpeg are installed, no internet connection is
-needed to compress a video.
+needed to compress a video. Update lookup, installer downloads, and the
+website's live download count simply remain unavailable while offline.
 
 ### What are the system requirements?
 

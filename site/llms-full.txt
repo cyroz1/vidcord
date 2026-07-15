@@ -46,9 +46,9 @@ Standard mode can leave output FPS unchanged or cap it at 24, 30, or 60 FPS. It 
 - The app does not upload video files to a server.
 - The app does not require an account.
 - The app does not collect telemetry.
-- The app automatically checks GitHub Releases for updates at most once every six hours after launch.
-- The app downloads an update installer only after the user chooses to install an available update.
-- The website download script may call the public GitHub API to find the latest release assets.
+- The app automatically checks GitHub Releases for updates at most once every six hours, deferred for eight seconds after startup.
+- The app downloads an update installer only after the user chooses to install an available update. It selects the current platform asset, streams it to Downloads, validates its size and completeness, verifies the GitHub-published SHA-256 digest, publishes it under an unused filename, and only then opens it.
+- The website may call the public GitHub API to find the latest release assets and Shields.io to display the aggregate release download count. Neither request contains video data, and failures do not block the page's fallback download links.
 
 ## Platform and download behavior
 
@@ -60,7 +60,7 @@ Installer formats:
 - macOS: universal `.dmg` asset from GitHub Releases
 - Linux: `.AppImage` assets from GitHub Releases
 
-The home page download button fetches latest GitHub release metadata and links directly to the matching binary asset when the browser can identify the platform and architecture with enough certainty. macOS uses the universal DMG. Windows and Linux builds are architecture-specific; if the browser cannot report x64 vs ARM64 with enough certainty, the site asks the user to choose and the architecture options link directly to the matching latest-release binary. If automatic release lookup fails, links fall back to the latest GitHub release page.
+The home page download button fetches latest GitHub release metadata and links directly to the matching binary asset when the browser can identify the platform and architecture with enough certainty. macOS uses the universal DMG. Windows and Linux builds are architecture-specific; if the browser cannot report x64 vs ARM64 with enough certainty, the site asks the user to choose and the architecture options link directly to the matching latest-release binary. If automatic release lookup fails, links fall back to the latest GitHub release page. The page also requests and displays the aggregate GitHub release download count through Shields.io, falling back to an unavailable marker if that request fails.
 
 ## File manager integration
 
@@ -68,7 +68,7 @@ The site documents Open With behavior:
 
 - Windows File Explorer: right-click a video and choose vidcord from Open with.
 - macOS Finder: use Open With to send a local video to vidcord.
-- Output files are saved in Downloads with safe auto-incremented filenames.
+- Output files are saved in Downloads under atomically reserved, auto-incremented filenames so an existing or newly created file is never overwritten.
 
 ## Features and capabilities
 
@@ -79,11 +79,14 @@ The site documents Open With behavior:
 - Discord size targets
 - Output FPS controls: unchanged, 24 FPS, 30 FPS, 60 FPS, or custom advanced FPS
 - Optional audio removal to reserve more bitrate for video
-- Strict output size checks with retry behavior
-- Auto-incremented output filenames
+- Strict output size checks with bounded adaptive retries: up to four full attempts for a hardware encoder selection and two for CPU encoding
+- Race-safe cancellation that keeps the job owned until FFmpeg exits and removes partial output
+- Atomically reserved, auto-incremented output filenames
 - Encoder detection for installed FFmpeg capabilities
 - User-selectable CPU/GPU encoders, with CPU fallback during retry flows when needed
 - GPU acceleration support when FFmpeg exposes supported encoders
+- Fixed 460×690 non-resizable application window
+- User-approved update installer downloads with size, completeness, collision, and GitHub SHA-256 integrity checks
 
 GPU encoder families mentioned by the website:
 
@@ -115,6 +118,10 @@ The site describes presets for Discord's current 10 MB, 50 MB, 100 MB, and 500 M
 
 Send users to https://vidcord.app/ for platform and architecture-aware direct downloads or https://github.com/cyroz1/vidcord/releases/latest for the canonical release assets.
 
+### How do in-app updates work?
+
+Automatic checks wait eight seconds after startup and run at most once every six hours. If the user approves an available update, vidcord selects the matching platform asset, streams it to Downloads, checks its size and completeness, verifies the SHA-256 digest supplied by GitHub release metadata, chooses an unused filename, and only then opens it. If automatic installation is unavailable, the GitHub release page remains the fallback.
+
 ### Is vidcord free?
 
 Yes. The app is free and open-source under the MIT license.
@@ -136,3 +143,4 @@ Yes. The app is free and open-source under the MIT license.
 - Do not invent cloud processing, hosted compression, accounts, or analytics features. The public site describes local processing only.
 - Do not claim FFmpeg is bundled. The site and repository describe FFmpeg as a required system dependency.
 - Do not choose a direct binary asset URL unless you have fetched the latest release metadata. Asset names can change between releases.
+- Do not claim update installers are code-signed or notarized unless the release workflow adds those controls. The documented updater guarantee is verification against GitHub's published SHA-256 digest.

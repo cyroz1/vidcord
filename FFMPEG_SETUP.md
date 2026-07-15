@@ -57,20 +57,35 @@ brew install ffmpeg
 ## Linux
 
 **Ubuntu / Debian:**
+
 ```sh
 sudo apt install ffmpeg
 ```
 
 **Fedora:**
+
 ```sh
 sudo dnf install ffmpeg
 ```
 
 **Arch / Manjaro:**
+
 ```sh
 sudo pacman -S ffmpeg
 ```
 
 ---
 
-After installing, launch vidcord normally — it will detect FFmpeg automatically.
+## Verify the installation
+
+Open a new terminal after installation and confirm that both required tools are
+available:
+
+```sh
+ffmpeg -version
+ffprobe -version
+```
+
+vidcord requires both commands. If either one is missing, restart your shell or
+computer after the package manager updates PATH, then try again. Once both work,
+launch vidcord normally and it will detect FFmpeg automatically.

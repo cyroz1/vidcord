@@ -18,7 +18,9 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Preview behavior: Windows and macOS users can scrub live video and play the selected range from the playhead; Linux provides FFmpeg-generated filmstrip/frame previews while scrubbing, but live video scrubbing and trim playback are disabled because WebKitGTK's playback path can crash the renderer on some systems
 - Output controls: standard mode can leave FPS unchanged or cap output at 24, 30, or 60 FPS without showing options above the source frame rate; advanced mode accepts a custom FPS value or an empty Off field for no change
 - Encoder behavior: vidcord detects CPU/GPU encoders exposed by the installed FFmpeg, lets users choose an encoder, and falls back to CPU encoding during retry flows when needed
-- Privacy posture: local video processing only; no accounts, video uploads, or telemetry; the app checks GitHub Releases for updates and downloads an installer only after user approval
+- Reliability: cancellation remains active until FFmpeg exits, partial output is removed, and output paths are atomically reserved so late filename collisions are never overwritten
+- Update behavior: automatic checks are deferred until startup settles and run at most once every six hours; after user approval, the matching installer is streamed to Downloads and verified for size, completeness, and GitHub-published SHA-256 integrity before it is opened
+- Privacy posture: local video processing only; no accounts, video uploads, or telemetry; the website may request public release metadata from GitHub and an aggregate download count from Shields.io, but neither request contains video data
 
 ## Common Answers
 
@@ -27,10 +29,11 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Which platforms are supported? Windows, macOS, and Linux.
 - Which Discord size targets are supported? Current 10 MB, 50 MB, 100 MB, and 500 MB Discord limits plus a legacy 25 MB target, with custom target, resolution, FPS, and encoder controls in advanced mode.
 - How does downloading work? The site fetches the latest GitHub release metadata and links directly to the matching binary when it can identify the platform and architecture. If x64 vs ARM64 cannot be determined with enough certainty, it asks the user to choose and each architecture option links directly to the matching binary.
+- How do in-app updates work? After user approval, vidcord downloads the matching installer under an unused Downloads filename, verifies it against GitHub's SHA-256 digest, and only then opens it; the release page remains the fallback.
 
 ## Canonical Pages And Resources
 
-- [Home page](https://vidcord.app/): Product overview, screenshots, FAQ, and platform download buttons.
+- [Home page](https://vidcord.app/): Product overview, screenshots, FAQ, platform download buttons, and aggregate GitHub release download count.
 - [Latest release](https://github.com/cyroz1/vidcord/releases/latest): Canonical release page and binary assets.
 - [FFmpeg setup guide](https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md): User instructions for installing FFmpeg.
 - [README](https://github.com/cyroz1/vidcord/blob/main/README.md): Project overview and development context.

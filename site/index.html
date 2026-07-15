@@ -96,6 +96,8 @@
               "Live video scrubbing and trim playback on Windows and macOS, with FFmpeg-generated frame and filmstrip scrub previews on Linux",
               "GPU encoder detection for NVENC, AMF, QSV, VAAPI, and VideoToolbox",
               "Open With integration from Windows File Explorer and macOS Finder",
+              "Race-safe compression cancellation and collision-safe output reservation",
+              "User-approved installer downloads verified with GitHub-published SHA-256 digests",
               "No uploads, accounts, or telemetry"
             ],
             "image": [
@@ -124,12 +126,12 @@
                 "name": "Does vidcord upload videos?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "No. vidcord processes video files locally on your computer with your system FFmpeg binary. The app does not upload videos, require accounts, or collect telemetry. It checks GitHub Releases for updates and downloads an installer only after user approval."
+                  "text": "No. vidcord processes video files locally on your computer with your system FFmpeg binary. The app does not upload videos, require accounts, or collect telemetry. It checks GitHub Releases for updates and downloads an installer only after user approval. The website requests public release metadata from GitHub and an aggregate download count from Shields.io; neither request includes video data."
                 }
               },
               {
                 "@type": "Question",
-                "name": "Which Discord upload limits does vidcord target?",
+                "name": "Which Discord upload limits are supported?",
                 "acceptedAnswer": {
                   "@type": "Answer",
                   "text": "vidcord targets Discord's current 10 MB, 50 MB, 100 MB, and 500 MB upload limits and also provides a legacy 25 MB target, plus advanced custom target, resolution, FPS, and encoder controls."
@@ -145,10 +147,10 @@
               },
               {
                 "@type": "Question",
-                "name": "Which platforms does vidcord support?",
+                "name": "How does the download button work?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "vidcord ships builds for Windows, macOS, and Linux. The site download button detects the visitor platform, links directly to the matching latest GitHub release asset when available, and prompts for architecture when the browser cannot report x64 or ARM64 with enough certainty."
+                  "text": "The site checks the latest GitHub release, detects Windows, macOS, or Linux in the browser, and links directly to the matching release asset. If x64 or ARM64 cannot be determined with enough certainty, it asks the user to choose. It also shows the aggregate GitHub release download count when Shields.io is available."
                 }
               },
               {
@@ -165,6 +167,14 @@
                 "acceptedAnswer": {
                   "@type": "Answer",
                   "text": "No. vidcord uses the system ffmpeg and ffprobe binaries, so FFmpeg must be installed and available on PATH. The installer or first launch can help install it through platform package managers."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How do in-app updates work?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Automatic update checks are deferred until startup settles and run at most once every six hours. After user approval, vidcord streams the matching installer to Downloads, validates its size and completeness, compares it with GitHub's published SHA-256 digest, chooses an unused filename, and opens it. The GitHub release page remains available as a fallback."
                 }
               }
             ]
@@ -402,7 +412,9 @@
             <li>Strict output size checks with safer retry behavior.</li>
             <li>Output FPS controls for 24, 30, 60, or a custom advanced value.</li>
             <li>Optional audio removal for more video bitrate.</li>
-            <li>Auto-incremented filenames so exports never overwrite your files.</li>
+            <li>Race-safe cancellation that waits for FFmpeg to exit and cleans partial output.</li>
+            <li>Atomically reserved output filenames so exports never overwrite your files.</li>
+            <li>User-approved update installers verified against GitHub's SHA-256 digest.</li>
           </ul>
         </div>
         <div class="detail-image">
@@ -531,7 +543,9 @@
             <p>
               No. vidcord runs FFmpeg on your computer, keeps files local, and does not require an
               account or telemetry. It checks GitHub Releases for updates and only downloads an
-              installer after you approve an available update.
+              installer after you approve an available update. The website requests public release
+              metadata from GitHub and an aggregate download count from Shields.io; neither request
+              includes video data.
             </p>
           </article>
           <article>
@@ -571,7 +585,18 @@
             <p>
               The site checks the latest GitHub release, detects Windows, macOS, or Linux in the
               browser, and links directly to the matching release asset. If x64 or ARM64 cannot be
-              determined with enough certainty, it asks you to choose.
+              determined with enough certainty, it asks you to choose. It also shows the aggregate
+              GitHub release download count when Shields.io is available.
+            </p>
+          </article>
+          <article>
+            <h3>How do in-app updates work?</h3>
+            <p>
+              Automatic checks wait until startup settles and run at most once every six hours.
+              After you approve an update, vidcord streams the matching installer to Downloads,
+              validates its size and completeness, compares it with GitHub's published SHA-256
+              digest, chooses an unused filename, and opens it. The release page remains available
+              as a fallback.
             </p>
           </article>
         </div>

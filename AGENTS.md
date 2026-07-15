@@ -138,7 +138,9 @@ Site behavior and content:
   known. If x64 vs ARM64 cannot be determined with high confidence, prompt the user to choose an
   architecture; each architecture option should link directly to the matching latest-release
   binary. It falls back to `https://github.com/cyroz1/vidcord/releases/latest` only when release
-  metadata cannot be fetched.
+  metadata cannot be fetched. It also fetches the aggregate release download count from Shields.io
+  with a bounded timeout and strict response validation; failure must leave the count unavailable
+  without affecting download links.
 - The social/link embed image intentionally uses the logo: `https://vidcord.app/assets/icon.png` via `og:image` and `twitter:image`.
 - Discord and other chat clients may cache old embeds. Use a temporary query string such as `https://vidcord.app/?v=2` when checking a changed preview image.
 - Product screenshots should not be cropped in CSS. Keep `width: 100%` and `height: auto` for screenshot images unless the user explicitly asks for a cropped composition.
@@ -148,6 +150,7 @@ SEO and crawler/agent files:
 
 - `robots.txt` should allow normal web crawlers and AI agents, and point at `https://vidcord.app/sitemap.xml`.
 - `sitemap.xml` should include the home page plus `llms.txt` and `llms-full.txt`.
+  Update each changed public URL's `lastmod` date when its page or grounding content changes.
 - `llms.txt` is the concise grounding file for AI agents.
 - `llms-full.txt` is the expanded grounding context. Keep it factual and aligned with the app and README; do not invent hosted compression, bundled FFmpeg, accounts, or telemetry.
 - `index.html` contains JSON-LD for `WebSite`, `SoftwareApplication`, and `FAQPage`. If site facts change, update visible copy, JSON-LD, `llms.txt`, and `llms-full.txt` together.
@@ -239,6 +242,26 @@ Open-with / right-click → Open must work across three delivery mechanisms:
 - **Second instance launched while running**: `tauri_plugin_single_instance::init` focuses the existing window and emits `open-file` directly.
 
 The frontend registers its `open-file` listener and then invokes `frontend_ready`; that command marks the listener ready and drains `PendingFile` under the same mutex used by event delivery. `on_page_load` resets readiness at `PageLoadEvent::Started` so a WebView reload cannot emit into a stale React listener. Do **not** collapse these paths into one — each handles a real race that exists on at least one platform.
+
+### Update downloads
+
+The app checks the fixed `cyroz1/vidcord` GitHub Releases API endpoint and only downloads an
+installer after explicit user approval. Preserve all of these controls when changing the updater:
+
+1. Select only the expected `vidcord_` asset suffix for the current OS/architecture and validate
+   the asset filename before using it locally.
+2. Require GitHub's `sha256:` release-asset digest, hash the response incrementally, and reject
+   missing, malformed, or mismatched digests before the file becomes visible or executable.
+3. Enforce the 512 MB limit and response completeness while streaming to a create-new temporary
+   file; never buffer a full installer in memory.
+4. Publish under a collision-safe Downloads filename without replacing an existing file. Keep the
+   hard-link path and create-new copy fallback for FAT, exFAT, and network filesystems.
+5. Open the installer only after verification and publication, using `spawn_blocking` for the
+   platform opener. Remove temporary or partial files on every failure path.
+
+The repository does not configure platform signing credentials. Documentation may say downloads
+are verified against GitHub's published SHA-256 digest, but must not claim code signing or
+notarization unless the release workflow actually adds and verifies those controls.
 
 ### FFmpeg invocations
 
