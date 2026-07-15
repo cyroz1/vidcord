@@ -1585,3 +1585,114 @@ select optgroup {
     box-shadow: none !important;
   }
 }
+
+/* ── Output destination / completion action ─────────────────────────── */
+.output-folder-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px 8px;
+  background: var(--surface);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-card), var(--card-top);
+}
+
+.output-folder-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.output-folder-label {
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.output-folder-path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.output-folder-row .output-folder-button {
+  min-height: 30px;
+  padding: 5px 9px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.output-folder-row button:disabled,
+.output-folder-row select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.completion-action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.completion-action svg {
+  position: absolute;
+  left: 8px;
+  z-index: 1;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.completion-action select {
+  min-width: 118px;
+  height: 30px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--surface2);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='rgba(255%2C255%2C255%2C0.50)' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  box-shadow: var(--card-top);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 5px 23px 5px 27px;
+}
+
+.completion-action select:hover:not(:disabled) {
+  border-color: var(--accent);
+  background-color: var(--surface-subtle);
+}
+
+.completion-action select:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow:
+    0 0 0 3px var(--accent-glow),
+    var(--card-top);
+}
+
+@media (prefers-color-scheme: light) {
+  .completion-action select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='rgba(0%2C0%2C0%2C0.45)' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+}

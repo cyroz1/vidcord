@@ -154,8 +154,15 @@ export function getVaapiDevice(): Promise<string | null> {
   return invoke<string | null>("get_vaapi_device");
 }
 
-export function resolveOutputPath(inputPath: string): Promise<string> {
-  return invoke<string>("resolve_output_path", { inputPath });
+export function resolveOutputPath(
+  inputPath: string,
+  outputDirectory: string | null
+): Promise<string> {
+  return invoke<string>("resolve_output_path", { inputPath, outputDirectory });
+}
+
+export function copyFileToClipboard(path: string): Promise<void> {
+  return invoke("copy_file_to_clipboard", { path });
 }
 
 export function getOs(): Promise<string> {

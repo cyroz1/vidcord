@@ -15,6 +15,10 @@ export function useSettings() {
   const [advFps, setAdvFps] = useState("");
   const [advEncoder, setAdvEncoder] = useState("");
   const [removeAudio, setRemoveAudio] = useState(false);
+  const [outputDirectory, setOutputDirectory] = useState("");
+  const [completionAction, setCompletionAction] = useState<"open_folder" | "copy_clipboard">(
+    "open_folder"
+  );
 
   useEffect(() => {
     (async () => {
@@ -28,6 +32,12 @@ export function useSettings() {
       if (typeof s.advanced_fps === "string") setAdvFps(s.advanced_fps);
       if (typeof s.advanced_encoder === "string") setAdvEncoder(s.advanced_encoder);
       if (typeof s.remove_audio === "boolean") setRemoveAudio(s.remove_audio);
+      if (typeof s.output_directory === "string") {
+        setOutputDirectory(s.output_directory);
+      }
+      if (s.completion_action === "open_folder" || s.completion_action === "copy_clipboard") {
+        setCompletionAction(s.completion_action);
+      }
       setSettingsLoaded(true);
     })();
   }, []);
@@ -74,6 +84,10 @@ export function useSettings() {
     setAdvEncoder,
     removeAudio,
     setRemoveAudio,
+    outputDirectory,
+    setOutputDirectory,
+    completionAction,
+    setCompletionAction,
     saveSettings,
   };
 }

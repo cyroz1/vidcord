@@ -120,29 +120,102 @@ pub fn get_os() -> &'static str {
 }
 
 #[tauri::command]
-pub async fn resolve_output_path(input_path: String) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || resolve_output_path_blocking(input_path))
+pub async fn copy_file_to_clipboard(path: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || copy_file_to_clipboard_blocking(path))
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|error| error.to_string())?
 }
 
-fn resolve_output_path_blocking(input_path: String) -> Result<String, String> {
-    let p = std::path::Path::new(&input_path);
-    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
+fn copy_file_to_clipboard_blocking(path: String) -> Result<(), String> {
+    let absolute = std::fs::canonicalize(&path).unwrap_or_else(|_| std::path::PathBuf::from(&path));
+    if !absolute.is_file() {
+        return Err("The completed video file could not be found".to_string());
+    }
 
-    let downloads = dirs::download_dir()
-        .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+
+        let escaped_path = absolute.to_string_lossy().replace('\'', "''");
+        let script = format!(
+            "Add-Type -AssemblyName System.Windows.Forms; \
+             $files = New-Object System.Collections.Specialized.StringCollection; \
+             [void]$files.Add('{}'); \
+             [System.Windows.Forms.Clipboard]::SetFileDropList($files)",
+            escaped_path
+        );
+        let status = std::process::Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-STA",
+                "-Command",
+                script.as_str(),
+            ])
+            .creation_flags(0x08000000)
+            .status()
+            .map_err(|error| error.to_string())?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "Windows could not copy the video file to the clipboard (exit status {status})"
+            ))
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err(
+            "Copying output files to the clipboard is currently available on Windows only"
+                .to_string(),
+        )
+    }
+}
+
+#[tauri::command]
+pub async fn resolve_output_path(
+    input_path: String,
+    output_directory: Option<String>,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || resolve_output_path_blocking(input_path, output_directory))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn resolve_output_path_blocking(
+    input_path: String,
+    output_directory: Option<String>,
+) -> Result<String, String> {
+    let input = std::path::Path::new(&input_path);
+    let stem = input
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("video");
+
+    let output_directory = output_directory
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(dirs::download_dir)
+        .or_else(|| dirs::home_dir().map(|home| home.join("Downloads")))
         .ok_or("Cannot find Downloads folder")?;
 
-    std::fs::create_dir_all(&downloads).map_err(|e| e.to_string())?;
+    if output_directory.exists() && !output_directory.is_dir() {
+        return Err("The selected output location is not a folder".to_string());
+    }
 
-    let mut candidate = downloads.join(format!("{stem}-vidcord.mp4"));
+    std::fs::create_dir_all(&output_directory).map_err(|error| error.to_string())?;
+
+    let mut candidate = output_directory.join(format!("{stem}-vidcord.mp4"));
     let mut counter = 1u32;
     while candidate.exists() {
-        candidate = downloads.join(format!("{stem}-vidcord-{counter}.mp4"));
+        candidate = output_directory.join(format!("{stem}-vidcord-{counter}.mp4"));
         counter += 1;
     }
-    Ok(candidate.to_string_lossy().to_string())
+
+    Ok(candidate.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]

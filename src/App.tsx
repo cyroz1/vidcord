@@ -33,6 +33,7 @@ import {
   probe as probeVideo,
   resolveOutputPath,
   showInFileExplorer,
+  copyFileToClipboard,
   type FfmpegInstallResult,
 } from "./ipc";
 import { getSelectionCenter, getTimelineViewBounds } from "./timelineZoom";
@@ -143,6 +144,24 @@ function buildScaleFilter(
   return dims ? `scale=${dims[0]}:${dims[1]}` : "scale=trunc(iw/2)*2:trunc(ih/2)*2";
 }
 
+function CompletionActionIcon({ action }: { action: string }) {
+  if (action === "copy_clipboard") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="8" y="7" width="10" height="12" rx="2" />
+        <path d="M15 7V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3.5 7.5h6l2-2h9v12a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />
+      <path d="M3.5 9.5h17" />
+    </svg>
+  );
+}
+
 export default function App() {
   // --- Hooks ---
   const { toasts, addToast, removeToast } = useToasts();
@@ -165,6 +184,10 @@ export default function App() {
     setAdvEncoder,
     removeAudio,
     setRemoveAudio,
+    outputDirectory,
+    setOutputDirectory,
+    completionAction,
+    setCompletionAction,
     saveSettings,
   } = useSettings();
   const { encoders, encoderIdx, setEncoderIdx, ffmpegMissing, refreshEncoders, markFfmpegMissing } =
@@ -576,6 +599,28 @@ export default function App() {
     }
   }, [addToast, loadVideo]);
 
+  const chooseOutputDirectory = useCallback(async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        defaultPath: outputDirectory || undefined,
+      });
+      if (typeof selected !== "string") return;
+
+      setOutputDirectory(selected);
+      saveSettings({ output_directory: selected });
+    } catch (error) {
+      addToast("error", "Could Not Select Output Folder", String(error));
+    }
+  }, [addToast, outputDirectory, saveSettings, setOutputDirectory]);
+
+  const resetOutputDirectory = useCallback(() => {
+    setOutputDirectory("");
+    saveSettings({ output_directory: "" });
+  }, [saveSettings, setOutputDirectory]);
+
   // --- OS file-open integrations ---
   // Route listener callbacks through a ref so we subscribe exactly once per
   // mount while always invoking the latest loadVideo. Previously the empty
@@ -866,7 +911,7 @@ export default function App() {
     // parallel so we save one round-trip latency before the encode starts.
     const isVaapi = encoderName.endsWith("_vaapi");
     const [resolvedOutput, vaapiDevice] = await Promise.all([
-      resolveOutputPath(filePath).catch(() => null),
+      resolveOutputPath(filePath, outputDirectory || null).catch(() => null),
       isVaapi ? getVaapiDevice().catch(() => null) : Promise.resolve(null),
     ]);
     if (!resolvedOutput) {
@@ -907,8 +952,26 @@ export default function App() {
     });
 
     if (outputPath) {
-      addToast("success", "Success", "Compression complete!");
-      showInFileExplorer(outputPath).catch(() => {});
+      if (completionAction === "copy_clipboard") {
+        try {
+          await copyFileToClipboard(outputPath);
+          addToast(
+            "success",
+            "Copied to Clipboard",
+            "Compression complete — press Ctrl+V in Discord to upload it."
+          );
+        } catch (error) {
+          addToast(
+            "warning",
+            "Could Not Copy File",
+            "The video was saved, but it could not be copied to the clipboard: " + String(error)
+          );
+          showInFileExplorer(outputPath).catch(() => {});
+        }
+      } else {
+        addToast("success", "Success", "Compression complete!");
+        showInFileExplorer(outputPath).catch(() => {});
+      }
     }
   }, [
     filePath,
@@ -925,6 +988,8 @@ export default function App() {
     encoderIdx,
     encoders,
     removeAudio,
+    outputDirectory,
+    completionAction,
     addToast,
     markFfmpegMissing,
     setCompressing,
@@ -2021,6 +2086,51 @@ export default function App() {
             removeAudio={removeAudio}
             onTimeUpdate={handlePreviewTimeUpdate}
           />
+          <div className="output-folder-row">
+            <div className="output-folder-copy">
+              <span className="output-folder-label">Output folder</span>
+              <span className="output-folder-path" title={outputDirectory || "Downloads (default)"}>
+                {outputDirectory || "Downloads (default)"}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              className="browse-btn output-folder-button"
+              onClick={chooseOutputDirectory}
+              disabled={compressing || cancelling}
+            >
+              Change
+            </button>
+
+            {outputDirectory && (
+              <button
+                type="button"
+                className="browse-btn output-folder-button"
+                onClick={resetOutputDirectory}
+                disabled={compressing || cancelling}
+              >
+                Reset
+              </button>
+            )}
+
+            <label className="completion-action" title="What to do after compression">
+              <CompletionActionIcon action={completionAction} />
+              <select
+                aria-label="After compression"
+                value={completionAction}
+                disabled={compressing || cancelling}
+                onChange={(event) => {
+                  const nextAction = event.target.value as "open_folder" | "copy_clipboard";
+                  setCompletionAction(nextAction);
+                  saveSettings({ completion_action: nextAction });
+                }}
+              >
+                <option value="open_folder">Open folder</option>
+                <option value="copy_clipboard">Copy file</option>
+              </select>
+            </label>
+          </div>
 
           {/* Compress button */}
           <button
