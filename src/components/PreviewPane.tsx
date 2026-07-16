@@ -37,6 +37,7 @@ const containerStyle: React.CSSProperties = {
   border: "1px solid var(--border-subtle)",
   borderRadius: "var(--radius)",
   overflow: "hidden",
+  contain: "paint",
   position: "relative",
   width: "100%",
   maxWidth: `${FIXED_PREVIEW_CSS_WIDTH}px`,
@@ -56,8 +57,14 @@ const imgStyle: React.CSSProperties = {
 };
 
 const videoBaseStyle: React.CSSProperties = {
+  position: "absolute",
+  inset: 0,
   width: "100%",
   height: "100%",
+  minWidth: 0,
+  minHeight: 0,
+  maxWidth: "100%",
+  maxHeight: "100%",
   objectFit: "contain",
 };
 const videoVisibleStyle: React.CSSProperties = { ...videoBaseStyle, display: "block" };

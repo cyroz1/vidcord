@@ -5,6 +5,7 @@
 ### UI
 
 - **Less intrusive playback controls**: Stop now appears only while hovering the preview during playback instead of remaining visible after Play retains focus.
+- **Contained playback previews**: live video playback now stays clipped to the preview instead of painting artifacts over nearby output controls.
 - **Clearer compression results**: successful compression messages now show the percentage reduction from the original file size without repeating the selected target size.
 - **Richer import details**: imported videos now show source resolution, frame rate, codec, average bitrate, and length in a compact one-line summary, while the preview uses a single playhead-over-duration readout.
 - **System-matched macOS title bar**: the native title bar now follows the current macOS Light or Dark appearance instead of remaining white in Dark Mode.
