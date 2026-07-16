@@ -21,8 +21,12 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   ├── App.css                # App styling (dark/light via prefers-color-scheme)
 │   ├── ErrorBoundary.tsx      # Top-level crash recovery UI
 │   ├── ipc.ts                 # Typed wrappers around Tauri invoke() commands
-│   ├── main.tsx               # ReactDOM entry
+│   ├── main.tsx               # ReactDOM entry + native macOS title-bar theme sync
 │   ├── index.css              # Global CSS vars (--accent, --surface, --blur…)
+│   ├── ffmpegErrors.ts        # Shared FFmpeg-missing error detection/copy
+│   ├── previewScrub.ts        # Pure preview-seek and native-context-menu helpers
+│   ├── timelineZoom.ts        # Pure trim-timeline zoom/view calculations
+│   ├── videoMetadata.ts       # Pure source-metadata formatting helpers
 │   ├── components/
 │   │   ├── PreviewPane.tsx    # Video preview + scrub thumbnail + filmstrip
 │   │   ├── ProgressSection.tsx# Compression progress bar + ETA
@@ -32,14 +36,14 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   ├── hooks/
 │   │   ├── useCompression.ts  # Event listeners + pure bitrate/dimension helpers (tested)
 │   │   ├── useEncoders.ts     # detect_encoders + FFmpeg-missing tracking
-│   │   ├── useSettings.ts     # load_settings / debounced save_settings
+│   │   ├── useSettings.ts     # persisted compression/output prefs + debounced saves
 │   │   └── useToasts.ts       # Toast queue with per-id timer cleanup
 │   ├── __tests__/             # Vitest tests (node env, Tauri APIs mocked)
 │   └── __mocks__/@tauri-apps/ # Invoke/listen stubs so pure helpers run in Node
 ├── src-tauri/                 # Rust backend
 │   ├── src/
 │   │   ├── main.rs            # Thin entry — calls lib::run()
-│   │   ├── lib.rs             # Tauri builder, plugins, Linux env shims, file-open routing
+│   │   ├── lib.rs             # Tauri builder, platform shims/theme, file-open routing
 │   │   ├── ffmpeg.rs          # probe / preview / filmstrip / VAAPI discovery + caches
 │   │   ├── ffmpeg/
 │   │   │   └── encoders.rs    # FFmpeg encoder detection + encoder cache invalidation
@@ -47,14 +51,19 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   │   ├── log.rs             # Rotating ~/…/vidcord/vidcord.log (5 MB cap)
 │   │   ├── settings.rs        # Typed settings persisted via atomic rename
 │   │   └── commands/          # #[tauri::command] handlers
-│   │       ├── compression.rs # compress_video, cancel_compression, preview/probe wrappers
+│   │       ├── compression.rs # compression jobs/retries/reservations + preview/probe commands
 │   │       ├── encoders.rs    # detect/install/list FFmpeg; platform install flows
 │   │       ├── files.rs       # output locations/staging, file reveal/clipboard, get_os, PendingFile
-│   │       └── updates.rs     # GitHub latest-release checker (semver)
+│   │       └── updates.rs     # Semver checks + verified installer download/publication
 │   ├── capabilities/default.json  # Tauri permissions (dialog, opener, core)
-│   ├── tauri.conf.json        # Product config, CSP, file associations, bundle targets
+│   ├── windows/
+│   │   └── ffmpeg-hooks.nsh   # Interactive NSIS post-install FFmpeg/winget offer
+│   ├── build.rs               # Tauri build entry
+│   ├── tauri.conf.json        # Product config, CSP, associations, targets, installer hook
 │   ├── Cargo.toml             # release/ci/dev profiles (see "Build profiles")
 │   └── .cargo/audit.toml      # RUSTSEC ignore list for Tauri upstream advisories
+├── public/
+│   └── icon.png               # Vite-served app logo
 ├── site/                      # Static marketing/download website for vidcord.app
 │   ├── index.html             # Crawlable landing page, metadata, JSON-LD, app download UI
 │   ├── styles.css             # Dark blue responsive site styling
@@ -68,15 +77,16 @@ Guidance for AI assistants working in this repository. Read this before making c
 ├── wrangler.jsonc             # Cloudflare Worker static-assets deployment config
 ├── .github/workflows/build.yml# Multi-platform CI + release workflow
 ├── .github/workflows/site.yml # Site-only validation workflow
-├── scripts/                   # Version, asset, and site structured-data checks
+├── scripts/                   # Bundle, version, asset, sitemap, and structured-data checks
 ├── index.html                 # Vite entry
-├── vite.config.ts             # React plugin, manual chunks (react / tauri / app)
+├── vite.config.ts             # React plugin, manual chunks (react / tauri / tauri-opener)
 ├── vitest.config.ts           # Node env + Tauri-api mock aliases
 ├── eslint.config.js           # ESLint flat config (TS + react-hooks)
 ├── .prettierrc                # 100-col, 2-space, double-quote, ES5 trailing commas
 ├── tsconfig.json              # Strict TS, ES2021 target, react-jsx
 ├── FFMPEG_SETUP.md            # End-user FFmpeg install guide (per platform)
 ├── CHANGELOG.md               # User-facing release notes
+├── .env.example               # Optional Vite/Tauri development build variables
 └── README.md                  # Public overview
 ```
 
@@ -99,6 +109,8 @@ npm run typecheck          # tsc --noEmit
 npm test                   # vitest run
 npm run build              # production frontend bundle
 npm run bundle:check       # enforce JS/CSS bundle-size budgets after build
+npm run version:check      # align package/locks/Tauri config/site version references
+npm run assets:check       # enforce canonical app/site asset organization
 npm run format             # prettier --write src
 cargo fmt --check --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings
@@ -115,6 +127,15 @@ warning-clean.
 ```sh
 npm run tauri build        # outputs to src-tauri/target/release/bundle/
 ```
+
+### Windows installer FFmpeg offer
+
+The NSIS bundle loads `src-tauri/windows/ffmpeg-hooks.nsh` through
+`bundle.windows.nsis.installerHooks`. On an interactive install, the post-install hook checks for
+both `ffmpeg` and `ffprobe`; if either is missing and `winget` exists, it asks the user before
+installing the exact `Gyan.FFmpeg` package. Silent installs never prompt, declining is supported,
+and failure falls back to the app's first-launch FFmpeg setup UI. Keep this explicitly opt-in and
+do not describe FFmpeg as bundled with vidcord.
 
 ### Website (`/site`) deployment
 
@@ -225,13 +246,46 @@ All Rust→Frontend IO flows through `#[tauri::command]` functions registered in
 Events flow the other direction via `AppHandle::emit` → `listen()` in the frontend:
 
 - `compress-progress` — percent, eta, status, attempt number, encoder, bitrate (emitted per FFmpeg stderr `time=` line and at retry boundaries)
-- `compress-done` — success/cancelled/message/output_path plus output/target size metadata when available
+- `compress-done` — success/cancelled/message/output_path plus input/output/target size metadata when available
 - `open-file` — path from single-instance forwarding, macOS Apple Events, or CLI args
 - `tauri://drag-drop` — built-in Tauri event for drops on the window
 
 Compression uses a single owned backend job ID. Cancellation keeps that job active until its FFmpeg
 process exits; do not clear frontend compression state before the matching `compress-done` event or
 replace the job-specific state with an unowned global PID.
+
+### Compression and output lifecycle
+
+FFprobe returns source codec, frame rate, bitrate, dimensions, display dimensions, and duration.
+`videoMetadata.ts` formats those values for the import summary. The frontend derives the initial
+target bitrate from the selected size and trimmed duration, then caps it at the probed source
+bitrate so compression does not request a higher bitrate than the input. On success, the backend
+includes the input file size in `compress-done` so the frontend can report the actual percentage
+reduction.
+
+Output handling has two paths:
+
+- **Downloads / clip folder / custom folder**: `resolve_output_path` chooses a collision-free
+  `<stem>-vidcord[-N].mp4` candidate. Before FFmpeg starts, `OutputReservation::create` atomically
+  creates that exact path and owns it across every adaptive retry. Treat path resolution as
+  advisory; do not replace the create-new reservation with a check-then-write flow or allow
+  FFmpeg's `-y` to overwrite an unrelated file.
+- **Ask when done**: compression writes only beneath
+  `%TEMP%/vidcord/staged-output` (the platform temp equivalent), then the frontend opens a save
+  dialog. `publish_staged_output` canonicalizes and accepts only a direct file child of that staging
+  directory, copies it to a create-new temporary file beside the chosen destination, flushes and
+  syncs it, atomically publishes it via `settings::replace_file`, and removes the staged file.
+  Cancelling the save dialog or failing finalization must call `discard_staged_output`; retain the
+  backend validation and partial-file cleanup.
+
+The persisted completion action is either `copy` (default) or `reveal`. Clipboard copy validates
+that the output is still a file, then uses CF_HDROP on Windows, AppleScript on macOS, and
+`wl-copy`/`xclip` on Linux. A copy failure falls back to revealing the saved file; a completion
+action failure must not be reported as a compression failure.
+
+`useSettings` persists `output_destination` (`downloads`, `source`, `ask`, or `custom`), the custom
+directory, and `completion_action` (`copy` or `reveal`). Keep the frontend's allowlist validation
+when loading these string values; invalid or older persisted values must fall back to safe defaults.
 
 ### File-open routing (tricky)
 
@@ -307,6 +361,13 @@ Preview frame and filmstrip IPC accepts optional preview dimensions; the backend
 Persisted to `~/.local/share/vidcord/settings.json` (Linux), `~/Library/Application Support/vidcord/settings.json` (macOS), or `%LOCALAPPDATA%\vidcord\settings.json` (Windows) via `dirs::data_local_dir()`.
 Writes use a flushed temporary file plus atomic replacement. Windows must use `MoveFileExW` with replace/write-through flags because `std::fs::rename` cannot replace an existing destination there; do not regress repeated settings saves to a plain rename.
 
+### Native window theme
+
+`main.tsx` watches `prefers-color-scheme` and invokes `sync_native_window_theme`. The command is a
+no-op outside macOS; on macOS it sets the native `NSWindow` background behind the transparent title
+bar. Its light/dark RGB values must stay aligned with the corresponding opaque `--bg` values in
+`src/index.css`, or the title bar and web content visibly split at the seam.
+
 ### Frontend performance conventions
 
 The app re-renders on every trim-slider move. Established patterns:
@@ -373,13 +434,15 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 
 `.github/workflows/build.yml` has five jobs:
 
-1. **frontend** (ubuntu-latest) — `npm ci`, audit (high), lint, typecheck, test, build, bundle-size budget; uploads `dist/` as an artifact for every platform matrix job to download.
+1. **frontend** (ubuntu-latest) — `npm ci`, audit (high), version and asset checks, lint, typecheck, test, build, and bundle-size budget; uploads `dist/` as an artifact for every platform matrix job to download.
 2. **rust-lint** (ubuntu-latest) — `cargo fmt --check` + `cargo audit`. Fast, runs in parallel.
 3. **rust-compile-checks** (ubuntu-22.04) — `cargo clippy -D warnings` + `cargo test`. Shares the `rust-linux-ubuntu-22.04-v1` `Swatinem/rust-cache` key with the Linux x86_64 build job for registry/source data and any profile-compatible artifacts.
 4. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. Tagged `v*` refs use `release` profile; everything else uses `ci` profile.
 5. **release** (ubuntu-latest, only on tags) — extracts the matching CHANGELOG section, downloads artifacts, creates a draft GitHub release.
 
-Changes to `README.md`, `CHANGELOG.md`, `.gitignore`, and `site/**` do not trigger the app build matrix. Site changes run the separate Site Checks workflow.
+The app workflow ignores `README.md`, `CHANGELOG.md`, `.gitignore`, `site/**`, `wrangler.jsonc`,
+the Site Checks workflow, and the site-only sitemap/structured-data validators. Site changes run the
+separate Site Checks workflow.
 
 ## Known pitfalls
 
@@ -390,4 +453,4 @@ Changes to `README.md`, `CHANGELOG.md`, `.gitignore`, and `site/**` do not trigg
 - Linux live `<video>` scrubbing and Play/Stop trim controls are deliberately disabled because WebKitGTK's GStreamer playback path can crash the renderer on systems without a usable audio sink. Keep the `get_os` guard and FFmpeg-generated filmstrip/frame fallback unless live playback is validated across the supported Linux desktop environments and AppImage packaging.
 - CSP also gates drive roots on Windows (`C:/**` … `Z:/**`). If a user reports a path refused by the asset protocol, check `assetProtocol.scope`.
 - EncodersDialog is `React.lazy` + `Suspense` — don't import it eagerly in `App.tsx`, that re-grows the entry bundle.
-- Tests run in a **Node** environment, and the Tauri runtime APIs are mocked in `src/__mocks__/@tauri-apps/api/*`. Write tests against pure helpers (`calculateBitrate`, `computeTargetDimensions`, Rust unit tests). Component integration tests are not currently wired up; don't invent a jsdom setup unless asked.
+- Tests run in a **Node** environment, and the Tauri runtime APIs are mocked in `src/__mocks__/@tauri-apps/api/*`. Write tests against pure helpers (`useCompression.ts`, `ffmpegErrors.ts`, `previewScrub.ts`, `timelineZoom.ts`, `videoMetadata.ts`) or as Rust unit tests. Component integration tests are not currently wired up; don't invent a jsdom setup unless asked.
