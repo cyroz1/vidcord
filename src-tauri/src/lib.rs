@@ -88,6 +88,46 @@ fn frontend_ready(app: AppHandle) {
     }
 }
 
+#[tauri::command]
+fn sync_native_window_theme(app: AppHandle, dark: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let window = app
+            .get_webview_window("main")
+            .ok_or_else(|| "main window is unavailable".to_string())?;
+        window
+            .with_webview(move |webview| unsafe {
+                use objc2_app_kit::{NSColor, NSWindow};
+
+                // The transparent title bar exposes the NSWindow background. Keep
+                // these colors aligned with the light/dark --bg values in index.css.
+                let background = if dark {
+                    NSColor::colorWithSRGBRed_green_blue_alpha(
+                        16.0 / 255.0,
+                        16.0 / 255.0,
+                        20.0 / 255.0,
+                        1.0,
+                    )
+                } else {
+                    NSColor::colorWithSRGBRed_green_blue_alpha(
+                        236.0 / 255.0,
+                        236.0 / 255.0,
+                        240.0 / 255.0,
+                        1.0,
+                    )
+                };
+                let window: &NSWindow = &*webview.ns_window().cast();
+                window.setBackgroundColor(Some(&background));
+            })
+            .map_err(|error| error.to_string())?;
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, dark);
+
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // App entry
 // ---------------------------------------------------------------------------
@@ -253,6 +293,7 @@ pub fn run() {
             load_settings,
             save_settings,
             frontend_ready,
+            sync_native_window_theme,
             probe,
             get_preview_frame,
             get_preview_clip,

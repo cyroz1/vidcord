@@ -24,6 +24,7 @@
         "maximizable": false,
         "center": true,
         "decorations": true,
+        "titleBarStyle": "Transparent",
         "transparent": false,
         "additionalBrowserArgs": "--autoplay-policy=no-user-gesture-required"
       }

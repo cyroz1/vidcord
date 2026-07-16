@@ -132,6 +132,8 @@ first pass lands too large.
   vidcord" from Explorer/Finder, or the in-app **Browse** button.
 - **Compact fixed-size window** — stays fixed at 460×690, with standard and
   advanced controls fitted into the app surface without scrollbars.
+- **System-matched macOS chrome** — the native title bar follows macOS Light
+  and Dark appearances together with the app surface.
 - **Remove audio** — strip the audio track to reclaim space.
 - **Strict size checks with bounded retries** — finished files are measured
   against the selected target. Hardware jobs use at most four full attempts

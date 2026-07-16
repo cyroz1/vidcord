@@ -66,6 +66,10 @@ export function frontendReady(): Promise<void> {
   return invoke("frontend_ready");
 }
 
+export function syncNativeWindowTheme(dark: boolean): Promise<void> {
+  return invoke("sync_native_window_theme", { dark });
+}
+
 export function probe(path: string): Promise<ProbeData> {
   return invoke<ProbeData>("probe", { path });
 }
