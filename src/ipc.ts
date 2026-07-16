@@ -10,6 +10,7 @@ export type ProbeData = {
   display_height?: number;
   frame_rate?: number;
   bitrate: number;
+  codec: string;
 };
 
 export type Encoder = { name: string; label: string; ffmpeg_missing?: boolean };

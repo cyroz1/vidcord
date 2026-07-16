@@ -380,7 +380,7 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
         "-print_format",
         "json",
         "-show_entries",
-        "format=duration,bit_rate:stream=codec_type,width,height,avg_frame_rate,r_frame_rate,sample_aspect_ratio,display_aspect_ratio,bit_rate:stream_side_data=rotation",
+        "format=duration,bit_rate:stream=codec_name,codec_type,width,height,avg_frame_rate,r_frame_rate,sample_aspect_ratio,display_aspect_ratio,bit_rate:stream_side_data=rotation",
         path,
     ]);
     configure_ffmpeg_command(&mut cmd);
@@ -411,6 +411,7 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
 
     let width = video["width"].as_u64().unwrap_or(0);
     let height = video["height"].as_u64().unwrap_or(0);
+    let codec = video["codec_name"].as_str().unwrap_or("unknown");
     let frame_rate = video["avg_frame_rate"]
         .as_str()
         .and_then(parse_rate)
@@ -475,7 +476,8 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
         "display_width": display_width,
         "display_height": display_height,
         "frame_rate": frame_rate,
-        "bitrate": bitrate
+        "bitrate": bitrate,
+        "codec": codec
     }))
 }
 

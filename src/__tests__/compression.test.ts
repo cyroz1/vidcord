@@ -58,7 +58,19 @@ describe("compression status formatting", () => {
     ).toBe("Compressing... ETA: Calculating...");
   });
 
-  it("formats final output size against the selected target", () => {
+  it("formats final output size with its reduction from the source", () => {
+    expect(
+      formatCompressionDone({
+        success: true,
+        message: "Compression complete!",
+        input_size_bytes: 100 * 1024 * 1024,
+        output_size_bytes: 23.7 * 1024 * 1024,
+        target_size_bytes: 25 * 1024 * 1024,
+      })
+    ).toBe("Compressed to 23.7 MB — 76.3% smaller.");
+  });
+
+  it("does not show the target when source size is unavailable", () => {
     expect(
       formatCompressionDone({
         success: true,
@@ -66,7 +78,18 @@ describe("compression status formatting", () => {
         output_size_bytes: 23.7 * 1024 * 1024,
         target_size_bytes: 25 * 1024 * 1024,
       })
-    ).toBe("Compressed to 23.7 MB (target 25.0 MB).");
+    ).toBe("Compressed to 23.7 MB.");
+  });
+
+  it("describes an unexpectedly larger output without a negative reduction", () => {
+    expect(
+      formatCompressionDone({
+        success: true,
+        message: "Compression complete!",
+        input_size_bytes: 20 * 1024 * 1024,
+        output_size_bytes: 25 * 1024 * 1024,
+      })
+    ).toBe("Compressed to 25.0 MB — 25.0% larger.");
   });
 
   it("formats the smallest oversized result after target-size failure", () => {

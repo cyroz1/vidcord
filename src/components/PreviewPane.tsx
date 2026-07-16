@@ -14,6 +14,7 @@ import {
   getOs,
   getPreviewClip,
   getPreviewFrame,
+  type ProbeData,
 } from "../ipc";
 import {
   canPreserveDirectVideoSource,
@@ -85,25 +86,10 @@ const overlayBtnStyle: React.CSSProperties = {
   boxShadow: "0 4px 16px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.18)",
 };
 
-const infoOverlayStyle: React.CSSProperties = {
-  position: "absolute",
-  bottom: "6px",
-  right: "8px",
-  fontSize: "11px",
-  color: "rgba(255,255,255,0.90)",
-  background: "rgba(0,0,0,0.48)",
-  backdropFilter: "blur(8px) saturate(160%)",
-  WebkitBackdropFilter: "blur(8px) saturate(160%)",
-  border: "1px solid rgba(255,255,255,0.12)",
-  borderRadius: "var(--radius-xs)",
-  padding: "2px 6px",
-  pointerEvents: "none",
-};
-
 const currentTimeOverlayStyle: React.CSSProperties = {
   position: "absolute",
   bottom: "6px",
-  left: "8px",
+  right: "8px",
   fontSize: "11px",
   color: "rgba(255,255,255,0.90)",
   background: "rgba(0,0,0,0.48)",
@@ -123,13 +109,7 @@ type Props = {
   isScrubbing: boolean;
   removeAudio: boolean;
   loopPlayback: boolean;
-  probeData: {
-    duration: number;
-    width: number;
-    height: number;
-    display_width?: number;
-    display_height?: number;
-  } | null;
+  probeData: ProbeData | null;
   // Fired whenever the playback position changes (timeupdate / seek / stop).
   // Replaces the App-level 80 ms polling loop — the media element already
   // emits timeupdate at ~4 Hz, so we just forward that instead of waking the
@@ -1027,14 +1007,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         </div>
       )}
 
-      {/* Info overlay */}
       {probeData && (
-        <div style={infoOverlayStyle}>
-          {probeData.width}×{probeData.height} · {probeData.duration.toFixed(1)}s
+        <div style={currentTimeOverlayStyle}>
+          {currentPlaybackTime.toFixed(1)}s / {probeData.duration.toFixed(1)}s
         </div>
       )}
-
-      {playing && <div style={currentTimeOverlayStyle}>{currentPlaybackTime.toFixed(1)}s</div>}
     </div>
   );
 });

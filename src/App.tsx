@@ -41,6 +41,12 @@ import {
   type FfmpegInstallResult,
 } from "./ipc";
 import { getSelectionCenter, getTimelineViewBounds } from "./timelineZoom";
+import {
+  formatAverageBitrate,
+  formatCodec,
+  formatFrameRate,
+  formatVideoDuration,
+} from "./videoMetadata";
 import pkg from "../package.json";
 
 // EncodersDialog is only shown after an explicit user click from Advanced
@@ -264,6 +270,18 @@ export default function App() {
   const standardFpsValue = standardFpsOptions.some((option) => option.value === fpsOption)
     ? fpsOption
     : "off";
+  const importDetails = useMemo(() => {
+    if (!probeData) return null;
+    const resolution = `${probeData.width}×${probeData.height}`;
+    const frameRate = formatFrameRate(probeData.frame_rate);
+    const codec = formatCodec(probeData.codec);
+    const bitrate = formatAverageBitrate(probeData.bitrate);
+    const length = formatVideoDuration(probeData.duration);
+    return {
+      text: `${resolution} · ${frameRate} · ${codec} · ${bitrate} · ${length}`,
+      label: `Resolution ${resolution}, frame rate ${frameRate}, codec ${codec}, average bitrate ${bitrate}, length ${length}`,
+    };
+  }, [probeData]);
 
   const clampPreviewFocusTime = useCallback(
     (time: number | null) => {
@@ -1807,6 +1825,11 @@ export default function App() {
                 <span className="drop-label" title={filePath ? fileName : undefined}>
                   {fileName}
                 </span>
+                {importDetails && (
+                  <span className="import-details" aria-label={importDetails.label}>
+                    {importDetails.text}
+                  </span>
+                )}
                 <span className="browse-btn" aria-hidden="true">
                   Browse File
                 </span>

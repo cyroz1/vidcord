@@ -4,6 +4,8 @@
 
 ### UI
 
+- **Clearer compression results**: successful compression messages now show the percentage reduction from the original file size without repeating the selected target size.
+- **Richer import details**: imported videos now show source resolution, frame rate, codec, average bitrate, and length in a compact one-line summary, while the preview uses a single playhead-over-duration readout.
 - **System-matched macOS title bar**: the native title bar now follows the current macOS Light or Dark appearance instead of remaining white in Dark Mode.
 - **Flexible output completion**: compact, always-visible settings-style controls above Compress let you choose Downloads, the imported clip's folder, a remembered custom folder, or an after-compression save prompt. Completed files are copied to the system clipboard by default, with a reveal fallback if copying fails, or can always be revealed instead.
 - **Feature idea credit**: output destination and completion action ideas were suggested by [wvbzy](https://github.com/wvbzy) ([WubzyFN on X](https://x.com/WubzyFN)).

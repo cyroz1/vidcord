@@ -861,6 +861,14 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     let target_bytes = target_size_bytes(opts.target_size_mb)?;
     let job_id = begin_compression_job()?;
     let _job_guard = CompressionJobGuard(job_id);
+    let input_path = opts.input_path.clone();
+    let input_size_bytes = tokio::task::spawn_blocking(move || {
+        std::fs::metadata(input_path)
+            .ok()
+            .map(|metadata| metadata.len())
+    })
+    .await
+    .unwrap_or(None);
 
     // resolve_output_path is advisory; atomically reserve the selected name
     // before FFmpeg's `-y` can touch it. The reservation remains owned across
@@ -999,14 +1007,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             None => true,
         };
         if output_is_small_enough {
-            let message = match target_bytes {
-                Some(limit) => format!(
-                    "Compressed to {} (target {}).",
-                    format_size_mb(output_size),
-                    format_size_mb(limit)
-                ),
-                None => format!("Compressed to {}.", format_size_mb(output_size)),
-            };
+            let message = format!("Compressed to {}.", format_size_mb(output_size));
             vidcord_log(&format!(
                 "Compression finished successfully: {} bytes with {} at {}k.",
                 output_size, attempt.encoder, attempt.video_bitrate_k
@@ -1017,6 +1018,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                     "success": true,
                     "message": message,
                     "output_path": &opts.output_path,
+                    "input_size_bytes": input_size_bytes,
                     "output_size_bytes": output_size,
                     "target_size_bytes": target_bytes,
                     "attempt": attempt_index + 1,

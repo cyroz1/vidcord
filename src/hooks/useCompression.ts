@@ -22,6 +22,7 @@ export type CompressDonePayload = {
   success: boolean;
   cancelled?: boolean;
   message: string;
+  input_size_bytes?: number;
   output_size_bytes?: number;
   target_size_bytes?: number;
   smallest_output_size_bytes?: number;
@@ -121,11 +122,20 @@ export function formatCompressionProgress(payload: CompressProgressPayload): str
 
 export function formatCompressionDone(payload: CompressDonePayload): string {
   if (payload.success && typeof payload.output_size_bytes === "number") {
-    const target =
-      typeof payload.target_size_bytes === "number"
-        ? ` (target ${formatSizeMb(payload.target_size_bytes)})`
-        : "";
-    return `Compressed to ${formatSizeMb(payload.output_size_bytes)}${target}.`;
+    if (
+      typeof payload.input_size_bytes === "number" &&
+      Number.isFinite(payload.input_size_bytes) &&
+      payload.input_size_bytes > 0
+    ) {
+      const reduction =
+        ((payload.input_size_bytes - payload.output_size_bytes) / payload.input_size_bytes) * 100;
+      const comparison =
+        reduction >= 0
+          ? `${Math.abs(reduction).toFixed(1)}% smaller`
+          : `${Math.abs(reduction).toFixed(1)}% larger`;
+      return `Compressed to ${formatSizeMb(payload.output_size_bytes)} — ${comparison}.`;
+    }
+    return `Compressed to ${formatSizeMb(payload.output_size_bytes)}.`;
   }
   if (
     !payload.success &&
