@@ -1499,7 +1499,7 @@ select optgroup {
 }
 
 .preview-pane:hover .preview-controls,
-.preview-pane:focus-within .preview-controls {
+.preview-pane:focus-within .preview-controls:not(.is-playing) {
   opacity: 1;
 }
 

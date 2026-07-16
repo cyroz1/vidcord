@@ -976,7 +976,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
       {/* Play/Stop overlay — shown on hover; disabled on Linux (GStreamer crash) */}
       {canPlay && !isLinux && (
-        <div className="preview-controls" style={overlayGroupStyle}>
+        <div
+          className={`preview-controls${playing ? " is-playing" : ""}`}
+          style={overlayGroupStyle}
+        >
           {!playing ? (
             <button
               type="button"
