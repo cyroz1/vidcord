@@ -2148,54 +2148,52 @@ export default function App() {
             onTimeUpdate={handlePreviewTimeUpdate}
           />
 
-          {filePath && (
-            <div className="output-options" aria-label="Output options">
-              <div className="output-option">
-                <label htmlFor="output-destination-select">Save to</label>
-                <div className="output-select-row">
-                  <select
-                    id="output-destination-select"
-                    value={outputDestination}
-                    onChange={(event) =>
-                      void changeOutputDestination(event.target.value as OutputDestination)
-                    }
-                  >
-                    <option value="downloads">Downloads</option>
-                    <option value="source">Clip folder</option>
-                    <option value="ask">Ask when done</option>
-                    <option value="custom">Custom folder</option>
-                  </select>
-                  {outputDestination === "custom" && (
-                    <button
-                      type="button"
-                      className="custom-folder-btn"
-                      title={customOutputDirectory || "Choose a custom output folder"}
-                      aria-label="Choose a custom output folder"
-                      onClick={() => void chooseCustomOutputDirectory()}
-                    >
-                      {customOutputDirectory.split(/[\\/]/).filter(Boolean).pop() || "Choose"}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="output-option">
-                <label htmlFor="completion-action-select">Complete action</label>
+          <div className="output-options" aria-label="Output options">
+            <div className="output-option">
+              <label htmlFor="output-destination-select">Save to</label>
+              <div className="output-select-row">
                 <select
-                  id="completion-action-select"
-                  value={completionAction}
-                  onChange={(event) => {
-                    const action = event.target.value as CompletionAction;
-                    setCompletionAction(action);
-                    saveSettings({ completion_action: action });
-                  }}
+                  id="output-destination-select"
+                  value={outputDestination}
+                  onChange={(event) =>
+                    void changeOutputDestination(event.target.value as OutputDestination)
+                  }
                 >
-                  <option value="copy">Copy output file</option>
-                  <option value="reveal">Reveal output file</option>
+                  <option value="downloads">Downloads</option>
+                  <option value="source">Clip folder</option>
+                  <option value="ask">Ask when done</option>
+                  <option value="custom">Custom folder</option>
                 </select>
+                {outputDestination === "custom" && (
+                  <button
+                    type="button"
+                    className="custom-folder-btn"
+                    title={customOutputDirectory || "Choose a custom output folder"}
+                    aria-label="Choose a custom output folder"
+                    onClick={() => void chooseCustomOutputDirectory()}
+                  >
+                    {customOutputDirectory.split(/[\\/]/).filter(Boolean).pop() || "Choose"}
+                  </button>
+                )}
               </div>
             </div>
-          )}
+
+            <div className="output-option">
+              <label htmlFor="completion-action-select">Complete action</label>
+              <select
+                id="completion-action-select"
+                value={completionAction}
+                onChange={(event) => {
+                  const action = event.target.value as CompletionAction;
+                  setCompletionAction(action);
+                  saveSettings({ completion_action: action });
+                }}
+              >
+                <option value="copy">Copy output file</option>
+                <option value="reveal">Reveal output file</option>
+              </select>
+            </div>
+          </div>
 
           {/* Compress button */}
           <button
