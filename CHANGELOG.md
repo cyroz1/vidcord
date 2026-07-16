@@ -1,6 +1,6 @@
 # Changelog
 
-## WIP
+## v6.8
 
 ### UI
 

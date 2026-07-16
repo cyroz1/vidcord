@@ -409,7 +409,7 @@ The app re-renders on every trim-slider move. Established patterns:
 When the user asks to change the version, update **every** reference in one commit so semver and `vX.Y` references stay aligned. There is no single source of truth — these all need to match:
 
 1. **Packaging / source**:
-   - `package.json` (`version`, full semver e.g. `6.7.0`)
+   - `package.json` (`version`, full semver e.g. `6.8.0`)
    - `package-lock.json` (run `npm install` after editing `package.json` so the lockfile picks up the new version — don't hand-edit)
    - `src-tauri/Cargo.toml` (`version`, full semver)
    - `src-tauri/Cargo.lock` (run `cargo check --manifest-path src-tauri/Cargo.toml` so the lockfile updates)
