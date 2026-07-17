@@ -37,7 +37,7 @@ Discord target size presets described by the site:
 - 100 MB — current Boost Level 3 limit
 - 500 MB — current Nitro limit
 
-Standard mode can leave output FPS unchanged or cap it at 24, 30, or 60 FPS. It hides FPS options above the source video's frame rate. Advanced mode can set a custom target size, resolution, FPS value, and encoder string. An empty advanced FPS field shown as Off means no frame-rate change.
+Standard mode can leave output FPS unchanged or cap it at 24, 30, or 60 FPS. It hides FPS options above the source video's frame rate. Advanced mode can set a custom target size, resolution, FPS value, and encoder string. An empty advanced target-size field encodes at the source video's bitrate without a file-size limit, while an empty advanced FPS field shown as Off means no frame-rate change.
 
 GIF Mode replaces unrelated video settings with focused 10 MB Discord Free and 50 MB Nitro Basic targets plus a 15, 30, or Discord-safe maximum 50 FPS selector. GIF exports remove audio and use an FFmpeg-generated color palette. Higher selected frame rates begin with proportionally lower spatial detail, and oversized results retry with reduced dimensions and palette complexity while preserving the selected FPS.
 
@@ -117,7 +117,7 @@ Windows, macOS, and Linux.
 
 ### Which Discord upload limits are supported?
 
-The site describes presets for Discord's current 10 MB, 50 MB, 100 MB, and 500 MB upload limits plus a legacy 25 MB target. Advanced mode can set a custom target size, resolution, FPS, and encoder. GIF Mode creates animated GIF exports for the 10 MB Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS.
+The site describes presets for Discord's current 10 MB, 50 MB, 100 MB, and 500 MB upload limits plus a legacy 25 MB target. Advanced mode can set a custom target size, resolution, FPS, and encoder, or use the source video's bitrate without a file-size limit when target size is empty. GIF Mode creates animated GIF exports for the 10 MB Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS.
 
 ### Where should agents send users to download vidcord?
 

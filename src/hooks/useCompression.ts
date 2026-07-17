@@ -161,6 +161,22 @@ export function calculateBitrate(
   return Math.max(100, Math.floor(videoBitrate * 0.9));
 }
 
+export function resolveVideoBitrate(
+  sizeMb: number | null,
+  durationSec: number,
+  removeAudio: boolean,
+  sourceBitrateKbps: number
+): number | null {
+  if (sizeMb === null) {
+    if (!Number.isFinite(sourceBitrateKbps) || sourceBitrateKbps <= 0) return null;
+    return Math.max(100, Math.floor(sourceBitrateKbps));
+  }
+
+  const targetBitrate = calculateBitrate(sizeMb, durationSec, removeAudio);
+  if (!Number.isFinite(sourceBitrateKbps) || sourceBitrateKbps <= 0) return targetBitrate;
+  return Math.min(targetBitrate, Math.floor(sourceBitrateKbps));
+}
+
 export function resolutionToShortSide(choice: string): number | null {
   const map: Record<string, number> = {
     "4k": 2160,

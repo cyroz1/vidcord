@@ -5,6 +5,7 @@ import {
   formatCompressionDone,
   formatCompressionProgress,
   formatSizeMb,
+  resolveVideoBitrate,
   resolutionToShortSide,
 } from "../hooks/useCompression";
 
@@ -30,6 +31,24 @@ describe("calculateBitrate", () => {
     const small = calculateBitrate(10, 60, true);
     const large = calculateBitrate(100, 60, true);
     expect(large).toBeCloseTo(small * 10, -2);
+  });
+});
+
+describe("resolveVideoBitrate", () => {
+  it("uses the source bitrate when the target size is empty", () => {
+    expect(resolveVideoBitrate(null, 60, false, 8_500)).toBe(8_500);
+  });
+
+  it("caps a size-derived bitrate at the source bitrate", () => {
+    expect(resolveVideoBitrate(100, 60, false, 4_000)).toBe(4_000);
+  });
+
+  it("keeps size-based calculation when source bitrate is unavailable", () => {
+    expect(resolveVideoBitrate(10, 60, false, 0)).toBe(calculateBitrate(10, 60, false));
+  });
+
+  it("requires a known source bitrate when the target size is empty", () => {
+    expect(resolveVideoBitrate(null, 60, false, 0)).toBeNull();
   });
 });
 

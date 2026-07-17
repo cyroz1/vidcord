@@ -6,6 +6,10 @@
 
 - **Discord-ready GIF exports**: a bottom-right GIF Mode switches the app to focused 10 MB Free and 50 MB Nitro Basic targets with selectable 15, 30, or Discord-safe maximum 50 FPS, removes unrelated video controls, and creates optimized animated GIF files with automatic size retries that preserve the chosen frame rate.
 
+### Compression
+
+- **Source-bitrate exports**: leaving the Advanced mode size field empty now encodes at the source video's bitrate without enforcing a target file size.
+
 ## v6.8
 
 ### UI

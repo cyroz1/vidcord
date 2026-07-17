@@ -112,7 +112,8 @@ first pass lands too large.
   progressively lower visual complexity without changing the selected FPS.
 - **Advanced mode** — custom target size (MB), output resolution, FPS, and any
   FFmpeg video encoder string, with autocomplete from the encoders your
-  installed FFmpeg exposes.
+  installed FFmpeg exposes. Leave target size empty to encode at the source
+  video's bitrate without enforcing a file-size limit.
 - **Output FPS controls** — standard mode can leave FPS unchanged or cap it
   at 24, 30, or 60 FPS, hiding options above the source frame rate. Advanced
   mode accepts a custom FPS value, or an empty field shown as Off for no change.
@@ -247,7 +248,8 @@ For more distros, manual installs, or troubleshooting, read
    remembered custom folder, or **Ask when done**. Choose whether completion
    copies the output file or reveals it.
 3. **Pick a preset** — 10/25/50/100/500 MB, or flip on **Advanced mode** for
-   a custom target size, resolution, FPS, and encoder. Standard mode can
+   a custom target size, resolution, FPS, and encoder. Leave the advanced size
+   empty to use the source bitrate without a file-size limit. Standard mode can
    also cap output FPS at 24, 30, or 60 when those values do not exceed the
    source frame rate.
 4. **Trim** (optional) — drag the handles or use `I` / `O` to stamp the
