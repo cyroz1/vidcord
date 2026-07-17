@@ -16,7 +16,7 @@ import {
 } from "./ffmpegErrors";
 import {
   useCompression,
-  calculateBitrate,
+  resolveVideoBitrate,
   resolutionToShortSide,
   computeTargetDimensions,
   type ProbeData,
@@ -926,7 +926,7 @@ export default function App() {
       return;
     }
 
-    let targetSize: number;
+    let targetSize: number | null;
     let targetH: number | null = null;
     let targetShort: number | null = null;
     let encoderName: string;
@@ -939,13 +939,14 @@ export default function App() {
       encoderName = "gif";
       outputFps = gifFps;
     } else if (advancedMode) {
-      const sz = parseFloat(advSize);
-      if (!advSize || isNaN(sz) || sz <= 0) {
+      const sizeText = advSize.trim();
+      const sz = Number(sizeText);
+      if (sizeText && (!Number.isFinite(sz) || sz <= 0)) {
         addToast("warning", "Warning", "Enter a valid target size in MB.");
         setCompressing(false);
         return;
       }
-      targetSize = sz;
+      targetSize = sizeText ? sz : null;
       targetShort = resolutionToShortSide(advResolution);
       const fpsText = advFps.trim();
       if (fpsText) {
@@ -976,9 +977,20 @@ export default function App() {
     }
 
     const effectiveRemoveAudio = gifMode || removeAudio;
-    let videoBitrate = calculateBitrate(targetSize, clipDuration, effectiveRemoveAudio);
-    if (!gifMode && probeData.bitrate > 0 && videoBitrate > probeData.bitrate) {
-      videoBitrate = probeData.bitrate;
+    const videoBitrate = resolveVideoBitrate(
+      targetSize,
+      clipDuration,
+      effectiveRemoveAudio,
+      gifMode ? 0 : probeData.bitrate
+    );
+    if (videoBitrate === null) {
+      addToast(
+        "warning",
+        "Source Bitrate Unavailable",
+        "Enter a target size in MB because the source bitrate could not be determined."
+      );
+      setCompressing(false);
+      return;
     }
 
     // Output-path resolution and VAAPI discovery are independent, so keep
@@ -2023,7 +2035,8 @@ export default function App() {
                     type="number"
                     min="0.1"
                     step="0.1"
-                    placeholder="MB"
+                    placeholder="Source"
+                    title="Leave blank to use the source video's bitrate"
                     value={advSize}
                     onChange={(e) => {
                       setAdvSize(e.target.value);
