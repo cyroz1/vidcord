@@ -16,6 +16,7 @@ export type CompressProgressPayload = {
   attempt_total?: number;
   encoder?: string;
   video_bitrate_k?: number;
+  gif_mode?: boolean;
 };
 
 export type CompressDonePayload = {
@@ -113,7 +114,7 @@ export function formatCompressionProgress(payload: CompressProgressPayload): str
     details.push(`Attempt ${payload.attempt}`);
   }
   if (payload.encoder) details.push(payload.encoder);
-  if (typeof payload.video_bitrate_k === "number") {
+  if (!payload.gif_mode && typeof payload.video_bitrate_k === "number") {
     details.push(`${payload.video_bitrate_k} kbps`);
   }
   if (details.length > 0) return `${details.join(" · ")} · ETA: ${payload.eta}`;

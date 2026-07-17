@@ -8,7 +8,8 @@
 **Windows, macOS, and Linux**. Compress videos for Discord's upload size
 limits without uploading them to a website: choose a **10 MB, 25 MB, 50 MB,
 100 MB, or 500 MB** target, trim the clip, and export a Discord-ready `.mp4`
-from your desktop.
+from your desktop. GIF Mode creates animated `.gif` exports for Discord's
+**10 MB Free** and **50 MB Nitro Basic** tiers.
 
 vidcord supports **MP4, MOV, MKV, AVI, WebM, FLV, WMV**, and other formats
 handled by your system [FFmpeg](https://ffmpeg.org) install. It wraps FFmpeg
@@ -89,6 +90,7 @@ first pass lands too large.
 | ------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | Compress a video for Discord free upload limits         | Use the 10 MB preset, trim the clip, and remove audio if needed.               |
 | Compress large MP4, MOV, MKV, AVI, or WebM files        | FFmpeg handles the input format and vidcord exports a Discord-friendly `.mp4`. |
+| Turn a video clip into a Discord GIF                    | Enable GIF Mode and choose the 10 MB Free or 50 MB Nitro Basic target.         |
 | Make a video fit Discord Nitro or boosted server limits | Pick 50 MB, 100 MB, or 500 MB presets without calculating bitrates by hand.    |
 | Keep video compression private                          | Everything runs locally on your computer; no web upload step.                  |
 | Use GPU video encoding from a simple GUI                | vidcord auto-detects NVENC, AMF, QSV, VAAPI, and VideoToolbox encoders.        |
@@ -103,6 +105,11 @@ first pass lands too large.
   - 100 MB @ 1080p — Boost Level 3 or
     [Clips Bypass](https://github.com/riolubruh/YABDP4Nitro?tab=readme-ov-file#clips)
   - 500 MB @ native — Nitro Full
+- **GIF Mode** — export an optimized animated GIF for the 10 MB Discord Free
+  or 50 MB Nitro Basic tier at 15, 30, or Discord-safe maximum 50 FPS. Video-only encoder, audio,
+  and advanced controls are hidden while GIF Mode is active. Higher frame rates
+  trade spatial detail for motion, and oversized GIFs are retried at
+  progressively lower visual complexity without changing the selected FPS.
 - **Advanced mode** — custom target size (MB), output resolution, FPS, and any
   FFmpeg video encoder string, with autocomplete from the encoders your
   installed FFmpeg exposes.

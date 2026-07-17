@@ -11,6 +11,9 @@ export function useSettings() {
 
   // Persisted settings values
   const [qualityIdx, setQualityIdx] = useState(0);
+  const [gifMode, setGifMode] = useState(false);
+  const [gifQualityIdx, setGifQualityIdx] = useState(0);
+  const [gifFps, setGifFps] = useState(15);
   const [advancedMode, setAdvancedMode] = useState(false);
   const [advSize, setAdvSize] = useState("");
   const [advResolution, setAdvResolution] = useState("Native");
@@ -27,6 +30,13 @@ export function useSettings() {
       const s = await loadSettings().catch((): Settings => ({}));
       settingsRef.current = s;
       if (typeof s.quality_index === "number") setQualityIdx(s.quality_index);
+      if (typeof s.gif_mode === "boolean") setGifMode(s.gif_mode);
+      if (s.gif_quality_index === 0 || s.gif_quality_index === 1) {
+        setGifQualityIdx(s.gif_quality_index);
+      }
+      if (s.gif_fps === 15 || s.gif_fps === 30 || s.gif_fps === 50) {
+        setGifFps(s.gif_fps);
+      }
       if (typeof s.advanced_mode === "boolean") setAdvancedMode(s.advanced_mode);
       if (typeof s.advanced_target_size === "string") setAdvSize(s.advanced_target_size);
       if (typeof s.advanced_resolution === "string") setAdvResolution(s.advanced_resolution);
@@ -80,6 +90,12 @@ export function useSettings() {
     settingsLoaded,
     qualityIdx,
     setQualityIdx,
+    gifMode,
+    setGifMode,
+    gifQualityIdx,
+    setGifQualityIdx,
+    gifFps,
+    setGifFps,
     advancedMode,
     setAdvancedMode,
     advSize,

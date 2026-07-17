@@ -820,6 +820,35 @@ select optgroup {
   justify-content: flex-end;
 }
 
+.footer-mode-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.advanced-mode-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.gif-file-icon {
+  box-sizing: border-box;
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  line-height: 1;
+}
+
+.footer-toggle:has(.toggle-input:checked) .footer-mode-icon {
+  color: var(--accent);
+}
+
 .toggle-track {
   position: relative;
   width: 40px;
@@ -1439,6 +1468,24 @@ select optgroup {
   align-items: center;
   gap: 10px;
   padding-top: 2px;
+}
+
+.footer-mode-toggles {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+}
+
+.gif-settings-row {
+  align-items: end;
+  flex-wrap: nowrap;
+}
+
+.gif-settings-row .target-label,
+.gif-settings-row .gif-fps-label {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .footer-meta {

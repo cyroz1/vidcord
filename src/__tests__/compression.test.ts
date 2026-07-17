@@ -58,6 +58,21 @@ describe("compression status formatting", () => {
     ).toBe("Compressing... ETA: Calculating...");
   });
 
+  it("omits the internal quality budget from GIF progress", () => {
+    expect(
+      formatCompressionProgress({
+        percent: 35,
+        eta: "8s",
+        status: "Optimizing GIF to fit...",
+        attempt: 2,
+        attempt_total: 4,
+        encoder: "gif",
+        video_bitrate_k: 420,
+        gif_mode: true,
+      })
+    ).toBe("Attempt 2 · gif · ETA: 8s");
+  });
+
   it("formats final output size with its reduction from the source", () => {
     expect(
       formatCompressionDone({

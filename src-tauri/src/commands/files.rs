@@ -299,9 +299,15 @@ pub async fn resolve_output_path(
     input_path: String,
     output_directory: Option<String>,
     use_input_directory: Option<bool>,
+    output_extension: Option<String>,
 ) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
-        resolve_output_path_blocking(input_path, output_directory, use_input_directory)
+        resolve_output_path_blocking(
+            input_path,
+            output_directory,
+            use_input_directory,
+            output_extension,
+        )
     })
     .await
     .map_err(|e| e.to_string())?
@@ -310,16 +316,17 @@ pub async fn resolve_output_path(
 fn unique_output_path(
     input_path: &std::path::Path,
     directory: &std::path::Path,
+    output_extension: &str,
 ) -> std::path::PathBuf {
     let stem = input_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("video");
 
-    let mut candidate = directory.join(format!("{stem}-vidcord.mp4"));
+    let mut candidate = directory.join(format!("{stem}-vidcord.{output_extension}"));
     let mut counter = 1u32;
     while candidate.exists() {
-        candidate = directory.join(format!("{stem}-vidcord-{counter}.mp4"));
+        candidate = directory.join(format!("{stem}-vidcord-{counter}.{output_extension}"));
         counter += 1;
     }
     candidate
@@ -329,7 +336,12 @@ fn resolve_output_path_blocking(
     input_path: String,
     output_directory: Option<String>,
     use_input_directory: Option<bool>,
+    output_extension: Option<String>,
 ) -> Result<String, String> {
+    let output_extension = output_extension.unwrap_or_else(|| "mp4".into());
+    if output_extension != "mp4" && output_extension != "gif" {
+        return Err("Invalid output format".into());
+    }
     let p = std::path::Path::new(&input_path);
     let directory = if use_input_directory.unwrap_or(false) {
         p.parent()
@@ -350,7 +362,7 @@ fn resolve_output_path_blocking(
         downloads
     };
 
-    Ok(unique_output_path(p, &directory)
+    Ok(unique_output_path(p, &directory, &output_extension)
         .to_string_lossy()
         .into_owned())
 }
@@ -371,15 +383,24 @@ fn validated_staged_output(path: &str) -> Result<std::path::PathBuf, String> {
 }
 
 #[tauri::command]
-pub async fn resolve_staging_output_path(input_path: String) -> Result<String, String> {
+pub async fn resolve_staging_output_path(
+    input_path: String,
+    output_extension: Option<String>,
+) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
+        let output_extension = output_extension.unwrap_or_else(|| "mp4".into());
+        if output_extension != "mp4" && output_extension != "gif" {
+            return Err("Invalid output format".into());
+        }
         let staging = staging_directory();
         std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
-        Ok(
-            unique_output_path(std::path::Path::new(&input_path), &staging)
-                .to_string_lossy()
-                .into_owned(),
+        Ok(unique_output_path(
+            std::path::Path::new(&input_path),
+            &staging,
+            &output_extension,
         )
+        .to_string_lossy()
+        .into_owned())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -496,7 +517,7 @@ mod tests {
         std::fs::write(&first, b"existing").unwrap();
 
         assert_eq!(
-            unique_output_path(input, &directory),
+            unique_output_path(input, &directory, "mp4"),
             directory.join("holiday-vidcord-1.mp4")
         );
         assert_eq!(std::fs::read(&first).unwrap(), b"existing");
@@ -511,13 +532,32 @@ mod tests {
         let input = directory.join("source.mov");
         std::fs::write(&input, b"video").unwrap();
 
-        let output =
-            resolve_output_path_blocking(input.to_string_lossy().into_owned(), None, Some(true))
-                .unwrap();
+        let output = resolve_output_path_blocking(
+            input.to_string_lossy().into_owned(),
+            None,
+            Some(true),
+            Some("mp4".into()),
+        )
+        .unwrap();
 
         assert_eq!(
             std::path::Path::new(&output).parent(),
             Some(directory.as_path())
+        );
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[test]
+    fn gif_output_path_uses_gif_extension() {
+        let directory = std::env::temp_dir().join(format!(
+            "vidcord_gif_output_path_test_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+
+        assert_eq!(
+            unique_output_path(std::path::Path::new("clip.mov"), &directory, "gif"),
+            directory.join("clip-vidcord.gif")
         );
         std::fs::remove_dir_all(directory).ok();
     }

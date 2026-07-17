@@ -40,6 +40,7 @@ export type CompressOptions = {
   output_fps: number | null;
   scale_filter: string | null;
   vaapi_device: string | null;
+  gif_mode: boolean;
 };
 
 export type UpdateCheckResult = {
@@ -174,17 +175,22 @@ export function getVaapiDevice(): Promise<string | null> {
 export function resolveOutputPath(
   inputPath: string,
   outputDirectory?: string,
-  useInputDirectory = false
+  useInputDirectory = false,
+  outputExtension: "mp4" | "gif" = "mp4"
 ): Promise<string> {
   return invoke<string>("resolve_output_path", {
     inputPath,
     outputDirectory,
     useInputDirectory,
+    outputExtension,
   });
 }
 
-export function resolveStagingOutputPath(inputPath: string): Promise<string> {
-  return invoke<string>("resolve_staging_output_path", { inputPath });
+export function resolveStagingOutputPath(
+  inputPath: string,
+  outputExtension: "mp4" | "gif" = "mp4"
+): Promise<string> {
+  return invoke<string>("resolve_staging_output_path", { inputPath, outputExtension });
 }
 
 export function getOs(): Promise<string> {

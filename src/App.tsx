@@ -68,6 +68,12 @@ const QUALITY_PRESETS = [
   { label: "500MB, native res", size_mb: 500, target_h: null },
 ];
 
+const GIF_PRESETS = [
+  { label: "10MB · Discord Free", size_mb: 10, target_h: 480 },
+  { label: "50MB · Nitro Basic", size_mb: 50, target_h: 720 },
+] as const;
+const GIF_FPS_OPTIONS = [15, 30, 50] as const;
+
 const RESOLUTION_OPTIONS = ["Native", "4K", "1440p", "1080p", "720p", "480p"];
 const FPS_OPTIONS = [
   { label: "Off", value: "off", fps: null },
@@ -162,6 +168,12 @@ export default function App() {
     settingsLoaded,
     qualityIdx,
     setQualityIdx,
+    gifMode,
+    setGifMode,
+    gifQualityIdx,
+    setGifQualityIdx,
+    gifFps,
+    setGifFps,
     advancedMode,
     setAdvancedMode,
     advSize,
@@ -920,7 +932,13 @@ export default function App() {
     let encoderName: string;
     let outputFps: number | null = null;
 
-    if (advancedMode) {
+    if (gifMode) {
+      const preset = GIF_PRESETS[gifQualityIdx] ?? GIF_PRESETS[0];
+      targetSize = preset.size_mb;
+      targetH = preset.target_h;
+      encoderName = "gif";
+      outputFps = gifFps;
+    } else if (advancedMode) {
       const sz = parseFloat(advSize);
       if (!advSize || isNaN(sz) || sz <= 0) {
         addToast("warning", "Warning", "Enter a valid target size in MB.");
@@ -957,19 +975,24 @@ export default function App() {
       }
     }
 
-    let videoBitrate = calculateBitrate(targetSize, clipDuration, removeAudio);
-    if (probeData.bitrate > 0 && videoBitrate > probeData.bitrate) videoBitrate = probeData.bitrate;
+    const effectiveRemoveAudio = gifMode || removeAudio;
+    let videoBitrate = calculateBitrate(targetSize, clipDuration, effectiveRemoveAudio);
+    if (!gifMode && probeData.bitrate > 0 && videoBitrate > probeData.bitrate) {
+      videoBitrate = probeData.bitrate;
+    }
 
     // Output-path resolution and VAAPI discovery are independent, so keep
     // their IPC work parallel. Ask mode stages privately until encoding ends.
-    const isVaapi = encoderName.endsWith("_vaapi");
+    const outputExtension = gifMode ? "gif" : "mp4";
+    const isVaapi = !gifMode && encoderName.endsWith("_vaapi");
     const outputPromise =
       outputDestination === "ask"
-        ? resolveStagingOutputPath(filePath)
+        ? resolveStagingOutputPath(filePath, outputExtension)
         : resolveOutputPath(
             filePath,
             outputDestination === "custom" ? customOutputDirectory : undefined,
-            outputDestination === "source"
+            outputDestination === "source",
+            outputExtension
           );
     const [outputResult, vaapiDevice] = await Promise.all([
       outputPromise.then(
@@ -993,7 +1016,7 @@ export default function App() {
       target_size_mb: targetSize,
       start_time: startTime,
       end_time: endTime,
-      remove_audio: removeAudio,
+      remove_audio: effectiveRemoveAudio,
       output_fps: outputFps,
       scale_filter: buildScaleFilter(
         probeData.width,
@@ -1003,6 +1026,7 @@ export default function App() {
         encoderName
       ),
       vaapi_device: vaapiDevice,
+      gif_mode: gifMode,
     }).catch((e) => {
       if (String(e).includes("Cancelled")) {
         return null;
@@ -1023,16 +1047,21 @@ export default function App() {
         let savedOutput: string | null = null;
         while (!savedOutput) {
           const selected = await saveDialog({
-            title: "Save compressed video",
-            defaultPath: `${stem}-vidcord.mp4`,
-            filters: [{ name: "MP4 Video", extensions: ["mp4"] }],
+            title: gifMode ? "Save GIF" : "Save compressed video",
+            defaultPath: `${stem}-vidcord.${outputExtension}`,
+            filters: [
+              gifMode
+                ? { name: "GIF Image", extensions: ["gif"] }
+                : { name: "MP4 Video", extensions: ["mp4"] },
+            ],
           });
           if (!selected) {
             await discardStagedOutput(outputPath).catch(() => {});
             addToast("warning", "Save Cancelled", "The compressed output was discarded.");
             return;
           }
-          const destination = /\.mp4$/i.test(selected) ? selected : `${selected}.mp4`;
+          const hasExtension = gifMode ? /\.gif$/i.test(selected) : /\.mp4$/i.test(selected);
+          const destination = hasExtension ? selected : `${selected}.${outputExtension}`;
           savedOutput = await publishStagedOutput(outputPath, destination).catch((error) => {
             addToast("error", "Could Not Save Output", String(error));
             return null;
@@ -1052,6 +1081,9 @@ export default function App() {
     filePath,
     probeData,
     ffmpegMissing,
+    gifMode,
+    gifQualityIdx,
+    gifFps,
     advancedMode,
     advSize,
     advResolution,
@@ -1836,8 +1868,49 @@ export default function App() {
               </button>
             </div>
 
+            {/* GIF settings */}
+            {gifMode && (
+              <div className="row settings-row gif-settings-row">
+                <label className="target-label">
+                  Discord limit
+                  <select
+                    value={gifQualityIdx}
+                    onChange={(event) => {
+                      const next = Number(event.target.value);
+                      setGifQualityIdx(next);
+                      saveSettings({ gif_quality_index: next });
+                    }}
+                  >
+                    {GIF_PRESETS.map((preset, index) => (
+                      <option key={preset.size_mb} value={index}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="gif-fps-label">
+                  FPS
+                  <select
+                    value={gifFps}
+                    onChange={(event) => {
+                      const next = Number(event.target.value);
+                      if (next !== 15 && next !== 30 && next !== 50) return;
+                      setGifFps(next);
+                      saveSettings({ gif_fps: next });
+                    }}
+                  >
+                    {GIF_FPS_OPTIONS.map((fps) => (
+                      <option key={fps} value={fps}>
+                        {fps}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
+
             {/* Basic settings */}
-            {!advancedMode && (
+            {!gifMode && !advancedMode && (
               <div className="row settings-row">
                 <label className="target-label">
                   Target
@@ -1942,7 +2015,7 @@ export default function App() {
             )}
 
             {/* Advanced settings */}
-            {advancedMode && (
+            {!gifMode && advancedMode && (
               <div className="row settings-row advanced">
                 <label>
                   Size (MB)
@@ -2167,7 +2240,7 @@ export default function App() {
             isScrubbing={previewScrubbing}
             loopPlayback={loopPlayback}
             probeData={probeData}
-            removeAudio={removeAudio}
+            removeAudio={gifMode || removeAudio}
             onTimeUpdate={handlePreviewTimeUpdate}
           />
 
@@ -2242,7 +2315,9 @@ export default function App() {
                 ? "Saving Output..."
                 : compressing
                   ? "Cancel"
-                  : "Compress Video"}
+                  : gifMode
+                    ? "Create GIF"
+                    : "Compress Video"}
           </button>
 
           {/* Progress */}
@@ -2294,21 +2369,58 @@ export default function App() {
                 </svg>
               </a>
             </div>
-            <label className="toggle-label footer-toggle advanced-toggle">
-              <span>Advanced Mode</span>
-              <span className="toggle-track">
-                <input
-                  type="checkbox"
-                  className="toggle-input"
-                  checked={advancedMode}
-                  onChange={(e) => {
-                    setAdvancedMode(e.target.checked);
-                    saveSettings({ advanced_mode: e.target.checked });
-                  }}
-                />
-                <span className="toggle-thumb" />
-              </span>
-            </label>
+            <div className="footer-mode-toggles">
+              {!gifMode && (
+                <label className="toggle-label footer-toggle advanced-toggle" title="Advanced Mode">
+                  <svg
+                    className="footer-mode-icon advanced-mode-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="1.8"
+                    />
+                    <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+                  </svg>
+                  <span className="toggle-track">
+                    <input
+                      type="checkbox"
+                      className="toggle-input"
+                      aria-label="Advanced Mode"
+                      checked={advancedMode}
+                      onChange={(e) => {
+                        setAdvancedMode(e.target.checked);
+                        saveSettings({ advanced_mode: e.target.checked });
+                      }}
+                    />
+                    <span className="toggle-thumb" />
+                  </span>
+                </label>
+              )}
+              <label className="toggle-label footer-toggle gif-mode-toggle" title="GIF Mode">
+                <span className="footer-mode-icon gif-file-icon" aria-hidden="true">
+                  .gif
+                </span>
+                <span className="toggle-track">
+                  <input
+                    type="checkbox"
+                    className="toggle-input"
+                    aria-label="GIF Mode"
+                    checked={gifMode}
+                    onChange={(event) => {
+                      setGifMode(event.target.checked);
+                      saveSettings({ gif_mode: event.target.checked });
+                    }}
+                  />
+                  <span className="toggle-thumb" />
+                </span>
+              </label>
+            </div>
           </div>
         </div>
 

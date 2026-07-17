@@ -293,6 +293,7 @@ pub struct CompressOptions {
     pub output_fps: Option<f64>,
     pub scale_filter: Option<String>,
     pub vaapi_device: Option<String>,
+    pub gif_mode: bool,
 }
 
 /// Returns encoder-specific preset arguments. Without these, software encoders
@@ -342,6 +343,10 @@ fn valid_output_fps(fps: Option<f64>) -> bool {
         Some(value) => value.is_finite() && value > 0.0 && value <= 1000.0,
         None => true,
     }
+}
+
+fn valid_gif_fps(gif_mode: bool, fps: Option<f64>) -> bool {
+    !gif_mode || matches!(fps, Some(15.0 | 30.0 | 50.0))
 }
 
 fn valid_scale_filter(filter: Option<&str>) -> bool {
@@ -425,18 +430,62 @@ fn video_filter_for_encoder(opts: &CompressOptions, encoder: &str) -> String {
     filters.join(",")
 }
 
+fn gif_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> String {
+    let retry_quality = (attempt.video_bitrate_k as f64 / opts.video_bitrate_k.max(1) as f64)
+        .clamp(0.04, 1.0)
+        .sqrt();
+    let fps = opts.output_fps.unwrap_or(15.0);
+    let temporal_quality = (15.0 / fps).sqrt().clamp(0.5, 1.0);
+    let dimension_scale = retry_quality * temporal_quality;
+    let colors = (256.0 * retry_quality).round().clamp(32.0, 256.0) as u32;
+    let scale = opts
+        .scale_filter
+        .as_deref()
+        .and_then(|filter| filter.strip_prefix("scale="))
+        .and_then(|dimensions| {
+            let (width, height) = dimensions.split_once(':')?;
+            let width = width.parse::<u32>().ok()?;
+            let height = height.parse::<u32>().ok()?;
+            let scaled_width = ((width as f64 * dimension_scale).round() as u32).max(2) & !1;
+            let scaled_height = ((height as f64 * dimension_scale).round() as u32).max(2) & !1;
+            Some(format!("scale={scaled_width}:{scaled_height}:flags=lanczos"))
+        })
+        .unwrap_or_else(|| {
+            format!(
+                "scale=trunc(iw*{dimension_scale:.4}/2)*2:trunc(ih*{dimension_scale:.4}/2)*2:flags=lanczos"
+            )
+        });
+
+    format!(
+        "fps={},{},split[gif_source][palette_source];[palette_source]palettegen=max_colors={colors}:stats_mode=diff[palette];[gif_source][palette]paletteuse=dither=sierra2_4a:diff_mode=rectangle[gif]",
+        format_fps_filter_value(fps),
+        scale
+    )
+}
+
 const OVERSIZE_RETRY_LIMIT_PER_ENCODER: usize = 1;
 const OVERSIZE_RETRY_SAFETY: f64 = 0.96;
 
 fn initial_attempt(opts: &CompressOptions) -> CompressionAttempt {
     CompressionAttempt {
-        encoder: opts.encoder.clone(),
+        encoder: if opts.gif_mode {
+            "gif".into()
+        } else {
+            opts.encoder.clone()
+        },
         video_bitrate_k: opts.video_bitrate_k.max(100),
-        status: "Compressing...".into(),
+        status: if opts.gif_mode {
+            "Creating GIF...".into()
+        } else {
+            "Compressing...".into()
+        },
     }
 }
 
 fn max_adaptive_attempts(opts: &CompressOptions, has_target: bool) -> usize {
+    if opts.gif_mode {
+        return if has_target { 4 } else { 1 };
+    }
     // A hardware selection has two encoder phases: the requested encoder and
     // a CPU fallback. Each phase gets its initial encode, and target-size jobs
     // get the same bounded number of adaptive bitrate retries per encoder.
@@ -450,6 +499,29 @@ fn max_adaptive_attempts(opts: &CompressOptions, has_target: bool) -> usize {
         1
     };
     encoder_phases * attempts_per_encoder
+}
+
+fn next_gif_attempt(
+    current: &CompressionAttempt,
+    target_bytes: u64,
+    output_bytes: u64,
+    retry_count: usize,
+) -> Option<(CompressionAttempt, usize)> {
+    if retry_count >= 3 {
+        return None;
+    }
+    let next_bitrate =
+        adaptive_bitrate_for_oversize(current.video_bitrate_k, target_bytes, output_bytes);
+    (next_bitrate < current.video_bitrate_k).then(|| {
+        (
+            CompressionAttempt {
+                encoder: "gif".into(),
+                video_bitrate_k: next_bitrate,
+                status: "Optimizing GIF to fit...".into(),
+            },
+            retry_count + 1,
+        )
+    })
 }
 
 fn cpu_fallback_attempt(video_bitrate_k: u32, status: String) -> CompressionAttempt {
@@ -614,8 +686,6 @@ async fn run_ffmpeg_attempt(
         }
     }
 
-    let vf = video_filter_for_encoder(opts, &attempt.encoder);
-    let preset_args = encoder_preset_args(&attempt.encoder);
     let duration = format!("{clip_duration:.3}");
     let start_time = format!("{:.3}", opts.start_time);
 
@@ -626,29 +696,45 @@ async fn run_ffmpeg_attempt(
         duration,
         "-i".into(),
         opts.input_path.clone(),
-        "-map".into(),
-        "0:v:0".into(),
         "-sn".into(),
-        "-c:v".into(),
-        attempt.encoder.clone(),
-        "-b:v".into(),
-        format!("{}k", attempt.video_bitrate_k),
-        "-vf".into(),
-        vf,
     ]);
-    cmd_args.extend(preset_args);
 
-    if opts.remove_audio {
-        cmd_args.push("-an".into());
+    if opts.gif_mode {
+        cmd_args.extend([
+            "-filter_complex".into(),
+            gif_filter(opts, attempt),
+            "-map".into(),
+            "[gif]".into(),
+            "-loop".into(),
+            "0".into(),
+            "-an".into(),
+        ]);
     } else {
+        let vf = video_filter_for_encoder(opts, &attempt.encoder);
         cmd_args.extend([
             "-map".into(),
-            "0:a?".into(),
-            "-c:a".into(),
-            "aac".into(),
-            "-b:a".into(),
-            "128k".into(),
+            "0:v:0".into(),
+            "-c:v".into(),
+            attempt.encoder.clone(),
+            "-b:v".into(),
+            format!("{}k", attempt.video_bitrate_k),
+            "-vf".into(),
+            vf,
         ]);
+        cmd_args.extend(encoder_preset_args(&attempt.encoder));
+
+        if opts.remove_audio {
+            cmd_args.push("-an".into());
+        } else {
+            cmd_args.extend([
+                "-map".into(),
+                "0:a?".into(),
+                "-c:a".into(),
+                "aac".into(),
+                "-b:a".into(),
+                "128k".into(),
+            ]);
+        }
     }
 
     cmd_args.extend([
@@ -704,6 +790,7 @@ async fn run_ffmpeg_attempt(
     let attempt_total = total_attempts;
     let encoder_name = attempt.encoder.clone();
     let video_bitrate_k = attempt.video_bitrate_k;
+    let gif_mode = opts.gif_mode;
     let status_text = attempt.status.clone();
 
     let run_result = tokio::task::spawn_blocking(move || -> Result<_, std::io::Error> {
@@ -785,7 +872,8 @@ async fn run_ffmpeg_attempt(
                     "attempt": attempt_number,
                     "attempt_total": attempt_total,
                     "encoder": encoder_name.as_str(),
-                    "video_bitrate_k": video_bitrate_k
+                    "video_bitrate_k": video_bitrate_k,
+                    "gif_mode": gif_mode
                 }),
             );
         })?;
@@ -847,6 +935,9 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     if !valid_output_fps(opts.output_fps) {
         return Err("Invalid output FPS".to_string());
     }
+    if !valid_gif_fps(opts.gif_mode, opts.output_fps) {
+        return Err("GIF FPS must be 15, 30, or 50".to_string());
+    }
     if !valid_scale_filter(opts.scale_filter.as_deref()) {
         return Err("Invalid scale filter".to_string());
     }
@@ -887,7 +978,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     let mut attempt = initial_attempt(&opts);
     let mut attempt_index = 0usize;
     let mut oversize_retries_for_encoder = 0usize;
-    let mut cpu_fallback_used = opts.encoder == "libx264";
+    let mut cpu_fallback_used = opts.gif_mode || opts.encoder == "libx264";
     let mut seen_attempts: std::collections::HashSet<(String, u32)> =
         std::collections::HashSet::new();
 
@@ -908,7 +999,8 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 "attempt": attempt_index + 1,
                 "attempt_total": total_attempts,
                 "encoder": attempt.encoder.as_str(),
-                "video_bitrate_k": attempt.video_bitrate_k
+                "video_bitrate_k": attempt.video_bitrate_k,
+                "gif_mode": opts.gif_mode
             }),
         );
 
@@ -1045,16 +1137,24 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         let Some(limit) = target_bytes else {
             break;
         };
-        let Some((next_attempt, next_oversize_retries, next_cpu_fallback_used)) =
-            next_oversize_attempt(
+        let (next_attempt, next_oversize_retries, next_cpu_fallback_used) = if opts.gif_mode {
+            let Some((next, retries)) =
+                next_gif_attempt(&attempt, limit, output_size, oversize_retries_for_encoder)
+            else {
+                break;
+            };
+            (next, retries, true)
+        } else {
+            let Some(next) = next_oversize_attempt(
                 &attempt,
                 limit,
                 output_size,
                 oversize_retries_for_encoder,
                 cpu_fallback_used,
-            )
-        else {
-            break;
+            ) else {
+                break;
+            };
+            next
         };
         attempt_index += 1;
         attempt = next_attempt;
@@ -1295,6 +1395,7 @@ mod tests {
             output_fps: None,
             scale_filter: None,
             vaapi_device: None,
+            gif_mode: false,
         }
     }
 
@@ -1323,12 +1424,53 @@ mod tests {
     }
 
     #[test]
+    fn test_gif_filter_uses_palette_and_reduces_quality_for_retry() {
+        let mut opts = retry_test_options("gif", Some(10.0));
+        opts.gif_mode = true;
+        opts.output_fps = Some(15.0);
+        opts.scale_filter = Some("scale=854:480".into());
+        let first = initial_attempt(&opts);
+        let retry = CompressionAttempt {
+            encoder: "gif".into(),
+            video_bitrate_k: 225,
+            status: String::new(),
+        };
+
+        assert!(gif_filter(&opts, &first).contains("scale=854:480"));
+        let retry_filter = gif_filter(&opts, &retry);
+        assert!(retry_filter.contains("palettegen"));
+        assert!(retry_filter.contains("paletteuse"));
+        assert!(retry_filter.contains("scale=426:240"));
+        assert!(retry_filter.starts_with("fps=15,"));
+    }
+
+    #[test]
+    fn test_gif_filter_preserves_selected_fps_and_trades_spatial_quality() {
+        let mut opts = retry_test_options("gif", Some(10.0));
+        opts.gif_mode = true;
+        opts.output_fps = Some(50.0);
+        opts.scale_filter = Some("scale=854:480".into());
+        let first = initial_attempt(&opts);
+        let filter = gif_filter(&opts, &first);
+
+        assert!(filter.starts_with("fps=50,"));
+        assert!(filter.contains("scale=468:262"));
+    }
+
+    #[test]
     fn test_output_fps_validation_rejects_invalid_values() {
         assert!(valid_output_fps(None));
         assert!(valid_output_fps(Some(60.0)));
         assert!(!valid_output_fps(Some(0.0)));
         assert!(!valid_output_fps(Some(f64::INFINITY)));
         assert!(!valid_output_fps(Some(1000.1)));
+        assert!(valid_gif_fps(true, Some(15.0)));
+        assert!(valid_gif_fps(true, Some(30.0)));
+        assert!(valid_gif_fps(true, Some(50.0)));
+        assert!(!valid_gif_fps(true, Some(60.0)));
+        assert!(!valid_gif_fps(true, Some(24.0)));
+        assert!(!valid_gif_fps(true, None));
+        assert!(valid_gif_fps(false, Some(24.0)));
     }
 
     #[test]

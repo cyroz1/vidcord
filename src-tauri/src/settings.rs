@@ -14,6 +14,12 @@ pub struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality_index: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub gif_mode: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gif_quality_index: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gif_fps: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub advanced_mode: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advanced_target_size: Option<String>,
