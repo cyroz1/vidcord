@@ -69,8 +69,8 @@ const QUALITY_PRESETS = [
 ];
 
 const GIF_PRESETS = [
-  { label: "10MB · Discord Free", size_mb: 10, target_h: 480 },
-  { label: "50MB · Nitro Basic", size_mb: 50, target_h: 720 },
+  { label: "10MB", size_mb: 10, target_h: 480 },
+  { label: "50MB", size_mb: 50, target_h: 720 },
 ] as const;
 const GIF_FPS_OPTIONS = [15, 30, 50] as const;
 
@@ -1872,7 +1872,7 @@ export default function App() {
             {gifMode && (
               <div className="row settings-row gif-settings-row">
                 <label className="target-label">
-                  Discord limit
+                  Target
                   <select
                     value={gifQualityIdx}
                     onChange={(event) => {
