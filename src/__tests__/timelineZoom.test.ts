@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { getSelectionCenter, getTimelineViewBounds } from "../timelineZoom";
+import {
+  formatTimelineTime,
+  getSelectionCenter,
+  getTimelineViewBounds,
+  parseTimelineTimeInput,
+  timeToTimelineValue,
+  TIMELINE_ZOOM_MAX,
+} from "../timelineZoom";
 
 describe("timeline zoom", () => {
   it("centers zoom on a selected portion near the start of the clip", () => {
@@ -26,5 +33,35 @@ describe("timeline zoom", () => {
       start: 7500,
       end: 10_000,
     });
+  });
+
+  it("supports detailed zooming for long videos", () => {
+    expect(TIMELINE_ZOOM_MAX).toBe(100);
+    expect(getTimelineViewBounds(5000, TIMELINE_ZOOM_MAX, 10_000, 1)).toEqual({
+      start: 4950,
+      end: 5050,
+    });
+  });
+
+  it("formats timeline labels as seconds or clock time", () => {
+    expect(formatTimelineTime(3723.45, false)).toBe("3723.4s");
+    expect(formatTimelineTime(3723.45, true)).toBe("1:02:03.5");
+    expect(formatTimelineTime(65.25, true)).toBe("0:01:05.3");
+  });
+
+  it("parses editable timeline times in seconds or clock notation", () => {
+    expect(parseTimelineTimeInput("83.5")).toBe(83.5);
+    expect(parseTimelineTimeInput("83.5s")).toBe(83.5);
+    expect(parseTimelineTimeInput("2:03.5")).toBe(123.5);
+    expect(parseTimelineTimeInput("1:02:03.5")).toBe(3723.5);
+    expect(parseTimelineTimeInput("1:60:00")).toBeNull();
+    expect(parseTimelineTimeInput("-1")).toBeNull();
+    expect(parseTimelineTimeInput("")).toBeNull();
+  });
+
+  it("clamps typed times to the timeline duration", () => {
+    expect(timeToTimelineValue(30, 120, 10_000)).toBe(2500);
+    expect(timeToTimelineValue(180, 120, 10_000)).toBe(10_000);
+    expect(timeToTimelineValue(-10, 120, 10_000)).toBe(0);
   });
 });

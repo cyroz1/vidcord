@@ -950,6 +950,13 @@ select optgroup {
   min-width: 0;
 }
 
+.trim-heading-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
 .trim-selection-meta {
   font-size: 12px;
   color: var(--text);
@@ -1061,7 +1068,8 @@ select optgroup {
   flex: 0 0 auto;
 }
 
-.trim-loop-toggle {
+.trim-loop-toggle,
+.trim-time-format-toggle {
   width: 26px;
   min-height: 26px;
   display: inline-flex;
@@ -1080,18 +1088,28 @@ select optgroup {
     color 0.15s;
 }
 
-.trim-loop-toggle:hover:not(:disabled) {
+.trim-time-format-toggle {
+  width: auto;
+  padding-inline: 5px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.trim-loop-toggle:hover:not(:disabled),
+.trim-time-format-toggle:hover:not(:disabled) {
   color: var(--text);
   background: rgba(255, 255, 255, 0.16);
 }
 
-.trim-loop-toggle.active {
+.trim-loop-toggle.active,
+.trim-time-format-toggle.active {
   border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
   background: color-mix(in srgb, var(--accent) 16%, var(--surface2));
   color: var(--accent);
 }
 
-.trim-loop-toggle:disabled {
+.trim-loop-toggle:disabled,
+.trim-time-format-toggle:disabled {
   opacity: 0.42;
   cursor: default;
 }
@@ -1400,6 +1418,40 @@ select optgroup {
   text-align: right;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
+}
+
+.time-label.clock-format {
+  width: 63px;
+  font-size: 11px;
+}
+
+.time-label-input {
+  width: 63px;
+  height: 22px;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--surface2);
+  padding: 2px 4px;
+  outline: none;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  box-shadow: var(--card-top);
+}
+
+.time-label-input:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.time-label-input:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.time-label-input:disabled {
+  opacity: 0.48;
 }
 
 .time-label-left {

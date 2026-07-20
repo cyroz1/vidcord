@@ -40,7 +40,12 @@ import {
   showInFileExplorer,
   type FfmpegInstallResult,
 } from "./ipc";
-import { getSelectionCenter, getTimelineViewBounds } from "./timelineZoom";
+import {
+  getSelectionCenter,
+  getTimelineViewBounds,
+  timeToTimelineValue,
+  TIMELINE_ZOOM_MAX,
+} from "./timelineZoom";
 import {
   formatAverageBitrate,
   formatCodec,
@@ -1571,7 +1576,7 @@ export default function App() {
       if (e.ctrlKey || e.metaKey) {
         const zoomDelta = e.deltaY < 0 ? 1.15 : 1 / 1.15;
         centerTimelineOnSelection();
-        setTimelineZoom((prev) => Math.max(1, Math.min(20, prev * zoomDelta)));
+        setTimelineZoom((prev) => Math.max(1, Math.min(TIMELINE_ZOOM_MAX, prev * zoomDelta)));
         return;
       }
 
@@ -1685,7 +1690,7 @@ export default function App() {
 
   const zoomTimelineIn = useCallback(() => {
     centerTimelineOnSelection();
-    setTimelineZoom((prev) => Math.min(20, prev * 1.25));
+    setTimelineZoom((prev) => Math.min(TIMELINE_ZOOM_MAX, prev * 1.25));
   }, [centerTimelineOnSelection]);
 
   const setLoopPlaybackFromTimeline = useCallback((enabled: boolean) => {
@@ -1742,6 +1747,20 @@ export default function App() {
       }
     },
     [applyTrim, schedulePreviewFocus, setPreviewFocusNow, sliderValueToTime]
+  );
+
+  const handleStartTimeCommit = useCallback(
+    (time: number) => {
+      handleStartChange(timeToTimelineValue(time, duration, SLIDER_MAX));
+    },
+    [duration, handleStartChange]
+  );
+
+  const handleEndTimeCommit = useCallback(
+    (time: number) => {
+      handleEndChange(timeToTimelineValue(time, duration, SLIDER_MAX));
+    },
+    [duration, handleEndChange]
   );
 
   return (
@@ -2202,6 +2221,7 @@ export default function App() {
             <TrimTimeline
               selectedDuration={selectedDuration}
               selectedDurationPct={selectedDurationPct}
+              editableTimes={!gifMode && advancedMode}
               trimReady={trimReady}
               canSetInPoint={canSetInPoint}
               canSetOutPoint={canSetOutPoint}
@@ -2240,6 +2260,8 @@ export default function App() {
               onPointerUp={commitPointerTrimChange}
               onStartChange={handleStartChange}
               onEndChange={handleEndChange}
+              onStartTimeCommit={handleStartTimeCommit}
+              onEndTimeCommit={handleEndTimeCommit}
             />
           </div>
 
