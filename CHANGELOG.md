@@ -5,6 +5,8 @@
 ### UI
 
 - **Discord-ready GIF exports**: a bottom-right GIF Mode switches the app to focused 10 MB Free and 50 MB Nitro Basic targets with selectable 15, 30, or Discord-safe maximum 50 FPS, removes unrelated video controls, and creates optimized animated GIF files with automatic size retries that preserve the chosen frame rate.
+- **Long-video timeline controls**: the trim timeline can now show hours, minutes, and seconds, and its zoom range extends from 20× to 100× for more precise edits in long videos.
+- **Direct trim-time entry**: Advanced Mode turns the timeline's start and end labels into editable fields that accept seconds or hours, minutes, and seconds.
 
 ### Compression
 

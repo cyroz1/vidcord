@@ -7,6 +7,7 @@ import {
   type RefObject,
   type WheelEvent,
 } from "react";
+import { formatTimelineTime, parseTimelineTimeInput, TIMELINE_ZOOM_MAX } from "../timelineZoom";
 
 export type SnapMode = "off" | "0.1" | "0.5" | "1.0";
 
@@ -15,6 +16,7 @@ const TRIM_RANGE_MAX = 10000;
 type Props = {
   selectedDuration: number;
   selectedDurationPct: number;
+  editableTimes: boolean;
   trimReady: boolean;
   canSetInPoint: boolean;
   canSetOutPoint: boolean;
@@ -53,6 +55,8 @@ type Props = {
   onPointerUp: () => void;
   onStartChange: (value: number) => void;
   onEndChange: (value: number) => void;
+  onStartTimeCommit: (time: number) => void;
+  onEndTimeCommit: (time: number) => void;
 };
 
 type TrimIconName =
@@ -136,9 +140,70 @@ function isEditableTarget(target: EventTarget | null): boolean {
   );
 }
 
+type TimelineTimeInputProps = {
+  side: "start" | "end";
+  time: number;
+  clockFormat: boolean;
+  disabled: boolean;
+  onFocus: () => void;
+  onCommit: (time: number) => void;
+};
+
+const TimelineTimeInput = memo(function TimelineTimeInput({
+  side,
+  time,
+  clockFormat,
+  disabled,
+  onFocus,
+  onCommit,
+}: TimelineTimeInputProps) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const cancelCommitRef = useRef(false);
+  const displayValue = draft ?? formatTimelineTime(time, clockFormat);
+
+  return (
+    <input
+      type="text"
+      className={`time-label time-label-input time-label-${side}`}
+      value={displayValue}
+      disabled={disabled}
+      inputMode="decimal"
+      aria-label={`Trim ${side} time`}
+      title="Enter seconds or h:m:s; press Enter to apply"
+      onFocus={(event) => {
+        onFocus();
+        setDraft(event.currentTarget.value);
+        event.currentTarget.select();
+      }}
+      onChange={(event) => setDraft(event.currentTarget.value)}
+      onBlur={(event) => {
+        if (cancelCommitRef.current) {
+          cancelCommitRef.current = false;
+          setDraft(null);
+          return;
+        }
+        const parsed = parseTimelineTimeInput(event.currentTarget.value);
+        if (parsed !== null) onCommit(parsed);
+        setDraft(null);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          cancelCommitRef.current = true;
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+});
+
 function TrimTimeline({
   selectedDuration,
   selectedDurationPct,
+  editableTimes,
   trimReady,
   canSetInPoint,
   canSetOutPoint,
@@ -177,12 +242,15 @@ function TrimTimeline({
   onPointerUp,
   onStartChange,
   onEndChange,
+  onStartTimeCommit,
+  onEndTimeCommit,
 }: Props) {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [clockTimeFormat, setClockTimeFormat] = useState(false);
   const helpButtonRef = useRef<HTMLButtonElement>(null);
   const helpPointerDownRef = useRef(false);
   const canZoomOut = trimReady && timelineZoom > 1.0001;
-  const canZoomIn = trimReady && timelineZoom < 19.9999;
+  const canZoomIn = trimReady && timelineZoom < TIMELINE_ZOOM_MAX - 0.0001;
   const visibleRangeMin = Math.max(0, Math.ceil(viewStartVal));
   const visibleRangeMax = Math.min(TRIM_RANGE_MAX, Math.floor(viewEndVal));
   const startHandleInView = startVal >= visibleRangeMin && startVal <= visibleRangeMax;
@@ -229,69 +297,81 @@ function TrimTimeline({
             {selectedDuration.toFixed(2)}s selected ({selectedDurationPct.toFixed(1)}%)
           </span>
         </div>
-        <div
-          className="trim-shortcuts-popover"
-          onBlurCapture={(event) => {
-            const nextTarget = event.relatedTarget;
-            if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
-            helpPointerDownRef.current = false;
-            setShortcutsOpen(false);
-          }}
-        >
+        <div className="trim-heading-actions">
           <button
-            ref={helpButtonRef}
             type="button"
-            className="trim-mini-btn trim-shortcuts-btn"
-            aria-label="Keyboard shortcuts"
-            aria-controls="trim-shortcuts-panel"
-            aria-expanded={shortcutsOpen}
-            aria-describedby={shortcutsOpen ? "trim-shortcuts-panel" : undefined}
-            title="Keyboard shortcuts"
-            onPointerDown={() => {
-              helpPointerDownRef.current = true;
-            }}
-            onPointerCancel={() => {
-              helpPointerDownRef.current = false;
-            }}
-            onFocus={() => {
-              if (!helpPointerDownRef.current) setShortcutsOpen(true);
-            }}
-            onClick={() => {
-              helpPointerDownRef.current = false;
-              setShortcutsOpen((open) => !open);
-            }}
+            className={`trim-time-format-toggle${clockTimeFormat ? " active" : ""}`}
+            aria-label="Show timeline times as hours, minutes, and seconds"
+            aria-pressed={clockTimeFormat}
+            title="Show timeline times as hours:minutes:seconds"
+            onClick={() => setClockTimeFormat((enabled) => !enabled)}
           >
-            <TrimIcon name="help" />
+            h:m:s
           </button>
           <div
-            id="trim-shortcuts-panel"
-            className="trim-shortcuts-panel"
-            role="tooltip"
-            hidden={!shortcutsOpen}
+            className="trim-shortcuts-popover"
+            onBlurCapture={(event) => {
+              const nextTarget = event.relatedTarget;
+              if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+              helpPointerDownRef.current = false;
+              setShortcutsOpen(false);
+            }}
           >
-            <div className="trim-shortcuts-grid">
-              <span className="sc-key">Space</span>
-              <span>Play / Pause</span>
-              <span className="sc-key">, / .</span>
-              <span>Step 1/30s back / forward</span>
-              <span className="sc-key">I</span>
-              <span>Set in point to playhead</span>
-              <span className="sc-key">O</span>
-              <span>Set out point to playhead</span>
-              <span className="sc-key">J</span>
-              <span>Seek to in point</span>
-              <span className="sc-key">K</span>
-              <span>Seek to out point</span>
-              <span className="sc-key">[ / ]</span>
-              <span>Expand in / out point</span>
-              <span className="sc-key">R / U</span>
-              <span>Reset trim to full clip</span>
-              <span className="sc-key">Shift + Arrow</span>
-              <span>Nudge active handle</span>
-              <span className="sc-key">Cmd/Ctrl + Z</span>
-              <span>Undo / Redo trim</span>
-              <span className="sc-key">?</span>
-              <span>Toggle shortcut help</span>
+            <button
+              ref={helpButtonRef}
+              type="button"
+              className="trim-mini-btn trim-shortcuts-btn"
+              aria-label="Keyboard shortcuts"
+              aria-controls="trim-shortcuts-panel"
+              aria-expanded={shortcutsOpen}
+              aria-describedby={shortcutsOpen ? "trim-shortcuts-panel" : undefined}
+              title="Keyboard shortcuts"
+              onPointerDown={() => {
+                helpPointerDownRef.current = true;
+              }}
+              onPointerCancel={() => {
+                helpPointerDownRef.current = false;
+              }}
+              onFocus={() => {
+                if (!helpPointerDownRef.current) setShortcutsOpen(true);
+              }}
+              onClick={() => {
+                helpPointerDownRef.current = false;
+                setShortcutsOpen((open) => !open);
+              }}
+            >
+              <TrimIcon name="help" />
+            </button>
+            <div
+              id="trim-shortcuts-panel"
+              className="trim-shortcuts-panel"
+              role="tooltip"
+              hidden={!shortcutsOpen}
+            >
+              <div className="trim-shortcuts-grid">
+                <span className="sc-key">Space</span>
+                <span>Play / Pause</span>
+                <span className="sc-key">, / .</span>
+                <span>Step 1/30s back / forward</span>
+                <span className="sc-key">I</span>
+                <span>Set in point to playhead</span>
+                <span className="sc-key">O</span>
+                <span>Set out point to playhead</span>
+                <span className="sc-key">J</span>
+                <span>Seek to in point</span>
+                <span className="sc-key">K</span>
+                <span>Seek to out point</span>
+                <span className="sc-key">[ / ]</span>
+                <span>Expand in / out point</span>
+                <span className="sc-key">R / U</span>
+                <span>Reset trim to full clip</span>
+                <span className="sc-key">Shift + Arrow</span>
+                <span>Nudge active handle</span>
+                <span className="sc-key">Cmd/Ctrl + Z</span>
+                <span>Undo / Redo trim</span>
+                <span className="sc-key">?</span>
+                <span>Toggle shortcut help</span>
+              </div>
             </div>
           </div>
         </div>
@@ -408,7 +488,20 @@ function TrimTimeline({
         </button>
       </div>
       <div className="slider-row trim-dual-row">
-        <span className="time-label time-label-left">{startTime.toFixed(1)}s</span>
+        {editableTimes ? (
+          <TimelineTimeInput
+            side="start"
+            time={startTime}
+            clockFormat={clockTimeFormat}
+            disabled={!trimReady}
+            onFocus={onStartHandleFocus}
+            onCommit={onStartTimeCommit}
+          />
+        ) : (
+          <span className={`time-label time-label-left${clockTimeFormat ? " clock-format" : ""}`}>
+            {formatTimelineTime(startTime, clockTimeFormat)}
+          </span>
+        )}
         <div
           ref={trimWrapRef}
           className={`trim-dual-wrap${trimReady ? "" : " disabled"}`}
@@ -455,7 +548,11 @@ function TrimTimeline({
               aria-valuemin={0}
               aria-valuemax={TRIM_RANGE_MAX}
               aria-valuenow={startVal}
-              aria-valuetext={`${startTime.toFixed(1)} seconds`}
+              aria-valuetext={
+                clockTimeFormat
+                  ? formatTimelineTime(startTime, true)
+                  : `${startTime.toFixed(1)} seconds`
+              }
             />
           )}
           {endHandleInView && (
@@ -476,11 +573,28 @@ function TrimTimeline({
               aria-valuemin={0}
               aria-valuemax={TRIM_RANGE_MAX}
               aria-valuenow={endVal}
-              aria-valuetext={`${endTime.toFixed(1)} seconds`}
+              aria-valuetext={
+                clockTimeFormat
+                  ? formatTimelineTime(endTime, true)
+                  : `${endTime.toFixed(1)} seconds`
+              }
             />
           )}
         </div>
-        <span className="time-label time-label-right">{endTime.toFixed(1)}s</span>
+        {editableTimes ? (
+          <TimelineTimeInput
+            side="end"
+            time={endTime}
+            clockFormat={clockTimeFormat}
+            disabled={!trimReady}
+            onFocus={onEndHandleFocus}
+            onCommit={onEndTimeCommit}
+          />
+        ) : (
+          <span className={`time-label time-label-right${clockTimeFormat ? " clock-format" : ""}`}>
+            {formatTimelineTime(endTime, clockTimeFormat)}
+          </span>
+        )}
       </div>
     </div>
   );
