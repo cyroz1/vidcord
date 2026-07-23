@@ -169,15 +169,15 @@ first pass lands too large.
 ### Supported input formats
 
 MP4, MOV, MKV, AVI, WebM, FLV, WMV, and any other container / codec
-combination your system FFmpeg can demux. Output is always `.mp4` — H.264
-(AVC) by default, H.265 (HEVC) if you pick an `hevc_*` encoder in Advanced
-mode.
+combination your system FFmpeg can demux. Standard and Advanced mode output is
+`.mp4` — H.264 (AVC) by default or H.265 (HEVC) if you pick an `hevc_*`
+encoder. GIF Mode creates an animated `.gif`.
 
 ## Screenshots
 
-| Main window                                                                                             | Advanced mode                                                                                                              |
-| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| ![vidcord main window with trim timeline, size preset picker, and progress bar](site/assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/assets/advancedmode.png) |
+| Main window                                                                                             | Advanced mode                                                                                                              | GIF mode                                                                                                                |
+| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| ![vidcord main window with trim timeline, size preset picker, and progress bar](site/assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/assets/advancedmode.png) | ![vidcord GIF mode with Discord size target, FPS picker, trim timeline, and Create GIF button](site/assets/gifmode.png) |
 
 | Output file                                                                                 | Windows context menu                                                                                            | macOS Finder                                                                                          |
 | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |

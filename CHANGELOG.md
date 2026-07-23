@@ -2,6 +2,10 @@
 
 ## WIP
 
+### Website
+
+- Refreshed the main and Advanced mode screenshots and added a dedicated GIF Mode showcase.
+
 ## v6.9
 
 ### Setup

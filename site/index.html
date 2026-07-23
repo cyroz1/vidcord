@@ -106,6 +106,7 @@
             "image": [
               "https://vidcord.app/assets/window.png",
               "https://vidcord.app/assets/advancedmode.png",
+              "https://vidcord.app/assets/gifmode.png",
               "https://vidcord.app/assets/context.png",
               "https://vidcord.app/assets/finder.png",
               "https://vidcord.app/assets/file.png"
@@ -330,7 +331,7 @@
               <img
                 src="assets/window.png"
                 width="1144"
-                height="1484"
+                height="1668"
                 decoding="async"
                 alt="vidcord desktop app with video preview, trim timeline, preset picker, and compression controls"
               />
@@ -446,10 +447,50 @@
             <img
               src="assets/advancedmode.png"
               width="1144"
-              height="1484"
+              height="1668"
               loading="lazy"
               decoding="async"
               alt="vidcord advanced mode with target size, resolution, and encoder controls"
+            />
+          </picture>
+        </div>
+      </section>
+
+      <section class="detail-section detail-section-reverse" aria-label="GIF mode">
+        <div class="detail-copy">
+          <h2>Turn the best moment into a Discord-ready GIF.</h2>
+          <p>
+            GIF Mode swaps in focused controls for animated exports. Choose a Discord Free or Nitro
+            Basic size target and the motion quality you want, then let vidcord optimize the result
+            locally.
+          </p>
+          <ul>
+            <li>Focused 10 MB Free and 50 MB Nitro Basic targets.</li>
+            <li>Selectable 15, 30, or Discord-safe maximum 50 FPS output.</li>
+            <li>Automatic palette generation for cleaner color and motion.</li>
+            <li>Adaptive size retries that preserve your selected frame rate.</li>
+            <li>No audio track or unrelated video-only controls.</li>
+          </ul>
+        </div>
+        <div class="detail-image">
+          <picture>
+            <source
+              type="image/webp"
+              srcset="
+                assets/gifmode-480.webp   480w,
+                assets/gifmode-720.webp   720w,
+                assets/gifmode-960.webp   960w,
+                assets/gifmode-1144.webp 1144w
+              "
+              sizes="(max-width: 760px) calc(100vw - 36px), (max-width: 1040px) 560px, 500px"
+            />
+            <img
+              src="assets/gifmode.png"
+              width="1144"
+              height="1668"
+              loading="lazy"
+              decoding="async"
+              alt="vidcord GIF mode with Discord size targets, frame-rate control, trim timeline, and Create GIF button"
             />
           </picture>
         </div>

@@ -13,7 +13,14 @@ function expectSame(left, right) {
   }
 }
 
-for (const file of ["advancedmode.png", "context.png", "file.png", "finder.png", "window.png"]) {
+for (const file of [
+  "advancedmode.png",
+  "context.png",
+  "file.png",
+  "finder.png",
+  "gifmode.png",
+  "window.png",
+]) {
   if (!fs.existsSync(`site/assets/${file}`)) {
     throw new Error(`Missing canonical site/assets/${file}`);
   }

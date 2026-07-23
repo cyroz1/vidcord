@@ -712,6 +712,15 @@ main {
   height: auto;
 }
 
+.detail-section-reverse .detail-copy {
+  grid-column: 2;
+}
+
+.detail-section-reverse .detail-image {
+  grid-column: 1;
+  grid-row: 1;
+}
+
 .integration-section {
   padding-top: 46px;
   padding-bottom: 62px;
@@ -1175,6 +1184,12 @@ main {
 
   .detail-section {
     grid-template-columns: 1fr;
+  }
+
+  .detail-section-reverse .detail-copy,
+  .detail-section-reverse .detail-image {
+    grid-column: auto;
+    grid-row: auto;
   }
 
   .detail-image {
