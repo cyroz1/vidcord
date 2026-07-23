@@ -30,6 +30,7 @@ Thumbs.db
 .vscode/
 .idea/
 .fleet/
+.codex-worktrees/
 *.suo
 *.ntvs*
 *.njsproj
