@@ -2,6 +2,10 @@
 
 ## WIP
 
+### Setup
+
+- **Reliable Windows FFmpeg detection**: vidcord now recognizes WinGet's FFmpeg aliases and package directory immediately after installation, even before the running app receives an updated PATH, and no longer reports a successful setup when either `ffmpeg` or `ffprobe` is still unavailable.
+
 ### UI
 
 - **Discord-ready GIF exports**: a bottom-right GIF Mode switches the app to focused 10 MB Free and 50 MB Nitro Basic targets with selectable 15, 30, or Discord-safe maximum 50 FPS, removes unrelated video controls, and creates optimized animated GIF files with automatic size retries that preserve the chosen frame rate.

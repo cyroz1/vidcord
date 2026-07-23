@@ -344,6 +344,12 @@ Every `std::process::Command::new("ffmpeg"|"ffprobe")` in Rust must:
 - `PREVIEW_CLIP_CACHE` (`src-tauri/src/ffmpeg.rs`) — 100 MB LRU, keyed by `(path_hash, start_ms, end_ms)`.
 - `FFMPEG_AVAIL_CACHE` (`src-tauri/src/commands/encoders.rs`) — 30 s TTL on `ffmpeg`/`ffprobe -version` probes, with `ffmpeg_available_fresh()` for post-install bypass.
 
+On Windows, encoder detection and fresh availability probes also recover a standard WinGet
+`Gyan.FFmpeg` install from its portable aliases or package directory and prepend that directory to
+the current process PATH. This handles PATH registry updates that cannot propagate into an already
+running vidcord process. Keep the lookup constrained to WinGet roots and require both
+`ffmpeg.exe` and `ffprobe.exe` before using a directory.
+
 Call `clear_preview_caches()` when the frontend loads a new file (already done in `probe`).
 Preview FFmpeg child PIDs are tracked by a generation token. Call `cancel_preview_jobs()` before
 starting work that should supersede previews; `probe` and `compress_video` already do this, and the
@@ -427,6 +433,7 @@ When the user asks to tag and push `vX.Y`:
 3. **Commit** the CHANGELOG (and any version edits, if step 1 needed them).
 4. **Tag with the `vX.Y` short form** (matching existing tags — see `git tag --list`): `git tag vX.Y`. Do **not** use `vX.Y.Z` — the existing tag history is short-form and the release workflow's CHANGELOG extraction matches `## vX.Y`.
 5. **Push** the commit and the tag to `main`: `git push origin main` then `git push origin vX.Y`. Pushing the tag triggers the release workflow (`build.yml` → `release` job) which builds the `release` profile and drafts a GitHub release.
+6. **Start the next changelog immediately after the tagged release commit**: add a fresh `## WIP` section at the top of `CHANGELOG.md`, commit it as the first post-release commit, and push that commit to `main`. Never leave post-release development without a WIP section ready for new user-visible changes.
 
 Confirm with the user before pushing the tag — tag pushes are hard to reverse and trigger the public release pipeline.
 

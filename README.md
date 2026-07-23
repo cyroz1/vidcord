@@ -214,8 +214,8 @@ winget install Gyan.FFmpeg
 ```
 
 The vidcord installer and first-launch setup can run this for you when FFmpeg is
-missing. Restart vidcord (or sign out and back in) so the new `PATH` takes
-effect.
+missing. vidcord recognizes WinGet's FFmpeg install directory immediately, even
+when the running process has not received the updated `PATH`.
 
 ### Windows (aarch64 — Surface Pro X, Snapdragon PCs)
 
@@ -393,9 +393,11 @@ cache layout, settings migration — lives in [AGENTS.md](AGENTS.md).
 ## Troubleshooting
 
 **"FFmpeg not found" after installing it.**
-`PATH` changes don't propagate to running processes. Quit vidcord fully
-(check the tray / dock) and relaunch. On Windows, sign out and back in if
-that doesn't help.
+Use **Retry** in vidcord. On Windows, the app checks the standard WinGet
+aliases and `Gyan.FFmpeg` package directory directly. For other install methods,
+quit vidcord fully and relaunch it so the new `PATH` is loaded; if a newly
+opened terminal cannot run both `ffmpeg -version` and `ffprobe -version`, repair
+the install or its PATH entry using the [setup guide](FFMPEG_SETUP.md).
 
 **The output file exceeds the target size.**
 vidcord now retries oversized outputs automatically, first at a lower bitrate

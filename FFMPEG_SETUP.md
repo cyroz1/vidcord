@@ -24,7 +24,9 @@ and run:
 winget install Gyan.FFmpeg
 ```
 
-Then **restart your PC** (or sign out and back in) to apply the PATH change.
+When the command finishes, return to vidcord and use **Retry**. vidcord also
+checks WinGet's FFmpeg installation directory directly, so a Windows restart
+should not be necessary.
 
 > `winget` is built into Windows 10 (1809+) and Windows 11. If it's not available, [download winget here](https://aka.ms/getwinget).
 
@@ -87,5 +89,7 @@ ffprobe -version
 ```
 
 vidcord requires both commands. If either one is missing, restart your shell or
-computer after the package manager updates PATH, then try again. Once both work,
-launch vidcord normally and it will detect FFmpeg automatically.
+computer after the package manager updates PATH, then try again. On Windows,
+vidcord can also detect a standard `Gyan.FFmpeg` WinGet installation before that
+PATH update reaches other running programs. Once both commands work, launch
+vidcord normally and it will detect FFmpeg automatically.

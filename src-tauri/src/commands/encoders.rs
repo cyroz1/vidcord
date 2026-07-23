@@ -8,6 +8,11 @@ use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
+#[cfg(target_os = "windows")]
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
 
 // Cached regex for the "show encoders" dialog — compiled once, reused on repeat calls.
 static LIST_ENCODER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
@@ -81,8 +86,125 @@ fn ffmpeg_tool_probe(tool: &str) -> bool {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn ffmpeg_tools_exist(directory: &Path) -> bool {
+    directory.join("ffmpeg.exe").is_file() && directory.join("ffprobe.exe").is_file()
+}
+
+#[cfg(target_os = "windows")]
+fn find_ffmpeg_bin_within(directory: &Path, remaining_depth: usize) -> Option<PathBuf> {
+    if ffmpeg_tools_exist(directory) {
+        return Some(directory.to_path_buf());
+    }
+    if remaining_depth == 0 {
+        return None;
+    }
+
+    let mut child_directories = std::fs::read_dir(directory)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect::<Vec<_>>();
+    // Prefer the newest version-named directory while remaining deterministic.
+    child_directories.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
+
+    child_directories
+        .into_iter()
+        .find_map(|path| find_ffmpeg_bin_within(&path, remaining_depth - 1))
+}
+
+#[cfg(target_os = "windows")]
+fn find_winget_ffmpeg_bin(winget_roots: &[PathBuf]) -> Option<PathBuf> {
+    for root in winget_roots {
+        let links = root.join("Links");
+        if ffmpeg_tools_exist(&links) {
+            return Some(links);
+        }
+
+        let packages = root.join("Packages");
+        let mut package_directories = std::fs::read_dir(packages)
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("Gyan.FFmpeg_")
+            })
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect::<Vec<_>>();
+        package_directories.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
+
+        if let Some(bin) = package_directories
+            .into_iter()
+            .find_map(|path| find_ffmpeg_bin_within(&path, 3))
+        {
+            return Some(bin);
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn windows_winget_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        roots.push(
+            PathBuf::from(local_app_data)
+                .join("Microsoft")
+                .join("WinGet"),
+        );
+    }
+    for variable in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Some(program_files) = std::env::var_os(variable) {
+            let root = PathBuf::from(program_files).join("WinGet");
+            if !roots.iter().any(|existing| existing == &root) {
+                roots.push(root);
+            }
+        }
+    }
+    roots
+}
+
+#[cfg(target_os = "windows")]
+fn recover_windows_ffmpeg_path() -> bool {
+    let Some(bin) = find_winget_ffmpeg_bin(&windows_winget_roots()) else {
+        return false;
+    };
+
+    let old_path = std::env::var_os("PATH").unwrap_or_default();
+    let already_present = std::env::split_paths(&old_path).any(|entry| {
+        entry
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&bin.to_string_lossy())
+    });
+    if !already_present {
+        let mut new_path = OsString::from(bin);
+        if !old_path.is_empty() {
+            new_path.push(";");
+            new_path.push(old_path);
+        }
+        std::env::set_var("PATH", new_path);
+        vidcord_log("Recovered FFmpeg from its WinGet installation directory.");
+    }
+    true
+}
+
 fn ffmpeg_probe() -> bool {
-    ffmpeg_tool_probe("ffmpeg") && ffmpeg_tool_probe("ffprobe")
+    if ffmpeg_tool_probe("ffmpeg") && ffmpeg_tool_probe("ffprobe") {
+        return true;
+    }
+
+    #[cfg(target_os = "windows")]
+    if recover_windows_ffmpeg_path() {
+        return ffmpeg_tool_probe("ffmpeg") && ffmpeg_tool_probe("ffprobe");
+    }
+
+    false
 }
 
 fn ffmpeg_available() -> bool {
@@ -114,6 +236,12 @@ fn ffprobe_available_after_ffmpeg_success() -> bool {
     }
 
     let result = ffmpeg_tool_probe("ffprobe");
+    #[cfg(target_os = "windows")]
+    let result = if !result && recover_windows_ffmpeg_path() {
+        ffmpeg_tool_probe("ffprobe")
+    } else {
+        result
+    };
     let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     *guard = Some((result, Instant::now()));
     result
@@ -147,6 +275,18 @@ fn run_shell(command: &str) -> std::io::Result<std::process::ExitStatus> {
 pub async fn detect_encoders() -> Vec<serde_json::Value> {
     tokio::task::spawn_blocking(|| {
         let detected = get_available_encoders();
+
+        // WinGet updates the registry PATH but cannot update this running
+        // process. If normal discovery fails, recover its known package
+        // directory and retry so first-launch installation works without a
+        // reboot. A working custom FFmpeg earlier on PATH remains preferred.
+        #[cfg(target_os = "windows")]
+        let detected = if detected.ffmpeg_missing && recover_windows_ffmpeg_path() {
+            get_available_encoders()
+        } else {
+            detected
+        };
+
         let ffmpeg_missing = detected.ffmpeg_missing
             || if detected.ffmpeg_freshly_probed {
                 !ffprobe_available_after_ffmpeg_success()
@@ -230,12 +370,16 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
                         }
                     } else {
                         FfmpegInstallResult {
-                            status: "installed".to_string(),
-                            message:
-                                "FFmpeg install completed. If it is still not detected, restart vidcord."
+                            status: "failed".to_string(),
+                            message: "FFmpeg was installed, but vidcord could not locate both ffmpeg.exe and ffprobe.exe. Open the setup guide to repair PATH."
+                                .to_string(),
+                            hint_command: Some(
+                                "Get-Command ffmpeg; Get-Command ffprobe".to_string(),
+                            ),
+                            guide_url: Some(
+                                "https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
                                     .to_string(),
-                            hint_command: None,
-                            guide_url: None,
+                            ),
                         }
                     }
                 }
@@ -470,4 +614,98 @@ pub async fn get_vaapi_device() -> Option<String> {
     tokio::task::spawn_blocking(crate::ffmpeg::find_vaapi_device)
         .await
         .unwrap_or(None)
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::find_winget_ffmpeg_bin;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new(label: &str) -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock should be after the Unix epoch")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "vidcord-encoders-{label}-{}-{nonce}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&path).expect("test directory should be created");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn create_tool_pair(directory: &Path) {
+        std::fs::create_dir_all(directory).expect("tool directory should be created");
+        std::fs::write(directory.join("ffmpeg.exe"), b"test")
+            .expect("ffmpeg fixture should be written");
+        std::fs::write(directory.join("ffprobe.exe"), b"test")
+            .expect("ffprobe fixture should be written");
+    }
+
+    #[test]
+    fn finds_winget_portable_links() {
+        let root = TestDirectory::new("links");
+        let links = root.path().join("Links");
+        create_tool_pair(&links);
+
+        assert_eq!(
+            find_winget_ffmpeg_bin(&[root.path().to_path_buf()]),
+            Some(links)
+        );
+    }
+
+    #[test]
+    fn finds_nested_gyan_ffmpeg_package_bin() {
+        let root = TestDirectory::new("package");
+        let bin = root
+            .path()
+            .join("Packages")
+            .join("Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe")
+            .join("ffmpeg-8.0-full_build")
+            .join("bin");
+        create_tool_pair(&bin);
+
+        assert_eq!(
+            find_winget_ffmpeg_bin(&[root.path().to_path_buf()]),
+            Some(bin)
+        );
+    }
+
+    #[test]
+    fn ignores_incomplete_or_unrelated_packages() {
+        let root = TestDirectory::new("invalid");
+        let incomplete = root
+            .path()
+            .join("Packages")
+            .join("Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe")
+            .join("ffmpeg-8.0-full_build")
+            .join("bin");
+        std::fs::create_dir_all(&incomplete).expect("tool directory should be created");
+        std::fs::write(incomplete.join("ffmpeg.exe"), b"test")
+            .expect("ffmpeg fixture should be written");
+        create_tool_pair(
+            &root
+                .path()
+                .join("Packages")
+                .join("Someone.Else")
+                .join("bin"),
+        );
+
+        assert_eq!(find_winget_ffmpeg_bin(&[root.path().to_path_buf()]), None);
+    }
 }

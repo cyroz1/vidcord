@@ -14,6 +14,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Platforms: Windows, macOS, Linux
 - Installer formats: Windows NSIS `.exe`, macOS universal `.dmg`, Linux `.AppImage`
 - Required dependency: system `ffmpeg` and `ffprobe` on PATH
+- Windows FFmpeg setup: vidcord can install `Gyan.FFmpeg` with WinGet and recognizes WinGet's aliases or package directory without requiring a Windows restart
 - Main use case: compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV videos under Discord's current 10 / 50 / 100 / 500 MB upload limits, with an additional legacy 25 MB target
 - GIF exports: GIF Mode creates animated `.gif` files for Discord's 10 MB Free and 50 MB Nitro Basic tiers at a user-selected 15, 30, or Discord-safe maximum 50 FPS; it hides unrelated video controls, removes audio, compensates higher frame rates with lower spatial detail, and retries oversized results without changing the selected FPS
 - Preview behavior: Windows and macOS users can scrub live video and play the selected range from the playhead; Linux provides FFmpeg-generated filmstrip/frame previews while scrubbing, but live video scrubbing and trim playback are disabled because WebKitGTK's playback path can crash the renderer on some systems
@@ -29,6 +30,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 
 - Does vidcord upload videos? No. Video processing happens locally with FFmpeg.
 - Does vidcord bundle FFmpeg? No. The system `ffmpeg` and `ffprobe` binaries must be installed and available on PATH; vidcord can help install them through platform package managers.
+- Does Windows need to restart after WinGet installs FFmpeg? Normally no. Use Retry in vidcord; it detects the standard `Gyan.FFmpeg` WinGet aliases and package directory directly.
 - Which platforms are supported? Windows, macOS, and Linux.
 - Which Discord size targets are supported? Current 10 MB, 50 MB, 100 MB, and 500 MB Discord limits plus a legacy 25 MB target, with custom target, resolution, FPS, and encoder controls in advanced mode. Leaving the advanced target empty encodes at the source video's bitrate without a file-size limit. GIF Mode provides focused 10 MB Free and 50 MB Nitro Basic animated GIF exports at 15, 30, or Discord-safe maximum 50 FPS.
 - How does downloading work? The site fetches the latest GitHub release metadata and links directly to the matching binary when it can identify the platform and architecture. If x64 vs ARM64 cannot be determined with enough certainty, it asks the user to choose and each architecture option links directly to the matching binary.
