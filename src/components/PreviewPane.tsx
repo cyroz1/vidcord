@@ -18,6 +18,8 @@ import {
 } from "../ipc";
 import {
   canPreserveDirectVideoSource,
+  isFilmstripUseful,
+  shouldGenerateFilmstrip,
   shouldFetchReleasedScrubFrame,
   shouldFetchScrubFrame,
   shouldShowDirectPreviewVideo,
@@ -25,7 +27,10 @@ import {
 
 const FIXED_PREVIEW_CSS_WIDTH = 432;
 const FIXED_PREVIEW_CSS_HEIGHT = 243;
+const FILMSTRIP_PREVIEW_WIDTH = 432;
+const FILMSTRIP_PREVIEW_HEIGHT = 244;
 const MAX_GENERATED_PREVIEW_CLIP_SECONDS = 12;
+const MEDIA_SEEK_EPSILON_SECONDS = 1 / 240;
 
 // Module-scope static style objects. Hoisted so React doesn't allocate a
 // fresh object literal per render — PreviewPane re-renders on every
@@ -110,6 +115,7 @@ const currentTimeOverlayStyle: React.CSSProperties = {
 
 type Props = {
   filePath: string | null;
+  loadingVideo: boolean;
   startTime: number;
   endTime: number;
   previewTime: number | null;
@@ -169,6 +175,7 @@ function splitJpegStream(data: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer>
 const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   {
     filePath,
+    loadingVideo,
     startTime,
     endTime,
     previewTime,
@@ -197,15 +204,27 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // the backend for the actual OS.
   const [isLinux, setIsLinux] = useState(false);
   const [supportsLiveScrubPreview, setSupportsLiveScrubPreview] = useState(false);
+  const [directPreviewFailed, setDirectPreviewFailed] = useState(false);
+  const [initialPreviewSettled, setInitialPreviewSettled] = useState(false);
   const supportsLiveScrubPreviewRef = useRef(false);
   useEffect(() => {
-    getOs().then((os) => {
-      const linux = os === "linux";
-      setIsLinux(linux);
-      setSupportsLiveScrubPreview(!linux);
-      supportsLiveScrubPreviewRef.current = !linux;
-    });
+    getOs()
+      .then((os) => {
+        const linux = os === "linux";
+        setIsLinux(linux);
+        setSupportsLiveScrubPreview(!linux);
+        supportsLiveScrubPreviewRef.current = !linux;
+      })
+      .catch(() => {
+        // Safe fallback: avoid a potentially unstable native video pipeline
+        // and retain FFmpeg-backed previews if OS detection ever fails.
+        setIsLinux(true);
+      });
   }, []);
+  useEffect(() => {
+    setDirectPreviewFailed(false);
+    setInitialPreviewSettled(false);
+  }, [filePath]);
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.muted = removeAudio;
@@ -280,14 +299,16 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     if (!Number.isFinite(mediaTime)) return;
     const vid = videoRef.current;
     if (!vid) return;
+    const targetTime = Math.max(0, mediaTime);
 
     const applySeek = () => {
+      if (Math.abs(vid.currentTime - targetTime) < MEDIA_SEEK_EPSILON_SECONDS) return;
       try {
-        vid.currentTime = Math.max(0, mediaTime);
+        vid.currentTime = targetTime;
       } catch {
         // Some WebViews reject currentTime before metadata is ready. Keep the
         // newest target and replay it from loadedmetadata/canplay.
-        pendingScrubVideoSeekRef.current = Math.max(0, mediaTime);
+        pendingScrubVideoSeekRef.current = targetTime;
       }
     };
 
@@ -296,7 +317,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       return;
     }
 
-    pendingScrubVideoSeekRef.current = Math.max(0, mediaTime);
+    pendingScrubVideoSeekRef.current = targetTime;
   }, []);
 
   const seekTo = useCallback(
@@ -400,13 +421,23 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     vid.load();
   }, [buildPlaybackUrls, filePath, isScrubbing, playing, probeData, supportsLiveScrubPreview]);
 
-  const handleVideoReady = useCallback(() => {
-    setScrubVideoReady(true);
-    const pending = pendingScrubVideoSeekRef.current;
-    if (pending === null) return;
-    pendingScrubVideoSeekRef.current = null;
-    seekVideoElement(pending);
-  }, [seekVideoElement]);
+  const handleVideoReady = useCallback(
+    (event: React.SyntheticEvent<HTMLVideoElement>) => {
+      setScrubVideoReady(true);
+      if (
+        scrubVideoSrcRef.current !== null &&
+        event.currentTarget.src === scrubVideoSrcRef.current &&
+        !usingGeneratedClipRef.current
+      ) {
+        setDirectPreviewFailed(false);
+      }
+      const pending = pendingScrubVideoSeekRef.current;
+      if (pending === null) return;
+      pendingScrubVideoSeekRef.current = null;
+      seekVideoElement(pending);
+    },
+    [seekVideoElement]
+  );
 
   useEffect(() => {
     if (
@@ -437,15 +468,17 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       clearFilmstrip();
       return;
     }
+    if (!shouldGenerateFilmstrip(isLinux, directPreviewFailed, initialPreviewSettled)) {
+      filmstripRequestIdRef.current += 1;
+      clearFilmstrip();
+      return;
+    }
     const requestId = filmstripRequestIdRef.current + 1;
     filmstripRequestIdRef.current = requestId;
     const duration = probeData.duration;
-    const maxFrames =
-      duration > 1800 ? 24 : duration > 600 ? 30 : duration > 300 ? 36 : duration > 120 ? 48 : 60;
-    const delayMs = duration > 600 ? 700 : duration > 120 ? 500 : 120;
+    const maxFrames = duration > 600 ? 16 : duration > 180 ? 20 : 30;
     const timer = window.setTimeout(() => {
-      const { width, height } = getPreviewPixelSize();
-      getFilmstrip(filePath, duration, maxFrames, width, height)
+      getFilmstrip(filePath, duration, maxFrames, FILMSTRIP_PREVIEW_WIDTH, FILMSTRIP_PREVIEW_HEIGHT)
         .then((rawBytes) => {
           if (filmstripRequestIdRef.current !== requestId) return;
           const frames = splitJpegStream(new Uint8Array(rawBytes.buffer as ArrayBuffer));
@@ -460,7 +493,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         .catch(() => {
           // Filmstrip is optional — scrubbing falls back to on-demand frames
         });
-    }, delayMs);
+    }, 100);
 
     return () => {
       window.clearTimeout(timer);
@@ -468,7 +501,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         filmstripRequestIdRef.current += 1;
       }
     };
-  }, [filePath, probeData, clearFilmstrip, getPreviewPixelSize]);
+  }, [clearFilmstrip, directPreviewFailed, filePath, initialPreviewSettled, isLinux, probeData]);
 
   // ---------------------------------------------------------------------------
   // Frame preview (static JPEG)
@@ -498,6 +531,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         setFilmstripIdx(null);
         setFrameUrl(null);
       } finally {
+        if (frameRequestIdRef.current === request.requestId) {
+          setInitialPreviewSettled(true);
+        }
         frameInFlightRef.current = false;
         const queued = queuedFrameRequestRef.current;
         queuedFrameRequestRef.current = null;
@@ -539,6 +575,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       stopPlayback();
       return;
     }
+    if (supportsLiveScrubPreview && scrubVideoReady && !directPreviewFailed) {
+      frameRequestIdRef.current += 1;
+      queuedFrameRequestRef.current = null;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      setLoading(false);
+      return;
+    }
     const requestId = frameRequestIdRef.current + 1;
     frameRequestIdRef.current = requestId;
     const isNewFile = filePath !== prevFilePathRef.current;
@@ -567,6 +610,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
     // --- Show filmstrip frame immediately while debounce waits ---
     const strip = filmstripUrlsRef.current;
+    const hasUsefulFilmstrip = isFilmstripUseful(strip.length, probeData.duration);
     if (strip.length > 0 && probeData.duration > 0) {
       const rawIdx = (frameTime / probeData.duration) * (strip.length - 1);
       const idx = Math.max(0, Math.min(Math.round(rawIdx), strip.length - 1));
@@ -576,7 +620,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const fetchScrubFrame = shouldFetchScrubFrame(
       isScrubbing,
-      strip.length > 0,
+      hasUsefulFilmstrip,
       supportsLiveScrubPreview,
       scrubVideoReady
     );
@@ -625,6 +669,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     isScrubbing,
     fetchFrame,
     probeData,
+    directPreviewFailed,
     scrubVideoReady,
     supportsLiveScrubPreview,
   ]);
@@ -924,8 +969,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   );
 
   // Static previews remain the fallback for Linux and unsupported codecs. When
-  // direct seeking works, the already-seeked video stays visible after release
-  // while the exact FFmpeg frame finishes in the background.
+  // direct seeking works, the ready media element stays visible without
+  // launching redundant FFmpeg frame work.
   const displayUrl =
     filmstripIdx !== null && filmstripUrlsRef.current[filmstripIdx]
       ? filmstripUrlsRef.current[filmstripIdx]
@@ -936,9 +981,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       className={`preview-pane${filePath ? " has-media" : " is-empty"}`}
       ref={previewContainerRef}
       style={containerStyle}
+      aria-busy={loadingVideo || loading}
     >
       {/* Static frame preview */}
-      {displayUrl && !playing && !showDirectPreviewVideo ? (
+      {!loadingVideo && displayUrl && !playing && !showDirectPreviewVideo ? (
         <img src={displayUrl} alt="Video frame preview" style={imgStyle} />
       ) : !playing && !showDirectPreviewVideo ? (
         <span className="preview-placeholder" role="status" aria-live="polite">
@@ -961,11 +1007,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
             </svg>
           )}
           <span>
-            {loading && filmstripUrlsRef.current.length === 0
-              ? "Loading preview…"
-              : filePath
-                ? "Preview"
-                : "No file selected"}
+            {loadingVideo
+              ? "Reading video…"
+              : loading && filmstripUrlsRef.current.length === 0
+                ? "Loading preview…"
+                : filePath
+                  ? "Preview"
+                  : "No file selected"}
           </span>
         </span>
       ) : null}
@@ -977,7 +1025,18 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         style={playing || showDirectPreviewVideo ? videoVisibleStyle : videoHiddenStyle}
         onLoadedMetadata={handleVideoReady}
         onCanPlay={handleVideoReady}
-        onError={() => setScrubVideoReady(false)}
+        onError={(event) => {
+          setScrubVideoReady(false);
+          if (
+            filePath &&
+            supportsLiveScrubPreview &&
+            scrubVideoSrcRef.current !== null &&
+            event.currentTarget.src === scrubVideoSrcRef.current &&
+            !usingGeneratedClipRef.current
+          ) {
+            setDirectPreviewFailed(true);
+          }
+        }}
         onEnded={handleVideoEnded}
       />
 

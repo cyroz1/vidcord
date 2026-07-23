@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   canPreserveDirectVideoSource,
+  isFilmstripUseful,
   shouldFetchReleasedScrubFrame,
   shouldFetchScrubFrame,
+  shouldGenerateFilmstrip,
   shouldShowDirectPreviewVideo,
 } from "../previewScrub";
 
@@ -62,6 +64,35 @@ describe("shouldShowDirectPreviewVideo", () => {
 
   it("does not show the video until probing validates the selected file", () => {
     expect(shouldShowDirectPreviewVideo(true, false, true, false)).toBe(false);
+  });
+});
+
+describe("shouldGenerateFilmstrip", () => {
+  it("waits for the first exact preview before starting background work", () => {
+    expect(shouldGenerateFilmstrip(true, false, false)).toBe(false);
+  });
+
+  it("uses filmstrips for Linux and failed direct previews", () => {
+    expect(shouldGenerateFilmstrip(true, false, true)).toBe(true);
+    expect(shouldGenerateFilmstrip(false, true, true)).toBe(true);
+  });
+
+  it("skips redundant filmstrips when direct preview is available", () => {
+    expect(shouldGenerateFilmstrip(false, false, true)).toBe(false);
+  });
+});
+
+describe("isFilmstripUseful", () => {
+  it("accepts a representative keyframe strip", () => {
+    expect(isFilmstripUseful(25, 27)).toBe(true);
+  });
+
+  it("keeps exact-frame fetching enabled for unusually sparse strips", () => {
+    expect(isFilmstripUseful(3, 27)).toBe(false);
+  });
+
+  it("allows small strips for very short videos", () => {
+    expect(isFilmstripUseful(2, 3)).toBe(true);
   });
 });
 

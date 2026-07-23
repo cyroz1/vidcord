@@ -3,6 +3,32 @@ import { detectEncoders, type Encoder } from "../ipc";
 
 export type { Encoder };
 
+const FALLBACK_ENCODERS: Encoder[] = [{ name: "libx264", label: "CPU (libx264)" }];
+const MAX_CACHED_ENCODERS = 32;
+const ENCODER_NAME_RE = /^[A-Za-z0-9_]+$/;
+
+export function parseCachedEncoders(value: unknown): Encoder[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_CACHED_ENCODERS) return [];
+
+  const parsed: Encoder[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) return [];
+    const record = item as Record<string, unknown>;
+    if (
+      typeof record.name !== "string" ||
+      !record.name ||
+      !ENCODER_NAME_RE.test(record.name) ||
+      typeof record.label !== "string" ||
+      !record.label.trim() ||
+      record.label.length > 100
+    ) {
+      return [];
+    }
+    parsed.push({ name: record.name, label: record.label });
+  }
+  return parsed;
+}
+
 export function selectEncoderIndex(
   encoders: Encoder[],
   savedEncoderLabel: string | undefined,
@@ -16,10 +42,22 @@ export function selectEncoderIndex(
   return Math.max(0, Math.min(savedEncoderIndex, encoders.length - 1));
 }
 
+function encoderListsEqual(left: Encoder[] | null, right: Encoder[]): boolean {
+  return (
+    left !== null &&
+    left.length === right.length &&
+    left.every(
+      (encoder, index) => encoder.name === right[index].name && encoder.label === right[index].label
+    )
+  );
+}
+
 type Props = {
   settingsLoaded: boolean;
   savedEncoderLabel: string | undefined;
   savedEncoderIndex: number;
+  cachedEncoders: unknown;
+  onEncodersDetected: (encoders: Encoder[]) => void;
   onFfmpegMissing: () => void;
 };
 
@@ -27,11 +65,11 @@ export function useEncoders({
   settingsLoaded,
   savedEncoderLabel,
   savedEncoderIndex,
+  cachedEncoders,
+  onEncodersDetected,
   onFfmpegMissing,
 }: Props) {
-  const [encoders, setEncoders] = useState<Encoder[]>([
-    { name: "libx264", label: "CPU (libx264)" },
-  ]);
+  const [encoders, setEncoders] = useState<Encoder[]>(FALLBACK_ENCODERS);
   const [encoderIdx, setEncoderIdx] = useState(0);
   const [ffmpegMissing, setFfmpegMissing] = useState(false);
   const missingNotifiedRef = useRef(false);
@@ -43,13 +81,15 @@ export function useEncoders({
   const savedEncoderLabelRef = useRef(savedEncoderLabel);
   const savedEncoderIndexRef = useRef(savedEncoderIndex);
   const settingsLoadedRef = useRef(settingsLoaded);
+  const onEncodersDetectedRef = useRef(onEncodersDetected);
   const onFfmpegMissingRef = useRef(onFfmpegMissing);
   useEffect(() => {
     savedEncoderLabelRef.current = savedEncoderLabel;
     savedEncoderIndexRef.current = savedEncoderIndex;
     settingsLoadedRef.current = settingsLoaded;
+    onEncodersDetectedRef.current = onEncodersDetected;
     onFfmpegMissingRef.current = onFfmpegMissing;
-  }, [savedEncoderLabel, savedEncoderIndex, settingsLoaded, onFfmpegMissing]);
+  }, [savedEncoderLabel, savedEncoderIndex, settingsLoaded, onEncodersDetected, onFfmpegMissing]);
 
   const markFfmpegMissing = useCallback(() => {
     setFfmpegMissing(true);
@@ -71,15 +111,15 @@ export function useEncoders({
         if (missing) markFfmpegMissing();
         else clearFfmpegMissing();
         const detected = list.map(({ name, label }) => ({ name, label }));
+        const capabilitiesChanged = !encoderListsEqual(detectedEncodersRef.current, detected);
         detectedEncodersRef.current = detected;
-        setEncoders(detected);
+        if (capabilitiesChanged) {
+          setEncoders(detected);
+          if (!missing) onEncodersDetectedRef.current(detected);
+        }
         if (settingsLoadedRef.current) {
           setEncoderIdx(
-            selectEncoderIndex(
-              detected,
-              savedEncoderLabelRef.current,
-              savedEncoderIndexRef.current
-            )
+            selectEncoderIndex(detected, savedEncoderLabelRef.current, savedEncoderIndexRef.current)
           );
         }
       }
@@ -87,10 +127,30 @@ export function useEncoders({
   }, [clearFfmpegMissing, markFfmpegMissing]);
 
   useEffect(() => {
-    // Encoder discovery does not depend on settings I/O. Start it immediately,
-    // then reconcile the saved selection once both operations have completed.
-    refreshEncoders().catch(() => {});
-  }, [refreshEncoders]);
+    if (!settingsLoaded) return;
+    const cached = parseCachedEncoders(cachedEncoders);
+    if (cached.length === 0) return;
+    detectedEncodersRef.current = cached;
+    setEncoders(cached);
+    setEncoderIdx(selectEncoderIndex(cached, savedEncoderLabel, savedEncoderIndex));
+  }, [cachedEncoders, savedEncoderIndex, savedEncoderLabel, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+
+    // Use the persisted capability list for the first interactive render and
+    // refresh it only when the WebView is idle. This avoids launching FFmpeg
+    // and a platform GPU query alongside startup paint or an Open With import.
+    const run = () => {
+      refreshEncoders().catch(() => {});
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      const idleId = window.requestIdleCallback(run, { timeout: 2_000 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+    const timer = window.setTimeout(run, 800);
+    return () => window.clearTimeout(timer);
+  }, [refreshEncoders, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded || !detectedEncodersRef.current) return;

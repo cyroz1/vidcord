@@ -338,7 +338,7 @@ Every `std::process::Command::new("ffmpeg"|"ffprobe")` in Rust must:
 
 ### Caches
 
-- `ENCODER_CACHE` (`src-tauri/src/ffmpeg/encoders.rs`) — memoised encoder list. Call `invalidate_encoder_cache()` after a successful FFmpeg install.
+- `ENCODER_CACHE` (`src-tauri/src/ffmpeg/encoders.rs`) — memoised encoder list. Call `invalidate_encoder_cache()` after a successful FFmpeg install. The frontend also persists the last validated capability list in `encoder_capabilities` so startup can restore it immediately, then refreshes discovery when the WebView is idle.
 - `VAAPI_CACHE` (`src-tauri/src/ffmpeg.rs`) — probes `/dev/dri/renderD*` once per session.
 - `PREVIEW_FRAME_CACHE` (`src-tauri/src/ffmpeg.rs`) — 60-entry LRU, keyed by `(path_hash, time_100ms, preview_width, preview_height)`.
 - `PREVIEW_CLIP_CACHE` (`src-tauri/src/ffmpeg.rs`) — 100 MB LRU, keyed by `(path_hash, start_ms, end_ms)`.
@@ -354,7 +354,7 @@ Call `clear_preview_caches()` when the frontend loads a new file (already done i
 Preview FFmpeg child PIDs are tracked by a generation token. Call `cancel_preview_jobs()` before
 starting work that should supersede previews; `probe` and `compress_video` already do this, and the
 frontend invokes `cancel_preview_generation` when the preview unmounts.
-Preview frame and filmstrip IPC accepts optional preview dimensions; the backend clamps them to even values before building FFmpeg scale filters. Videos of 3+ minutes use sparse seeks for filmstrip generation instead of a dense single-pass `fps` filter. Generated preview clips are bounded to a short playhead-relative window, try platform H.264 hardware encoders first, then fall back through software `libx264`.
+Preview frame and filmstrip IPC accepts optional preview dimensions; the backend clamps them to even values before building FFmpeg scale filters. Filmstrips are a fallback: they start after the first exact frame on Linux or when native media preview loading fails, decode keyframes into at most 30 lower-resolution frames, and are skipped when direct seeking works. If a source has too few keyframes, scrubbing continues requesting exact frames instead of relying on the sparse strip. Videos of 3+ minutes use sparse seeks for filmstrip generation instead of a dense single-pass `fps` filter. Preview frame, filmstrip, and generated-clip commands have bounded deadlines and output sizes. Generated preview clips are bounded to a short playhead-relative window, try platform H.264 hardware encoders first, then fall back through software `libx264`.
 
 ### Settings
 

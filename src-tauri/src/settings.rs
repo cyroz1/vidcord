@@ -5,6 +5,12 @@ use std::sync::{Mutex, OnceLock};
 static SETTINGS_PATH: OnceLock<PathBuf> = OnceLock::new();
 static SETTINGS_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct PersistedEncoder {
+    pub name: String,
+    pub label: String,
+}
+
 /// Typed schema for persisted settings.
 /// Unknown keys in the JSON file are silently dropped on load by deserializing
 /// through this struct and re-serializing, preventing corrupt or stale data
@@ -43,6 +49,8 @@ pub struct Settings {
     pub encoder_index: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encoder_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoder_capabilities: Option<Vec<PersistedEncoder>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub update_last_check: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -192,7 +200,11 @@ mod tests {
             "output_destination": "custom",
             "custom_output_directory": "/tmp/vidcord-exports",
             "completion_action": "copy",
-            "encoder_label": "CPU (libx264)"
+            "encoder_label": "CPU (libx264)",
+            "encoder_capabilities": [
+                { "name": "libx264", "label": "CPU (libx264)" },
+                { "name": "h264_videotoolbox", "label": "macOS (h264_videotoolbox)" }
+            ]
         });
 
         SettingsManager::save_to(&original, &path).unwrap();
@@ -205,6 +217,10 @@ mod tests {
         assert_eq!(loaded["custom_output_directory"], "/tmp/vidcord-exports");
         assert_eq!(loaded["completion_action"], "copy");
         assert_eq!(loaded["encoder_label"], "CPU (libx264)");
+        assert_eq!(
+            loaded["encoder_capabilities"][1]["name"],
+            "h264_videotoolbox"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

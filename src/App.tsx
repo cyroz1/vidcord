@@ -8,7 +8,7 @@ import PreviewPane, { type PreviewHandle } from "./components/PreviewPane";
 import TrimTimeline, { type SnapMode } from "./components/TrimTimeline";
 import { useToasts } from "./hooks/useToasts";
 import { useSettings, type CompletionAction, type OutputDestination } from "./hooks/useSettings";
-import { useEncoders } from "./hooks/useEncoders";
+import { useEncoders, type Encoder } from "./hooks/useEncoders";
 import {
   FFMPEG_MISSING_LOAD_MESSAGE,
   FFMPEG_MISSING_TOAST_MESSAGE,
@@ -201,11 +201,19 @@ export default function App() {
     setCompletionAction,
     saveSettings,
   } = useSettings();
+  const persistDetectedEncoders = useCallback(
+    (detected: Encoder[]) => {
+      saveSettings({ encoder_capabilities: detected });
+    },
+    [saveSettings]
+  );
   const { encoders, encoderIdx, setEncoderIdx, ffmpegMissing, refreshEncoders, markFfmpegMissing } =
     useEncoders({
       settingsLoaded,
       savedEncoderLabel: settingsRef.current.encoder_label as string | undefined,
       savedEncoderIndex: (settingsRef.current.encoder_index as number) ?? 0,
+      cachedEncoders: settingsRef.current.encoder_capabilities,
+      onEncodersDetected: persistDetectedEncoders,
       onFfmpegMissing: () => addToast("error", "FFmpeg Not Found", FFMPEG_MISSING_TOAST_MESSAGE),
     });
   const { compressing, setCompressing, cancelling, progress, eta, cancelCompress, resetProgress } =
@@ -224,7 +232,6 @@ export default function App() {
   const playheadSeekRafRef = useRef<number | null>(null);
   const pendingPlayheadClientXRef = useRef<number | null>(null);
   const suppressNextTimelineClickRef = useRef(false);
-  const autoFfmpegInstallPromptedRef = useRef(false);
   const loadGenerationRef = useRef(0);
   const selectedFilePathRef = useRef<string | null>(null);
   const probeDataRef = useRef<ProbeData | null>(null);
@@ -250,6 +257,7 @@ export default function App() {
   const [filePath, setFilePath] = useState<string | null>(null);
   const [fileName, setFileName] = useState("Drag a video here or click Browse");
   const [probeData, setProbeData] = useState<ProbeData | null>(null);
+  const [loadingVideo, setLoadingVideo] = useState(false);
   const [startVal, setStartVal] = useState(0);
   const [endVal, setEndVal] = useState(SLIDER_MAX);
 
@@ -534,6 +542,7 @@ export default function App() {
       setFileName(path.split(/[\\/]/).pop() ?? path);
       probeDataRef.current = null;
       setProbeData(null);
+      setLoadingVideo(true);
       pointerGestureCleanupRef.current?.();
       pointerGestureCleanupRef.current = null;
       pointerHistoryStartRef.current = null;
@@ -580,6 +589,10 @@ export default function App() {
         }
         probeDataRef.current = null;
         setProbeData(null);
+      } finally {
+        if (loadGenerationRef.current === loadGeneration) {
+          setLoadingVideo(false);
+        }
       }
     },
     [addToast, markFfmpegMissing, resetProgress, syncTrimHistorySize]
@@ -1332,23 +1345,6 @@ export default function App() {
     setInstallingFfmpeg(false);
   }, [addToast, refreshEncoders, reprobeSelectedVideo]);
 
-  useEffect(() => {
-    if (!settingsLoaded || !ffmpegMissing || installingFfmpeg) return;
-    if (autoFfmpegInstallPromptedRef.current) return;
-
-    autoFfmpegInstallPromptedRef.current = true;
-    const timer = window.setTimeout(() => {
-      const approved = window.confirm(
-        "FFmpeg is required for vidcord compression. Install it now using your platform's package manager?"
-      );
-      if (approved) {
-        installFfmpeg();
-      }
-    }, 300);
-
-    return () => window.clearTimeout(timer);
-  }, [ffmpegMissing, installFfmpeg, installingFfmpeg, settingsLoaded]);
-
   // --- Derived values ---
   // Memoized because these drive the trim slider overlay and time labels
   // on every pointermove during scrub — recomputing on unrelated re-renders
@@ -1598,8 +1594,6 @@ export default function App() {
       const viewVal = viewStartVal + fraction * (viewEndVal - viewStartVal);
       const time = Math.max(0, Math.min((viewVal / SLIDER_MAX) * duration, duration));
       previewRef.current?.seekTo(time);
-      playheadTimeRef.current = time;
-      setPlayheadTime(time);
       setPreviewFocusNow(time, activePreview);
     },
     [probeData, duration, setPreviewFocusNow, viewStartVal, viewEndVal]
@@ -2269,6 +2263,7 @@ export default function App() {
           <PreviewPane
             ref={previewRef}
             filePath={filePath}
+            loadingVideo={loadingVideo}
             startTime={startTime}
             endTime={endTime}
             previewTime={previewFocusTime}

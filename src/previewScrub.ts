@@ -24,6 +24,19 @@ export function shouldShowDirectPreviewVideo(
   return supportsLiveScrubPreview && hasProbeData && scrubVideoReady && !playing;
 }
 
+export function shouldGenerateFilmstrip(
+  isLinux: boolean,
+  directPreviewFailed: boolean,
+  initialPreviewSettled: boolean
+): boolean {
+  return initialPreviewSettled && (isLinux || directPreviewFailed);
+}
+
+export function isFilmstripUseful(frameCount: number, durationSec: number): boolean {
+  const minimumFrames = Math.min(8, Math.max(2, Math.floor(durationSec / 2)));
+  return frameCount >= minimumFrames;
+}
+
 export function canPreserveDirectVideoSource(
   supportsLiveScrubPreview: boolean,
   mediaReady: boolean,

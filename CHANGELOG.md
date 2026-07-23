@@ -2,6 +2,20 @@
 
 ## WIP
 
+### Performance
+
+- Deferred cold encoder and GPU discovery until the interface is idle, while immediately restoring the last detected encoder capabilities.
+- Avoided redundant live-video seeks during playhead dragging and skipped expensive filmstrip generation when native preview seeking is available.
+
+### Preview
+
+- FFmpeg filmstrips now start only after the first exact frame, decode keyframes into fewer lower-resolution thumbnails, and remain available as a fallback on Linux or when native preview loading fails.
+- Preview frame, filmstrip, and fallback-clip jobs now enforce time and output-size limits instead of waiting indefinitely on a stalled FFmpeg process.
+
+### UI
+
+- Video imports now show an explicit “Reading video…” state, and missing FFmpeg uses the non-blocking in-app setup banner instead of an automatic system confirmation dialog.
+
 ### Website
 
 - Refreshed the main and Advanced mode screenshots and added a dedicated GIF Mode showcase.

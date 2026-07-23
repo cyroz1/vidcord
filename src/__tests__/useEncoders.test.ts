@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectEncoderIndex, type Encoder } from "../hooks/useEncoders";
+import { parseCachedEncoders, selectEncoderIndex, type Encoder } from "../hooks/useEncoders";
 
 const encoders: Encoder[] = [
   { name: "libx264", label: "CPU (libx264)" },
@@ -19,5 +19,17 @@ describe("selectEncoderIndex", () => {
 
   it("handles an empty discovery result", () => {
     expect(selectEncoderIndex([], undefined, 2)).toBe(0);
+  });
+});
+
+describe("parseCachedEncoders", () => {
+  it("accepts a bounded persisted capability list", () => {
+    expect(parseCachedEncoders(encoders)).toEqual(encoders);
+  });
+
+  it("rejects malformed or unsafe encoder entries", () => {
+    expect(parseCachedEncoders([{ name: "h264_nvenc;rm", label: "NVIDIA" }])).toEqual([]);
+    expect(parseCachedEncoders([{ name: "libx264", label: "" }])).toEqual([]);
+    expect(parseCachedEncoders("libx264")).toEqual([]);
   });
 });

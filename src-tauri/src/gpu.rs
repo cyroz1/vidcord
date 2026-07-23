@@ -65,19 +65,18 @@ impl CaptureFile {
             .map(|metadata| metadata.len())
     }
 
-    fn read_all(&mut self) -> std::io::Result<Vec<u8>> {
+    fn read_all(&mut self, max_output_bytes: u64) -> std::io::Result<Vec<u8>> {
         let file = self
             .file
             .as_mut()
             .ok_or_else(|| std::io::Error::other("process output capture is closed"))?;
         file.seek(SeekFrom::Start(0))?;
         let mut output = Vec::with_capacity(file.metadata()?.len().min(64 * 1024) as usize);
-        file.take(MAX_DISCOVERY_OUTPUT_BYTES + 1)
-            .read_to_end(&mut output)?;
-        if output.len() as u64 > MAX_DISCOVERY_OUTPUT_BYTES {
+        file.take(max_output_bytes + 1).read_to_end(&mut output)?;
+        if output.len() as u64 > max_output_bytes {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "discovery process produced too much output",
+                "process produced too much output",
             ));
         }
         Ok(output)
@@ -99,6 +98,10 @@ pub(crate) struct CapturedChild {
 }
 
 impl CapturedChild {
+    pub(crate) fn id(&self) -> u32 {
+        self.child.id()
+    }
+
     fn terminate_and_reap(&mut self) {
         let _ = self.child.kill();
         if self.child.wait().is_ok() {
@@ -106,7 +109,15 @@ impl CapturedChild {
         }
     }
 
-    pub(crate) fn wait_for_output(mut self, timeout: Duration) -> std::io::Result<Option<Output>> {
+    pub(crate) fn wait_for_output(self, timeout: Duration) -> std::io::Result<Option<Output>> {
+        self.wait_for_output_with_limit(timeout, MAX_DISCOVERY_OUTPUT_BYTES)
+    }
+
+    pub(crate) fn wait_for_output_with_limit(
+        mut self,
+        timeout: Duration,
+        max_output_bytes: u64,
+    ) -> std::io::Result<Option<Output>> {
         let deadline = Instant::now()
             .checked_add(timeout)
             .unwrap_or_else(Instant::now);
@@ -115,18 +126,16 @@ impl CapturedChild {
                 self.finished = true;
                 return Ok(Some(Output {
                     status,
-                    stdout: self.stdout.read_all()?,
-                    stderr: self.stderr.read_all()?,
+                    stdout: self.stdout.read_all(max_output_bytes)?,
+                    stderr: self.stderr.read_all(max_output_bytes)?,
                 }));
             }
 
-            if self.stdout.len()? > MAX_DISCOVERY_OUTPUT_BYTES
-                || self.stderr.len()? > MAX_DISCOVERY_OUTPUT_BYTES
-            {
+            if self.stdout.len()? > max_output_bytes || self.stderr.len()? > max_output_bytes {
                 self.terminate_and_reap();
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    "discovery process produced too much output",
+                    "process produced too much output",
                 ));
             }
 
@@ -366,6 +375,16 @@ mod tests {
             .unwrap();
         assert!(output.status.success());
         assert!(String::from_utf8_lossy(&output.stdout).contains("vidcord"));
+    }
+
+    #[test]
+    fn captured_command_enforces_custom_output_limit() {
+        let mut command = quick_command();
+        let error = spawn_captured_command(&mut command)
+            .unwrap()
+            .wait_for_output_with_limit(Duration::from_secs(2), 3)
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
     }
 
     #[cfg(unix)]
