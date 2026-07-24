@@ -295,6 +295,51 @@ pub fn get_os() -> &'static str {
 }
 
 #[tauri::command]
+pub async fn send_system_notification(
+    app: tauri::AppHandle,
+    title: String,
+    body: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        send_system_notification_blocking(&app, title, body);
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+fn send_system_notification_blocking(app: &tauri::AppHandle, title: String, body: String) {
+    use tauri::Manager;
+    if let Some(win) = app.get_webview_window("main") {
+        if win.is_focused().unwrap_or(false) {
+            return;
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let escaped_body = body.replace('\\', "\\\\").replace('"', "\\\"");
+        let escaped_title = title.replace('\\', "\\\\").replace('"', "\\\"");
+        let script = format!(
+            "display notification \"{escaped_body}\" with title \"{escaped_title}\""
+        );
+        let _ = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        use tauri_plugin_notification::NotificationExt;
+        let _ = app.notification().builder().title(&title).body(&body).show();
+    }
+
+    let _ = app;
+}
+
+#[tauri::command]
 pub async fn resolve_output_path(
     input_path: String,
     output_directory: Option<String>,

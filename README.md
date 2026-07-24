@@ -149,6 +149,8 @@ first pass lands too large.
   fallback before reporting the smallest result.
 - **Real-time progress** with ETA, current attempt number, encoder, and
   bitrate parsed from FFmpeg's stderr.
+- **OS taskbar & dock progress integration** — reflects encoding progress directly on your OS taskbar or dock icon (macOS Dock, Windows Taskbar button, Linux Unity launcher bar) so you can track encoding while unfocused.
+- **Native system notifications** — fires OS desktop notifications when unfocused for completed compression, clipboard copy, saved file locations, and errors, matching in-app popup banners.
 - **Race-safe cancellation** — cancelling keeps the job owned until FFmpeg
   exits, prevents another encode from starting early, and removes partial output.
 - **Collision-safe auto-named output** — direct destination modes atomically

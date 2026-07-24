@@ -196,3 +196,7 @@ export function resolveStagingOutputPath(
 export function getOs(): Promise<string> {
   return invoke<string>("get_os");
 }
+
+export function sendSystemNotification(title: string, body: string): Promise<void> {
+  return invoke("send_system_notification", { title, body });
+}

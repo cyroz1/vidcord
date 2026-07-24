@@ -2,6 +2,11 @@
 
 ## WIP
 
+### Integration
+
+- **OS Taskbar & Dock Progress Bar**: Real-time encoding progress is now reflected on the OS taskbar/dock app icon (macOS Dock, Windows Taskbar button, Linux Unity launcher bar) so you can monitor compression progress while unfocused.
+- **Native System Notifications**: Desktop notifications fire when the app is unfocused for completed compression, clipboard copy, saved file locations, and errors, matching in-app popup banners.
+
 ### Performance
 
 - Deferred cold encoder and GPU discovery until the interface is idle, while immediately restoring the last detected encoder capabilities.

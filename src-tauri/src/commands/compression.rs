@@ -7,7 +7,10 @@ use std::io::{BufRead, BufReader};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
-use tauri::{AppHandle, Emitter};
+use tauri::{
+    window::{ProgressBarState, ProgressBarStatus},
+    AppHandle, Emitter, Manager,
+};
 
 const MAX_FFMPEG_STDERR_RECORD_BYTES: usize = 16 * 1024;
 const MAX_FFMPEG_DIAGNOSTIC_BYTES: usize = 256 * 1024;
@@ -655,6 +658,27 @@ fn was_cancelled(job_id: u64) -> bool {
     state.is_cancelled(job_id)
 }
 
+fn set_window_progress(app: &AppHandle, progress: Option<u32>) {
+    if let Some(win) = app.get_webview_window("main") {
+        let (status, pct) = match progress {
+            Some(val) => (ProgressBarStatus::Normal, Some(val as u64)),
+            None => (ProgressBarStatus::None, None),
+        };
+        let _ = win.set_progress_bar(ProgressBarState {
+            status: Some(status),
+            progress: pct,
+        });
+    }
+}
+
+struct WindowProgressGuard<'a>(&'a AppHandle);
+
+impl<'a> Drop for WindowProgressGuard<'a> {
+    fn drop(&mut self) {
+        set_window_progress(self.0, None);
+    }
+}
+
 async fn run_ffmpeg_attempt(
     app: &AppHandle,
     opts: &CompressOptions,
@@ -876,6 +900,7 @@ async fn run_ffmpeg_attempt(
                     "gif_mode": gif_mode
                 }),
             );
+            set_window_progress(&app_for_progress, Some(pct as u32));
         })?;
 
         let status = child.wait()?;
@@ -952,6 +977,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     let target_bytes = target_size_bytes(opts.target_size_mb)?;
     let job_id = begin_compression_job()?;
     let _job_guard = CompressionJobGuard(job_id);
+    let _progress_guard = WindowProgressGuard(&app);
     let input_path = opts.input_path.clone();
     let input_size_bytes = tokio::task::spawn_blocking(move || {
         std::fs::metadata(input_path)
@@ -1184,7 +1210,8 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
 }
 
 #[tauri::command]
-pub async fn cancel_compression() -> bool {
+pub async fn cancel_compression(app: AppHandle) -> bool {
+    set_window_progress(&app, None);
     let pid = {
         let mut state = compression_state()
             .lock()

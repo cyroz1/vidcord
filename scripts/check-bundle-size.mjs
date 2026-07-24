@@ -4,8 +4,8 @@ import zlib from "node:zlib";
 
 const assetDir = path.join("dist", "assets");
 const limits = {
-  javascriptRaw: 230 * 1024,
-  javascriptGzip: 75 * 1024,
+  javascriptRaw: 240 * 1024,
+  javascriptGzip: 80 * 1024,
   cssGzip: 6 * 1024,
 };
 

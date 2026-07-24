@@ -20,7 +20,8 @@ use commands::encoders::{
 };
 use commands::files::{
     copy_file_to_clipboard, discard_staged_output, get_os, publish_staged_output,
-    resolve_output_path, resolve_staging_output_path, show_in_file_explorer, PendingFile,
+    resolve_output_path, resolve_staging_output_path, send_system_notification,
+    show_in_file_explorer, PendingFile,
 };
 use commands::updates::{check_for_updates, download_and_open_update_installer};
 use log::vidcord_log;
@@ -253,6 +254,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .manage(PendingFile(Mutex::new(None)))
         .manage(WebviewReady(AtomicBool::new(false)))
@@ -315,6 +317,7 @@ pub fn run() {
             publish_staged_output,
             discard_staged_output,
             get_os,
+            send_system_notification,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

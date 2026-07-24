@@ -1,4 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { sendSystemNotification } from "../ipc";
 
 export type ToastMsg = {
   id: number;
@@ -8,6 +10,39 @@ export type ToastMsg = {
 };
 
 let toastId = 0;
+
+async function triggerSystemNotification(title: string, body: string) {
+  try {
+    const isFocused = await getCurrentWindow().isFocused();
+    if (isFocused) {
+      return;
+    }
+  } catch {
+    // Ignore in non-Tauri / test environments
+  }
+
+  try {
+    const { isPermissionGranted, requestPermission, sendNotification } = await import(
+      "@tauri-apps/plugin-notification"
+    );
+    let granted = await isPermissionGranted();
+    if (!granted) {
+      const permission = await requestPermission();
+      granted = permission === "granted";
+    }
+    if (granted) {
+      sendNotification({ title, body });
+    }
+  } catch {
+    // Ignore in non-desktop / mock environments
+  }
+
+  try {
+    await sendSystemNotification(title, body);
+  } catch {
+    // Ignore in mock / non-Tauri environments
+  }
+}
 
 export function useToasts() {
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
@@ -28,6 +63,7 @@ export function useToasts() {
   const addToast = useCallback((type: ToastMsg["type"], title: string, message: string) => {
     const id = ++toastId;
     setToasts((t) => [...t, { id, type, title, message }]);
+    triggerSystemNotification(title, message);
     const handle = setTimeout(() => {
       timersRef.current.delete(id);
       setToasts((t) => t.filter((x) => x.id !== id));

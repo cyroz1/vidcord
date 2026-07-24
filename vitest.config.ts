@@ -13,6 +13,10 @@ export default defineConfig({
         "./src/__mocks__/@tauri-apps/api/event.ts",
         import.meta.url
       ).pathname,
+      "@tauri-apps/plugin-notification": new URL(
+        "./src/__mocks__/@tauri-apps/plugin-notification.ts",
+        import.meta.url
+      ).pathname,
     },
   },
 });

@@ -84,6 +84,8 @@ The site documents Open With behavior:
 - Output FPS controls: unchanged, 24 FPS, 30 FPS, 60 FPS, or custom advanced FPS
 - Output destination controls: Downloads, the imported clip's folder, a remembered custom folder, or an ask-when-done save prompt
 - Completion action controls: copy the saved output file itself to the system clipboard by default with a reveal fallback, or always reveal the output
+- Real-time OS taskbar & dock progress bar integration (macOS Dock, Windows Taskbar, Linux Unity) for monitoring compression while unfocused
+- Native OS desktop notifications when unfocused for completed compression, copied files, saved locations, and errors, matching in-app popup banners
 - Optional audio removal to reserve more bitrate for video
 - Strict output size checks with bounded adaptive retries: up to four full attempts for a hardware encoder selection and two for CPU encoding
 - Race-safe cancellation that keeps the job owned until FFmpeg exits and removes partial output
