@@ -319,9 +319,8 @@ fn send_system_notification_blocking(app: &tauri::AppHandle, title: String, body
     {
         let escaped_body = body.replace('\\', "\\\\").replace('"', "\\\"");
         let escaped_title = title.replace('\\', "\\\\").replace('"', "\\\"");
-        let script = format!(
-            "display notification \"{escaped_body}\" with title \"{escaped_title}\""
-        );
+        let script =
+            format!("display notification \"{escaped_body}\" with title \"{escaped_title}\"");
         let _ = std::process::Command::new("osascript")
             .arg("-e")
             .arg(script)
@@ -333,7 +332,12 @@ fn send_system_notification_blocking(app: &tauri::AppHandle, title: String, body
     #[cfg(not(target_os = "macos"))]
     {
         use tauri_plugin_notification::NotificationExt;
-        let _ = app.notification().builder().title(&title).body(&body).show();
+        let _ = app
+            .notification()
+            .builder()
+            .title(&title)
+            .body(&body)
+            .show();
     }
 
     let _ = app;

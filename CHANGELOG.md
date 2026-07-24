@@ -1,6 +1,6 @@
 # Changelog
 
-## WIP
+## v7.0
 
 ### Integration
 
