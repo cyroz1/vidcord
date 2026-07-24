@@ -21,10 +21,6 @@
 
 - Video imports now show an explicit “Reading video…” state, and missing FFmpeg uses the non-blocking in-app setup banner instead of an automatic system confirmation dialog.
 
-### Website
-
-- Refreshed the main and Advanced mode screenshots and added a dedicated GIF Mode showcase.
-
 ## v6.9
 
 ### Setup
@@ -40,6 +36,10 @@
 ### Compression
 
 - **Source-bitrate exports**: leaving the Advanced mode size field empty now encodes at the source video's bitrate without enforcing a target file size.
+
+### Website
+
+- Refreshed the main and Advanced mode screenshots and added a dedicated GIF Mode showcase.
 
 ## v6.8
 
