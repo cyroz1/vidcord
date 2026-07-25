@@ -19,7 +19,11 @@ export default [
     },
     rules: {
       ...tseslint.configs.recommended.rules,
-      ...reactHooks.configs.recommended.rules,
+      // React Hooks 7's recommended preset also enables React Compiler rules.
+      // Preserve the pre-upgrade lint contract until this React 18 app adopts
+      // the compiler and can evaluate those rules as a separate change.
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
       // Downgrade to warnings for rules that require full type-checking context
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
