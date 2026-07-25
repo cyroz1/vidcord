@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canPreserveDirectVideoSource,
+  getStoppedPlaybackTime,
   isFilmstripUseful,
   shouldFetchReleasedScrubFrame,
   shouldFetchScrubFrame,
@@ -109,5 +110,17 @@ describe("canPreserveDirectVideoSource", () => {
   it("requires direct preview support and loaded media", () => {
     expect(canPreserveDirectVideoSource(false, true, false, true)).toBe(false);
     expect(canPreserveDirectVideoSource(true, false, false, true)).toBe(false);
+  });
+});
+
+describe("getStoppedPlaybackTime", () => {
+  it("preserves a paused or failed playback position inside the trim", () => {
+    expect(getStoppedPlaybackTime(9.2, 4, 12)).toBe(9.2);
+  });
+
+  it("clamps invalid or out-of-range playback positions", () => {
+    expect(getStoppedPlaybackTime(Number.NaN, 4, 12)).toBe(4);
+    expect(getStoppedPlaybackTime(18, 4, 12)).toBe(12);
+    expect(getStoppedPlaybackTime(2, 4, 12)).toBe(4);
   });
 });

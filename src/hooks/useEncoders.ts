@@ -6,6 +6,14 @@ export type { Encoder };
 const FALLBACK_ENCODERS: Encoder[] = [{ name: "libx264", label: "CPU (libx264)" }];
 const MAX_CACHED_ENCODERS = 32;
 const ENCODER_NAME_RE = /^[A-Za-z0-9_]+$/;
+const STARTUP_REFRESH_SETTLE_MS = 900;
+
+export function getEncoderRefreshDelay(
+  settingsLoaded: boolean,
+  startupBusy: boolean
+): number | null {
+  return settingsLoaded && !startupBusy ? STARTUP_REFRESH_SETTLE_MS : null;
+}
 
 export function parseCachedEncoders(value: unknown): Encoder[] {
   if (!Array.isArray(value) || value.length === 0 || value.length > MAX_CACHED_ENCODERS) return [];
@@ -54,6 +62,7 @@ function encoderListsEqual(left: Encoder[] | null, right: Encoder[]): boolean {
 
 type Props = {
   settingsLoaded: boolean;
+  startupBusy: boolean;
   savedEncoderLabel: string | undefined;
   savedEncoderIndex: number;
   cachedEncoders: unknown;
@@ -63,6 +72,7 @@ type Props = {
 
 export function useEncoders({
   settingsLoaded,
+  startupBusy,
   savedEncoderLabel,
   savedEncoderIndex,
   cachedEncoders,
@@ -136,21 +146,29 @@ export function useEncoders({
   }, [cachedEncoders, savedEncoderIndex, savedEncoderLabel, settingsLoaded]);
 
   useEffect(() => {
-    if (!settingsLoaded) return;
+    const refreshDelay = getEncoderRefreshDelay(settingsLoaded, startupBusy);
+    if (refreshDelay === null) return;
 
     // Use the persisted capability list for the first interactive render and
-    // refresh it only when the WebView is idle. This avoids launching FFmpeg
-    // and a platform GPU query alongside startup paint or an Open With import.
+    // wait for a quiet startup window before refreshing it. requestIdleCallback
+    // can run before a cold Open With event reaches React, so a short settle
+    // timer is required in addition to the browser's idle signal.
+    let idleId: number | null = null;
     const run = () => {
       refreshEncoders().catch(() => {});
     };
-    if (typeof window.requestIdleCallback === "function") {
-      const idleId = window.requestIdleCallback(run, { timeout: 2_000 });
-      return () => window.cancelIdleCallback(idleId);
-    }
-    const timer = window.setTimeout(run, 800);
-    return () => window.clearTimeout(timer);
-  }, [refreshEncoders, settingsLoaded]);
+    const timer = window.setTimeout(() => {
+      if (typeof window.requestIdleCallback === "function") {
+        idleId = window.requestIdleCallback(run, { timeout: 1_500 });
+      } else {
+        run();
+      }
+    }, refreshDelay);
+    return () => {
+      window.clearTimeout(timer);
+      if (idleId !== null) window.cancelIdleCallback(idleId);
+    };
+  }, [refreshEncoders, settingsLoaded, startupBusy]);
 
   useEffect(() => {
     if (!settingsLoaded || !detectedEncodersRef.current) return;

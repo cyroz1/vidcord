@@ -18,6 +18,7 @@ import {
 } from "../ipc";
 import {
   canPreserveDirectVideoSource,
+  getStoppedPlaybackTime,
   isFilmstripUseful,
   shouldGenerateFilmstrip,
   shouldFetchReleasedScrubFrame,
@@ -224,6 +225,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   useEffect(() => {
     setDirectPreviewFailed(false);
     setInitialPreviewSettled(false);
+    currentPlaybackTimeRef.current = 0;
+    setCurrentPlaybackTime(0);
+    onTimeUpdateRef.current?.(filePath ? 0 : null);
   }, [filePath]);
   useEffect(() => {
     if (videoRef.current) {
@@ -249,6 +253,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const frameRequestIdRef = useRef(0);
   const frameInFlightRef = useRef(false);
   const queuedFrameRequestRef = useRef<FrameRequest | null>(null);
+  const frameCancellationRef = useRef<Promise<void> | null>(null);
   const startFrameFetchRef = useRef<(request: FrameRequest) => void>(() => {});
   const prevStartTimeRef = useRef(startTime);
   const prevEndTimeRef = useRef(endTime);
@@ -535,6 +540,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
           setInitialPreviewSettled(true);
         }
         frameInFlightRef.current = false;
+        // A superseding request actively terminates the old FFmpeg process.
+        // Wait for that cancellation command to advance the backend generation
+        // before starting the queued request, otherwise the new process can be
+        // mistaken for stale work and terminated too.
+        if (frameCancellationRef.current) return;
         const queued = queuedFrameRequestRef.current;
         queuedFrameRequestRef.current = null;
         if (queued && frameRequestIdRef.current === queued.requestId) {
@@ -554,6 +564,22 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       const request = { path, time, requestId, previewWidth: width, previewHeight: height };
       if (frameInFlightRef.current) {
         queuedFrameRequestRef.current = request;
+        if (!frameCancellationRef.current) {
+          const cancellation = cancelPreviewGeneration().catch(() => {});
+          frameCancellationRef.current = cancellation;
+          void cancellation.finally(() => {
+            if (frameCancellationRef.current !== cancellation) return;
+            frameCancellationRef.current = null;
+            if (frameInFlightRef.current) return;
+            const queued = queuedFrameRequestRef.current;
+            queuedFrameRequestRef.current = null;
+            if (queued && frameRequestIdRef.current === queued.requestId) {
+              startFrameFetchRef.current(queued);
+            } else {
+              setLoading(false);
+            }
+          });
+        }
         return;
       }
       startFrameFetch(request);
@@ -686,6 +712,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   const stopPlayback = useCallback(() => {
     const vid = videoRef.current;
+    const preservedTime = getStoppedPlaybackTime(
+      currentPlaybackTimeRef.current,
+      startTime,
+      endTime
+    );
     const directSourceMatches =
       !!vid && scrubVideoSrcRef.current !== null && vid.src === scrubVideoSrcRef.current;
     const preserveDirectSource = canPreserveDirectVideoSource(
@@ -721,16 +752,16 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     generatedClipEndTimeRef.current = null;
     playbackOffsetRef.current = 0;
     usingGeneratedClipRef.current = false;
-    currentPlaybackTimeRef.current = 0;
-    setCurrentPlaybackTime(0);
+    currentPlaybackTimeRef.current = preservedTime;
+    setCurrentPlaybackTime(preservedTime);
     if (clipUrlRef.current) {
       URL.revokeObjectURL(clipUrlRef.current);
       clipUrlRef.current = null;
     }
     playingRef.current = false;
     setPlaying(false);
-    onTimeUpdateRef.current?.(null);
-  }, [clearEndBoundaryTimer]);
+    onTimeUpdateRef.current?.(preservedTime);
+  }, [clearEndBoundaryTimer, endTime, startTime]);
 
   const handlePlaybackBoundary = useCallback(() => {
     if (!playingRef.current) return;
@@ -832,6 +863,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
           vid.currentTime = 0;
         };
         vid.src = clipUrl;
+        // The generated source arrives after the original click handler has
+        // returned. Keep this fallback muted: WebKit pauses media when audio is
+        // enabled without a fresh user gesture. Direct source playback still
+        // uses the requested audio state.
+        vid.muted = true;
         await vid.play();
         if (playbackSessionRef.current !== session) return;
         playingRef.current = true;
@@ -1022,6 +1058,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       <video
         ref={videoRef}
         muted={removeAudio}
+        playsInline
+        preload="auto"
         style={playing || showDirectPreviewVideo ? videoVisibleStyle : videoHiddenStyle}
         onLoadedMetadata={handleVideoReady}
         onCanPlay={handleVideoReady}

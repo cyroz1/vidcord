@@ -338,7 +338,7 @@ Every `std::process::Command::new("ffmpeg"|"ffprobe")` in Rust must:
 
 ### Caches
 
-- `ENCODER_CACHE` (`src-tauri/src/ffmpeg/encoders.rs`) — memoised encoder list. Call `invalidate_encoder_cache()` after a successful FFmpeg install. The frontend also persists the last validated capability list in `encoder_capabilities` so startup can restore it immediately, then refreshes discovery when the WebView is idle.
+- `ENCODER_CACHE` (`src-tauri/src/ffmpeg/encoders.rs`) — memoised encoder list. Call `invalidate_encoder_cache()` after a successful FFmpeg install. The frontend also persists the last validated capability list in `encoder_capabilities` so startup can restore it immediately, then refreshes discovery after a quiet idle window that resets while a video probe is active.
 - `VAAPI_CACHE` (`src-tauri/src/ffmpeg.rs`) — probes `/dev/dri/renderD*` once per session.
 - `PREVIEW_FRAME_CACHE` (`src-tauri/src/ffmpeg.rs`) — 60-entry LRU, keyed by `(path_hash, time_100ms, preview_width, preview_height)`.
 - `PREVIEW_CLIP_CACHE` (`src-tauri/src/ffmpeg.rs`) — 100 MB LRU, keyed by `(path_hash, start_ms, end_ms)`.
@@ -355,6 +355,7 @@ Preview FFmpeg child PIDs are tracked by a generation token. Call `cancel_previe
 starting work that should supersede previews; `probe` and `compress_video` already do this, and the
 frontend invokes `cancel_preview_generation` when the preview unmounts.
 Preview frame and filmstrip IPC accepts optional preview dimensions; the backend clamps them to even values before building FFmpeg scale filters. Filmstrips are a fallback: they start after the first exact frame on Linux or when native media preview loading fails, decode keyframes into at most 30 lower-resolution frames, and are skipped when direct seeking works. If a source has too few keyframes, scrubbing continues requesting exact frames instead of relying on the sparse strip. Videos of 3+ minutes use sparse seeks for filmstrip generation instead of a dense single-pass `fps` filter. Preview frame, filmstrip, and generated-clip commands have bounded deadlines and output sizes. Generated preview clips are bounded to a short playhead-relative window, try platform H.264 hardware encoders first, then fall back through software `libx264`.
+The frontend keeps only the newest fallback-frame target and actively cancels an older in-flight preview generation before launching it; preserve that cancellation handshake so slow stale seeks cannot block the released scrub position.
 
 ### Settings
 
@@ -382,6 +383,7 @@ The app re-renders on every trim-slider move. Established patterns:
 - **`memo()`** on leaf components that receive many prop updates.
 - **Refs for callbacks** when a hook needs an empty dependency array but must call the latest version of a caller-provided function (see `useEncoders`, `loadVideoRef` pattern in `App.tsx`).
 - **`useMemo`/`useCallback`** on anything used by the trim timeline.
+- The import/settings subtree is memoized behind an explicit dependency list so trim-only updates do not rebuild it. Keep that dependency list complete when adding values captured by the subtree render callback.
 - **Playhead updates** come from the `<video>` element's `timeupdate` event via `onTimeUpdate`, not a `setInterval`. A 0.02 s threshold avoids sub-frame re-renders.
 
 ## Coding conventions

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseCachedEncoders, selectEncoderIndex, type Encoder } from "../hooks/useEncoders";
+import {
+  getEncoderRefreshDelay,
+  parseCachedEncoders,
+  selectEncoderIndex,
+  type Encoder,
+} from "../hooks/useEncoders";
 
 const encoders: Encoder[] = [
   { name: "libx264", label: "CPU (libx264)" },
@@ -31,5 +36,13 @@ describe("parseCachedEncoders", () => {
     expect(parseCachedEncoders([{ name: "h264_nvenc;rm", label: "NVIDIA" }])).toEqual([]);
     expect(parseCachedEncoders([{ name: "libx264", label: "" }])).toEqual([]);
     expect(parseCachedEncoders("libx264")).toEqual([]);
+  });
+});
+
+describe("getEncoderRefreshDelay", () => {
+  it("waits for settings and a quiet import window", () => {
+    expect(getEncoderRefreshDelay(false, false)).toBeNull();
+    expect(getEncoderRefreshDelay(true, true)).toBeNull();
+    expect(getEncoderRefreshDelay(true, false)).toBe(900);
   });
 });

@@ -518,17 +518,17 @@ function TrimTimeline({
           <div
             className="trim-dual-range"
             style={{
-              left: `${startPct}%`,
-              width: `${Math.max(endPct - startPct, 0)}%`,
+              transform: `translateX(${startPct}%) scaleX(${Math.max(endPct - startPct, 0) / 100})`,
             }}
             onMouseDown={trimReady ? onRangeDragStart : undefined}
           />
           {trimPlayheadLeftPct !== null && (
             <div
-              className="trim-playhead"
-              style={{ left: `${trimPlayheadLeftPct}%` }}
-              onMouseDown={onPlayheadDragStart}
-            />
+              className="trim-playhead-position"
+              style={{ transform: `translateX(${trimPlayheadLeftPct}%)` }}
+            >
+              <div className="trim-playhead" onMouseDown={onPlayheadDragStart} />
+            </div>
           )}
           {startHandleInView && (
             <input

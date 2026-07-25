@@ -1,4 +1,14 @@
-import { useEffect, useCallback, useState, useMemo, useRef, lazy, Suspense } from "react";
+import {
+  useEffect,
+  useCallback,
+  useState,
+  useMemo,
+  useRef,
+  lazy,
+  memo,
+  Suspense,
+  type ReactNode,
+} from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import "./App.css";
@@ -165,6 +175,20 @@ function buildScaleFilter(
   return dims ? `scale=${dims[0]}:${dims[1]}` : "scale=trunc(iw/2)*2:trunc(ih/2)*2";
 }
 
+type MemoizedSubtreeProps = {
+  dependencies: readonly unknown[];
+  render: () => ReactNode;
+};
+
+const MemoizedSubtree = memo(
+  function MemoizedSubtree({ render }: MemoizedSubtreeProps) {
+    return render();
+  },
+  (previous, next) =>
+    previous.dependencies.length === next.dependencies.length &&
+    previous.dependencies.every((value, index) => Object.is(value, next.dependencies[index]))
+);
+
 export default function App() {
   // --- Hooks ---
   const { toasts, addToast, removeToast } = useToasts();
@@ -207,9 +231,20 @@ export default function App() {
     },
     [saveSettings]
   );
+
+  // File state is declared before encoder discovery so the startup refresh can
+  // yield to a cold Open With / drag-drop probe instead of competing for FFmpeg.
+  const [filePath, setFilePath] = useState<string | null>(null);
+  const [fileName, setFileName] = useState("Drag a video here or click Browse");
+  const [probeData, setProbeData] = useState<ProbeData | null>(null);
+  const [loadingVideo, setLoadingVideo] = useState(false);
+  const [startVal, setStartVal] = useState(0);
+  const [endVal, setEndVal] = useState(SLIDER_MAX);
+
   const { encoders, encoderIdx, setEncoderIdx, ffmpegMissing, refreshEncoders, markFfmpegMissing } =
     useEncoders({
       settingsLoaded,
+      startupBusy: loadingVideo,
       savedEncoderLabel: settingsRef.current.encoder_label as string | undefined,
       savedEncoderIndex: (settingsRef.current.encoder_index as number) ?? 0,
       cachedEncoders: settingsRef.current.encoder_capabilities,
@@ -252,14 +287,6 @@ export default function App() {
   const [snapMode, setSnapMode] = useState<SnapMode>("off");
   const [timelineZoom, setTimelineZoom] = useState(1);
   const [timelineCenterVal, setTimelineCenterVal] = useState(SLIDER_MAX / 2);
-
-  // --- File state ---
-  const [filePath, setFilePath] = useState<string | null>(null);
-  const [fileName, setFileName] = useState("Drag a video here or click Browse");
-  const [probeData, setProbeData] = useState<ProbeData | null>(null);
-  const [loadingVideo, setLoadingVideo] = useState(false);
-  const [startVal, setStartVal] = useState(0);
-  const [endVal, setEndVal] = useState(SLIDER_MAX);
 
   // --- UI state ---
   const [updateInfo, setUpdateInfo] = useState<{
@@ -330,6 +357,9 @@ export default function App() {
     pendingScrubPreviewRef.current = null;
     if (!pending) return;
     previewFocusTimeRef.current = pending.time;
+    if (pending.time !== null) {
+      previewRef.current?.seekTo(pending.time);
+    }
     setPreviewFocusTime(pending.time);
     setPreviewScrubbing(pending.active);
   }, []);
@@ -355,6 +385,9 @@ export default function App() {
       pendingScrubPreviewRef.current = null;
       const nextTime = clampPreviewFocusTime(time);
       previewFocusTimeRef.current = nextTime;
+      if (nextTime !== null) {
+        previewRef.current?.seekTo(nextTime);
+      }
       setPreviewFocusTime(nextTime);
       setPreviewScrubbing(active);
     },
@@ -1455,8 +1488,9 @@ export default function App() {
     setPlayheadTime((prev) => (prev !== null && Math.abs(prev - next) < 0.02 ? prev : next));
   }, []);
 
-  // Playhead tracks absolute position across the full clip, like Premiere Pro.
-  // It is independent of the trim handles and can appear outside the selected range.
+  // The playhead tracks absolute position across the full clip and can be
+  // placed outside the selected range. While a trim handle is being edited,
+  // preview focus seeks the playhead to that handle in both directions.
   const trimPlayheadLeftPct = useMemo(() => {
     if (playheadTime === null || duration <= 0) return null;
     const val = (playheadTime / duration) * SLIDER_MAX;
@@ -1866,351 +1900,403 @@ export default function App() {
 
         <div className="scroll-area">
           <div className="workflow-card">
-            {/* File import */}
-            <div className={`file-section${filePath ? " has-file" : ""}`}>
-              <button
-                type="button"
-                className={`drop-zone${filePath ? " has-file" : ""}`}
-                onClick={browseFile}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const f = e.dataTransfer.files[0];
-                  if (f) loadVideo((f as File & { path?: string }).path ?? f.name);
-                }}
-              >
-                <span className="drop-label" title={filePath ? fileName : undefined}>
-                  {fileName}
-                </span>
-                {importDetails && (
-                  <span className="import-details" aria-label={importDetails.label}>
-                    {importDetails.text}
-                  </span>
-                )}
-                <span className="browse-btn" aria-hidden="true">
-                  Browse File
-                </span>
-              </button>
-            </div>
-
-            {/* GIF settings */}
-            {gifMode && (
-              <div className="row settings-row gif-settings-row">
-                <label className="target-label">
-                  Target
-                  <select
-                    value={gifQualityIdx}
-                    onChange={(event) => {
-                      const next = Number(event.target.value);
-                      setGifQualityIdx(next);
-                      saveSettings({ gif_quality_index: next });
-                    }}
-                  >
-                    {GIF_PRESETS.map((preset, index) => (
-                      <option key={preset.size_mb} value={index}>
-                        {preset.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="gif-fps-label">
-                  FPS
-                  <select
-                    value={gifFps}
-                    onChange={(event) => {
-                      const next = Number(event.target.value);
-                      if (next !== 15 && next !== 30 && next !== 50) return;
-                      setGifFps(next);
-                      saveSettings({ gif_fps: next });
-                    }}
-                  >
-                    {GIF_FPS_OPTIONS.map((fps) => (
-                      <option key={fps} value={fps}>
-                        {fps}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            )}
-
-            {/* Basic settings */}
-            {!gifMode && !advancedMode && (
-              <div className="row settings-row">
-                <label className="target-label">
-                  Target
-                  <select
-                    value={qualityIdx}
-                    onChange={(e) => {
-                      setQualityIdx(+e.target.value);
-                      saveSettings({ quality_index: +e.target.value });
-                    }}
-                  >
-                    {QUALITY_PRESETS.map((p, i) => (
-                      <option key={p.label} value={i}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="fps-label">
-                  FPS
-                  <select
-                    value={standardFpsValue}
-                    onChange={(e) => {
-                      setFpsOption(e.target.value);
-                      saveSettings({ fps_option: e.target.value });
-                    }}
-                  >
-                    {standardFpsOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="settings-field encoder-field">
-                  <div className="encoder-heading">
-                    <label htmlFor="encoder-select">Encoder</label>
-                    {isH265Encoder(encoders[encoderIdx]?.name ?? "") && (
-                      <span
-                        className="encoder-warning"
-                        tabIndex={0}
-                        aria-label={H265_WARNING_MESSAGE}
-                        aria-describedby="h265-warning-tooltip"
-                      >
-                        <span aria-hidden="true">!</span>
-                        <span
-                          id="h265-warning-tooltip"
-                          className="encoder-warning-tooltip"
-                          role="tooltip"
-                        >
-                          {H265_WARNING_MESSAGE}
-                        </span>
+            <MemoizedSubtree
+              dependencies={[
+                filePath,
+                fileName,
+                importDetails,
+                browseFile,
+                loadVideo,
+                gifMode,
+                gifQualityIdx,
+                setGifQualityIdx,
+                gifFps,
+                setGifFps,
+                advancedMode,
+                qualityIdx,
+                setQualityIdx,
+                standardFpsValue,
+                setFpsOption,
+                standardFpsOptions,
+                encoders,
+                encoderIdx,
+                setEncoderIdx,
+                removeAudio,
+                setRemoveAudio,
+                advSize,
+                setAdvSize,
+                advResolution,
+                setAdvResolution,
+                advFps,
+                setAdvFps,
+                advEncoder,
+                setAdvEncoder,
+                showPrediction,
+                predictedEncoder,
+                showEncoderOptions,
+                activeEncoderOption,
+                setActiveEncoderOption,
+                setEncoderInputFocused,
+                listedEncoderNames,
+                loadListedEncoders,
+                filteredEncoderOptions,
+                acceptEncoderOption,
+                showEncoders,
+                saveSettings,
+              ]}
+              render={() => (
+                <>
+                  {/* File import */}
+                  <div className={`file-section${filePath ? " has-file" : ""}`}>
+                    <button
+                      type="button"
+                      className={`drop-zone${filePath ? " has-file" : ""}`}
+                      onClick={browseFile}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const f = e.dataTransfer.files[0];
+                        if (f) loadVideo((f as File & { path?: string }).path ?? f.name);
+                      }}
+                    >
+                      <span className="drop-label" title={filePath ? fileName : undefined}>
+                        {fileName}
                       </span>
-                    )}
-                  </div>
-                  <div className="encoder-row">
-                    <select
-                      id="encoder-select"
-                      value={encoderIdx}
-                      onChange={(e) => {
-                        setEncoderIdx(+e.target.value);
-                        saveSettings({
-                          encoder_index: +e.target.value,
-                          encoder_label: encoders[+e.target.value]?.label,
-                        });
-                      }}
-                    >
-                      <optgroup label="H.264 — universally compatible">
-                        {encoders.map(
-                          (e, i) =>
-                            !isH265Encoder(e.name) && (
-                              <option key={e.name} value={i}>
-                                {e.label}
-                              </option>
-                            )
-                        )}
-                      </optgroup>
-                      <optgroup label="H.265 — more efficient, may not play for all recipients">
-                        {encoders.map(
-                          (e, i) =>
-                            isH265Encoder(e.name) && (
-                              <option key={e.name} value={i}>
-                                {e.label}
-                              </option>
-                            )
-                        )}
-                      </optgroup>
-                    </select>
-                    <button
-                      type="button"
-                      className={`mute-btn${removeAudio ? " active" : ""}`}
-                      onClick={() => {
-                        const next = !removeAudio;
-                        setRemoveAudio(next);
-                        saveSettings({ remove_audio: next });
-                      }}
-                    >
-                      {removeAudio ? "Unmute" : "Mute"}
+                      {importDetails && (
+                        <span className="import-details" aria-label={importDetails.label}>
+                          {importDetails.text}
+                        </span>
+                      )}
+                      <span className="browse-btn" aria-hidden="true">
+                        Browse File
+                      </span>
                     </button>
                   </div>
-                </div>
-              </div>
-            )}
 
-            {/* Advanced settings */}
-            {!gifMode && advancedMode && (
-              <div className="row settings-row advanced">
-                <label>
-                  Size (MB)
-                  <input
-                    type="number"
-                    min="0.1"
-                    step="0.1"
-                    placeholder="Source"
-                    title="Leave blank to use the source video's bitrate"
-                    value={advSize}
-                    onChange={(e) => {
-                      setAdvSize(e.target.value);
-                      saveSettings({ advanced_target_size: e.target.value });
-                    }}
-                  />
-                </label>
-                <label>
-                  Resolution
-                  <select
-                    value={advResolution}
-                    onChange={(e) => {
-                      setAdvResolution(e.target.value);
-                      saveSettings({ advanced_resolution: e.target.value });
-                    }}
-                  >
-                    {RESOLUTION_OPTIONS.map((r) => (
-                      <option key={r}>{r}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="fps-label">
-                  FPS
-                  <input
-                    type="number"
-                    min="0.1"
-                    step="1"
-                    placeholder="Off"
-                    value={advFps}
-                    onChange={(e) => {
-                      setAdvFps(e.target.value);
-                      saveSettings({ advanced_fps: e.target.value });
-                    }}
-                  />
-                </label>
-                <div className="settings-field encoder-label">
-                  <span id="advanced-encoder-label">Encoder</span>
-                  <div className="encoder-row">
-                    <div className="encoder-autocomplete">
-                      {showPrediction && (
-                        <div className="encoder-ghost" aria-hidden="true">
-                          {predictedEncoder}
-                        </div>
-                      )}
-                      <input
-                        id="advanced-encoder-input"
-                        type="text"
-                        role="combobox"
-                        autoComplete="off"
-                        placeholder="libx264"
-                        value={advEncoder}
-                        aria-labelledby="advanced-encoder-label"
-                        aria-autocomplete="list"
-                        aria-expanded={showEncoderOptions}
-                        aria-controls={showEncoderOptions ? "advanced-encoder-options" : undefined}
-                        aria-activedescendant={
-                          showEncoderOptions
-                            ? `advanced-encoder-option-${activeEncoderOption}`
-                            : undefined
-                        }
-                        onFocus={() => {
-                          setEncoderInputFocused(true);
-                          if (listedEncoderNames.length === 0) loadListedEncoders().catch(() => {});
-                        }}
-                        onBlur={() => {
-                          window.setTimeout(() => setEncoderInputFocused(false), 80);
-                        }}
-                        onChange={(e) => {
-                          setAdvEncoder(e.target.value);
-                          saveSettings({ advanced_encoder: e.target.value });
-                          setEncoderInputFocused(true);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Tab" && showPrediction) {
-                            acceptEncoderOption(predictedEncoder!);
-                            return;
-                          }
-                          if (
-                            e.key === "ArrowRight" &&
-                            showPrediction &&
-                            e.currentTarget.selectionStart === advEncoder.length &&
-                            e.currentTarget.selectionEnd === advEncoder.length
-                          ) {
-                            e.preventDefault();
-                            acceptEncoderOption(predictedEncoder!);
-                            return;
-                          }
-                          if (e.key === "ArrowDown" && showEncoderOptions) {
-                            e.preventDefault();
-                            setActiveEncoderOption((idx) =>
-                              Math.min(idx + 1, filteredEncoderOptions.length - 1)
-                            );
-                            return;
-                          }
-                          if (e.key === "ArrowUp" && showEncoderOptions) {
-                            e.preventDefault();
-                            setActiveEncoderOption((idx) => Math.max(idx - 1, 0));
-                            return;
-                          }
-                          if (e.key === "Enter" && showEncoderOptions) {
-                            e.preventDefault();
-                            acceptEncoderOption(filteredEncoderOptions[activeEncoderOption]);
-                            return;
-                          }
-                          if (e.key === "Escape") {
-                            setEncoderInputFocused(false);
-                          }
-                        }}
-                      />
-                      {showEncoderOptions && (
-                        <div
-                          id="advanced-encoder-options"
-                          className="encoder-options"
-                          role="listbox"
-                          aria-label="Encoder suggestions"
+                  {/* GIF settings */}
+                  {gifMode && (
+                    <div className="row settings-row gif-settings-row">
+                      <label className="target-label">
+                        Target
+                        <select
+                          value={gifQualityIdx}
+                          onChange={(event) => {
+                            const next = Number(event.target.value);
+                            setGifQualityIdx(next);
+                            saveSettings({ gif_quality_index: next });
+                          }}
                         >
-                          {filteredEncoderOptions.map((option, index) => (
-                            <div
-                              id={`advanced-encoder-option-${index}`}
-                              role="option"
-                              aria-selected={index === activeEncoderOption}
-                              className={`encoder-option${
-                                index === activeEncoderOption ? " active" : ""
-                              }`}
-                              key={option}
-                              onMouseEnter={() => setActiveEncoderOption(index)}
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                acceptEncoderOption(option);
-                              }}
-                            >
-                              {option}
-                            </div>
+                          {GIF_PRESETS.map((preset, index) => (
+                            <option key={preset.size_mb} value={index}>
+                              {preset.label}
+                            </option>
                           ))}
-                        </div>
-                      )}
+                        </select>
+                      </label>
+                      <label className="gif-fps-label">
+                        FPS
+                        <select
+                          value={gifFps}
+                          onChange={(event) => {
+                            const next = Number(event.target.value);
+                            if (next !== 15 && next !== 30 && next !== 50) return;
+                            setGifFps(next);
+                            saveSettings({ gif_fps: next });
+                          }}
+                        >
+                          {GIF_FPS_OPTIONS.map((fps) => (
+                            <option key={fps} value={fps}>
+                              {fps}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     </div>
-                    <button
-                      type="button"
-                      className={`mute-btn${removeAudio ? " active" : ""}`}
-                      onClick={() => {
-                        const next = !removeAudio;
-                        setRemoveAudio(next);
-                        saveSettings({ remove_audio: next });
-                      }}
-                    >
-                      {removeAudio ? "Unmute" : "Mute"}
-                    </button>
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      title="Show FFmpeg encoders"
-                      aria-label="Show FFmpeg encoders"
-                      onClick={showEncoders}
-                    >
-                      ℹ
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+                  )}
+
+                  {/* Basic settings */}
+                  {!gifMode && !advancedMode && (
+                    <div className="row settings-row">
+                      <label className="target-label">
+                        Target
+                        <select
+                          value={qualityIdx}
+                          onChange={(e) => {
+                            setQualityIdx(+e.target.value);
+                            saveSettings({ quality_index: +e.target.value });
+                          }}
+                        >
+                          {QUALITY_PRESETS.map((p, i) => (
+                            <option key={p.label} value={i}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="fps-label">
+                        FPS
+                        <select
+                          value={standardFpsValue}
+                          onChange={(e) => {
+                            setFpsOption(e.target.value);
+                            saveSettings({ fps_option: e.target.value });
+                          }}
+                        >
+                          {standardFpsOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="settings-field encoder-field">
+                        <div className="encoder-heading">
+                          <label htmlFor="encoder-select">Encoder</label>
+                          {isH265Encoder(encoders[encoderIdx]?.name ?? "") && (
+                            <span
+                              className="encoder-warning"
+                              tabIndex={0}
+                              aria-label={H265_WARNING_MESSAGE}
+                              aria-describedby="h265-warning-tooltip"
+                            >
+                              <span aria-hidden="true">!</span>
+                              <span
+                                id="h265-warning-tooltip"
+                                className="encoder-warning-tooltip"
+                                role="tooltip"
+                              >
+                                {H265_WARNING_MESSAGE}
+                              </span>
+                            </span>
+                          )}
+                        </div>
+                        <div className="encoder-row">
+                          <select
+                            id="encoder-select"
+                            value={encoderIdx}
+                            onChange={(e) => {
+                              setEncoderIdx(+e.target.value);
+                              saveSettings({
+                                encoder_index: +e.target.value,
+                                encoder_label: encoders[+e.target.value]?.label,
+                              });
+                            }}
+                          >
+                            <optgroup label="H.264 — universally compatible">
+                              {encoders.map(
+                                (e, i) =>
+                                  !isH265Encoder(e.name) && (
+                                    <option key={e.name} value={i}>
+                                      {e.label}
+                                    </option>
+                                  )
+                              )}
+                            </optgroup>
+                            <optgroup label="H.265 — more efficient, may not play for all recipients">
+                              {encoders.map(
+                                (e, i) =>
+                                  isH265Encoder(e.name) && (
+                                    <option key={e.name} value={i}>
+                                      {e.label}
+                                    </option>
+                                  )
+                              )}
+                            </optgroup>
+                          </select>
+                          <button
+                            type="button"
+                            className={`mute-btn${removeAudio ? " active" : ""}`}
+                            onClick={() => {
+                              const next = !removeAudio;
+                              setRemoveAudio(next);
+                              saveSettings({ remove_audio: next });
+                            }}
+                          >
+                            {removeAudio ? "Unmute" : "Mute"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Advanced settings */}
+                  {!gifMode && advancedMode && (
+                    <div className="row settings-row advanced">
+                      <label>
+                        Size (MB)
+                        <input
+                          type="number"
+                          min="0.1"
+                          step="0.1"
+                          placeholder="Source"
+                          title="Leave blank to use the source video's bitrate"
+                          value={advSize}
+                          onChange={(e) => {
+                            setAdvSize(e.target.value);
+                            saveSettings({ advanced_target_size: e.target.value });
+                          }}
+                        />
+                      </label>
+                      <label>
+                        Resolution
+                        <select
+                          value={advResolution}
+                          onChange={(e) => {
+                            setAdvResolution(e.target.value);
+                            saveSettings({ advanced_resolution: e.target.value });
+                          }}
+                        >
+                          {RESOLUTION_OPTIONS.map((r) => (
+                            <option key={r}>{r}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="fps-label">
+                        FPS
+                        <input
+                          type="number"
+                          min="0.1"
+                          step="1"
+                          placeholder="Off"
+                          value={advFps}
+                          onChange={(e) => {
+                            setAdvFps(e.target.value);
+                            saveSettings({ advanced_fps: e.target.value });
+                          }}
+                        />
+                      </label>
+                      <div className="settings-field encoder-label">
+                        <span id="advanced-encoder-label">Encoder</span>
+                        <div className="encoder-row">
+                          <div className="encoder-autocomplete">
+                            {showPrediction && (
+                              <div className="encoder-ghost" aria-hidden="true">
+                                {predictedEncoder}
+                              </div>
+                            )}
+                            <input
+                              id="advanced-encoder-input"
+                              type="text"
+                              role="combobox"
+                              autoComplete="off"
+                              placeholder="libx264"
+                              value={advEncoder}
+                              aria-labelledby="advanced-encoder-label"
+                              aria-autocomplete="list"
+                              aria-expanded={showEncoderOptions}
+                              aria-controls={
+                                showEncoderOptions ? "advanced-encoder-options" : undefined
+                              }
+                              aria-activedescendant={
+                                showEncoderOptions
+                                  ? `advanced-encoder-option-${activeEncoderOption}`
+                                  : undefined
+                              }
+                              onFocus={() => {
+                                setEncoderInputFocused(true);
+                                if (listedEncoderNames.length === 0)
+                                  loadListedEncoders().catch(() => {});
+                              }}
+                              onBlur={() => {
+                                window.setTimeout(() => setEncoderInputFocused(false), 80);
+                              }}
+                              onChange={(e) => {
+                                setAdvEncoder(e.target.value);
+                                saveSettings({ advanced_encoder: e.target.value });
+                                setEncoderInputFocused(true);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Tab" && showPrediction) {
+                                  acceptEncoderOption(predictedEncoder!);
+                                  return;
+                                }
+                                if (
+                                  e.key === "ArrowRight" &&
+                                  showPrediction &&
+                                  e.currentTarget.selectionStart === advEncoder.length &&
+                                  e.currentTarget.selectionEnd === advEncoder.length
+                                ) {
+                                  e.preventDefault();
+                                  acceptEncoderOption(predictedEncoder!);
+                                  return;
+                                }
+                                if (e.key === "ArrowDown" && showEncoderOptions) {
+                                  e.preventDefault();
+                                  setActiveEncoderOption((idx) =>
+                                    Math.min(idx + 1, filteredEncoderOptions.length - 1)
+                                  );
+                                  return;
+                                }
+                                if (e.key === "ArrowUp" && showEncoderOptions) {
+                                  e.preventDefault();
+                                  setActiveEncoderOption((idx) => Math.max(idx - 1, 0));
+                                  return;
+                                }
+                                if (e.key === "Enter" && showEncoderOptions) {
+                                  e.preventDefault();
+                                  acceptEncoderOption(filteredEncoderOptions[activeEncoderOption]);
+                                  return;
+                                }
+                                if (e.key === "Escape") {
+                                  setEncoderInputFocused(false);
+                                }
+                              }}
+                            />
+                            {showEncoderOptions && (
+                              <div
+                                id="advanced-encoder-options"
+                                className="encoder-options"
+                                role="listbox"
+                                aria-label="Encoder suggestions"
+                              >
+                                {filteredEncoderOptions.map((option, index) => (
+                                  <div
+                                    id={`advanced-encoder-option-${index}`}
+                                    role="option"
+                                    aria-selected={index === activeEncoderOption}
+                                    className={`encoder-option${
+                                      index === activeEncoderOption ? " active" : ""
+                                    }`}
+                                    key={option}
+                                    onMouseEnter={() => setActiveEncoderOption(index)}
+                                    onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      acceptEncoderOption(option);
+                                    }}
+                                  >
+                                    {option}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            className={`mute-btn${removeAudio ? " active" : ""}`}
+                            onClick={() => {
+                              const next = !removeAudio;
+                              setRemoveAudio(next);
+                              saveSettings({ remove_audio: next });
+                            }}
+                          >
+                            {removeAudio ? "Unmute" : "Mute"}
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            title="Show FFmpeg encoders"
+                            aria-label="Show FFmpeg encoders"
+                            onClick={showEncoders}
+                          >
+                            ℹ
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            />
 
             <TrimTimeline
               selectedDuration={selectedDuration}

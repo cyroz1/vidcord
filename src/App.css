@@ -921,6 +921,7 @@ select optgroup {
   box-shadow: var(--shadow-card), var(--card-top);
   min-width: 0;
   max-width: 100%;
+  contain: layout style;
 }
 
 .trim-section.shortcuts-open {
@@ -967,7 +968,7 @@ select optgroup {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 4px;
   width: 100%;
   min-width: 0;
 }
@@ -975,7 +976,7 @@ select optgroup {
 .trim-control-group {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   flex: 0 0 auto;
 }
 
@@ -989,10 +990,8 @@ select optgroup {
 }
 
 .trim-inline-control select {
-  min-height: 26px;
+  min-height: 24px;
   background: var(--surface2);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   color: var(--text);
@@ -1008,18 +1007,16 @@ select optgroup {
 .trim-zoom-controls {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
 }
 
 .trim-mini-btn {
-  min-height: 26px;
+  min-height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 3px;
   background: var(--surface2);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   color: var(--text-secondary);
@@ -1043,12 +1040,12 @@ select optgroup {
 }
 
 .trim-icon-btn {
-  width: 26px;
+  width: 24px;
   padding-inline: 0;
 }
 
 .trim-labeled-btn {
-  min-width: 40px;
+  min-width: 36px;
   padding-inline: 3px;
 }
 
@@ -1070,8 +1067,8 @@ select optgroup {
 
 .trim-loop-toggle,
 .trim-time-format-toggle {
-  width: 26px;
-  min-height: 26px;
+  width: 24px;
+  min-height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1079,8 +1076,6 @@ select optgroup {
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   background: var(--surface2);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   color: var(--text-secondary);
   box-shadow: var(--card-top);
   transition:
@@ -1154,6 +1149,8 @@ select optgroup {
 
 .trim-dual-range {
   position: absolute;
+  left: 0;
+  width: 100%;
   height: 4px;
   background: var(--accent);
   border-radius: 2px;
@@ -1161,14 +1158,27 @@ select optgroup {
   z-index: 1;
   cursor: grab;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+  transform-origin: left center;
+  will-change: transform;
 }
 
 .trim-dual-range:active {
   cursor: grabbing;
 }
 
+.trim-playhead-position {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 20px;
+  pointer-events: none;
+  z-index: 4;
+  will-change: transform;
+}
+
 .trim-playhead {
   position: absolute;
+  left: 0;
   top: -4px;
   bottom: -4px;
   width: 2px;
@@ -1177,7 +1187,6 @@ select optgroup {
   pointer-events: auto;
   cursor: ew-resize;
   transform: translateX(-50%);
-  z-index: 4;
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
 }
 
@@ -1280,7 +1289,9 @@ select optgroup {
   inset: 0;
   width: 100%;
   pointer-events: none;
-  z-index: 3;
+  /* Keep the active trim thumb above the playhead when they overlap so
+     reversing a handle drag cannot accidentally grab the playhead instead. */
+  z-index: 5;
   background: transparent;
 }
 

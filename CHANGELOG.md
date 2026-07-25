@@ -10,16 +10,20 @@
 ### Performance
 
 - Deferred cold encoder and GPU discovery until the interface is idle, while immediately restoring the last detected encoder capabilities.
+- Encoder discovery now waits for a quiet startup/import window, and superseded FFmpeg preview-frame requests are terminated so the newest scrub position is not blocked behind stale work.
 - Avoided redundant live-video seeks during playhead dragging and skipped expensive filmstrip generation when native preview seeking is available.
 
 ### Preview
 
 - FFmpeg filmstrips now start only after the first exact frame, decode keyframes into fewer lower-resolution thumbnails, and remain available as a fallback on Linux or when native preview loading fails.
 - Preview frame, filmstrip, and fallback-clip jobs now enforce time and output-size limits instead of waiting indefinitely on a stalled FFmpeg process.
+- Failed or stopped preview playback now preserves the current scrub position, while generated fallback clips remain autoplay-safe on WebKit instead of briefly starting and stopping.
 
 ### UI
 
 - Video imports now show an explicit “Reading video…” state, and missing FFmpeg uses the non-blocking in-app setup banner instead of an automatic system confirmation dialog.
+- Trim controls use a tighter segmented layout and compositor-driven range/playhead motion to reduce layout work inside the glass timeline card. Unchanged import and settings controls are also skipped during trim-only renders.
+- The timeline playhead now follows an actively moved trim handle in both directions instead of retaining a stale position when the handle reverses.
 
 ## v6.9
 
