@@ -33,7 +33,7 @@ type Props = {
   endVal: number;
   startPct: number;
   endPct: number;
-  trimPlayheadLeftPct: number | null;
+  trimPlayheadRef: RefObject<HTMLDivElement>;
   onSetInPoint: () => void;
   onSetOutPoint: () => void;
   onSnapModeChange: (mode: SnapMode) => void;
@@ -82,6 +82,27 @@ const TRIM_ICON_PATHS: Record<StrokedTrimIconName, readonly string[]> = {
   loop: ["M3 6a3 3 0 0 1 3-3h6", "M10 1l2 2-2 2", "M13 10a3 3 0 0 1-3 3H4", "M6 11l-2 2 2 2"],
   help: ["M6.4 6a1.7 1.7 0 1 1 2.45 1.53C8.2 7.86 8 8.15 8 9", "M8 11.8h.01"],
 };
+
+const initialPlayheadPositionStyle = { transform: "translateX(0%)" };
+
+const TrimPlayheadPosition = memo(function TrimPlayheadPosition({
+  elementRef,
+  onMouseDown,
+}: {
+  elementRef: RefObject<HTMLDivElement>;
+  onMouseDown: (event: MouseEvent<HTMLDivElement>) => void;
+}) {
+  return (
+    <div
+      ref={elementRef}
+      className="trim-playhead-position"
+      style={initialPlayheadPositionStyle}
+      hidden
+    >
+      <div className="trim-playhead" onMouseDown={onMouseDown} />
+    </div>
+  );
+});
 
 function TrimIcon({ name }: { name: TrimIconName }) {
   if (name === "snap") {
@@ -220,7 +241,7 @@ function TrimTimeline({
   endVal,
   startPct,
   endPct,
-  trimPlayheadLeftPct,
+  trimPlayheadRef,
   onSetInPoint,
   onSetOutPoint,
   onSnapModeChange,
@@ -522,14 +543,7 @@ function TrimTimeline({
             }}
             onMouseDown={trimReady ? onRangeDragStart : undefined}
           />
-          {trimPlayheadLeftPct !== null && (
-            <div
-              className="trim-playhead-position"
-              style={{ transform: `translateX(${trimPlayheadLeftPct}%)` }}
-            >
-              <div className="trim-playhead" onMouseDown={onPlayheadDragStart} />
-            </div>
-          )}
+          <TrimPlayheadPosition elementRef={trimPlayheadRef} onMouseDown={onPlayheadDragStart} />
           {startHandleInView && (
             <input
               className="trim-handle trim-start-handle"

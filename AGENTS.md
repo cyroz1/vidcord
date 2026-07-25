@@ -250,9 +250,19 @@ Events flow the other direction via `AppHandle::emit` → `listen()` in the fron
 - `open-file` — path from single-instance forwarding, macOS Apple Events, or CLI args
 - `tauri://drag-drop` — built-in Tauri event for drops on the window
 
+System notifications are initiated by `useToasts`: every in-app toast queues the exact same title
+and body for the backend `send_system_notification` command. The backend rechecks main-window focus
+immediately before delivery and suppresses the OS notification while focused. macOS uses a bounded
+`osascript` invocation with title/body passed as data arguments; Windows and Linux use the
+synchronous `notify-rust` API so delivery acceptance or failure is returned to the frontend.
+Delivery failures are logged without logging notification contents, and the in-app toast remains
+visible as the fallback. Keep notification delivery serialized so related banners retain their
+in-app order, and escape Linux notification markup so errors render as literal text.
+
 Compression uses a single owned backend job ID. Cancellation keeps that job active until its FFmpeg
 process exits; do not clear frontend compression state before the matching `compress-done` event or
-replace the job-specific state with an unowned global PID.
+replace the job-specific state with an unowned global PID. Cancellation gives the owned process a
+short graceful-exit window, then force-terminates it only while the same job still owns that PID.
 
 ### Compression and output lifecycle
 
@@ -273,8 +283,9 @@ Output handling has two paths:
 - **Ask when done**: compression writes only beneath
   `%TEMP%/vidcord/staged-output` (the platform temp equivalent), then the frontend opens a save
   dialog. `publish_staged_output` canonicalizes and accepts only a direct file child of that staging
-  directory, copies it to a create-new temporary file beside the chosen destination, flushes and
-  syncs it, atomically publishes it via `settings::replace_file`, and removes the staged file.
+  directory, first tries a same-filesystem hard link to a unique temporary path beside the
+  destination, falls back to a create-new copy when linking is unavailable, syncs the temporary
+  file, atomically publishes it via `settings::replace_file`, and removes the staged file.
   Cancelling the save dialog or failing finalization must call `discard_staged_output`; retain the
   backend validation and partial-file cleanup.
 
@@ -338,10 +349,9 @@ Every `std::process::Command::new("ffmpeg"|"ffprobe")` in Rust must:
 
 ### Caches
 
-- `ENCODER_CACHE` (`src-tauri/src/ffmpeg/encoders.rs`) — memoised encoder list. Call `invalidate_encoder_cache()` after a successful FFmpeg install. The frontend also persists the last validated capability list in `encoder_capabilities` so startup can restore it immediately, then refreshes discovery after a quiet idle window that resets while a video probe is active.
+- `ENCODER_CACHE` (`src-tauri/src/ffmpeg/encoders.rs`) — memoised encoder list plus the H.264 hardware encoders that passed a bounded one-frame initialization test. Only validated hardware is eligible for first-run auto-selection; listed-but-unusable encoders remain available for an explicit choice. Call `invalidate_encoder_cache()` after a successful FFmpeg install. The frontend also persists the last validated capability list in `encoder_capabilities` so startup can restore it immediately, then refreshes discovery after a quiet idle window that resets while a video probe is active.
 - `VAAPI_CACHE` (`src-tauri/src/ffmpeg.rs`) — probes `/dev/dri/renderD*` once per session.
-- `PREVIEW_FRAME_CACHE` (`src-tauri/src/ffmpeg.rs`) — 60-entry LRU, keyed by `(path_hash, time_100ms, preview_width, preview_height)`.
-- `PREVIEW_CLIP_CACHE` (`src-tauri/src/ffmpeg.rs`) — 100 MB LRU, keyed by `(path_hash, start_ms, end_ms)`.
+- `PREVIEW_FRAME_CACHE` (`src-tauri/src/ffmpeg.rs`) — 60-entry / 16 MB LRU, keyed by `(path_hash, time_100ms, preview_width, preview_height)`.
 - `FFMPEG_AVAIL_CACHE` (`src-tauri/src/commands/encoders.rs`) — 30 s TTL on `ffmpeg`/`ffprobe -version` probes, with `ffmpeg_available_fresh()` for post-install bypass.
 
 On Windows, encoder detection and fresh availability probes also recover a standard WinGet
@@ -351,10 +361,12 @@ running vidcord process. Keep the lookup constrained to WinGet roots and require
 `ffmpeg.exe` and `ffprobe.exe` before using a directory.
 
 Call `clear_preview_caches()` when the frontend loads a new file (already done in `probe`).
+FFprobe child PIDs have a separate generation token and a six-second deadline. Starting a newer
+import must terminate the older probe so stale metadata work cannot consume the full timeout.
 Preview FFmpeg child PIDs are tracked by a generation token. Call `cancel_preview_jobs()` before
 starting work that should supersede previews; `probe` and `compress_video` already do this, and the
 frontend invokes `cancel_preview_generation` when the preview unmounts.
-Preview frame and filmstrip IPC accepts optional preview dimensions; the backend clamps them to even values before building FFmpeg scale filters. Filmstrips are a fallback: they start after the first exact frame on Linux or when native media preview loading fails, decode keyframes into at most 30 lower-resolution frames, and are skipped when direct seeking works. If a source has too few keyframes, scrubbing continues requesting exact frames instead of relying on the sparse strip. Videos of 3+ minutes use sparse seeks for filmstrip generation instead of a dense single-pass `fps` filter. Preview frame, filmstrip, and generated-clip commands have bounded deadlines and output sizes. Generated preview clips are bounded to a short playhead-relative window, try platform H.264 hardware encoders first, then fall back through software `libx264`.
+Preview frame and filmstrip IPC accepts optional preview dimensions; the backend clamps them to even values before building FFmpeg scale filters. Filmstrips are a fallback: they start after the first exact frame on Linux or when native media preview loading fails, decode keyframes into at most 30 lower-resolution frames (eight for videos of 3+ minutes), and are skipped when direct seeking works. If a source has too few keyframes, scrubbing continues requesting exact frames instead of relying on the sparse strip. Videos of 3+ minutes use sparse seeks for filmstrip generation instead of a dense single-pass `fps` filter. Preview frame, filmstrip, and generated-clip commands have bounded deadlines and output sizes. A failed hardware preview decode disables further hardware-decode attempts for that imported source. Generated preview clips are bounded to a short playhead-relative window, try platform H.264 hardware encoders first, then fall back through software `libx264`. Generated clips are not cached in Rust because returning cached owned IPC bytes requires another large copy; the frontend retains and revokes one Blob URL keyed by import generation, path, and clip range instead.
 The frontend keeps only the newest fallback-frame target and actively cancels an older in-flight preview generation before launching it; preserve that cancellation handshake so slow stale seeks cannot block the released scrub position.
 
 ### Settings
@@ -384,7 +396,7 @@ The app re-renders on every trim-slider move. Established patterns:
 - **Refs for callbacks** when a hook needs an empty dependency array but must call the latest version of a caller-provided function (see `useEncoders`, `loadVideoRef` pattern in `App.tsx`).
 - **`useMemo`/`useCallback`** on anything used by the trim timeline.
 - The import/settings subtree is memoized behind an explicit dependency list so trim-only updates do not rebuild it. Keep that dependency list complete when adding values captured by the subtree render callback.
-- **Playhead updates** come from the `<video>` element's `timeupdate` event via `onTimeUpdate`, not a `setInterval`. A 0.02 s threshold avoids sub-frame re-renders.
+- **Playhead updates** come from the `<video>` element's `timeupdate` event via `onTimeUpdate`, not a `setInterval`. The callback updates the compositor-owned playhead transform through a ref; only derived button-enabled booleans enter React state.
 
 ## Coding conventions
 
@@ -406,7 +418,14 @@ The app re-renders on every trim-slider move. Established patterns:
 
 ### Commits / PRs
 
-- **Branching strategy**: Develop new features and version updates on dedicated branches (e.g. `feature/...` or `vX.Y`) rather than pushing directly to `main`. This prevents WIP commits from triggering automated website deployments (`site/`) or breaking `main`. Merge feature branches into `main` only after passing all quality gates and verifying version alignment.
+- **Branching and worktree strategy**: Only perform development work for an active WIP release
+  from a branch named exactly `X.Y` (for example, `7.1`). The checked-out worktree must contain a
+  top-level `## WIP` section in `CHANGELOG.md`. Do not develop on `main`, a detached HEAD,
+  `feature/...`, or `vX.Y` branches. Before editing, verify both the branch name and WIP changelog;
+  if either check fails, stop and ask the user to switch to or create the appropriate `X.Y`
+  branch/worktree. Merge the completed `X.Y` branch into `main` only after all quality gates pass
+  and version references are aligned. This prevents WIP commits from triggering automated website
+  deployments (`site/`) or breaking `main`.
 - **Run the relevant quality gates before every commit.** If Rust changed: `cargo fmt --check --manifest-path src-tauri/Cargo.toml`, `cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings`, `cargo test --manifest-path src-tauri/Cargo.toml`. If frontend changed: `npm run lint`, `npm run typecheck`, `npm test`. Fix failures before committing — never push and let CI catch it.
 - Document significant changes where future users and agents will look for them. Update `AGENTS.md` for workflow, architecture, release, or repository-practice changes; update `README.md` for public product behavior, install/setup, supported-platform, or development changes; and update the website (`site/index.html`, JSON-LD, `llms.txt`, `llms-full.txt`, and related site assets) when public-facing product facts or download behavior change.
 - Keep a WIP changelog in `CHANGELOG.md` for user-visible changes made after the commit of the last release. Use the latest `vX.Y` tag as the baseline, keep notes concise and release-note-ready, and exclude pure refactors, tests, chores, or internal-only work unless they affect behavior.
@@ -433,10 +452,16 @@ When the user asks to tag and push `vX.Y`:
 
 1. **Confirm version alignment**: every reference listed under "Bumping the version" must already match the requested version. If anything lags, fix it in a preparatory commit first — never tag a tree where the source disagrees with the tag.
 2. **Update `CHANGELOG.md`**: convert the WIP notes into a `## vX.Y` section at the top with all user-visible changes since the previous tag. Cross-check against `git log <previous-tag>..HEAD --no-merges --pretty=format:"%s"` and rewrite as user-facing release notes (drop refactor/chore/test-only commits unless they affect behaviour). The release workflow extracts this section verbatim as the GitHub release body, so it is the public changelog.
-3. **Commit** the CHANGELOG (and any version edits, if step 1 needed them).
+3. **Commit** the CHANGELOG (and any version edits, if step 1 needed them) on the matching `X.Y`
+   branch.
 4. **Tag with the `vX.Y` short form** (matching existing tags — see `git tag --list`): `git tag vX.Y`. Do **not** use `vX.Y.Z` — the existing tag history is short-form and the release workflow's CHANGELOG extraction matches `## vX.Y`.
-5. **Push** the commit and the tag to `main`: `git push origin main` then `git push origin vX.Y`. Pushing the tag triggers the release workflow (`build.yml` → `release` job) which builds the `release` profile and drafts a GitHub release.
-6. **Start the next changelog immediately after the tagged release commit**: add a fresh `## WIP` section at the top of `CHANGELOG.md`, commit it as the first post-release commit, and push that commit to `main`. Never leave post-release development without a WIP section ready for new user-visible changes.
+5. **Merge and push** the release commit to `main`, then push the tag: `git push origin main` followed
+   by `git push origin vX.Y`. Pushing the tag triggers the release workflow (`build.yml` →
+   `release` job), which builds the `release` profile and drafts a GitHub release.
+6. **Start the next changelog on the next version branch**: create or switch to the next planned
+   `X.Y` branch/worktree, add a fresh `## WIP` section at the top of `CHANGELOG.md`, commit it as
+   the first post-release commit, and push that version branch. Do not put the new WIP commit
+   directly on `main`. If the next version is not established, ask the user before creating it.
 
 Confirm with the user before pushing the tag — tag pushes are hard to reverse and trigger the public release pipeline.
 

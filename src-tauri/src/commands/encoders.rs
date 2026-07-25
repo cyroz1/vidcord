@@ -298,10 +298,20 @@ pub async fn detect_encoders() -> Vec<serde_json::Value> {
             .into_iter()
             .enumerate()
             .map(|(index, (name, label))| {
+                let auto_selectable = detected.auto_selectable.contains(&name);
                 if index == 0 && ffmpeg_missing {
-                    serde_json::json!({"name": name, "label": label, "ffmpeg_missing": true})
+                    serde_json::json!({
+                        "name": name,
+                        "label": label,
+                        "auto_selectable": auto_selectable,
+                        "ffmpeg_missing": true
+                    })
                 } else {
-                    serde_json::json!({"name": name, "label": label})
+                    serde_json::json!({
+                        "name": name,
+                        "label": label,
+                        "auto_selectable": auto_selectable
+                    })
                 }
             })
             .collect::<Vec<_>>()

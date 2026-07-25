@@ -1,31 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow, ProgressBarStatus } from "@tauri-apps/api/window";
 import { cancelCompression, type ProbeData } from "../ipc";
 
 export type { ProbeData };
-
-function setTaskbarProgress(progressPercent: number | null) {
-  try {
-    const win = getCurrentWindow();
-    if (progressPercent !== null && Number.isFinite(progressPercent)) {
-      win
-        .setProgressBar({
-          status: ProgressBarStatus.Normal,
-          progress: Math.round(progressPercent),
-        })
-        .catch(() => {});
-    } else {
-      win
-        .setProgressBar({
-          status: ProgressBarStatus.None,
-        })
-        .catch(() => {});
-    }
-  } catch {
-    // Ignore in non-Tauri / mock environments
-  }
-}
 
 type Props = {
   onToast: (type: "success" | "error" | "warning" | "info", title: string, msg: string) => void;
@@ -65,7 +42,6 @@ export function useCompression({ onToast: _onToast }: Props) {
       if (cancellingRef.current) return;
       setProgress(e.payload.percent);
       setEta(formatCompressionProgress(e.payload));
-      setTaskbarProgress(e.payload.percent);
     });
     const unsub2 = listen<CompressDonePayload>("compress-done", (e) => {
       cancellingRef.current = false;
@@ -73,12 +49,10 @@ export function useCompression({ onToast: _onToast }: Props) {
       setCompressing(false);
       setProgress(e.payload.success ? 100 : 0);
       setEta(formatCompressionDone(e.payload));
-      setTaskbarProgress(null);
     });
     return () => {
       unsub1.then((fn) => fn());
       unsub2.then((fn) => fn());
-      setTaskbarProgress(null);
     };
   }, []);
 
@@ -87,7 +61,6 @@ export function useCompression({ onToast: _onToast }: Props) {
     cancellingRef.current = true;
     setCancelling(true);
     setEta("Cancelling...");
-    setTaskbarProgress(null);
     try {
       const hadActiveJob = await cancelCompression();
       if (!hadActiveJob) {
@@ -106,7 +79,6 @@ export function useCompression({ onToast: _onToast }: Props) {
   const resetProgress = useCallback(() => {
     setProgress(0);
     setEta("Ready");
-    setTaskbarProgress(null);
   }, []);
 
   return {

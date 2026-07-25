@@ -13,7 +13,12 @@ export type ProbeData = {
   codec: string;
 };
 
-export type Encoder = { name: string; label: string; ffmpeg_missing?: boolean };
+export type Encoder = {
+  name: string;
+  label: string;
+  auto_selectable?: boolean;
+  ffmpeg_missing?: boolean;
+};
 
 export type FfmpegInstallResult = {
   status:
@@ -197,6 +202,6 @@ export function getOs(): Promise<string> {
   return invoke<string>("get_os");
 }
 
-export function sendSystemNotification(title: string, body: string): Promise<void> {
-  return invoke("send_system_notification", { title, body });
+export function sendSystemNotification(title: string, body: string): Promise<boolean> {
+  return invoke<boolean>("send_system_notification", { title, body });
 }

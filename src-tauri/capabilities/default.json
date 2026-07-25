@@ -12,7 +12,6 @@
     "dialog:default",
     "dialog:allow-open",
     "dialog:allow-save",
-    "notification:default",
     "opener:default"
   ]
 }

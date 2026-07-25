@@ -8,7 +8,11 @@ import {
 
 const encoders: Encoder[] = [
   { name: "libx264", label: "CPU (libx264)" },
-  { name: "h264_nvenc", label: "NVIDIA (h264_nvenc)" },
+  {
+    name: "h264_nvenc",
+    label: "NVIDIA (h264_nvenc)",
+    auto_selectable: true,
+  },
   { name: "hevc_nvenc", label: "NVIDIA H.265 (hevc_nvenc)" },
 ];
 
@@ -17,9 +21,18 @@ describe("selectEncoderIndex", () => {
     expect(selectEncoderIndex(encoders, "NVIDIA (h264_nvenc)", 0)).toBe(1);
   });
 
-  it("falls back to a clamped saved index", () => {
+  it("falls back to a clamped saved index when a saved encoder disappeared", () => {
     expect(selectEncoderIndex(encoders, "Missing encoder", 99)).toBe(2);
-    expect(selectEncoderIndex(encoders, undefined, -4)).toBe(0);
+  });
+
+  it("prefers a detected H.264 hardware encoder for first-run settings", () => {
+    expect(selectEncoderIndex(encoders, undefined, 0)).toBe(1);
+    expect(selectEncoderIndex([encoders[0], encoders[2]], undefined, 1)).toBe(0);
+  });
+
+  it("does not auto-select hardware that failed initialization validation", () => {
+    const unverified = encoders.map((encoder) => ({ ...encoder, auto_selectable: false }));
+    expect(selectEncoderIndex(unverified, undefined, 0)).toBe(0);
   });
 
   it("handles an empty discovery result", () => {
@@ -35,6 +48,9 @@ describe("parseCachedEncoders", () => {
   it("rejects malformed or unsafe encoder entries", () => {
     expect(parseCachedEncoders([{ name: "h264_nvenc;rm", label: "NVIDIA" }])).toEqual([]);
     expect(parseCachedEncoders([{ name: "libx264", label: "" }])).toEqual([]);
+    expect(
+      parseCachedEncoders([{ name: "h264_nvenc", label: "NVIDIA", auto_selectable: "yes" }])
+    ).toEqual([]);
     expect(parseCachedEncoders("libx264")).toEqual([]);
   });
 });

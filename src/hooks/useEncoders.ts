@@ -6,6 +6,13 @@ export type { Encoder };
 const FALLBACK_ENCODERS: Encoder[] = [{ name: "libx264", label: "CPU (libx264)" }];
 const MAX_CACHED_ENCODERS = 32;
 const ENCODER_NAME_RE = /^[A-Za-z0-9_]+$/;
+const PREFERRED_H264_HARDWARE_ENCODERS = new Set([
+  "h264_nvenc",
+  "h264_qsv",
+  "h264_amf",
+  "h264_vaapi",
+  "h264_videotoolbox",
+]);
 const STARTUP_REFRESH_SETTLE_MS = 900;
 
 export function getEncoderRefreshDelay(
@@ -32,7 +39,16 @@ export function parseCachedEncoders(value: unknown): Encoder[] {
     ) {
       return [];
     }
-    parsed.push({ name: record.name, label: record.label });
+    if (record.auto_selectable !== undefined && typeof record.auto_selectable !== "boolean") {
+      return [];
+    }
+    parsed.push({
+      name: record.name,
+      label: record.label,
+      ...(typeof record.auto_selectable === "boolean"
+        ? { auto_selectable: record.auto_selectable }
+        : {}),
+    });
   }
   return parsed;
 }
@@ -46,8 +62,13 @@ export function selectEncoderIndex(
   if (savedEncoderLabel) {
     const labelIndex = encoders.findIndex((encoder) => encoder.label === savedEncoderLabel);
     if (labelIndex >= 0) return labelIndex;
+    return Math.max(0, Math.min(savedEncoderIndex, encoders.length - 1));
   }
-  return Math.max(0, Math.min(savedEncoderIndex, encoders.length - 1));
+  const hardwareIndex = encoders.findIndex(
+    (encoder) =>
+      PREFERRED_H264_HARDWARE_ENCODERS.has(encoder.name) && encoder.auto_selectable === true
+  );
+  return hardwareIndex >= 0 ? hardwareIndex : 0;
 }
 
 function encoderListsEqual(left: Encoder[] | null, right: Encoder[]): boolean {
@@ -55,7 +76,10 @@ function encoderListsEqual(left: Encoder[] | null, right: Encoder[]): boolean {
     left !== null &&
     left.length === right.length &&
     left.every(
-      (encoder, index) => encoder.name === right[index].name && encoder.label === right[index].label
+      (encoder, index) =>
+        encoder.name === right[index].name &&
+        encoder.label === right[index].label &&
+        encoder.auto_selectable === right[index].auto_selectable
     )
   );
 }
@@ -116,23 +140,28 @@ export function useEncoders({
 
   const refreshEncoders = useCallback(() => {
     return detectEncoders().then((list) => {
-      if (list.length > 0) {
-        const missing = Boolean(list[0].ffmpeg_missing);
-        if (missing) markFfmpegMissing();
-        else clearFfmpegMissing();
-        const detected = list.map(({ name, label }) => ({ name, label }));
-        const capabilitiesChanged = !encoderListsEqual(detectedEncodersRef.current, detected);
-        detectedEncodersRef.current = detected;
-        if (capabilitiesChanged) {
-          setEncoders(detected);
-          if (!missing) onEncodersDetectedRef.current(detected);
-        }
-        if (settingsLoadedRef.current) {
-          setEncoderIdx(
-            selectEncoderIndex(detected, savedEncoderLabelRef.current, savedEncoderIndexRef.current)
-          );
-        }
+      if (list.length === 0) return false;
+
+      const missing = Boolean(list[0].ffmpeg_missing);
+      if (missing) markFfmpegMissing();
+      else clearFfmpegMissing();
+      const detected = list.map(({ name, label, auto_selectable }) => ({
+        name,
+        label,
+        auto_selectable,
+      }));
+      const capabilitiesChanged = !encoderListsEqual(detectedEncodersRef.current, detected);
+      detectedEncodersRef.current = detected;
+      if (capabilitiesChanged) {
+        setEncoders(detected);
+        if (!missing) onEncodersDetectedRef.current(detected);
       }
+      if (settingsLoadedRef.current) {
+        setEncoderIdx(
+          selectEncoderIndex(detected, savedEncoderLabelRef.current, savedEncoderIndexRef.current)
+        );
+      }
+      return !missing;
     });
   }, [clearFfmpegMissing, markFfmpegMissing]);
 

@@ -254,7 +254,6 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .manage(PendingFile(Mutex::new(None)))
         .manage(WebviewReady(AtomicBool::new(false)))

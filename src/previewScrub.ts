@@ -37,6 +37,10 @@ export function isFilmstripUseful(frameCount: number, durationSec: number): bool
   return frameCount >= minimumFrames;
 }
 
+export function getFilmstripFrameBudget(durationSec: number): number {
+  return durationSec >= 180 ? 8 : 30;
+}
+
 export function canPreserveDirectVideoSource(
   supportsLiveScrubPreview: boolean,
   mediaReady: boolean,
@@ -55,4 +59,12 @@ export function getStoppedPlaybackTime(
   const max = Math.max(startTime, endTime);
   if (!Number.isFinite(currentTime)) return min;
   return Math.max(min, Math.min(currentTime, max));
+}
+
+export function getCompletedPlaybackTime(
+  currentTime: number,
+  endTime: number,
+  reachedTrimEnd: boolean
+): number {
+  return reachedTrimEnd ? endTime : currentTime;
 }

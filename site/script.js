@@ -736,11 +736,13 @@
     bindCopyCommandButtons();
     bindDownloadLinks();
     bindArchDialog();
-    await detectEnvironment();
-
-    updateDownloadLinks();
+    const environmentRequest = detectEnvironment();
+    const releaseRequest = fetchLatestRelease();
     const downloadCountRequest = fetchDownloadCount();
-    await fetchLatestRelease();
+
+    await environmentRequest;
+    updateDownloadLinks();
+    await releaseRequest;
     updateDownloadLinks();
     await downloadCountRequest;
   }

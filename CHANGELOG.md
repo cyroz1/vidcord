@@ -5,25 +5,36 @@
 ### Integration
 
 - **OS Taskbar & Dock Progress Bar**: Real-time encoding progress is now reflected on the OS taskbar/dock app icon (macOS Dock, Windows Taskbar button, Linux Unity launcher bar) so you can monitor compression progress while unfocused.
-- **Native System Notifications**: Desktop notifications fire when the app is unfocused for completed compression, clipboard copy, saved file locations, and errors, matching in-app popup banners.
+- **Native System Notifications**: Every in-app banner and error is mirrored in order as a matching desktop notification while vidcord is unfocused, using delivery paths that report failures consistently on Windows, macOS, and Linux.
 
 ### Performance
 
+- Made GIF sizing progressive, kept Linux GPU discovery off the cold-import path, validated hardware encoders before first-run auto-selection, and remembered failed preview hardware-decode paths.
+- Bounded compression cancellation and desktop helper processes, capped preview-frame cache memory by bytes, and invalidated generated preview clips when a same-path source is re-imported.
+- Isolated high-frequency playhead movement from full-app React renders, preserved toast memoization, removed redundant FFmpeg setup probes, and started website release requests concurrently with platform detection.
+- Removed unnecessary backdrop filters from opaque app controls and aligned the direct `dirs` dependency with Tauri's runtime version.
 - Deferred cold encoder and GPU discovery until the interface is idle, while immediately restoring the last detected encoder capabilities.
 - Encoder discovery now waits for a quiet startup/import window, and superseded FFmpeg preview-frame requests are terminated so the newest scrub position is not blocked behind stale work.
 - Avoided redundant live-video seeks during playhead dragging and skipped expensive filmstrip generation when native preview seeking is available.
+- New installs prefer an available H.264 hardware encoder, while saved encoder choices remain unchanged and failed hardware decode or encode paths fall back automatically.
+- Long encodes run below normal process priority to keep the app and desktop responsive, and GIF exports use a short sizing sample to avoid unnecessary full-size retry passes.
+- File imports cancel superseded FFprobe processes and cap metadata analysis at six seconds instead of leaving stale probes active.
+- Ask-when-done saves use a same-filesystem hard-link publish path when possible, avoiding a second full output copy while retaining the safe copy fallback.
 
 ### Preview
 
 - FFmpeg filmstrips now start only after the first exact frame, decode keyframes into fewer lower-resolution thumbnails, and remain available as a fallback on Linux or when native preview loading fails.
 - Preview frame, filmstrip, and fallback-clip jobs now enforce time and output-size limits instead of waiting indefinitely on a stalled FFmpeg process.
 - Failed or stopped preview playback now preserves the current scrub position, while generated fallback clips remain autoplay-safe on WebKit instead of briefly starting and stopping.
+- Replaying a preview after it reaches the trim end now restarts from the trim start instead of resuming at the out point.
+- Long Linux filmstrips use eight representative frames, and fallback playback keeps only the latest generated clip in the webview to reduce FFmpeg work and memory copying.
 
 ### UI
 
 - Video imports now show an explicit “Reading video…” state, and missing FFmpeg uses the non-blocking in-app setup banner instead of an automatic system confirmation dialog.
 - Trim controls use a tighter segmented layout and compositor-driven range/playhead motion to reduce layout work inside the glass timeline card. Unchanged import and settings controls are also skipped during trim-only renders.
 - The timeline playhead now follows an actively moved trim handle in both directions instead of retaining a stale position when the handle reverses.
+- Reduced glass-filter compositor cost, honored reduced-transparency settings across every glass control, and removed duplicate taskbar-progress and desktop-notification updates.
 
 ## v6.9
 

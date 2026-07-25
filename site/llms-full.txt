@@ -87,11 +87,12 @@ The site documents Open With behavior:
 - Real-time OS taskbar & dock progress bar integration (macOS Dock, Windows Taskbar, Linux Unity) for monitoring compression while unfocused
 - Native OS desktop notifications when unfocused for completed compression, copied files, saved locations, and errors, matching in-app popup banners
 - Optional audio removal to reserve more bitrate for video
-- Strict output size checks with bounded adaptive retries: up to four full attempts for a hardware encoder selection and two for CPU encoding
+- Strict output size checks with bounded adaptive retries: up to four successful full-output attempts for a hardware encoder selection and two for CPU encoding, with a short representative sizing sample before longer GIF exports
 - Race-safe cancellation that keeps the job owned until FFmpeg exits and removes partial output
 - Atomically reserved, auto-incremented filenames for auto-named output destinations
 - Encoder detection for installed FFmpeg capabilities
-- User-selectable CPU/GPU encoders, with CPU fallback during retry flows when needed
+- First-run preference for an available H.264 hardware encoder while preserving saved choices, including CPU
+- User-selectable CPU/GPU encoders, with software-decode retry and CPU fallback when a hardware path fails
 - GPU acceleration support when FFmpeg exposes supported encoders
 - Fixed 460×690 non-resizable application window
 - User-approved update installer downloads with size, completeness, collision, and GitHub SHA-256 integrity checks

@@ -1,12 +1,13 @@
 use crate::ffmpeg::{
     cancel_preview_jobs, clear_preview_caches, configure_ffmpeg_command, ffmpeg_missing_error,
     generate_filmstrip, generate_preview, generate_preview_clip, probe_video,
+    start_probe_generation,
 };
 use crate::log::vidcord_log;
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::{
     window::{ProgressBarState, ProgressBarStatus},
     AppHandle, Emitter, Manager,
@@ -98,10 +99,17 @@ impl CompressionState {
         }
     }
 
-    fn cancel_active(&mut self) -> Option<u32> {
-        self.active_job_id?;
+    fn cancel_active(&mut self) -> Option<(u64, u32)> {
+        let job_id = self.active_job_id?;
+        if self.cancelled {
+            return None;
+        }
         self.cancelled = true;
-        self.pid.take()
+        self.pid.map(|pid| (job_id, pid))
+    }
+
+    fn owns_cancelled_process(&self, job_id: u64, pid: u32) -> bool {
+        self.active_job_id == Some(job_id) && self.pid == Some(pid) && self.cancelled
     }
 
     fn finish_job(&mut self, job_id: u64) {
@@ -196,11 +204,12 @@ impl Drop for OutputReservation {
 #[tauri::command]
 pub async fn probe(path: String) -> Result<serde_json::Value, String> {
     let started_at = Instant::now();
+    let generation = start_probe_generation();
     let result = tokio::task::spawn_blocking(move || {
         cancel_preview_jobs();
         // Clear both preview caches when loading a new file
         clear_preview_caches();
-        probe_video(&path).map_err(|e| e.to_string())
+        probe_video(&path, generation).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -283,7 +292,7 @@ pub async fn cancel_preview_generation() -> Result<(), String> {
 // Tauri commands — compression
 // ---------------------------------------------------------------------------
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 pub struct CompressOptions {
     pub input_path: String,
     pub output_path: String,
@@ -326,12 +335,22 @@ struct CompressionAttempt {
     encoder: String,
     video_bitrate_k: u32,
     status: String,
+    try_hardware_decode: bool,
 }
 
 struct FfmpegRunResult {
     exit_status: std::process::ExitStatus,
     last_lines: std::collections::VecDeque<String>,
     cancelled: bool,
+}
+
+#[derive(Clone, Copy)]
+struct FfmpegRunContext {
+    attempt_index: usize,
+    total_attempts: usize,
+    clip_duration: f64,
+    job_id: u64,
+    emit_progress: bool,
 }
 
 fn valid_encoder_name(encoder: &str) -> bool {
@@ -468,14 +487,66 @@ fn gif_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> String {
 
 const OVERSIZE_RETRY_LIMIT_PER_ENCODER: usize = 1;
 const OVERSIZE_RETRY_SAFETY: f64 = 0.96;
+const GIF_PREFLIGHT_INITIAL_SECONDS: f64 = 1.0;
+const GIF_PREFLIGHT_EXTENDED_SECONDS: f64 = 3.0;
+const GIF_PREFLIGHT_UNCERTAINTY_LOW: f64 = 0.80;
+const GIF_PREFLIGHT_UNCERTAINTY_HIGH: f64 = 1.25;
+static GIF_PREFLIGHT_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+struct TemporaryOutput(std::path::PathBuf);
+
+impl TemporaryOutput {
+    fn create(extension: &str) -> Result<Self, String> {
+        use std::sync::atomic::Ordering;
+
+        let directory = std::env::temp_dir().join("vidcord");
+        std::fs::create_dir_all(&directory)
+            .map_err(|error| format!("Could not prepare temporary output: {error}"))?;
+        for _ in 0..32 {
+            let suffix = GIF_PREFLIGHT_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let path = directory.join(format!(
+                "gif-preflight-{}-{suffix}.{extension}",
+                std::process::id()
+            ));
+            match std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&path)
+            {
+                Ok(_) => return Ok(Self(path)),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => {
+                    return Err(format!("Could not reserve temporary output: {error}"));
+                }
+            }
+        }
+        Err("Could not choose a temporary output filename.".to_string())
+    }
+
+    fn as_string(&self) -> String {
+        self.0.to_string_lossy().into_owned()
+    }
+}
+
+impl Drop for TemporaryOutput {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+fn supports_auto_hardware_decode(encoder: &str) -> bool {
+    encoder != "libx264" && encoder != "gif" && !encoder.ends_with("_vaapi")
+}
 
 fn initial_attempt(opts: &CompressOptions) -> CompressionAttempt {
+    let encoder = if opts.gif_mode {
+        "gif".into()
+    } else {
+        opts.encoder.clone()
+    };
     CompressionAttempt {
-        encoder: if opts.gif_mode {
-            "gif".into()
-        } else {
-            opts.encoder.clone()
-        },
+        try_hardware_decode: supports_auto_hardware_decode(&encoder),
+        encoder,
         video_bitrate_k: opts.video_bitrate_k.max(100),
         status: if opts.gif_mode {
             "Creating GIF...".into()
@@ -502,6 +573,7 @@ fn max_adaptive_attempts(opts: &CompressOptions, has_target: bool) -> usize {
         1
     };
     encoder_phases * attempts_per_encoder
+        + usize::from(supports_auto_hardware_decode(&opts.encoder))
 }
 
 fn next_gif_attempt(
@@ -521,6 +593,7 @@ fn next_gif_attempt(
                 encoder: "gif".into(),
                 video_bitrate_k: next_bitrate,
                 status: "Optimizing GIF to fit...".into(),
+                try_hardware_decode: false,
             },
             retry_count + 1,
         )
@@ -532,6 +605,7 @@ fn cpu_fallback_attempt(video_bitrate_k: u32, status: String) -> CompressionAtte
         encoder: "libx264".into(),
         video_bitrate_k: video_bitrate_k.max(100),
         status,
+        try_hardware_decode: false,
     }
 }
 
@@ -545,6 +619,23 @@ fn adaptive_bitrate_for_oversize(
     }
     let ratio = target_bytes as f64 / output_bytes as f64;
     ((current_bitrate_k as f64 * ratio * OVERSIZE_RETRY_SAFETY).floor() as u32).max(100)
+}
+
+fn projected_gif_size(sample_bytes: u64, sample_duration: f64, clip_duration: f64) -> u64 {
+    if sample_duration <= 0.0 || !sample_duration.is_finite() || !clip_duration.is_finite() {
+        return sample_bytes;
+    }
+    ((sample_bytes as f64 * clip_duration / sample_duration) * 1.10)
+        .ceil()
+        .min(u64::MAX as f64) as u64
+}
+
+fn gif_projection_needs_extended_sample(projected_bytes: u64, target_bytes: u64) -> bool {
+    if target_bytes == 0 {
+        return false;
+    }
+    let ratio = projected_bytes as f64 / target_bytes as f64;
+    (GIF_PREFLIGHT_UNCERTAINTY_LOW..=GIF_PREFLIGHT_UNCERTAINTY_HIGH).contains(&ratio)
 }
 
 fn next_oversize_attempt(
@@ -565,6 +656,7 @@ fn next_oversize_attempt(
                 encoder: current.encoder.clone(),
                 video_bitrate_k: next_bitrate,
                 status: format!("Retrying at {next_bitrate} kbps after size check..."),
+                try_hardware_decode: current.try_hardware_decode,
             },
             oversize_retries_for_encoder + 1,
             cpu_fallback_used,
@@ -683,12 +775,9 @@ async fn run_ffmpeg_attempt(
     app: &AppHandle,
     opts: &CompressOptions,
     attempt: &CompressionAttempt,
-    attempt_index: usize,
-    total_attempts: usize,
-    clip_duration: f64,
-    job_id: u64,
+    context: FfmpegRunContext,
 ) -> Result<FfmpegRunResult, String> {
-    if was_cancelled(job_id) {
+    if was_cancelled(context.job_id) {
         return Ok(FfmpegRunResult {
             exit_status: cancelled_exit_status(),
             last_lines: std::collections::VecDeque::new(),
@@ -709,8 +798,11 @@ async fn run_ffmpeg_attempt(
             ]);
         }
     }
+    if attempt.try_hardware_decode {
+        cmd_args.extend(["-hwaccel".into(), "auto".into()]);
+    }
 
-    let duration = format!("{clip_duration:.3}");
+    let duration = format!("{:.3}", context.clip_duration);
     let start_time = format!("{:.3}", opts.start_time);
 
     cmd_args.extend([
@@ -792,11 +884,12 @@ async fn run_ffmpeg_attempt(
     })?;
 
     let pid = child.id();
+    lower_compression_process_priority(pid);
     let registered = {
         let mut state = compression_state()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        state.register_process(job_id, pid, opts.output_path.clone())
+        state.register_process(context.job_id, pid, opts.output_path.clone())
     };
     if !registered {
         let _ = child.kill();
@@ -810,12 +903,14 @@ async fn run_ffmpeg_attempt(
 
     let stderr = child.stderr.take().unwrap();
     let app_for_progress = app.clone();
-    let attempt_number = attempt_index + 1;
-    let attempt_total = total_attempts;
+    let attempt_number = context.attempt_index + 1;
+    let attempt_total = context.total_attempts;
     let encoder_name = attempt.encoder.clone();
     let video_bitrate_k = attempt.video_bitrate_k;
     let gif_mode = opts.gif_mode;
     let status_text = attempt.status.clone();
+    let should_emit_progress = context.emit_progress;
+    let clip_duration = context.clip_duration;
 
     let run_result = tokio::task::spawn_blocking(move || -> Result<_, std::io::Error> {
         let mut child = ChildProcessGuard::new(child);
@@ -866,6 +961,9 @@ async fn run_ffmpeg_attempt(
             let Some(time_str) = parse_ffmpeg_time(line) else {
                 return;
             };
+            if !should_emit_progress {
+                return;
+            }
             let pct = ((time_str / clip_duration) * 100.0).min(100.0);
             let now = std::time::Instant::now();
             let should_emit = last_progress_emit
@@ -912,8 +1010,8 @@ async fn run_ffmpeg_attempt(
         let mut state = compression_state()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let c = state.is_cancelled(job_id);
-        state.clear_process(job_id);
+        let c = state.is_cancelled(context.job_id);
+        state.clear_process(context.job_id);
         c
     };
 
@@ -926,6 +1024,41 @@ async fn run_ffmpeg_attempt(
         last_lines,
         cancelled,
     })
+}
+
+#[cfg(unix)]
+fn lower_compression_process_priority(pid: u32) {
+    // Let UI and desktop compositor work pre-empt long software encodes while
+    // still allowing FFmpeg to use all otherwise-idle CPU capacity.
+    let result = unsafe { libc::setpriority(libc::PRIO_PROCESS, pid, 5) };
+    if result != 0 {
+        vidcord_log(&format!(
+            "Could not lower FFmpeg process priority: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+}
+
+#[cfg(windows)]
+fn lower_compression_process_priority(pid: u32) {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, SetPriorityClass, BELOW_NORMAL_PRIORITY_CLASS,
+        PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_INFORMATION,
+    };
+
+    unsafe {
+        let process = OpenProcess(
+            PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION,
+            0,
+            pid,
+        );
+        if process.is_null() {
+            return;
+        }
+        let _ = SetPriorityClass(process, BELOW_NORMAL_PRIORITY_CLASS);
+        CloseHandle(process);
+    }
 }
 
 #[cfg(unix)]
@@ -1005,14 +1138,112 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     let mut attempt_index = 0usize;
     let mut oversize_retries_for_encoder = 0usize;
     let mut cpu_fallback_used = opts.gif_mode || opts.encoder == "libx264";
-    let mut seen_attempts: std::collections::HashSet<(String, u32)> =
+    let mut seen_attempts: std::collections::HashSet<(String, u32, bool)> =
         std::collections::HashSet::new();
+
+    if opts.gif_mode
+        && target_bytes.is_some()
+        && clip_duration > GIF_PREFLIGHT_INITIAL_SECONDS * 2.0
+    {
+        match TemporaryOutput::create("gif") {
+            Ok(preflight_output) => {
+                let mut sample_duration = GIF_PREFLIGHT_INITIAL_SECONDS.min(clip_duration);
+                loop {
+                    let mut preflight_opts = opts.clone();
+                    preflight_opts.start_time =
+                        opts.start_time + ((clip_duration - sample_duration) * 0.5);
+                    preflight_opts.end_time = preflight_opts.start_time + sample_duration;
+                    preflight_opts.output_path = preflight_output.as_string();
+                    let preflight_attempt = initial_attempt(&preflight_opts);
+                    match run_ffmpeg_attempt(
+                        &app,
+                        &preflight_opts,
+                        &preflight_attempt,
+                        FfmpegRunContext {
+                            attempt_index: 0,
+                            total_attempts,
+                            clip_duration: sample_duration,
+                            job_id,
+                            emit_progress: false,
+                        },
+                    )
+                    .await
+                    {
+                        Ok(run) if run.cancelled => {
+                            vidcord_log("Compression cancelled during GIF sizing sample.");
+                            remove_partial_output(&opts.output_path);
+                            let _ = app.emit(
+                                "compress-done",
+                                serde_json::json!({
+                                    "success": false,
+                                    "cancelled": true,
+                                    "message": "Cancelled."
+                                }),
+                            );
+                            return Err("Cancelled".to_string());
+                        }
+                        Ok(run) if run.exit_status.success() => {
+                            let (Some(limit), Ok(metadata)) =
+                                (target_bytes, std::fs::metadata(&preflight_opts.output_path))
+                            else {
+                                break;
+                            };
+                            let projected =
+                                projected_gif_size(metadata.len(), sample_duration, clip_duration);
+                            let can_extend = sample_duration < GIF_PREFLIGHT_EXTENDED_SECONDS
+                                && clip_duration > GIF_PREFLIGHT_EXTENDED_SECONDS * 2.0;
+                            if can_extend
+                                && gif_projection_needs_extended_sample(projected, limit)
+                            {
+                                vidcord_log(&format!(
+                                    "One-second GIF sizing sample projected {projected} bytes near the {limit}-byte target; extending the sample."
+                                ));
+                                sample_duration =
+                                    GIF_PREFLIGHT_EXTENDED_SECONDS.min(clip_duration);
+                                continue;
+                            }
+                            if let Some((adjusted, retries)) =
+                                next_gif_attempt(&attempt, limit, projected, 0)
+                            {
+                                vidcord_log(&format!(
+                                    "GIF sizing sample projected {projected} bytes; starting the full encode at quality step {retries}."
+                                ));
+                                attempt = adjusted;
+                                oversize_retries_for_encoder = retries;
+                            }
+                            break;
+                        }
+                        Ok(run) => {
+                            vidcord_log(&format!(
+                                "GIF sizing sample failed (rc={:?}); continuing with the normal encode.",
+                                run.exit_status.code()
+                            ));
+                            break;
+                        }
+                        Err(error) => {
+                            vidcord_log(&format!(
+                                "GIF sizing sample could not run ({error}); continuing with the normal encode."
+                            ));
+                            break;
+                        }
+                    }
+                }
+            }
+            Err(error) => vidcord_log(&format!(
+                "GIF sizing sample could not reserve temporary output ({error}); continuing with the normal encode."
+            )),
+        }
+    }
 
     loop {
         if attempt_index >= total_attempts {
             break;
         }
-        if !seen_attempts.insert((attempt.encoder.clone(), attempt.video_bitrate_k)) {
+        if !seen_attempts.insert((
+            attempt.encoder.clone(),
+            attempt.video_bitrate_k,
+            attempt.try_hardware_decode,
+        )) {
             break;
         }
 
@@ -1034,10 +1265,13 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             &app,
             &opts,
             &attempt,
-            attempt_index,
-            total_attempts,
-            clip_duration,
-            job_id,
+            FfmpegRunContext {
+                attempt_index,
+                total_attempts,
+                clip_duration,
+                job_id,
+                emit_progress: true,
+            },
         )
         .await
         {
@@ -1063,6 +1297,19 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         }
 
         if !run.exit_status.success() {
+            if attempt.try_hardware_decode {
+                let all_lines: Vec<&str> = run.last_lines.iter().map(String::as_str).collect();
+                vidcord_log(&format!(
+                    "Hardware decode failed with {}; retrying the same encoder with software decode. rc={:?}\n{}",
+                    attempt.encoder,
+                    run.exit_status.code(),
+                    all_lines.join("\n")
+                ));
+                attempt_index += 1;
+                attempt.try_hardware_decode = false;
+                attempt.status = "Retrying with software decode...".into();
+                continue;
+            }
             if !cpu_fallback_used && attempt.encoder != "libx264" {
                 let all_lines: Vec<&str> = run.last_lines.iter().map(String::as_str).collect();
                 vidcord_log(&format!(
@@ -1224,26 +1471,86 @@ pub async fn cancel_compression(app: AppHandle) -> bool {
         pid
     };
 
-    if let Some(pid) = pid {
-        let _ = tokio::task::spawn_blocking(move || terminate_compression_process(pid)).await;
+    if let Some((job_id, pid)) = pid {
+        let _ =
+            tokio::task::spawn_blocking(move || terminate_compression_process(job_id, pid)).await;
     }
     true
 }
 
+fn still_owns_cancelled_process(job_id: u64, pid: u32) -> bool {
+    compression_state()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .owns_cancelled_process(job_id, pid)
+}
+
 #[cfg(unix)]
-fn terminate_compression_process(pid: u32) {
+fn terminate_compression_process(job_id: u64, pid: u32) {
     unsafe {
         libc::kill(pid as i32, libc::SIGTERM);
+    }
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        if !still_owns_cancelled_process(job_id, pid) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+
+    let state = compression_state()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if state.owns_cancelled_process(job_id, pid) {
+        vidcord_log("Compression did not exit after SIGTERM; sending SIGKILL.");
+        unsafe {
+            libc::kill(pid as i32, libc::SIGKILL);
+        }
     }
 }
 
 #[cfg(windows)]
-fn terminate_compression_process(pid: u32) {
+fn terminate_compression_process(job_id: u64, pid: u32) {
+    let _ = run_taskkill(pid, false, Duration::from_secs(2));
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        if !still_owns_cancelled_process(job_id, pid) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    if still_owns_cancelled_process(job_id, pid) {
+        vidcord_log("Compression did not exit after taskkill; forcing process-tree termination.");
+        let _ = run_taskkill(pid, true, Duration::from_secs(2));
+    }
+}
+
+#[cfg(windows)]
+fn run_taskkill(pid: u32, force: bool, timeout: Duration) -> std::io::Result<bool> {
     use std::os::windows::process::CommandExt;
-    let _ = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
+    let mut command = std::process::Command::new("taskkill");
+    command
+        .args(["/PID", &pid.to_string(), "/T"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .creation_flags(0x08000000)
-        .output();
+        .stdin(Stdio::null());
+    if force {
+        command.arg("/F");
+    }
+    let mut child = command.spawn()?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status.success());
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(false);
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1461,6 +1768,7 @@ mod tests {
             encoder: "gif".into(),
             video_bitrate_k: 225,
             status: String::new(),
+            try_hardware_decode: false,
         };
 
         assert!(gif_filter(&opts, &first).contains("scale=854:480"));
@@ -1554,6 +1862,7 @@ mod tests {
             encoder: "h264_nvenc".into(),
             video_bitrate_k: 900,
             status: "Compressing...".into(),
+            try_hardware_decode: true,
         };
 
         let (next, retries, cpu_used) =
@@ -1578,6 +1887,7 @@ mod tests {
             encoder: "libx264".into(),
             video_bitrate_k: 900,
             status: "Compressing...".into(),
+            try_hardware_decode: false,
         };
         let (second, retries, cpu_used) =
             next_oversize_attempt(&first, 1_000, 2_000, 0, true).unwrap();
@@ -1601,11 +1911,12 @@ mod tests {
         let cpu = retry_test_options("libx264", Some(100.0));
         let no_target = retry_test_options("h264_nvenc", None);
 
-        assert_eq!(max_adaptive_attempts(&hardware, true), 4);
+        assert_eq!(max_adaptive_attempts(&hardware, true), 5);
         assert_eq!(max_adaptive_attempts(&cpu, true), 2);
-        assert_eq!(max_adaptive_attempts(&no_target, false), 2);
+        assert_eq!(max_adaptive_attempts(&no_target, false), 3);
         assert_eq!(max_adaptive_attempts(&cpu, false), 1);
         assert_eq!(initial_attempt(&no_target).video_bitrate_k, 900);
+        assert!(initial_attempt(&no_target).try_hardware_decode);
     }
 
     #[test]
@@ -1629,7 +1940,7 @@ mod tests {
             cpu_fallback_used = next_cpu_used;
         }
 
-        assert_eq!(attempts.len(), max_adaptive_attempts(&opts, true));
+        assert_eq!(attempts.len() + 1, max_adaptive_attempts(&opts, true));
         assert_eq!(
             attempts
                 .iter()
@@ -1649,6 +1960,16 @@ mod tests {
     }
 
     #[test]
+    fn gif_projection_scales_sample_size_with_a_safety_margin() {
+        assert_eq!(projected_gif_size(1_000, 2.0, 10.0), 5_500);
+        assert_eq!(projected_gif_size(1_000, 0.0, 10.0), 1_000);
+        assert!(gif_projection_needs_extended_sample(800, 1_000));
+        assert!(gif_projection_needs_extended_sample(1_250, 1_000));
+        assert!(!gif_projection_needs_extended_sample(799, 1_000));
+        assert!(!gif_projection_needs_extended_sample(1_251, 1_000));
+    }
+
+    #[test]
     fn compression_state_prevents_overlapping_jobs_and_stale_cleanup() {
         let mut state = CompressionState {
             next_job_id: 0,
@@ -1661,8 +1982,10 @@ mod tests {
         let first = state.try_begin_job().unwrap();
         assert!(state.try_begin_job().is_none());
         assert!(state.register_process(first, 42, "first.mp4".into()));
-        assert_eq!(state.cancel_active(), Some(42));
+        assert_eq!(state.cancel_active(), Some((first, 42)));
+        assert_eq!(state.cancel_active(), None);
         assert!(state.is_cancelled(first));
+        assert!(state.owns_cancelled_process(first, 42));
 
         state.finish_job(first);
         let second = state.try_begin_job().unwrap();

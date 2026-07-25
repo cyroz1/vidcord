@@ -32,7 +32,6 @@ import {
   type ProbeData,
 } from "./hooks/useCompression";
 import {
-  checkFfmpegAvailable,
   checkForUpdates,
   compressVideo,
   copyFileToClipboard,
@@ -235,6 +234,7 @@ export default function App() {
   // File state is declared before encoder discovery so the startup refresh can
   // yield to a cold Open With / drag-drop probe instead of competing for FFmpeg.
   const [filePath, setFilePath] = useState<string | null>(null);
+  const [fileLoadGeneration, setFileLoadGeneration] = useState(0);
   const [fileName, setFileName] = useState("Drag a video here or click Browse");
   const [probeData, setProbeData] = useState<ProbeData | null>(null);
   const [loadingVideo, setLoadingVideo] = useState(false);
@@ -256,6 +256,8 @@ export default function App() {
 
   const previewRef = useRef<PreviewHandle>(null);
   const trimWrapRef = useRef<HTMLDivElement>(null);
+  const trimPlayheadElementRef = useRef<HTMLDivElement>(null);
+  const playheadTimeRef = useRef<number | null>(null);
   const activeHandleRef = useRef<"start" | "end">("start");
   const startValRef = useRef(0);
   const endValRef = useRef(SLIDER_MAX);
@@ -282,7 +284,8 @@ export default function App() {
   const [trimHistorySize, setTrimHistorySize] = useState({ undo: 0, redo: 0 });
   const [previewFocusTime, setPreviewFocusTime] = useState<number | null>(null);
   const [previewScrubbing, setPreviewScrubbing] = useState(false);
-  const [playheadTime, setPlayheadTime] = useState<number | null>(null);
+  const [canSetInPoint, setCanSetInPoint] = useState(false);
+  const [canSetOutPoint, setCanSetOutPoint] = useState(false);
   const [loopPlayback, setLoopPlayback] = useState(false);
   const [snapMode, setSnapMode] = useState<SnapMode>("off");
   const [timelineZoom, setTimelineZoom] = useState(1);
@@ -536,11 +539,6 @@ export default function App() {
     setPreviewFocusNow(sliderValueToTime(target.start), false);
   }, [pushUndoSnapshot, setPreviewFocusNow, sliderValueToTime, syncTrimHistorySize]);
 
-  const playheadTimeRef = useRef<number | null>(null);
-  useEffect(() => {
-    playheadTimeRef.current = playheadTime;
-  }, [playheadTime]);
-
   const setInPoint = useCallback(() => {
     const pt = playheadTimeRef.current;
     if (pt === null || duration <= 0) return;
@@ -571,6 +569,7 @@ export default function App() {
       const loadGeneration = loadGenerationRef.current + 1;
       loadGenerationRef.current = loadGeneration;
       selectedFilePathRef.current = path;
+      setFileLoadGeneration(loadGeneration);
       setFilePath(path);
       setFileName(path.split(/[\\/]/).pop() ?? path);
       probeDataRef.current = null;
@@ -593,11 +592,15 @@ export default function App() {
       startValRef.current = 0;
       endValRef.current = SLIDER_MAX;
       playheadTimeRef.current = null;
+      if (trimPlayheadElementRef.current) {
+        trimPlayheadElementRef.current.hidden = true;
+      }
+      setCanSetInPoint(false);
+      setCanSetOutPoint(false);
       setStartVal(0);
       setEndVal(SLIDER_MAX);
       setPreviewFocusTime(null);
       setPreviewScrubbing(false);
-      setPlayheadTime(null);
       setTimelineCenterVal(SLIDER_MAX / 2);
       setTimelineZoom(1);
       undoStackRef.current = [];
@@ -1313,8 +1316,7 @@ export default function App() {
   }, []);
 
   const retryFfmpegDetection = useCallback(async () => {
-    const available = await checkFfmpegAvailable().catch(() => false);
-    await refreshEncoders().catch(() => {});
+    const available = await refreshEncoders().catch(() => false);
     if (available) {
       await reprobeSelectedVideo();
       addToast("success", "FFmpeg Ready", "FFmpeg is now available.");
@@ -1368,8 +1370,7 @@ export default function App() {
       }
     }
 
-    await refreshEncoders().catch(() => {});
-    const available = await checkFfmpegAvailable().catch(() => false);
+    const available = await refreshEncoders().catch(() => false);
     if (available) {
       await reprobeSelectedVideo();
     }
@@ -1410,18 +1411,6 @@ export default function App() {
   const endPct = useMemo(() => toViewPct(endVal), [endVal, toViewPct]);
 
   const trimReady = Boolean(filePath && probeData && duration > 0);
-
-  const canSetInPoint = useMemo(() => {
-    if (!trimReady || playheadTime === null) return false;
-    const next = normalizeTrim(Math.round((playheadTime / duration) * SLIDER_MAX), endVal, "start");
-    return next.start !== startVal || next.end !== endVal;
-  }, [duration, endVal, normalizeTrim, playheadTime, startVal, trimReady]);
-
-  const canSetOutPoint = useMemo(() => {
-    if (!trimReady || playheadTime === null) return false;
-    const next = normalizeTrim(startVal, Math.round((playheadTime / duration) * SLIDER_MAX), "end");
-    return next.start !== startVal || next.end !== endVal;
-  }, [duration, endVal, normalizeTrim, playheadTime, startVal, trimReady]);
 
   // Single memo computes the predicted encoder name. The prior
   // implementation built a parallel array of { ...e, lowerName } on every
@@ -1474,29 +1463,49 @@ export default function App() {
     [saveSettings, setAdvEncoder]
   );
 
-  // Playhead time is now pushed from PreviewPane via the onTimeUpdate prop
-  // (driven by the media element's `timeupdate` event and explicit seeks)
-  // instead of an 80 ms wall-clock poll. The 0.02 s threshold below keeps
-  // React re-renders from firing on sub-frame noise from the media pipeline.
-  const handlePreviewTimeUpdate = useCallback((next: number | null) => {
-    if (next === null) {
-      playheadTimeRef.current = null;
-      setPlayheadTime(null);
-      return;
-    }
-    playheadTimeRef.current = next;
-    setPlayheadTime((prev) => (prev !== null && Math.abs(prev - next) < 0.02 ? prev : next));
-  }, []);
+  // Playback time is transient: update the compositor-owned playhead element
+  // directly instead of re-rendering the entire App and trim subtree for every
+  // native `timeupdate` event. Only the two derived button-enabled booleans
+  // enter React state, and React bails out while they remain unchanged.
+  const handlePreviewTimeUpdate = useCallback(
+    (next: number | null) => {
+      playheadTimeRef.current = next;
+      const playhead = trimPlayheadElementRef.current;
+      if (next === null || duration <= 0) {
+        if (playhead) playhead.hidden = true;
+        setCanSetInPoint(false);
+        setCanSetOutPoint(false);
+        return;
+      }
 
-  // The playhead tracks absolute position across the full clip and can be
-  // placed outside the selected range. While a trim handle is being edited,
-  // preview focus seeks the playhead to that handle in both directions.
-  const trimPlayheadLeftPct = useMemo(() => {
-    if (playheadTime === null || duration <= 0) return null;
-    const val = (playheadTime / duration) * SLIDER_MAX;
-    if (val < viewStartVal || val > viewEndVal) return null;
-    return toViewPct(val);
-  }, [playheadTime, duration, toViewPct, viewEndVal, viewStartVal]);
+      const value = (next / duration) * SLIDER_MAX;
+      if (playhead) {
+        const visible = value >= viewStartVal && value <= viewEndVal;
+        playhead.hidden = !visible;
+        if (visible) {
+          playhead.style.transform = `translateX(${toViewPct(value)}%)`;
+        }
+      }
+
+      if (!trimReady) {
+        setCanSetInPoint(false);
+        setCanSetOutPoint(false);
+        return;
+      }
+      const normalizedValue = Math.round(value);
+      const nextIn = normalizeTrim(normalizedValue, endValRef.current, "start");
+      const nextOut = normalizeTrim(startValRef.current, normalizedValue, "end");
+      const inEnabled = nextIn.start !== startValRef.current || nextIn.end !== endValRef.current;
+      const outEnabled = nextOut.start !== startValRef.current || nextOut.end !== endValRef.current;
+      setCanSetInPoint((current) => (current === inEnabled ? current : inEnabled));
+      setCanSetOutPoint((current) => (current === outEnabled ? current : outEnabled));
+    },
+    [duration, normalizeTrim, toViewPct, trimReady, viewEndVal, viewStartVal]
+  );
+
+  useEffect(() => {
+    handlePreviewTimeUpdate(playheadTimeRef.current);
+  }, [handlePreviewTimeUpdate]);
 
   const commitPointerTrimChange = useCallback(() => {
     pointerGestureCleanupRef.current?.();
@@ -2318,7 +2327,7 @@ export default function App() {
               endVal={endVal}
               startPct={startPct}
               endPct={endPct}
-              trimPlayheadLeftPct={trimPlayheadLeftPct}
+              trimPlayheadRef={trimPlayheadElementRef}
               onSetInPoint={setInPoint}
               onSetOutPoint={setOutPoint}
               onSnapModeChange={setSnapModeFromTimeline}
@@ -2349,6 +2358,7 @@ export default function App() {
           <PreviewPane
             ref={previewRef}
             filePath={filePath}
+            sourceGeneration={fileLoadGeneration}
             loadingVideo={loadingVideo}
             startTime={startTime}
             endTime={endTime}
@@ -2543,7 +2553,7 @@ export default function App() {
         {/* Toasts */}
         <div className="toast-container">
           {toasts.map((t) => (
-            <Toast key={t.id} {...t} onClose={() => removeToast(t.id)} />
+            <Toast key={t.id} {...t} onClose={removeToast} />
           ))}
         </div>
       </div>

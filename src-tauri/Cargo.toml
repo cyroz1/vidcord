@@ -21,7 +21,6 @@ tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
-tauri-plugin-notification = "2"
 tauri-plugin-window-state = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -31,10 +30,13 @@ semver = "1"
 sha2 = "0.10"
 url = "2"
 regex-lite = "0.1"
-dirs = "5"
+dirs = "6"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+notify-rust = "4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3", default-features = false, features = [
@@ -49,6 +51,7 @@ windows-sys = { version = "0.61", features = [
   "Win32_System_DataExchange",
   "Win32_System_Memory",
   "Win32_System_Ole",
+  "Win32_System_Threading",
   "Win32_UI_Shell",
 ] }
 

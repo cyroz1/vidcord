@@ -100,6 +100,7 @@
               "Native OS desktop notifications when unfocused matching in-app popup banners",
               "Live video scrubbing and trim playback on Windows and macOS, with FFmpeg-generated frame and filmstrip scrub previews on Linux",
               "GPU encoder detection for NVENC, AMF, QSV, VAAPI, and VideoToolbox",
+              "First-run H.264 hardware encoder preference with automatic software-decode and CPU fallbacks",
               "Open With integration from Windows File Explorer and macOS Finder",
               "Race-safe compression cancellation and collision-safe output reservation",
               "User-approved installer downloads verified with GitHub-published SHA-256 digests",
@@ -379,7 +380,10 @@
             <path d="M13 2 4 14h7l-1 8 10-13h-7z" />
           </svg>
           <h2>GPU acceleration</h2>
-          <p>Detects NVENC, AMF, QSV, VAAPI, and VideoToolbox so you can choose an encoder.</p>
+          <p>
+            Detects NVENC, AMF, QSV, VAAPI, and VideoToolbox, prefers H.264 hardware on first run,
+            and keeps CPU fallback ready.
+          </p>
         </article>
       </section>
 
@@ -421,7 +425,8 @@
           <p>
             Advanced mode lets you set a custom target size, resolution, FPS, and encoder string.
             Leave target size empty to use the source video's bitrate without a file-size limit.
-            Encoder detection shows what your installed FFmpeg can actually use.
+            Encoder detection shows what your installed FFmpeg can actually use, while a saved
+            encoder choice remains sticky.
           </p>
           <ul>
             <li>Strict output size checks with safer retry behavior.</li>

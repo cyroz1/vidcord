@@ -18,6 +18,8 @@ import {
 } from "../ipc";
 import {
   canPreserveDirectVideoSource,
+  getCompletedPlaybackTime,
+  getFilmstripFrameBudget,
   getStoppedPlaybackTime,
   isFilmstripUseful,
   shouldGenerateFilmstrip,
@@ -38,8 +40,6 @@ const MEDIA_SEEK_EPSILON_SECONDS = 1 / 240;
 // trim-slider move during scrubbing, so this is a measurable win.
 const containerStyle: React.CSSProperties = {
   background: "var(--surface)",
-  backdropFilter: "var(--blur)",
-  WebkitBackdropFilter: "var(--blur)",
   border: "1px solid var(--border-subtle)",
   borderRadius: "var(--radius)",
   overflow: "hidden",
@@ -116,6 +116,7 @@ const currentTimeOverlayStyle: React.CSSProperties = {
 
 type Props = {
   filePath: string | null;
+  sourceGeneration: number;
   loadingVideo: boolean;
   startTime: number;
   endTime: number;
@@ -176,6 +177,7 @@ function splitJpegStream(data: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer>
 const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   {
     filePath,
+    sourceGeneration,
     loadingVideo,
     startTime,
     endTime,
@@ -270,6 +272,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const endBoundaryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const schedulePlaybackBoundaryRef = useRef<(() => void) | null>(null);
   const clipUrlRef = useRef<string | null>(null);
+  const generatedClipCacheRef = useRef<{
+    key: string;
+    sourceGeneration: number;
+    url: string;
+  } | null>(null);
   const generatedClipEndTimeRef = useRef<number | null>(null);
   const playbackSessionRef = useRef(0);
   const playbackOffsetRef = useRef(0);
@@ -288,6 +295,24 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   useEffect(() => {
     return () => {
       cancelPreviewGeneration().catch(() => {});
+    };
+  }, []);
+
+  useEffect(() => {
+    const cached = generatedClipCacheRef.current;
+    if (cached && cached.sourceGeneration !== sourceGeneration) {
+      URL.revokeObjectURL(cached.url);
+      generatedClipCacheRef.current = null;
+    }
+  }, [sourceGeneration]);
+
+  useEffect(() => {
+    const cacheRef = generatedClipCacheRef;
+    return () => {
+      if (cacheRef.current) {
+        URL.revokeObjectURL(cacheRef.current.url);
+        cacheRef.current = null;
+      }
     };
   }, []);
 
@@ -481,7 +506,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const requestId = filmstripRequestIdRef.current + 1;
     filmstripRequestIdRef.current = requestId;
     const duration = probeData.duration;
-    const maxFrames = duration > 600 ? 16 : duration > 180 ? 20 : 30;
+    const maxFrames = getFilmstripFrameBudget(duration);
     const timer = window.setTimeout(() => {
       getFilmstrip(filePath, duration, maxFrames, FILMSTRIP_PREVIEW_WIDTH, FILMSTRIP_PREVIEW_HEIGHT)
         .then((rawBytes) => {
@@ -755,7 +780,6 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     currentPlaybackTimeRef.current = preservedTime;
     setCurrentPlaybackTime(preservedTime);
     if (clipUrlRef.current) {
-      URL.revokeObjectURL(clipUrlRef.current);
       clipUrlRef.current = null;
     }
     playingRef.current = false;
@@ -778,6 +802,14 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       }
       return;
     }
+    const completedTime = getCompletedPlaybackTime(
+      currentPlaybackTimeRef.current,
+      endTime,
+      generatedClipCoversTrimEnd
+    );
+    currentPlaybackTimeRef.current = completedTime;
+    setCurrentPlaybackTime(completedTime);
+    onTimeUpdateRef.current?.(completedTime);
     stopPlayback();
   }, [endTime, loopPlayback, seekTo, startTime, stopPlayback]);
 
@@ -849,11 +881,22 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
           endTime,
           fallbackStartTime + MAX_GENERATED_PREVIEW_CLIP_SECONDS
         );
-        const buffer = await getPreviewClip(filePath, fallbackStartTime, fallbackEndTime);
+        const clipKey = `${sourceGeneration}\0${filePath}\0${Math.round(
+          fallbackStartTime * 1000
+        )}\0${Math.round(fallbackEndTime * 1000)}`;
+        let clipUrl =
+          generatedClipCacheRef.current?.key === clipKey ? generatedClipCacheRef.current.url : null;
+        if (!clipUrl) {
+          const buffer = await getPreviewClip(filePath, fallbackStartTime, fallbackEndTime);
+          if (playbackSessionRef.current !== session) return;
+          const blob = new Blob([new Uint8Array(buffer)], { type: "video/mp4" });
+          clipUrl = URL.createObjectURL(blob);
+          if (generatedClipCacheRef.current) {
+            URL.revokeObjectURL(generatedClipCacheRef.current.url);
+          }
+          generatedClipCacheRef.current = { key: clipKey, sourceGeneration, url: clipUrl };
+        }
         if (playbackSessionRef.current !== session) return;
-        const blob = new Blob([new Uint8Array(buffer)], { type: "video/mp4" });
-        const clipUrl = URL.createObjectURL(blob);
-        if (clipUrlRef.current) URL.revokeObjectURL(clipUrlRef.current);
         clipUrlRef.current = clipUrl;
         usingGeneratedClipRef.current = true;
         generatedClipEndTimeRef.current = fallbackEndTime;
@@ -952,6 +995,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     startTime,
     endTime,
     removeAudio,
+    sourceGeneration,
     stopPlayback,
     buildPlaybackUrls,
     getPlaybackTime,

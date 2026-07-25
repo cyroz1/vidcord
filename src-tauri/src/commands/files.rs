@@ -1,5 +1,40 @@
 #[cfg(target_os = "linux")]
 use std::process::{Command, Stdio};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use std::time::{Duration, Instant};
+
+use crate::log::vidcord_log;
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const DESKTOP_COMMAND_TIMEOUT: Duration = Duration::from_secs(4);
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const DESKTOP_COMMAND_POLL_INTERVAL: Duration = Duration::from_millis(20);
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn wait_for_desktop_child(
+    mut child: std::process::Child,
+) -> std::io::Result<Option<std::process::ExitStatus>> {
+    let deadline = Instant::now() + DESKTOP_COMMAND_TIMEOUT;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(status));
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(None);
+        }
+        std::thread::sleep(DESKTOP_COMMAND_POLL_INTERVAL);
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn run_desktop_command(command: &mut std::process::Command) -> std::io::Result<bool> {
+    command
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    wait_for_desktop_child(command.spawn()?).map(|status| status.is_some_and(|s| s.success()))
+}
 
 #[cfg(any(target_os = "linux", test))]
 fn without_appimage_library_paths(appdir: &str, library_path: &str) -> String {
@@ -93,12 +128,7 @@ fn show_in_file_explorer_blocking(path: String) -> Result<(), String> {
             "string:",
         ]);
         configure_desktop_command(&mut dbus_command);
-        let dbus_ok = dbus_command
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
+        let dbus_ok = run_desktop_command(&mut dbus_command).unwrap_or(false);
 
         if !dbus_ok {
             let parent = abs
@@ -216,7 +246,8 @@ fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String>
 
 #[cfg(target_os = "macos")]
 fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String> {
-    let status = std::process::Command::new("osascript")
+    let mut command = std::process::Command::new("osascript");
+    command
         .args([
             "-e",
             "on run argv",
@@ -226,12 +257,10 @@ fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String>
             "end run",
             "--",
         ])
-        .arg(file)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
+        .arg(file);
+    let copied = run_desktop_command(&mut command)
         .map_err(|e| format!("Could not access the system clipboard: {e}"))?;
-    if !status.success() {
+    if !copied {
         return Err("Could not copy the file to the system clipboard.".to_string());
     }
     Ok(())
@@ -252,7 +281,7 @@ fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String>
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         configure_desktop_command(&mut command);
-        if command.status().is_ok_and(|status| status.success()) {
+        if run_desktop_command(&mut command).unwrap_or(false) {
             return Ok(());
         }
     }
@@ -268,7 +297,9 @@ fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String>
         if let Some(mut stdin) = child.stdin.take() {
             let _ = stdin.write_all(format!("{uri}\r\n").as_bytes());
         }
-        if child.wait().is_ok_and(|status| status.success()) {
+        if wait_for_desktop_child(child)
+            .is_ok_and(|status| status.is_some_and(|status| status.success()))
+        {
             return Ok(());
         }
     }
@@ -294,53 +325,131 @@ pub fn get_os() -> &'static str {
     std::env::consts::OS
 }
 
+fn deliver_notification_if_unfocused<F>(is_focused: bool, deliver: F) -> Result<bool, String>
+where
+    F: FnOnce() -> Result<(), String>,
+{
+    if is_focused {
+        return Ok(false);
+    }
+    deliver()?;
+    Ok(true)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_notification_arguments(title: &str, body: &str) -> Vec<String> {
+    vec![
+        "-e".to_string(),
+        "on run argv".to_string(),
+        "-e".to_string(),
+        "display notification (item 2 of argv) with title (item 1 of argv)".to_string(),
+        "-e".to_string(),
+        "end run".to_string(),
+        "--".to_string(),
+        title.to_string(),
+        body.to_string(),
+    ]
+}
+
+#[cfg(target_os = "macos")]
+fn deliver_platform_notification(
+    _app: &tauri::AppHandle,
+    title: &str,
+    body: &str,
+) -> Result<(), String> {
+    let mut command = std::process::Command::new("osascript");
+    command.args(macos_notification_arguments(title, body));
+    match run_desktop_command(&mut command) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(
+            "macOS rejected the system notification or notification delivery timed out."
+                .to_string(),
+        ),
+        Err(error) => Err(format!(
+            "Could not start the macOS notification service: {error}"
+        )),
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn escape_xdg_notification_markup(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn is_cargo_target_profile_directory(directory: &std::path::Path) -> bool {
+    let is_profile = directory
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name == "debug" || name == "release");
+    is_profile
+        && directory
+            .ancestors()
+            .skip(1)
+            .any(|ancestor| ancestor.file_name().is_some_and(|name| name == "target"))
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn deliver_platform_notification(
+    _app: &tauri::AppHandle,
+    title: &str,
+    body: &str,
+) -> Result<(), String> {
+    let mut notification = notify_rust::Notification::new();
+    notification.appname("vidcord").summary(title).auto_icon();
+
+    #[cfg(target_os = "linux")]
+    notification.body(&escape_xdg_notification_markup(body));
+    #[cfg(target_os = "windows")]
+    {
+        notification.body(body);
+        if let Ok(executable) = tauri::utils::platform::current_exe() {
+            if let Some(directory) = executable.parent() {
+                if !is_cargo_target_profile_directory(directory) {
+                    notification.app_id(&_app.config().identifier);
+                }
+            }
+        }
+    }
+
+    notification
+        .show()
+        .map(|_| ())
+        .map_err(|error| format!("The system notification service rejected the message: {error}"))
+}
+
 #[tauri::command]
 pub async fn send_system_notification(
     app: tauri::AppHandle,
     title: String,
     body: String,
-) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || {
-        send_system_notification_blocking(&app, title, body);
-    })
-    .await
-    .map_err(|e| e.to_string())
+) -> Result<bool, String> {
+    let result =
+        tokio::task::spawn_blocking(move || send_system_notification_blocking(&app, &title, &body))
+            .await
+            .map_err(|error| error.to_string())?;
+
+    if let Err(error) = &result {
+        vidcord_log(&format!("System notification delivery failed: {error}"));
+    }
+    result
 }
 
-fn send_system_notification_blocking(app: &tauri::AppHandle, title: String, body: String) {
+fn send_system_notification_blocking(
+    app: &tauri::AppHandle,
+    title: &str,
+    body: &str,
+) -> Result<bool, String> {
     use tauri::Manager;
-    if let Some(win) = app.get_webview_window("main") {
-        if win.is_focused().unwrap_or(false) {
-            return;
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let escaped_body = body.replace('\\', "\\\\").replace('"', "\\\"");
-        let escaped_title = title.replace('\\', "\\\\").replace('"', "\\\"");
-        let script =
-            format!("display notification \"{escaped_body}\" with title \"{escaped_title}\"");
-        let _ = std::process::Command::new("osascript")
-            .arg("-e")
-            .arg(script)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        use tauri_plugin_notification::NotificationExt;
-        let _ = app
-            .notification()
-            .builder()
-            .title(&title)
-            .body(&body)
-            .show();
-    }
-
-    let _ = app;
+    let is_focused = app
+        .get_webview_window("main")
+        .and_then(|window| window.is_focused().ok())
+        .unwrap_or(false);
+    deliver_notification_if_unfocused(is_focused, || {
+        deliver_platform_notification(app, title, body)
+    })
 }
 
 #[tauri::command]
@@ -482,17 +591,7 @@ fn publish_staged_output_blocking(
     }
 
     let publish_result = (|| -> Result<(), String> {
-        let mut source = std::fs::File::open(&staged).map_err(|e| e.to_string())?;
-        let mut temporary = std::fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&temp_path)
-            .map_err(|e| e.to_string())?;
-        std::io::copy(&mut source, &mut temporary).map_err(|e| e.to_string())?;
-        use std::io::Write;
-        temporary.flush().map_err(|e| e.to_string())?;
-        temporary.sync_all().map_err(|e| e.to_string())?;
-        drop(temporary);
+        publish_to_temporary(&staged, &temp_path)?;
         crate::settings::replace_file(&temp_path, &destination).map_err(|e| e.to_string())?;
         std::fs::remove_file(&staged).map_err(|e| e.to_string())?;
         Ok(())
@@ -503,6 +602,30 @@ fn publish_staged_output_blocking(
     }
     publish_result?;
     Ok(destination.to_string_lossy().into_owned())
+}
+
+fn publish_to_temporary(
+    staged: &std::path::Path,
+    temporary_path: &std::path::Path,
+) -> Result<bool, String> {
+    if std::fs::hard_link(staged, temporary_path).is_ok() {
+        std::fs::File::open(temporary_path)
+            .and_then(|file| file.sync_all())
+            .map_err(|error| error.to_string())?;
+        return Ok(true);
+    }
+
+    let mut source = std::fs::File::open(staged).map_err(|error| error.to_string())?;
+    let mut temporary = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(temporary_path)
+        .map_err(|error| error.to_string())?;
+    std::io::copy(&mut source, &mut temporary).map_err(|error| error.to_string())?;
+    use std::io::Write;
+    temporary.flush().map_err(|error| error.to_string())?;
+    temporary.sync_all().map_err(|error| error.to_string())?;
+    Ok(false)
 }
 
 #[tauri::command]
@@ -530,8 +653,11 @@ pub async fn discard_staged_output(staged_path: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        publish_staged_output_blocking, resolve_output_path_blocking, staging_directory,
-        unique_output_path, validated_clipboard_file, without_appimage_library_paths,
+        deliver_notification_if_unfocused, escape_xdg_notification_markup,
+        is_cargo_target_profile_directory, macos_notification_arguments,
+        publish_staged_output_blocking, publish_to_temporary, resolve_output_path_blocking,
+        staging_directory, unique_output_path, validated_clipboard_file,
+        without_appimage_library_paths,
     };
 
     #[test]
@@ -643,5 +769,75 @@ mod tests {
         assert_eq!(std::fs::read(&destination).unwrap(), b"compressed-video");
         assert!(!staged.exists());
         std::fs::remove_dir_all(destination_dir).ok();
+    }
+
+    #[test]
+    fn staged_output_uses_a_same_filesystem_hard_link_when_available() {
+        let directory =
+            std::env::temp_dir().join(format!("vidcord_publish_link_test_{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let staged = directory.join("staged.mp4");
+        let temporary = directory.join("temporary.mp4");
+        std::fs::write(&staged, b"compressed-video").unwrap();
+
+        assert!(publish_to_temporary(&staged, &temporary).unwrap());
+        assert_eq!(std::fs::read(&temporary).unwrap(), b"compressed-video");
+
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[test]
+    fn focused_window_suppresses_system_notification_delivery() {
+        let mut delivered = false;
+        let result = deliver_notification_if_unfocused(true, || {
+            delivered = true;
+            Ok(())
+        })
+        .unwrap();
+
+        assert!(!result);
+        assert!(!delivered);
+    }
+
+    #[test]
+    fn unfocused_window_propagates_notification_delivery_result() {
+        assert!(deliver_notification_if_unfocused(false, || Ok(())).unwrap());
+        assert_eq!(
+            deliver_notification_if_unfocused(false, || Err("service unavailable".to_string())),
+            Err("service unavailable".to_string())
+        );
+    }
+
+    #[test]
+    fn macos_notification_values_are_passed_as_data_arguments() {
+        let title = "Compression \"Complete\"";
+        let body = "Saved C:\\clips\\one.mp4\nReady.";
+        let args = macos_notification_arguments(title, body);
+
+        assert_eq!(args[7], title);
+        assert_eq!(args[8], body);
+        assert!(!args[3].contains(title));
+        assert!(!args[3].contains(body));
+    }
+
+    #[test]
+    fn linux_notification_body_preserves_markup_as_visible_text() {
+        assert_eq!(
+            escape_xdg_notification_markup("Failed <clip> & retry"),
+            "Failed &lt;clip&gt; &amp; retry"
+        );
+    }
+
+    #[test]
+    fn windows_notification_uses_fallback_identity_in_cargo_builds() {
+        assert!(is_cargo_target_profile_directory(std::path::Path::new(
+            "/project/target/debug"
+        )));
+        assert!(is_cargo_target_profile_directory(std::path::Path::new(
+            "/project/target/x86_64-pc-windows-msvc/release"
+        )));
+        assert!(!is_cargo_target_profile_directory(std::path::Path::new(
+            "/Applications/vidcord"
+        )));
     }
 }

@@ -150,7 +150,8 @@ first pass lands too large.
 - **Real-time progress** with ETA, current attempt number, encoder, and
   bitrate parsed from FFmpeg's stderr.
 - **OS taskbar & dock progress integration** — reflects encoding progress directly on your OS taskbar or dock icon (macOS Dock, Windows Taskbar button, Linux Unity launcher bar) so you can track encoding while unfocused.
-- **Native system notifications** — fires OS desktop notifications when unfocused for completed compression, clipboard copy, saved file locations, and errors, matching in-app popup banners.
+- **Native system notifications** — mirrors every in-app banner and error in order as
+  a matching OS notification while vidcord is unfocused on Windows, macOS, and Linux.
 - **Race-safe cancellation** — cancelling keeps the job owned until FFmpeg
   exits, prevents another encode from starting early, and removes partial output.
 - **Collision-safe auto-named output** — direct destination modes atomically
@@ -283,9 +284,12 @@ custom folder, and completion action are saved for the next launch.
 ## Hardware acceleration
 
 At startup vidcord runs `ffmpeg -encoders`, detects compatible CPU and hardware
-encoders, and lets you choose the encoder to use. Advanced mode can accept any
-FFmpeg video encoder string; the **Encoders** dialog shows what your installed
-FFmpeg exposes.
+encoders, and prefers the first available H.264 hardware encoder on a new
+installation. A saved encoder choice, including CPU, remains unchanged.
+Advanced mode can accept any FFmpeg video encoder string; the **Encoders**
+dialog shows what your installed FFmpeg exposes. Hardware jobs first try
+hardware-assisted decoding, retry the same encoder with software decoding if
+needed, and retain the CPU fallback for encoder failures.
 
 | Vendor / Platform | Encoder                                  | Notes                                                      |
 | ----------------- | ---------------------------------------- | ---------------------------------------------------------- |

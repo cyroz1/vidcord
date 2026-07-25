@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { sendSystemNotification } from "../ipc";
 
 export type ToastMsg = {
@@ -10,38 +9,27 @@ export type ToastMsg = {
 };
 
 let toastId = 0;
+let systemNotificationQueue = Promise.resolve();
 
-async function triggerSystemNotification(title: string, body: string) {
-  try {
-    const isFocused = await getCurrentWindow().isFocused();
-    if (isFocused) {
-      return;
-    }
-  } catch {
-    // Ignore in non-Tauri / test environments
-  }
+type SystemNotificationSender = (title: string, body: string) => Promise<boolean>;
 
-  try {
-    const { isPermissionGranted, requestPermission, sendNotification } = await import(
-      "@tauri-apps/plugin-notification"
-    );
-    let granted = await isPermissionGranted();
-    if (!granted) {
-      const permission = await requestPermission();
-      granted = permission === "granted";
+export function triggerSystemNotification(
+  title: string,
+  body: string,
+  send: SystemNotificationSender = sendSystemNotification
+): Promise<void> {
+  // Preserve banner order when several outcomes are reported together. A
+  // failed system delivery must not block later banners or create an
+  // unhandled rejection; the in-app toast remains the reliable fallback.
+  const delivery = systemNotificationQueue.then(async () => {
+    try {
+      await send(title, body);
+    } catch {
+      // The backend records platform delivery failures in the app log.
     }
-    if (granted) {
-      sendNotification({ title, body });
-    }
-  } catch {
-    // Ignore in non-desktop / mock environments
-  }
-
-  try {
-    await sendSystemNotification(title, body);
-  } catch {
-    // Ignore in mock / non-Tauri environments
-  }
+  });
+  systemNotificationQueue = delivery;
+  return delivery;
 }
 
 export function useToasts() {
@@ -63,7 +51,7 @@ export function useToasts() {
   const addToast = useCallback((type: ToastMsg["type"], title: string, message: string) => {
     const id = ++toastId;
     setToasts((t) => [...t, { id, type, title, message }]);
-    triggerSystemNotification(title, message);
+    void triggerSystemNotification(title, message);
     const handle = setTimeout(() => {
       timersRef.current.delete(id);
       setToasts((t) => t.filter((x) => x.id !== id));

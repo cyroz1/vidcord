@@ -5,7 +5,7 @@ type ToastProps = {
   type: "success" | "error" | "warning" | "info";
   title: string;
   message: string;
-  onClose: () => void;
+  onClose: (id: number) => void;
 };
 
 const COLORS: Record<string, string> = {
@@ -62,7 +62,7 @@ const messageStyle: React.CSSProperties = {
   whiteSpace: "pre-wrap",
 };
 
-function Toast({ type, title, message, onClose }: ToastProps) {
+function Toast({ id, type, title, message, onClose }: ToastProps) {
   const color = COLORS[type] ?? COLORS.info;
   // Only the left-border accent varies with type, so shallow-merge once.
   const wrapperStyle: React.CSSProperties = {
@@ -80,7 +80,7 @@ function Toast({ type, title, message, onClose }: ToastProps) {
         <span style={titleStyle}>{title}</span>
         <button
           type="button"
-          onClick={onClose}
+          onClick={() => onClose(id)}
           style={closeBtnStyle}
           aria-label={`Dismiss ${title} notification`}
         >

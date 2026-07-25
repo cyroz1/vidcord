@@ -1,5 +1,5 @@
 use crate::log::vidcord_log;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -11,17 +11,20 @@ mod encoders;
 pub use encoders::{get_available_encoders, invalidate_encoder_cache};
 
 static VAAPI_CACHE: OnceLock<Option<String>> = OnceLock::new();
-// Cached once at first use — env doesn't change during an app session.
-static FFMPEG_ENV: OnceLock<HashMap<String, String>> = OnceLock::new();
+#[cfg(target_os = "linux")]
+static LINUX_AMD_DRM_DEVICE: OnceLock<bool> = OnceLock::new();
 
 pub const FFMPEG_MISSING_ERROR_MARKER: &str = "FFMPEG_MISSING:";
 const PREVIEW_CANCELLED_ERROR_MARKER: &str = "PREVIEW_CANCELLED:";
 const PREVIEW_TIMEOUT_ERROR_MARKER: &str = "PREVIEW_TIMEOUT:";
-const FFPROBE_TIMEOUT: Duration = Duration::from_secs(20);
+const PROBE_CANCELLED_ERROR_MARKER: &str = "PROBE_CANCELLED:";
+const FFPROBE_TIMEOUT: Duration = Duration::from_secs(6);
 const PREVIEW_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
 const PREVIEW_FILMSTRIP_TIMEOUT: Duration = Duration::from_secs(30);
 const PREVIEW_CLIP_TIMEOUT: Duration = Duration::from_secs(30);
 const PREVIEW_FRAME_OUTPUT_LIMIT: u64 = 8 * 1024 * 1024;
+const PREVIEW_FRAME_CACHE_MAX_ENTRIES: usize = 60;
+const PREVIEW_FRAME_CACHE_MAX_BYTES: usize = 16 * 1024 * 1024;
 const PREVIEW_FILMSTRIP_OUTPUT_LIMIT: u64 = 32 * 1024 * 1024;
 const PREVIEW_CLIP_OUTPUT_LIMIT: u64 = 64 * 1024 * 1024;
 #[cfg(target_os = "linux")]
@@ -31,6 +34,8 @@ const VAAPI_DEVICE_TIMEOUT: Duration = Duration::from_secs(2);
 
 static PREVIEW_GENERATION: AtomicU64 = AtomicU64::new(0);
 static PREVIEW_PIDS: OnceLock<Mutex<HashSet<u32>>> = OnceLock::new();
+static PROBE_GENERATION: AtomicU64 = AtomicU64::new(0);
+static PROBE_PIDS: OnceLock<Mutex<HashSet<u32>>> = OnceLock::new();
 
 pub fn ffmpeg_missing_error() -> String {
     format!(
@@ -38,19 +43,42 @@ pub fn ffmpeg_missing_error() -> String {
     )
 }
 
-fn command_output_or_ffmpeg_missing(
+fn probe_command_output(
     cmd: &mut Command,
+    generation: u64,
 ) -> Result<Output, Box<dyn std::error::Error>> {
-    match crate::gpu::spawn_captured_command(cmd)
-        .and_then(|child| child.wait_for_output(FFPROBE_TIMEOUT))
+    if PROBE_GENERATION.load(Ordering::Acquire) != generation {
+        return Err(format!("{PROBE_CANCELLED_ERROR_MARKER} Probe was cancelled.").into());
+    }
+    let child = match crate::gpu::spawn_captured_command(cmd) {
+        Ok(child) => child,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Err(ffmpeg_missing_error().into()),
+        Err(err) => return Err(Box::new(err)),
+    };
+    let pid = child.id();
+    let pids = PROBE_PIDS.get_or_init(|| Mutex::new(HashSet::new()));
     {
-        Ok(Some(output)) => Ok(output),
+        let mut guard = pids.lock().unwrap_or_else(|e| e.into_inner());
+        if PROBE_GENERATION.load(Ordering::Acquire) != generation {
+            return Err(format!("{PROBE_CANCELLED_ERROR_MARKER} Probe was cancelled.").into());
+        }
+        guard.insert(pid);
+    }
+    let output = child.wait_for_output(FFPROBE_TIMEOUT);
+    pids.lock().unwrap_or_else(|e| e.into_inner()).remove(&pid);
+    match output {
+        Ok(Some(output)) => {
+            if PROBE_GENERATION.load(Ordering::Acquire) != generation {
+                Err(format!("{PROBE_CANCELLED_ERROR_MARKER} Probe was cancelled.").into())
+            } else {
+                Ok(output)
+            }
+        }
         Ok(None) => Err(format!(
             "ffprobe timed out after {} seconds.",
             FFPROBE_TIMEOUT.as_secs()
         )
         .into()),
-        Err(err) if err.kind() == ErrorKind::NotFound => Err(ffmpeg_missing_error().into()),
         Err(err) => Err(Box::new(err)),
     }
 }
@@ -99,6 +127,23 @@ pub fn cancel_preview_jobs() {
     for pid in active {
         terminate_preview_process(pid);
     }
+}
+
+pub fn start_probe_generation() -> u64 {
+    let generation = PROBE_GENERATION
+        .fetch_add(1, Ordering::AcqRel)
+        .wrapping_add(1);
+    let pids = PROBE_PIDS.get_or_init(|| Mutex::new(HashSet::new()));
+    let active: Vec<u32> = pids
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .copied()
+        .collect();
+    for pid in active {
+        terminate_preview_process(pid);
+    }
+    generation
 }
 
 fn preview_command_output(
@@ -196,10 +241,6 @@ fn time_to_100ms(seconds: f64) -> u64 {
     (finite_non_negative(seconds) * 10.0).round() as u64
 }
 
-fn time_to_ms(seconds: f64) -> u64 {
-    (finite_non_negative(seconds) * 1000.0).round() as u64
-}
-
 fn even_dimension(value: u32) -> u32 {
     value.max(2) & !1
 }
@@ -222,122 +263,23 @@ fn preview_jpeg_scale_filter(width: u32, height: u32) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Preview clip cache - LRU-like cache with time-based keys
-// ---------------------------------------------------------------------------
-
-struct ClipCacheEntry {
-    // Arc so cache hits return cheaply; the heavy Vec<u8> is never memcpy'd
-    // by the cache itself, and LRU eviction doesn't need to clone payloads
-    // just to pick a victim.
-    data: Arc<Vec<u8>>,
-    last_used: std::time::Instant,
-    size: usize,
-}
-
-struct ClipCache {
-    // Key: (path_hash, start_time_ms, end_time_ms)
-    clips: HashMap<(u64, u64, u64), ClipCacheEntry>,
-    total_size: usize,
-    max_size: usize,
-}
-
-impl ClipCache {
-    fn new(max_mb: usize) -> Self {
-        Self {
-            clips: HashMap::new(),
-            total_size: 0,
-            max_size: max_mb * 1024 * 1024,
-        }
-    }
-
-    fn get(&mut self, key: (u64, u64, u64)) -> Option<Arc<Vec<u8>>> {
-        self.clips.get_mut(&key).map(|entry| {
-            entry.last_used = std::time::Instant::now();
-            Arc::clone(&entry.data)
-        })
-    }
-
-    fn insert(&mut self, key: (u64, u64, u64), data: Arc<Vec<u8>>) {
-        let clip_size = data.len();
-        // An oversized result is not cacheable and should not evict otherwise
-        // useful entries merely because this request happened to be large.
-        if clip_size > self.max_size {
-            return;
-        }
-
-        // Concurrent requests for the same clip can both miss and then finish.
-        // Account for replacement so total_size continues to reflect the map.
-        if let Some(existing) = self.clips.remove(&key) {
-            self.total_size = self.total_size.saturating_sub(existing.size);
-        }
-
-        // Remove least recently used entries until it fits. Pick the victim
-        // key first (without cloning the payload), then remove.
-        while self.total_size + clip_size > self.max_size && !self.clips.is_empty() {
-            let oldest_key = self
-                .clips
-                .iter()
-                .min_by_key(|(_, entry)| entry.last_used)
-                .map(|(k, _)| *k);
-            match oldest_key {
-                Some(k) => {
-                    if let Some(removed) = self.clips.remove(&k) {
-                        self.total_size = self.total_size.saturating_sub(removed.size);
-                    }
-                }
-                None => break,
-            }
-        }
-
-        self.total_size += clip_size;
-        self.clips.insert(
-            key,
-            ClipCacheEntry {
-                data,
-                last_used: std::time::Instant::now(),
-                size: clip_size,
-            },
-        );
-    }
-
-    fn clear(&mut self) {
-        self.clips.clear();
-        self.total_size = 0;
-    }
-}
-
-static PREVIEW_CLIP_CACHE: OnceLock<Mutex<ClipCache>> = OnceLock::new();
-
-fn get_clip_cache() -> &'static Mutex<ClipCache> {
-    PREVIEW_CLIP_CACHE.get_or_init(|| {
-        Mutex::new(ClipCache::new(100)) // 100MB cache
-    })
-}
-
-// ---------------------------------------------------------------------------
 // FFmpeg environment
 // ---------------------------------------------------------------------------
 
-pub fn get_ffmpeg_env() -> &'static HashMap<String, String> {
-    FFMPEG_ENV.get_or_init(|| {
-        #[allow(unused_mut)]
-        let mut env = HashMap::new();
-
-        #[cfg(target_os = "linux")]
-        {
-            use crate::gpu::get_system_gpus;
-
-            let gpus = get_system_gpus();
-            // Command inherits the process environment automatically. Only
-            // retain vidcord's override rather than cloning every environment
-            // variable on the first FFmpeg invocation.
-            if *gpus.get("amd").unwrap_or(&false) && std::env::var_os("LIBVA_DRIVER_NAME").is_none()
-            {
-                env.insert("LIBVA_DRIVER_NAME".to_string(), "radeonsi".to_string());
-            }
-        }
-
-        env
+#[cfg(target_os = "linux")]
+fn linux_has_amd_drm_device() -> bool {
+    *LINUX_AMD_DRM_DEVICE.get_or_init(|| {
+        let Ok(entries) = std::fs::read_dir("/sys/class/drm") else {
+            return false;
+        };
+        entries.flatten().any(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            name.starts_with("card")
+                && !name.contains('-')
+                && std::fs::read_to_string(entry.path().join("device/vendor"))
+                    .is_ok_and(|vendor| vendor.trim().eq_ignore_ascii_case("0x1002"))
+        })
     })
 }
 
@@ -359,8 +301,18 @@ fn without_appimage_library_paths(appdir: &str, library_path: &str) -> String {
         .join(":")
 }
 
+#[allow(unused_variables)]
 pub fn configure_ffmpeg_command(command: &mut Command) {
-    command.envs(get_ffmpeg_env());
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("LIBVA_DRIVER_NAME").is_none()
+        && (linux_has_amd_drm_device() || crate::gpu::cached_system_has_gpu("amd"))
+    {
+        // Prefer the zero-process sysfs check on cold imports. The previous
+        // implementation synchronously ran lspci before even ffprobe could
+        // start, delaying Open With by the full GPU-discovery timeout on a
+        // missing or wedged helper.
+        command.env("LIBVA_DRIVER_NAME", "radeonsi");
+    }
 
     #[cfg(target_os = "linux")]
     if let (Ok(appdir), Ok(library_path)) =
@@ -381,7 +333,10 @@ pub fn configure_ffmpeg_command(command: &mut Command) {
 // Video probing
 // ---------------------------------------------------------------------------
 
-pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+pub fn probe_video(
+    path: &str,
+    generation: u64,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     fn parse_ratio(ratio: &str) -> Option<(f64, f64)> {
         let mut parts = ratio.split(':');
         let num = parts.next()?.trim().parse::<f64>().ok()?;
@@ -409,6 +364,10 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
     cmd.args([
         "-v",
         "quiet",
+        "-probesize",
+        "10000000",
+        "-analyzeduration",
+        "5000000",
         "-select_streams",
         "v:0",
         "-print_format",
@@ -424,7 +383,7 @@ pub fn probe_video(path: &str) -> Result<serde_json::Value, Box<dyn std::error::
         cmd.creation_flags(0x08000000);
     }
 
-    let out = command_output_or_ffmpeg_missing(&mut cmd)?;
+    let out = probe_command_output(&mut cmd, generation)?;
 
     if !out.status.success() {
         return Err(format!("ffprobe failed: {}", String::from_utf8_lossy(&out.stderr)).into());
@@ -532,13 +491,17 @@ struct FrameCache {
     // (path_hash, time_100ms) → JPEG bytes
     entries: std::collections::HashMap<(u64, u64, u32, u32), FrameCacheEntry>,
     max_entries: usize,
+    max_bytes: usize,
+    total_bytes: usize,
 }
 
 impl FrameCache {
-    fn new(max_entries: usize) -> Self {
+    fn new(max_entries: usize, max_bytes: usize) -> Self {
         Self {
             entries: std::collections::HashMap::new(),
             max_entries,
+            max_bytes,
+            total_bytes: 0,
         }
     }
 
@@ -553,9 +516,17 @@ impl FrameCache {
         if self.entries.contains_key(&key) {
             return;
         }
+        let data_len = data.len();
+        if data_len > self.max_bytes {
+            return;
+        }
         // LRU eviction: pick the least-recently-used entry (not just the
-        // oldest inserted) so re-scrubbed frames survive longer.
-        while self.entries.len() >= self.max_entries {
+        // oldest inserted) so re-scrubbed frames survive longer. The byte
+        // ceiling prevents high-entropy, high-DPI JPEGs from multiplying the
+        // cache's memory footprint despite the bounded entry count.
+        while self.entries.len() >= self.max_entries
+            || self.total_bytes.saturating_add(data_len) > self.max_bytes
+        {
             let oldest_key = self
                 .entries
                 .iter()
@@ -563,7 +534,9 @@ impl FrameCache {
                 .map(|(k, _)| *k);
             match oldest_key {
                 Some(k) => {
-                    self.entries.remove(&k);
+                    if let Some(removed) = self.entries.remove(&k) {
+                        self.total_bytes = self.total_bytes.saturating_sub(removed.data.len());
+                    }
                 }
                 None => break,
             }
@@ -575,23 +548,47 @@ impl FrameCache {
                 last_used: std::time::Instant::now(),
             },
         );
+        self.total_bytes += data_len;
     }
 
     fn clear(&mut self) {
         self.entries.clear();
+        self.total_bytes = 0;
     }
 }
 
 static PREVIEW_FRAME_CACHE: OnceLock<Mutex<FrameCache>> = OnceLock::new();
+static PREVIEW_SOFTWARE_DECODE_PATHS: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
 
 fn get_frame_cache() -> &'static Mutex<FrameCache> {
-    PREVIEW_FRAME_CACHE.get_or_init(|| Mutex::new(FrameCache::new(60)))
+    PREVIEW_FRAME_CACHE.get_or_init(|| {
+        Mutex::new(FrameCache::new(
+            PREVIEW_FRAME_CACHE_MAX_ENTRIES,
+            PREVIEW_FRAME_CACHE_MAX_BYTES,
+        ))
+    })
 }
 
 fn path_hash(path: &str) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     path.hash(&mut h);
     h.finish()
+}
+
+fn should_try_preview_hardware_decode(path: &str) -> bool {
+    !PREVIEW_SOFTWARE_DECODE_PATHS
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains(&path_hash(path))
+}
+
+fn remember_preview_hardware_decode_failure(path: &str) {
+    PREVIEW_SOFTWARE_DECODE_PATHS
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(path_hash(path));
 }
 
 // ---------------------------------------------------------------------------
@@ -653,6 +650,17 @@ fn generate_preview_frame_with_fallback(
     generation: u64,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let deadline = preview_deadline(PREVIEW_FRAME_TIMEOUT);
+    if !should_try_preview_hardware_decode(path) {
+        return generate_preview_frame_internal(
+            path,
+            time_sec,
+            quality,
+            (preview_width, preview_height),
+            false,
+            generation,
+            deadline,
+        );
+    }
     match generate_preview_frame_internal(
         path,
         time_sec,
@@ -671,6 +679,7 @@ fn generate_preview_frame_with_fallback(
             Err(err)
         }
         Err(err) => {
+            remember_preview_hardware_decode_failure(path);
             vidcord_log(&format!(
                 "Hardware preview frame decode failed; retrying software decode: {err}"
             ));
@@ -790,12 +799,13 @@ pub fn generate_filmstrip(
         );
     }
 
+    let try_hardware_decode = should_try_preview_hardware_decode(path);
     generate_filmstrip_single_pass(
         path,
         duration_sec,
         frame_count,
         (preview_width, preview_height),
-        true,
+        try_hardware_decode,
         generation,
         deadline,
     )
@@ -803,12 +813,16 @@ pub fn generate_filmstrip(
         if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER)
             || is_preview_cancelled_error(err.as_ref())
             || is_preview_timeout_error(err.as_ref())
+            || !try_hardware_decode
         {
             return Err(err);
         }
-        vidcord_log(&format!(
-            "Hardware filmstrip decode failed; retrying software decode: {err}"
-        ));
+        if try_hardware_decode {
+            remember_preview_hardware_decode_failure(path);
+            vidcord_log(&format!(
+                "Hardware filmstrip decode failed; retrying software decode: {err}"
+            ));
+        }
         generate_filmstrip_single_pass(
             path,
             duration_sec,
@@ -901,7 +915,7 @@ fn generate_sparse_seek_filmstrip(
     let mut output = Vec::new();
     let mut last_error: Option<String> = None;
     let max_time = (duration_sec - 0.05).max(0.0);
-    let mut use_auto_hwaccel = true;
+    let mut use_auto_hwaccel = should_try_preview_hardware_decode(path);
 
     for idx in 0..frame_count {
         let ratio = if frame_count <= 1 {
@@ -928,6 +942,7 @@ fn generate_sparse_seek_filmstrip(
                 return Err(err)
             }
             Err(err) if use_auto_hwaccel => {
+                remember_preview_hardware_decode_failure(path);
                 vidcord_log(&format!(
                     "Hardware sparse filmstrip decode failed; using software decode for remaining frames: {err}"
                 ));
@@ -1064,32 +1079,7 @@ pub fn generate_preview_clip(
         (requested_end_time_sec - start_time_sec).clamp(0.2, MAX_GENERATED_PREVIEW_CLIP_SECONDS);
     let end_time_sec = start_time_sec + duration;
 
-    // Try to get from cache first
-    let start_ms = time_to_ms(start_time_sec);
-    let end_ms = time_to_ms(end_time_sec);
-    let cache_key = (path_hash(path), start_ms, end_ms);
-
-    {
-        let mut cache = get_clip_cache().lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(cached) = cache.get(cache_key) {
-            // Unwrap if we're the last holder (rare when cache keeps it),
-            // otherwise clone the inner Vec for the IPC owned-bytes contract.
-            return Ok(Arc::try_unwrap(cached).unwrap_or_else(|a| (*a).clone()));
-        }
-    }
-
-    // Not in cache, generate it.
-    let clip =
-        generate_preview_clip_with_fallbacks(path, start_time_sec, end_time_sec, generation)?;
-    let shared = Arc::new(clip);
-
-    // Store in cache (refcount bump, no payload copy)
-    {
-        let mut cache = get_clip_cache().lock().unwrap_or_else(|e| e.into_inner());
-        cache.insert(cache_key, Arc::clone(&shared));
-    }
-
-    Ok(Arc::try_unwrap(shared).unwrap_or_else(|a| (*a).clone()))
+    generate_preview_clip_with_fallbacks(path, start_time_sec, end_time_sec, generation)
 }
 
 fn generate_preview_clip_with_fallbacks(
@@ -1380,11 +1370,12 @@ pub fn find_vaapi_device() -> Option<String> {
 // ---------------------------------------------------------------------------
 
 pub fn clear_preview_caches() {
-    get_clip_cache()
+    get_frame_cache()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clear();
-    get_frame_cache()
+    PREVIEW_SOFTWARE_DECODE_PATHS
+        .get_or_init(|| Mutex::new(HashSet::new()))
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clear();
@@ -1434,37 +1425,6 @@ mod tests {
     }
 
     #[test]
-    fn clip_cache_replacement_keeps_size_accounting_exact() {
-        let mut cache = ClipCache {
-            clips: HashMap::new(),
-            total_size: 0,
-            max_size: 10,
-        };
-
-        cache.insert((1, 2, 3), Arc::new(vec![0; 4]));
-        cache.insert((1, 2, 3), Arc::new(vec![0; 6]));
-
-        assert_eq!(cache.clips.len(), 1);
-        assert_eq!(cache.total_size, 6);
-    }
-
-    #[test]
-    fn oversized_clip_does_not_evict_cached_entries() {
-        let mut cache = ClipCache {
-            clips: HashMap::new(),
-            total_size: 0,
-            max_size: 10,
-        };
-
-        cache.insert((1, 2, 3), Arc::new(vec![0; 4]));
-        cache.insert((4, 5, 6), Arc::new(vec![0; 11]));
-
-        assert!(cache.clips.contains_key(&(1, 2, 3)));
-        assert!(!cache.clips.contains_key(&(4, 5, 6)));
-        assert_eq!(cache.total_size, 4);
-    }
-
-    #[test]
     fn long_filmstrips_use_sparse_seeks_before_full_decode_becomes_expensive() {
         assert!(!should_use_sparse_filmstrip(179.9));
         assert!(should_use_sparse_filmstrip(180.0));
@@ -1478,5 +1438,25 @@ mod tests {
         assert_eq!(filmstrip_frame_count(120.0, None), 30);
         assert_eq!(filmstrip_frame_count(120.0, Some(16)), 16);
         assert_eq!(filmstrip_frame_count(120.0, Some(200)), 30);
+    }
+
+    #[test]
+    fn frame_cache_evicts_to_its_byte_budget() {
+        let mut cache = FrameCache::new(60, 10);
+        cache.insert((1, 1, 1, 1), Arc::new(vec![1; 6]));
+        cache.insert((2, 2, 2, 2), Arc::new(vec![2; 6]));
+
+        assert!(cache.get((1, 1, 1, 1)).is_none());
+        assert!(cache.get((2, 2, 2, 2)).is_some());
+        assert_eq!(cache.total_bytes, 6);
+    }
+
+    #[test]
+    fn frame_cache_rejects_single_entries_over_its_byte_budget() {
+        let mut cache = FrameCache::new(60, 5);
+        cache.insert((1, 1, 1, 1), Arc::new(vec![1; 6]));
+
+        assert!(cache.entries.is_empty());
+        assert_eq!(cache.total_bytes, 0);
     }
 }

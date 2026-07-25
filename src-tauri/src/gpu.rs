@@ -224,6 +224,15 @@ pub fn get_system_gpus() -> &'static HashMap<String, bool> {
     })
 }
 
+#[cfg(target_os = "linux")]
+pub(crate) fn cached_system_has_gpu(vendor: &str) -> bool {
+    GPU_CACHE
+        .get()
+        .and_then(|gpus| gpus.get(vendor))
+        .copied()
+        .unwrap_or(false)
+}
+
 fn detect_gpus() -> Option<HashMap<String, bool>> {
     let deadline = Instant::now()
         .checked_add(GPU_DISCOVERY_TIMEOUT)
