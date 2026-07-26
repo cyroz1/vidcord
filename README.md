@@ -151,7 +151,8 @@ first pass lands too large.
   bitrate parsed from FFmpeg's stderr.
 - **OS taskbar & dock progress integration** — reflects encoding progress directly on your OS taskbar or dock icon (macOS Dock, Windows Taskbar button, Linux Unity launcher bar) so you can track encoding while unfocused.
 - **Native system notifications** — mirrors every in-app banner and error in order as
-  a matching OS notification while vidcord is unfocused on Windows, macOS, and Linux.
+  a matching OS notification while vidcord is unfocused on Windows, macOS, and Linux;
+  clicking a notification restores and focuses the app.
 - **Race-safe cancellation** — cancelling keeps the job owned until FFmpeg
   exits, prevents another encode from starting early, and removes partial output.
 - **Collision-safe auto-named output** — direct destination modes atomically

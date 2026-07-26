@@ -5,7 +5,8 @@
 ### Integration
 
 - **OS Taskbar & Dock Progress Bar**: Real-time encoding progress is now reflected on the OS taskbar/dock app icon (macOS Dock, Windows Taskbar button, Linux Unity launcher bar) so you can monitor compression progress while unfocused.
-- **Native System Notifications**: Every in-app banner and error is mirrored in order as a matching desktop notification while vidcord is unfocused, using delivery paths that report failures consistently on Windows, macOS, and Linux.
+- **Native System Notifications**: Every in-app banner and error is mirrored in order as a matching desktop notification while vidcord is unfocused, using delivery paths that report failures consistently on Windows, macOS, and Linux. Clicking a notification now restores and focuses the vidcord window on every platform.
+- Increased in-app banner opacity so notification text stays legible over the controls behind it.
 
 ### Performance
 
@@ -20,6 +21,7 @@
 - Long encodes run below normal process priority to keep the app and desktop responsive, and GIF exports use a short sizing sample to avoid unnecessary full-size retry passes.
 - File imports cancel superseded FFprobe processes and cap metadata analysis at six seconds instead of leaving stale probes active.
 - Ask-when-done saves use a same-filesystem hard-link publish path when possible, avoiding a second full output copy while retaining the safe copy fallback.
+- Fixed Windows ask-when-done publishing so hard-linked output files can complete their durability sync instead of failing with an access-denied error.
 
 ### Preview
 

@@ -252,12 +252,16 @@ Events flow the other direction via `AppHandle::emit` → `listen()` in the fron
 
 System notifications are initiated by `useToasts`: every in-app toast queues the exact same title
 and body for the backend `send_system_notification` command. The backend rechecks main-window focus
-immediately before delivery and suppresses the OS notification while focused. macOS uses a bounded
-`osascript` invocation with title/body passed as data arguments; Windows and Linux use the
-synchronous `notify-rust` API so delivery acceptance or failure is returned to the frontend.
-Delivery failures are logged without logging notification contents, and the in-app toast remains
-visible as the fallback. Keep notification delivery serialized so related banners retain their
-in-app order, and escape Linux notification markup so errors render as literal text.
+immediately before delivery and suppresses the OS notification while focused. All three platforms
+use the synchronous `notify-rust` API so delivery acceptance or failure is returned to the
+frontend; macOS uses its modern `UNUserNotificationCenter` backend. A detached response listener
+waits for activation without blocking later notification delivery, then shows, restores, and
+focuses the main window when the notification is clicked. Dismissal is a no-op, and macOS response
+waiting is bounded because Notification Center's "Clear All" does not yield a response. Delivery
+failures are logged without logging notification contents, and the in-app toast remains visible as
+the fallback. Keep notification delivery serialized so related banners retain their in-app order,
+preserve the non-blocking response listener, register Linux's default action, and escape Linux
+notification markup so errors render as literal text.
 
 Compression uses a single owned backend job ID. Cancellation keeps that job active until its FFmpeg
 process exits; do not clear frontend compression state before the matching `compress-done` event or
@@ -419,13 +423,14 @@ The app re-renders on every trim-slider move. Established patterns:
 ### Commits / PRs
 
 - **Branching and worktree strategy**: Only perform development work for an active WIP release
-  from a branch named exactly `X.Y` (for example, `7.1`). The checked-out worktree must contain a
-  top-level `## WIP` section in `CHANGELOG.md`. Do not develop on `main`, a detached HEAD,
-  `feature/...`, or `vX.Y` branches. Before editing, verify both the branch name and WIP changelog;
-  if either check fails, stop and ask the user to switch to or create the appropriate `X.Y`
-  branch/worktree. Merge the completed `X.Y` branch into `main` only after all quality gates pass
-  and version references are aligned. This prevents WIP commits from triggering automated website
-  deployments (`site/`) or breaking `main`.
+  from a branch named exactly `X.Y` (for example, `7.0` or `7.1`). The version branch itself is the
+  WIP branch; `CHANGELOG.md` may use either a top-level `## WIP` section or the matching `## vX.Y`
+  section while that release is under development. Do not develop on `main`, a detached HEAD,
+  `feature/...`, or `vX.Y` branches. Before editing, verify the branch name and that the changelog's
+  leading release section matches the active work; if either check fails, stop and ask the user to
+  switch to or create the appropriate `X.Y` branch/worktree. Merge the completed `X.Y` branch into
+  `main` only after all quality gates pass and version references are aligned. This prevents WIP
+  commits from triggering automated website deployments (`site/`) or breaking `main`.
 - **Run the relevant quality gates before every commit.** If Rust changed: `cargo fmt --check --manifest-path src-tauri/Cargo.toml`, `cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings`, `cargo test --manifest-path src-tauri/Cargo.toml`. If frontend changed: `npm run lint`, `npm run typecheck`, `npm test`. Fix failures before committing — never push and let CI catch it.
 - Document significant changes where future users and agents will look for them. Update `AGENTS.md` for workflow, architecture, release, or repository-practice changes; update `README.md` for public product behavior, install/setup, supported-platform, or development changes; and update the website (`site/index.html`, JSON-LD, `llms.txt`, `llms-full.txt`, and related site assets) when public-facing product facts or download behavior change.
 - Keep a WIP changelog in `CHANGELOG.md` for user-visible changes made after the commit of the last release. Use the latest `vX.Y` tag as the baseline, keep notes concise and release-note-ready, and exclude pure refactors, tests, chores, or internal-only work unless they affect behavior.

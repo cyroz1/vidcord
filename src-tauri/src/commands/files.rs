@@ -336,39 +336,64 @@ where
     Ok(true)
 }
 
-#[cfg(any(target_os = "macos", test))]
-fn macos_notification_arguments(title: &str, body: &str) -> Vec<String> {
-    vec![
-        "-e".to_string(),
-        "on run argv".to_string(),
-        "-e".to_string(),
-        "display notification (item 2 of argv) with title (item 1 of argv)".to_string(),
-        "-e".to_string(),
-        "end run".to_string(),
-        "--".to_string(),
-        title.to_string(),
-        body.to_string(),
-    ]
+fn notification_response_requests_focus(response: &notify_rust::NotificationResponse) -> bool {
+    matches!(response, notify_rust::NotificationResponse::Default)
+        || matches!(
+            response,
+            notify_rust::NotificationResponse::Action(action) if action == "default"
+        )
+}
+
+fn focus_main_window(app: &tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "the main window is unavailable".to_string())?;
+    window
+        .show()
+        .map_err(|error| format!("could not show the main window: {error}"))?;
+    window
+        .unminimize()
+        .map_err(|error| format!("could not restore the main window: {error}"))?;
+    window
+        .set_focus()
+        .map_err(|error| format!("could not focus the main window: {error}"))
+}
+
+fn listen_for_notification_activation<F>(listener: F) -> Result<(), String>
+where
+    F: FnOnce() -> Result<(), String> + Send + 'static,
+{
+    std::thread::Builder::new()
+        .name("vidcord-notification-response".to_string())
+        .spawn(move || {
+            if let Err(error) = listener() {
+                vidcord_log(&format!(
+                    "System notification response listener failed: {error}"
+                ));
+            }
+        })
+        .map(|_| ())
+        .map_err(|error| {
+            format!("Could not start the system notification response listener: {error}")
+        })
 }
 
 #[cfg(target_os = "macos")]
-fn deliver_platform_notification(
-    _app: &tauri::AppHandle,
-    title: &str,
-    body: &str,
-) -> Result<(), String> {
-    let mut command = std::process::Command::new("osascript");
-    command.args(macos_notification_arguments(title, body));
-    match run_desktop_command(&mut command) {
+fn authorize_macos_notifications() -> Result<(), String> {
+    match notify_rust::request_auth_blocking() {
         Ok(true) => Ok(()),
-        Ok(false) => Err(
-            "macOS rejected the system notification or notification delivery timed out."
-                .to_string(),
-        ),
+        Ok(false) => Err("macOS notification permission was denied.".to_string()),
         Err(error) => Err(format!(
-            "Could not start the macOS notification service: {error}"
+            "macOS notification permission is unavailable: {error}"
         )),
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn authorize_macos_notifications() -> Result<(), String> {
+    Ok(())
 }
 
 #[cfg(any(target_os = "linux", test))]
@@ -391,33 +416,57 @@ fn is_cargo_target_profile_directory(directory: &std::path::Path) -> bool {
             .any(|ancestor| ancestor.file_name().is_some_and(|name| name == "target"))
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn deliver_platform_notification(
-    _app: &tauri::AppHandle,
+    app: &tauri::AppHandle,
     title: &str,
     body: &str,
 ) -> Result<(), String> {
+    authorize_macos_notifications()?;
+
     let mut notification = notify_rust::Notification::new();
     notification.appname("vidcord").summary(title).auto_icon();
 
+    #[cfg(target_os = "macos")]
+    notification
+        .body(body)
+        // macOS does not resolve "Clear All" responses, so bound the
+        // activation listener rather than retaining it indefinitely.
+        .timeout(std::time::Duration::from_secs(60 * 60));
+
     #[cfg(target_os = "linux")]
-    notification.body(&escape_xdg_notification_markup(body));
+    notification
+        .body(&escape_xdg_notification_markup(body))
+        .action("default", "Open vidcord");
+
     #[cfg(target_os = "windows")]
     {
         notification.body(body);
         if let Ok(executable) = tauri::utils::platform::current_exe() {
             if let Some(directory) = executable.parent() {
                 if !is_cargo_target_profile_directory(directory) {
-                    notification.app_id(&_app.config().identifier);
+                    notification.app_id(&app.config().identifier);
                 }
             }
         }
     }
 
-    notification
-        .show()
-        .map(|_| ())
-        .map_err(|error| format!("The system notification service rejected the message: {error}"))
+    let handle = notification.show().map_err(|error| {
+        format!("The system notification service rejected the message: {error}")
+    })?;
+    let response_app = app.clone();
+    listen_for_notification_activation(move || {
+        handle
+            .wait_for_response(|response: &notify_rust::NotificationResponse| {
+                if notification_response_requests_focus(response) {
+                    if let Err(error) = focus_main_window(&response_app) {
+                        vidcord_log(&format!(
+                            "System notification activation could not focus vidcord: {error}"
+                        ));
+                    }
+                }
+            })
+            .map_err(|error| error.to_string())
+    })
 }
 
 #[tauri::command]
@@ -609,7 +658,9 @@ fn publish_to_temporary(
     temporary_path: &std::path::Path,
 ) -> Result<bool, String> {
     if std::fs::hard_link(staged, temporary_path).is_ok() {
-        std::fs::File::open(temporary_path)
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(temporary_path)
             .and_then(|file| file.sync_all())
             .map_err(|error| error.to_string())?;
         return Ok(true);
@@ -654,7 +705,7 @@ pub async fn discard_staged_output(staged_path: String) -> Result<(), String> {
 mod tests {
     use super::{
         deliver_notification_if_unfocused, escape_xdg_notification_markup,
-        is_cargo_target_profile_directory, macos_notification_arguments,
+        is_cargo_target_profile_directory, notification_response_requests_focus,
         publish_staged_output_blocking, publish_to_temporary, resolve_output_path_blocking,
         staging_directory, unique_output_path, validated_clipboard_file,
         without_appimage_library_paths,
@@ -809,15 +860,21 @@ mod tests {
     }
 
     #[test]
-    fn macos_notification_values_are_passed_as_data_arguments() {
-        let title = "Compression \"Complete\"";
-        let body = "Saved C:\\clips\\one.mp4\nReady.";
-        let args = macos_notification_arguments(title, body);
+    fn notification_activation_focuses_only_for_the_default_action() {
+        use notify_rust::{CloseReason, NotificationResponse};
 
-        assert_eq!(args[7], title);
-        assert_eq!(args[8], body);
-        assert!(!args[3].contains(title));
-        assert!(!args[3].contains(body));
+        assert!(notification_response_requests_focus(
+            &NotificationResponse::Default
+        ));
+        assert!(notification_response_requests_focus(
+            &NotificationResponse::Action("default".to_string())
+        ));
+        assert!(!notification_response_requests_focus(
+            &NotificationResponse::Action("other".to_string())
+        ));
+        assert!(!notification_response_requests_focus(
+            &NotificationResponse::Closed(CloseReason::Dismissed)
+        ));
     }
 
     #[test]

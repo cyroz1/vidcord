@@ -18,7 +18,7 @@ const COLORS: Record<string, string> = {
 // Hoisted to module scope so re-renders (e.g. parent App re-rendering during
 // trim-slider scrubs) don't allocate fresh style objects per toast.
 const wrapperBaseStyle: React.CSSProperties = {
-  background: "var(--surface)",
+  background: "var(--toast-bg)",
   backdropFilter: "var(--blur)",
   WebkitBackdropFilter: "var(--blur)",
   border: "1px solid var(--border-subtle)",
