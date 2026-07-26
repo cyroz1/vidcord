@@ -1,5 +1,5 @@
 use crate::log::vidcord_log;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -35,7 +35,7 @@ const VAAPI_DEVICE_TIMEOUT: Duration = Duration::from_secs(2);
 static PREVIEW_GENERATION: AtomicU64 = AtomicU64::new(0);
 static PREVIEW_PIDS: OnceLock<Mutex<HashSet<u32>>> = OnceLock::new();
 static PROBE_GENERATION: AtomicU64 = AtomicU64::new(0);
-static PROBE_PIDS: OnceLock<Mutex<HashSet<u32>>> = OnceLock::new();
+static PROBE_PIDS: OnceLock<Mutex<HashMap<u32, u64>>> = OnceLock::new();
 
 pub fn ffmpeg_missing_error() -> String {
     format!(
@@ -56,13 +56,13 @@ fn probe_command_output(
         Err(err) => return Err(Box::new(err)),
     };
     let pid = child.id();
-    let pids = PROBE_PIDS.get_or_init(|| Mutex::new(HashSet::new()));
+    let pids = PROBE_PIDS.get_or_init(|| Mutex::new(HashMap::new()));
     {
         let mut guard = pids.lock().unwrap_or_else(|e| e.into_inner());
         if PROBE_GENERATION.load(Ordering::Acquire) != generation {
             return Err(format!("{PROBE_CANCELLED_ERROR_MARKER} Probe was cancelled.").into());
         }
-        guard.insert(pid);
+        guard.insert(pid, generation);
     }
     let output = child.wait_for_output(FFPROBE_TIMEOUT);
     pids.lock().unwrap_or_else(|e| e.into_inner()).remove(&pid);
@@ -109,10 +109,30 @@ fn terminate_preview_process(pid: u32) {
 #[cfg(windows)]
 fn terminate_preview_process(pid: u32) {
     use std::os::windows::process::CommandExt;
-    let _ = std::process::Command::new("taskkill")
+    let mut command = std::process::Command::new("taskkill");
+    command
         .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .creation_flags(0x08000000)
-        .output();
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .creation_flags(0x08000000);
+    let Ok(mut child) = command.spawn() else {
+        return;
+    };
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Ok(None) | Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return;
+            }
+        }
+    }
 }
 
 pub fn cancel_preview_jobs() {
@@ -130,20 +150,36 @@ pub fn cancel_preview_jobs() {
 }
 
 pub fn start_probe_generation() -> u64 {
-    let generation = PROBE_GENERATION
+    PROBE_GENERATION
         .fetch_add(1, Ordering::AcqRel)
-        .wrapping_add(1);
-    let pids = PROBE_PIDS.get_or_init(|| Mutex::new(HashSet::new()));
-    let active: Vec<u32> = pids
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .iter()
-        .copied()
-        .collect();
-    for pid in active {
-        terminate_preview_process(pid);
+        .wrapping_add(1)
+}
+
+pub fn cancel_superseded_probe_jobs(generation: u64) {
+    if PROBE_GENERATION.load(Ordering::Acquire) != generation {
+        return;
     }
-    generation
+    let pids = PROBE_PIDS.get_or_init(|| Mutex::new(HashMap::new()));
+    let active: Vec<u32> = {
+        let guard = pids.lock().unwrap_or_else(|e| e.into_inner());
+        guard
+            .iter()
+            .filter_map(|(&pid, &owner)| (owner != generation).then_some(pid))
+            .collect()
+    };
+    for pid in active {
+        if PROBE_GENERATION.load(Ordering::Acquire) != generation {
+            break;
+        }
+        let still_superseded = pids
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&pid)
+            .is_some_and(|owner| *owner != generation);
+        if still_superseded {
+            terminate_preview_process(pid);
+        }
+    }
 }
 
 fn preview_command_output(

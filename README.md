@@ -310,7 +310,7 @@ right VAAPI device, and sets `LIBVA_DRIVER_NAME=radeonsi` for AMD systems.
 | Tool                                       | Version               | Notes                                                                                                      |
 | ------------------------------------------ | --------------------- | ---------------------------------------------------------------------------------------------------------- |
 | [Rust](https://rustup.rs)                  | stable (2021 edition) | `rustup default stable`                                                                                    |
-| [Node.js](https://nodejs.org)              | `^20.19` or `>=22.12` | see `package.json` engines                                                                                 |
+| [Node.js](https://nodejs.org)              | `^20.19` or `>=22.13` | see `package.json` engines                                                                                 |
 | [FFmpeg](https://ffmpeg.org/download.html) | any recent            | must be on `PATH` at runtime                                                                               |
 | **Linux extras**                           | —                     | `libwebkit2gtk-4.1-dev`, `libappindicator3-dev`, `librsvg2-dev`, `patchelf`                                |
 | **Windows extras**                         | —                     | [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (pre-installed on Windows 11) |

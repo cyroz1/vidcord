@@ -9,6 +9,8 @@ static SETTINGS_WRITE_LOCK: Mutex<()> = Mutex::new(());
 pub struct PersistedEncoder {
     pub name: String,
     pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_selectable: Option<bool>,
 }
 
 /// Typed schema for persisted settings.
@@ -202,8 +204,12 @@ mod tests {
             "completion_action": "copy",
             "encoder_label": "CPU (libx264)",
             "encoder_capabilities": [
-                { "name": "libx264", "label": "CPU (libx264)" },
-                { "name": "h264_videotoolbox", "label": "macOS (h264_videotoolbox)" }
+                { "name": "libx264", "label": "CPU (libx264)", "auto_selectable": false },
+                {
+                    "name": "h264_videotoolbox",
+                    "label": "macOS (h264_videotoolbox)",
+                    "auto_selectable": true
+                }
             ]
         });
 
@@ -221,6 +227,7 @@ mod tests {
             loaded["encoder_capabilities"][1]["name"],
             "h264_videotoolbox"
         );
+        assert_eq!(loaded["encoder_capabilities"][1]["auto_selectable"], true);
 
         std::fs::remove_dir_all(&dir).ok();
     }

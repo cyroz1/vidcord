@@ -9,7 +9,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 - **App version**: kept in sync across `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and any `vX.Y` references in source/docs (see "Bumping the version" below)
 - **Window**: fixed 460×690, user non-resizable/non-maximizable, opaque window background with macOS Tahoe "liquid glass" styling inside the app surface
 - **Supported OS/arch**: Windows (x86_64 + aarch64), macOS (universal), Linux (x86_64 + aarch64)
-- **Node**: `^20.19.0 || >=22.12.0` (see `package.json` engines)
+- **Node**: `^20.19.0 || >=22.13.0` (see `package.json` engines)
 - **Rust**: stable toolchain, edition 2021
 
 ## Repository layout
