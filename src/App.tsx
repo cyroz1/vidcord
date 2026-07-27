@@ -61,6 +61,7 @@ import {
   formatCodec,
   formatFrameRate,
   formatVideoDuration,
+  getAvailableCropOptions,
 } from "./videoMetadata";
 import pkg from "../package.json";
 
@@ -342,6 +343,21 @@ export default function App() {
       label: `Resolution ${resolution}, frame rate ${frameRate}, codec ${codec}, average bitrate ${bitrate}, length ${length}`,
     };
   }, [probeData]);
+
+  const displayW = probeData ? (probeData.display_width || probeData.width) : undefined;
+  const displayH = probeData ? (probeData.display_height || probeData.height) : undefined;
+
+  const cropOptions = useMemo(
+    () => getAvailableCropOptions(displayW, displayH),
+    [displayW, displayH]
+  );
+
+  useEffect(() => {
+    if (cropAspectRatio !== "off" && !cropOptions.some((o) => o.value === cropAspectRatio)) {
+      setCropAspectRatio("off");
+      saveSettings({ crop_aspect_ratio: "off" });
+    }
+  }, [cropAspectRatio, cropOptions, setCropAspectRatio, saveSettings]);
 
   const clampPreviewFocusTime = useCallback(
     (time: number | null) => {
@@ -2017,6 +2033,7 @@ export default function App() {
                 setAudioNormalize,
                 cropAspectRatio,
                 setCropAspectRatio,
+                cropOptions,
                 advSize,
                 setAdvSize,
                 advResolution,
@@ -2335,11 +2352,11 @@ export default function App() {
                             saveSettings({ crop_aspect_ratio: e.target.value });
                           }}
                         >
-                          <option value="off">Off</option>
-                          <option value="16:9">16:9</option>
-                          <option value="1:1">1:1</option>
-                          <option value="9:16">9:16</option>
-                          <option value="4:3">4:3</option>
+                          {cropOptions.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
                         </select>
                       </label>
                       <label className="fps-label">

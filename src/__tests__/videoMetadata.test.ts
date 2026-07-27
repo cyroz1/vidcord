@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  detectMatchingCropPreset,
   formatAverageBitrate,
   formatCodec,
   formatFrameRate,
   formatVideoDuration,
+  getAvailableCropOptions,
+  type CropOption,
 } from "../videoMetadata";
 
 describe("video metadata formatting", () => {
@@ -33,5 +36,19 @@ describe("video metadata formatting", () => {
     expect(formatFrameRate()).toBe("Unknown");
     expect(formatAverageBitrate(0)).toBe("Unknown");
     expect(formatCodec("unknown")).toBe("Unknown");
+  });
+
+  it("detects video aspect ratio and excludes matching preset from crop options", () => {
+    expect(detectMatchingCropPreset(1920, 1080)).toBe("16:9");
+    expect(detectMatchingCropPreset(1080, 1920)).toBe("9:16");
+    expect(detectMatchingCropPreset(1080, 1080)).toBe("1:1");
+    expect(detectMatchingCropPreset(1440, 1080)).toBe("4:3");
+    expect(detectMatchingCropPreset(2560, 1080)).toBeNull();
+
+    const options169 = getAvailableCropOptions(1920, 1080);
+    expect(options169.map((o: CropOption) => o.value)).toEqual(["off", "1:1", "9:16", "4:3"]);
+
+    const options916 = getAvailableCropOptions(1080, 1920);
+    expect(options916.map((o: CropOption) => o.value)).toEqual(["off", "16:9", "1:1", "4:3"]);
   });
 });
