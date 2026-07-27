@@ -259,9 +259,13 @@ waits for activation without blocking later notification delivery, then shows, r
 focuses the main window when the notification is clicked. Dismissal is a no-op, and macOS response
 waiting is bounded because Notification Center's "Clear All" does not yield a response. Delivery
 failures are logged without logging notification contents, and the in-app toast remains visible as
-the fallback. Keep notification delivery serialized so related banners retain their in-app order,
-preserve the non-blocking response listener, register Linux's default action, and escape Linux
-notification markup so errors render as literal text.
+the fallback. macOS bundles use Tauri's `"-"` ad-hoc signing identity so Notification Center can
+associate permission with the app's bundle identifier; this is not authenticated Developer ID
+signing or notarization. Unbundled `tauri dev` processes have no bundle identifier and use the
+bounded AppleScript notification fallback instead. Keep notification delivery serialized so related
+banners retain their in-app order, preserve the non-blocking response listener, respect an explicit
+macOS notification-permission denial, register Linux's default action, and escape Linux notification
+markup so errors render as literal text.
 
 Compression uses a single owned backend job ID. Cancellation keeps that job active until its FFmpeg
 process exits; do not clear frontend compression state before the matching `compress-done` event or

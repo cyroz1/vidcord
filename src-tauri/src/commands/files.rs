@@ -144,7 +144,7 @@ fn show_in_file_explorer_blocking(path: String) -> Result<(), String> {
     Ok(())
 }
 
-fn validated_clipboard_file(path: String) -> Result<std::path::PathBuf, String> {
+pub(crate) fn validated_clipboard_file(path: String) -> Result<std::path::PathBuf, String> {
     let file = std::fs::canonicalize(path)
         .map_err(|_| "The completed output file is no longer available.".to_string())?;
     if !file.is_file() {
@@ -154,7 +154,7 @@ fn validated_clipboard_file(path: String) -> Result<std::path::PathBuf, String> 
 }
 
 #[cfg(target_os = "windows")]
-fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String> {
+pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String> {
     use std::iter::once;
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Foundation::{GlobalFree, POINT};
@@ -245,7 +245,7 @@ fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String>
 }
 
 #[cfg(target_os = "macos")]
-fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String> {
+pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String> {
     let mut command = std::process::Command::new("osascript");
     command
         .args([
@@ -267,7 +267,7 @@ fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String>
 }
 
 #[cfg(target_os = "linux")]
-fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String> {
+pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String> {
     use std::io::Write;
 
     let uri = url::Url::from_file_path(file)
@@ -342,6 +342,37 @@ fn notification_response_requests_focus(response: &notify_rust::NotificationResp
             response,
             notify_rust::NotificationResponse::Action(action) if action == "default"
         )
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_notification_arguments(title: &str, body: &str) -> Vec<String> {
+    vec![
+        "-e".to_string(),
+        "on run argv".to_string(),
+        "-e".to_string(),
+        "display notification (item 2 of argv) with title (item 1 of argv)".to_string(),
+        "-e".to_string(),
+        "end run".to_string(),
+        "--".to_string(),
+        title.to_string(),
+        body.to_string(),
+    ]
+}
+
+#[cfg(target_os = "macos")]
+fn deliver_unbundled_macos_notification(title: &str, body: &str) -> Result<(), String> {
+    let mut command = std::process::Command::new("osascript");
+    command.args(macos_notification_arguments(title, body));
+    match run_desktop_command(&mut command) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(
+            "macOS rejected the development notification or notification delivery timed out."
+                .to_string(),
+        ),
+        Err(error) => Err(format!(
+            "Could not start the macOS development notification service: {error}"
+        )),
+    }
 }
 
 fn focus_main_window(app: &tauri::AppHandle) -> Result<(), String> {
@@ -421,6 +452,13 @@ fn deliver_platform_notification(
     title: &str,
     body: &str,
 ) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    if notify_rust::check_bundle().is_err() {
+        // `tauri dev` launches the executable outside a .app bundle, which
+        // UNUserNotificationCenter rejects before it can request permission.
+        return deliver_unbundled_macos_notification(title, body);
+    }
+
     authorize_macos_notifications()?;
 
     let mut notification = notify_rust::Notification::new();
@@ -705,10 +743,10 @@ pub async fn discard_staged_output(staged_path: String) -> Result<(), String> {
 mod tests {
     use super::{
         deliver_notification_if_unfocused, escape_xdg_notification_markup,
-        is_cargo_target_profile_directory, notification_response_requests_focus,
-        publish_staged_output_blocking, publish_to_temporary, resolve_output_path_blocking,
-        staging_directory, unique_output_path, validated_clipboard_file,
-        without_appimage_library_paths,
+        is_cargo_target_profile_directory, macos_notification_arguments,
+        notification_response_requests_focus, publish_staged_output_blocking, publish_to_temporary,
+        resolve_output_path_blocking, staging_directory, unique_output_path,
+        validated_clipboard_file, without_appimage_library_paths,
     };
 
     #[test]
@@ -875,6 +913,18 @@ mod tests {
         assert!(!notification_response_requests_focus(
             &NotificationResponse::Closed(CloseReason::Dismissed)
         ));
+    }
+
+    #[test]
+    fn macos_development_notification_values_are_passed_as_data_arguments() {
+        let title = "Compression \"Complete\"";
+        let body = "Saved C:\\clips\\one.mp4\nReady.";
+        let args = macos_notification_arguments(title, body);
+
+        assert_eq!(args[7], title);
+        assert_eq!(args[8], body);
+        assert!(!args[3].contains(title));
+        assert!(!args[3].contains(body));
     }
 
     #[test]

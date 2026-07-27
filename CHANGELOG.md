@@ -5,7 +5,7 @@
 ### Integration
 
 - **OS Taskbar & Dock Progress Bar**: Real-time encoding progress is now reflected on the OS taskbar/dock app icon (macOS Dock, Windows Taskbar button, Linux Unity launcher bar) so you can monitor compression progress while unfocused.
-- **Native System Notifications**: Every in-app banner and error is mirrored in order as a matching desktop notification while vidcord is unfocused, using delivery paths that report failures consistently on Windows, macOS, and Linux. Clicking a notification now restores and focuses the vidcord window on every platform.
+- **Native System Notifications**: Every in-app banner and error is mirrored in order as a matching desktop notification while vidcord is unfocused, using delivery paths that report failures consistently on Windows, macOS, and Linux. Clicking a notification now restores and focuses the vidcord window on every platform, and macOS builds now carry the stable app identity required for Notification Center authorization.
 - Increased in-app banner opacity so notification text stays legible over the controls behind it.
 
 ### Performance
