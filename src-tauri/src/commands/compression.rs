@@ -875,16 +875,20 @@ async fn run_ffmpeg_attempt(
         if opts.remove_audio {
             cmd_args.push("-an".into());
         } else {
+            let audio_map = match crate::ffmpeg::find_best_audio_stream_index(&opts.input_path, 0) {
+                Some(idx) => format!("0:a:{idx}?"),
+                None => "0:a?".to_string(),
+            };
             cmd_args.extend([
                 "-map".into(),
-                "0:a?".into(),
+                audio_map,
                 "-c:a".into(),
                 "aac".into(),
                 "-b:a".into(),
                 "128k".into(),
             ]);
             if opts.audio_normalize == Some(true) {
-                cmd_args.extend(["-af".into(), "loudnorm=I=-16:TP=-1.5:LRA=11".into()]);
+                cmd_args.extend(["-af".into(), "loudnorm=I=-14:TP=0.0:LRA=11".into()]);
             }
         }
     }
