@@ -2295,10 +2295,10 @@ export default function App() {
                           }}
                         >
                           <option value="off">Off</option>
-                          <option value="16:9">16:9 Widescreen</option>
-                          <option value="1:1">1:1 Square</option>
-                          <option value="9:16">9:16 Vertical</option>
-                          <option value="4:3">4:3 Standard</option>
+                          <option value="16:9">16:9</option>
+                          <option value="1:1">1:1</option>
+                          <option value="9:16">9:16</option>
+                          <option value="4:3">4:3</option>
                         </select>
                       </label>
                       <label className="fps-label">
