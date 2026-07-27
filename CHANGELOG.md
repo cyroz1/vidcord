@@ -2,6 +2,15 @@
 
 ## v7.0
 
+### Features & Audio
+
+- **EBU R128 Loudness Normalization**: Added optional audio loudness normalization (`-af loudnorm=I=-14:TP=0.0:LRA=11`) targeting a 0 dB True Peak limit to eliminate quiet audio without clipping or distortion.
+- **Smart Multi-Track Audio Selection**: Automatically detects multi-track audio recordings (such as OBS or ShadowPlay multi-stream MP4s) and extracts/encodes the primary audio stream with the most data instead of losing audio tracks.
+- **Aspect Ratio Cropping Presets**: Added aspect ratio crop options (`16:9`, `1:1` Square, `9:16` Vertical/Shorts, `4:3` Standard) prepended ahead of scaling filters in FFmpeg's video pipeline.
+- **Native Aspect Ratio Detection & Filtering**: Detects the input video's native display aspect ratio and dynamically excludes matching crop presets from the selector dropdown to avoid redundant crop operations (e.g. excluding 16:9 for a 1920×1080 clip).
+- **Frame Snapshots**: Added a 📷 **Snapshot** overlay button and `Cmd+Shift+S` / `Ctrl+Shift+S` global keyboard shortcut to extract full-resolution PNG frames at any playback position.
+- **Integrated Snapshot Output Workflow**: Frame snapshot saving respects the user's configured output destination (Downloads, source clip folder, custom directory, or save prompt) and completion action (copies saved PNG to clipboard with reveal fallback, or reveals in file explorer).
+
 ### Integration
 
 - **OS Taskbar & Dock Progress Bar**: Real-time encoding progress is now reflected on the OS taskbar/dock app icon (macOS Dock, Windows Taskbar button, Linux Unity launcher bar) so you can monitor compression progress while unfocused.
@@ -33,6 +42,10 @@
 
 ### UI
 
+- **Single Horizontal Line Advanced Controls**: Layout Advanced Mode controls (`Size`, `Resolution`, `Crop`, `FPS`, `Encoder`, `Mute`, `Norm`, `Info`) into a clean 5-column single horizontal row.
+- **Icon-Only Audio Controls**: Updated `Mute` and `Norm` controls to compact 28px square icon-only SVG buttons with tooltips and accessible aria-labels.
+- **Maxed-Out Active Waveform Icon**: The active audio normalization button displays a full-amplitude 5-bar waveform icon when enabled.
+- **Memoized Controls Render Pipeline**: Added `audioNormalize`, `cropAspectRatio`, and dynamic `cropOptions` to `MemoizedSubtree` dependencies so control state updates instantly without re-rendering the trim timeline.
 - Video imports now show an explicit “Reading video…” state, and missing FFmpeg uses the non-blocking in-app setup banner instead of an automatic system confirmation dialog.
 - Trim controls use a tighter segmented layout and compositor-driven range/playhead motion to reduce layout work inside the glass timeline card. Unchanged import and settings controls are also skipped during trim-only renders.
 - The timeline playhead now follows an actively moved trim handle in both directions instead of retaining a stale position when the handle reverses.
