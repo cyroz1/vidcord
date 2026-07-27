@@ -303,6 +303,8 @@ pub struct CompressOptions {
     pub start_time: f64,
     pub end_time: f64,
     pub remove_audio: bool,
+    pub audio_normalize: Option<bool>,
+    pub crop_aspect_ratio: Option<String>,
     pub output_fps: Option<f64>,
     pub scale_filter: Option<String>,
     pub vaapi_device: Option<String>,
@@ -415,6 +417,23 @@ fn valid_vaapi_device(device: Option<&str>) -> bool {
     }
 }
 
+fn valid_crop_aspect_ratio(crop: Option<&str>) -> bool {
+    matches!(
+        crop,
+        None | Some("off") | Some("16:9") | Some("1:1") | Some("9:16") | Some("4:3")
+    )
+}
+
+fn crop_filter_expression(crop: &str) -> Option<String> {
+    match crop {
+        "1:1" => Some("crop=min(iw\\,ih):min(iw\\,ih)".to_string()),
+        "16:9" => Some("crop=w='min(iw\\,ih*16/9)':h='min(ih\\,iw*9/16)'".to_string()),
+        "9:16" => Some("crop=w='min(iw\\,ih*9/16)':h='min(ih\\,iw*16/9)'".to_string()),
+        "4:3" => Some("crop=w='min(iw\\,ih*4/3)':h='min(ih\\,iw*3/4)'".to_string()),
+        _ => None,
+    }
+}
+
 fn format_fps_filter_value(fps: f64) -> String {
     let mut value = format!("{fps:.3}");
     while value.contains('.') && value.ends_with('0') {
@@ -428,6 +447,13 @@ fn format_fps_filter_value(fps: f64) -> String {
 
 fn video_filter_for_encoder(opts: &CompressOptions, encoder: &str) -> String {
     let mut filters = Vec::new();
+    if let Some(crop_expr) = opts
+        .crop_aspect_ratio
+        .as_deref()
+        .and_then(crop_filter_expression)
+    {
+        filters.push(crop_expr);
+    }
     if let Some(fps) = opts.output_fps {
         filters.push(format!("fps={}", format_fps_filter_value(fps)));
     }
@@ -454,6 +480,12 @@ fn video_filter_for_encoder(opts: &CompressOptions, encoder: &str) -> String {
 }
 
 fn gif_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> String {
+    let crop_prefix = opts
+        .crop_aspect_ratio
+        .as_deref()
+        .and_then(crop_filter_expression)
+        .map(|c| format!("{c},"))
+        .unwrap_or_default();
     let retry_quality = (attempt.video_bitrate_k as f64 / opts.video_bitrate_k.max(1) as f64)
         .clamp(0.04, 1.0)
         .sqrt();
@@ -480,7 +512,7 @@ fn gif_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> String {
         });
 
     format!(
-        "fps={},{},split[gif_source][palette_source];[palette_source]palettegen=max_colors={colors}:stats_mode=diff[palette];[gif_source][palette]paletteuse=dither=sierra2_4a:diff_mode=rectangle[gif]",
+        "{crop_prefix}fps={},{},split[gif_source][palette_source];[palette_source]palettegen=max_colors={colors}:stats_mode=diff[palette];[gif_source][palette]paletteuse=dither=sierra2_4a:diff_mode=rectangle[gif]",
         format_fps_filter_value(fps),
         scale
     )
@@ -843,14 +875,21 @@ async fn run_ffmpeg_attempt(
         if opts.remove_audio {
             cmd_args.push("-an".into());
         } else {
+            let audio_map = match crate::ffmpeg::find_best_audio_stream_index(&opts.input_path, 0) {
+                Some(idx) => format!("0:a:{idx}?"),
+                None => "0:a?".to_string(),
+            };
             cmd_args.extend([
                 "-map".into(),
-                "0:a?".into(),
+                audio_map,
                 "-c:a".into(),
                 "aac".into(),
                 "-b:a".into(),
                 "128k".into(),
             ]);
+            if opts.audio_normalize == Some(true) {
+                cmd_args.extend(["-af".into(), "loudnorm=I=-14:TP=0.0:LRA=11".into()]);
+            }
         }
     }
 
@@ -1099,6 +1138,9 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     }
     if !valid_scale_filter(opts.scale_filter.as_deref()) {
         return Err("Invalid scale filter".to_string());
+    }
+    if !valid_crop_aspect_ratio(opts.crop_aspect_ratio.as_deref()) {
+        return Err("Invalid crop aspect ratio".to_string());
     }
     if !valid_vaapi_device(opts.vaapi_device.as_deref()) {
         return Err("Invalid VAAPI device".to_string());
@@ -1629,6 +1671,70 @@ pub fn format_eta(secs: f64) -> String {
     }
 }
 
+#[tauri::command]
+pub async fn capture_snapshot(
+    input_path: String,
+    time: f64,
+    output_path: String,
+) -> Result<String, String> {
+    if !valid_time_range(time, time + 0.001) {
+        return Err("Invalid snapshot timestamp".to_string());
+    }
+    let input_path_buf = std::path::PathBuf::from(&input_path);
+    if !input_path_buf.is_file() {
+        return Err("Input file does not exist".to_string());
+    }
+
+    let output_path_buf = std::path::PathBuf::from(&output_path);
+    if let Some(parent) = output_path_buf.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("Failed to create snapshot directory: {e}"))?;
+    }
+
+    let input = input_path.clone();
+    let time_str = format!("{:.3}", time);
+    let output_target_str = output_path.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = std::process::Command::new("ffmpeg");
+        cmd.args([
+            "-hide_banner",
+            "-nostdin",
+            "-y",
+            "-ss",
+            &time_str,
+            "-i",
+            &input,
+            "-vframes",
+            "1",
+            "-f",
+            "image2",
+            &output_target_str,
+        ]);
+        configure_ffmpeg_command(&mut cmd);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000);
+        }
+        let output = cmd
+            .output()
+            .map_err(|e| format!("Failed to execute FFmpeg for snapshot: {e}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "FFmpeg frame snapshot failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    Ok(output_path)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1727,11 +1833,38 @@ mod tests {
             start_time: 0.0,
             end_time: 60.0,
             remove_audio: false,
+            audio_normalize: None,
+            crop_aspect_ratio: None,
             output_fps: None,
             scale_filter: None,
             vaapi_device: None,
             gif_mode: false,
         }
+    }
+
+    #[test]
+    fn test_valid_crop_aspect_ratio() {
+        assert!(valid_crop_aspect_ratio(None));
+        assert!(valid_crop_aspect_ratio(Some("off")));
+        assert!(valid_crop_aspect_ratio(Some("16:9")));
+        assert!(valid_crop_aspect_ratio(Some("1:1")));
+        assert!(valid_crop_aspect_ratio(Some("9:16")));
+        assert!(valid_crop_aspect_ratio(Some("4:3")));
+        assert!(!valid_crop_aspect_ratio(Some("21:9")));
+        assert!(!valid_crop_aspect_ratio(Some("invalid_crop")));
+    }
+
+    #[test]
+    fn test_video_filter_adds_crop_before_fps_and_scale() {
+        let mut opts = retry_test_options("libx264", None);
+        opts.crop_aspect_ratio = Some("1:1".into());
+        opts.output_fps = Some(30.0);
+        opts.scale_filter = Some("scale=1280:720".into());
+
+        assert_eq!(
+            video_filter_for_encoder(&opts, "libx264"),
+            "crop=min(iw\\,ih):min(iw\\,ih),fps=30,scale=1280:720"
+        );
     }
 
     #[test]

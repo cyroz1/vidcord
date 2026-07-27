@@ -44,3 +44,41 @@ export function formatCodec(codec: string): string {
   if (!normalized || normalized === "unknown") return "Unknown";
   return CODEC_LABELS[normalized] ?? normalized.toUpperCase();
 }
+
+export type CropOption = {
+  value: string;
+  label: string;
+};
+
+export const ALL_CROP_OPTIONS: CropOption[] = [
+  { value: "off", label: "Off" },
+  { value: "16:9", label: "16:9" },
+  { value: "1:1", label: "1:1" },
+  { value: "9:16", label: "9:16" },
+  { value: "4:3", label: "4:3" },
+];
+
+export function detectMatchingCropPreset(dw?: number, dh?: number): string | null {
+  if (!dw || !dh || dw <= 0 || dh <= 0) return null;
+  const ratio = dw / dh;
+  const presets: Array<[string, number]> = [
+    ["16:9", 16 / 9],
+    ["1:1", 1.0],
+    ["9:16", 9 / 16],
+    ["4:3", 4 / 3],
+  ];
+
+  for (const [key, targetRatio] of presets) {
+    if (Math.abs(ratio - targetRatio) < 0.03) {
+      return key;
+    }
+  }
+  return null;
+}
+
+export function getAvailableCropOptions(dw?: number, dh?: number): CropOption[] {
+  if (!dw || !dh) return ALL_CROP_OPTIONS;
+  const matched = detectMatchingCropPreset(dw, dh);
+  if (!matched) return ALL_CROP_OPTIONS;
+  return ALL_CROP_OPTIONS.filter((opt) => opt.value !== matched);
+}

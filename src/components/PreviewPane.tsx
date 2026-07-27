@@ -114,6 +114,27 @@ const currentTimeOverlayStyle: React.CSSProperties = {
   pointerEvents: "none",
 };
 
+const snapshotBtnStyle: React.CSSProperties = {
+  position: "absolute",
+  top: "6px",
+  right: "8px",
+  fontSize: "11px",
+  color: "rgba(255,255,255,0.92)",
+  background: "rgba(0,0,0,0.48)",
+  backdropFilter: "blur(8px) saturate(160%)",
+  WebkitBackdropFilter: "blur(8px) saturate(160%)",
+  border: "1px solid rgba(255,255,255,0.16)",
+  borderRadius: "var(--radius-xs)",
+  padding: "3px 7px",
+  display: "flex",
+  alignItems: "center",
+  gap: "4px",
+  cursor: "pointer",
+  boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+  zIndex: 10,
+  fontWeight: 500,
+};
+
 type Props = {
   filePath: string | null;
   sourceGeneration: number;
@@ -130,6 +151,7 @@ type Props = {
   // emits timeupdate at ~4 Hz, so we just forward that instead of waking the
   // main thread on a wall-clock interval even while the video is paused.
   onTimeUpdate?: (timeSec: number | null) => void;
+  onSnapshot?: (timeSec: number) => void;
 };
 
 export type PreviewHandle = {
@@ -187,6 +209,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     loopPlayback,
     probeData,
     onTimeUpdate,
+    onSnapshot,
   },
   ref
 ) {
@@ -1156,6 +1179,32 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
             </button>
           )}
         </div>
+      )}
+
+      {filePath && onSnapshot && (
+        <button
+          type="button"
+          className="preview-control-button snapshot-button"
+          onClick={() => onSnapshot(currentPlaybackTime)}
+          title="Capture frame snapshot to clipboard (Cmd+Shift+S / Ctrl+Shift+S)"
+          aria-label="Capture frame snapshot to clipboard"
+          style={snapshotBtnStyle}
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+            <circle cx="12" cy="13" r="3" />
+          </svg>
+          <span>Snapshot</span>
+        </button>
       )}
 
       {probeData && (

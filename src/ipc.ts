@@ -42,6 +42,8 @@ export type CompressOptions = {
   start_time: number;
   end_time: number;
   remove_audio: boolean;
+  audio_normalize?: boolean;
+  crop_aspect_ratio?: string;
   output_fps: number | null;
   scale_filter: string | null;
   vaapi_device: string | null;
@@ -181,7 +183,7 @@ export function resolveOutputPath(
   inputPath: string,
   outputDirectory?: string,
   useInputDirectory = false,
-  outputExtension: "mp4" | "gif" = "mp4"
+  outputExtension: "mp4" | "gif" | "png" = "mp4"
 ): Promise<string> {
   return invoke<string>("resolve_output_path", {
     inputPath,
@@ -193,7 +195,7 @@ export function resolveOutputPath(
 
 export function resolveStagingOutputPath(
   inputPath: string,
-  outputExtension: "mp4" | "gif" = "mp4"
+  outputExtension: "mp4" | "gif" | "png" = "mp4"
 ): Promise<string> {
   return invoke<string>("resolve_staging_output_path", { inputPath, outputExtension });
 }
@@ -204,4 +206,12 @@ export function getOs(): Promise<string> {
 
 export function sendSystemNotification(title: string, body: string): Promise<boolean> {
   return invoke<boolean>("send_system_notification", { title, body });
+}
+
+export function captureSnapshot(
+  inputPath: string,
+  time: number,
+  outputPath: string
+): Promise<string> {
+  return invoke<string>("capture_snapshot", { inputPath, time, outputPath });
 }

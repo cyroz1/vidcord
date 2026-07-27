@@ -568,10 +568,16 @@ fn unique_output_path(
         .and_then(|s| s.to_str())
         .unwrap_or("video");
 
-    let mut candidate = directory.join(format!("{stem}-vidcord.{output_extension}"));
+    let suffix = if output_extension == "png" {
+        "snapshot"
+    } else {
+        "vidcord"
+    };
+
+    let mut candidate = directory.join(format!("{stem}-{suffix}.{output_extension}"));
     let mut counter = 1u32;
     while candidate.exists() {
-        candidate = directory.join(format!("{stem}-vidcord-{counter}.{output_extension}"));
+        candidate = directory.join(format!("{stem}-{suffix}-{counter}.{output_extension}"));
         counter += 1;
     }
     candidate
@@ -584,7 +590,7 @@ fn resolve_output_path_blocking(
     output_extension: Option<String>,
 ) -> Result<String, String> {
     let output_extension = output_extension.unwrap_or_else(|| "mp4".into());
-    if output_extension != "mp4" && output_extension != "gif" {
+    if output_extension != "mp4" && output_extension != "gif" && output_extension != "png" {
         return Err("Invalid output format".into());
     }
     let p = std::path::Path::new(&input_path);
@@ -822,6 +828,21 @@ mod tests {
         assert_eq!(
             unique_output_path(std::path::Path::new("clip.mov"), &directory, "gif"),
             directory.join("clip-vidcord.gif")
+        );
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[test]
+    fn snapshot_output_path_uses_snapshot_suffix_and_png_extension() {
+        let directory = std::env::temp_dir().join(format!(
+            "vidcord_snapshot_output_path_test_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+
+        assert_eq!(
+            unique_output_path(std::path::Path::new("clip.mov"), &directory, "png"),
+            directory.join("clip-snapshot.png")
         );
         std::fs::remove_dir_all(directory).ok();
     }

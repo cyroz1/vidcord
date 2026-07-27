@@ -510,6 +510,65 @@ pub fn probe_video(
     }))
 }
 
+pub fn find_best_audio_stream_index(path: &str, generation: u64) -> Option<usize> {
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new("ffprobe");
+    cmd.args([
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-select_streams",
+        "a",
+        "-show_entries",
+        "stream=index,codec_type,bit_rate,channels,duration:format=duration,size,bit_rate",
+        path,
+    ]);
+    configure_ffmpeg_command(&mut cmd);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let out = probe_command_output(&mut cmd, generation).ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let data: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    let streams = data["streams"].as_array()?;
+    if streams.is_empty() {
+        return None;
+    }
+
+    let mut best_idx = 0;
+    let mut max_score: u64 = 0;
+
+    for (a_idx, stream) in streams.iter().enumerate() {
+        let bitrate = stream["bit_rate"]
+            .as_str()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+        let channels = stream["channels"].as_u64().unwrap_or(1);
+        let duration = stream["duration"]
+            .as_str()
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(1.0);
+
+        let score = if bitrate > 0 {
+            (bitrate as f64 * duration) as u64
+        } else {
+            channels * 1000
+        };
+
+        if score >= max_score {
+            max_score = score;
+            best_idx = a_idx;
+        }
+    }
+
+    Some(best_idx)
+}
+
 // ---------------------------------------------------------------------------
 // Preview frame cache — avoids re-spawning FFmpeg for recently-seen positions
 // ---------------------------------------------------------------------------

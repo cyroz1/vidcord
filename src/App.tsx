@@ -32,6 +32,7 @@ import {
   type ProbeData,
 } from "./hooks/useCompression";
 import {
+  captureSnapshot,
   checkForUpdates,
   compressVideo,
   copyFileToClipboard,
@@ -60,6 +61,7 @@ import {
   formatCodec,
   formatFrameRate,
   formatVideoDuration,
+  getAvailableCropOptions,
 } from "./videoMetadata";
 import pkg from "../package.json";
 
@@ -216,6 +218,10 @@ export default function App() {
     setAdvEncoder,
     removeAudio,
     setRemoveAudio,
+    audioNormalize,
+    setAudioNormalize,
+    cropAspectRatio,
+    setCropAspectRatio,
     outputDestination,
     setOutputDestination,
     customOutputDirectory,
@@ -337,6 +343,21 @@ export default function App() {
       label: `Resolution ${resolution}, frame rate ${frameRate}, codec ${codec}, average bitrate ${bitrate}, length ${length}`,
     };
   }, [probeData]);
+
+  const displayW = probeData ? (probeData.display_width || probeData.width) : undefined;
+  const displayH = probeData ? (probeData.display_height || probeData.height) : undefined;
+
+  const cropOptions = useMemo(
+    () => getAvailableCropOptions(displayW, displayH),
+    [displayW, displayH]
+  );
+
+  useEffect(() => {
+    if (cropAspectRatio !== "off" && !cropOptions.some((o) => o.value === cropAspectRatio)) {
+      setCropAspectRatio("off");
+      saveSettings({ crop_aspect_ratio: "off" });
+    }
+  }, [cropAspectRatio, cropOptions, setCropAspectRatio, saveSettings]);
 
   const clampPreviewFocusTime = useCallback(
     (time: number | null) => {
@@ -521,6 +542,82 @@ export default function App() {
     syncTrimHistorySize();
     setPreviewFocusNow(sliderValueToTime(target.start), false);
   }, [setPreviewFocusNow, sliderValueToTime, syncTrimHistorySize]);
+
+  const handleSnapshot = useCallback(
+    async (timeSec: number) => {
+      if (!filePath) return;
+      try {
+        let targetPath: string | null = null;
+        if (outputDestination === "ask") {
+          const stem = fileName.replace(/\.[^.]+$/, "") || "snapshot";
+          const selected = await saveDialog({
+            title: "Save Frame Snapshot",
+            defaultPath: `${stem}-snapshot.png`,
+            filters: [{ name: "PNG Image", extensions: ["png"] }],
+          });
+          if (!selected) return;
+          targetPath = /\.png$/i.test(selected) ? selected : `${selected}.png`;
+        } else {
+          targetPath = await resolveOutputPath(
+            filePath,
+            outputDestination === "custom" ? customOutputDirectory : undefined,
+            outputDestination === "source",
+            "png"
+          );
+        }
+
+        if (!targetPath) return;
+
+        const savedPath = await captureSnapshot(filePath, timeSec, targetPath);
+        const displayFileName = savedPath.split(/[/\\]/).pop() ?? "snapshot.png";
+
+        if (completionAction === "copy") {
+          try {
+            await copyFileToClipboard(savedPath);
+            addToast(
+              "info",
+              "Snapshot Saved & Copied",
+              `Saved ${displayFileName} and copied to clipboard.`
+            );
+          } catch {
+            await showInFileExplorer(savedPath).catch(() => {});
+            addToast("info", "Snapshot Saved", `Saved ${displayFileName}.`);
+          }
+        } else {
+          await showInFileExplorer(savedPath).catch(() => {});
+          addToast("info", "Snapshot Saved", `Saved ${displayFileName}.`);
+        }
+      } catch (err: unknown) {
+        addToast("error", "Snapshot Failed", String(err));
+      }
+    },
+    [
+      filePath,
+      fileName,
+      outputDestination,
+      customOutputDirectory,
+      completionAction,
+      addToast,
+    ]
+  );
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        (e.key === "S" || e.key === "s")
+      ) {
+        if (filePath) {
+          e.preventDefault();
+          const curTime = previewRef.current?.getCurrentTime() ?? 0;
+          handleSnapshot(curTime);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [filePath, handleSnapshot]);
 
   const redoTrim = useCallback(() => {
     const target = redoStackRef.current.pop();
@@ -1932,6 +2029,11 @@ export default function App() {
                 setEncoderIdx,
                 removeAudio,
                 setRemoveAudio,
+                audioNormalize,
+                setAudioNormalize,
+                cropAspectRatio,
+                setCropAspectRatio,
+                cropOptions,
                 advSize,
                 setAdvSize,
                 advResolution,
@@ -2115,13 +2217,94 @@ export default function App() {
                           <button
                             type="button"
                             className={`mute-btn${removeAudio ? " active" : ""}`}
+                            title={removeAudio ? "Unmute audio" : "Mute audio"}
+                            aria-label={removeAudio ? "Unmute audio" : "Mute audio"}
                             onClick={() => {
                               const next = !removeAudio;
                               setRemoveAudio(next);
                               saveSettings({ remove_audio: next });
                             }}
                           >
-                            {removeAudio ? "Unmute" : "Mute"}
+                            {removeAudio ? (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <line x1="1" y1="1" x2="23" y2="23" />
+                                <path d="M9 9L6 12H2v4h4l5 4v-5.58" />
+                              </svg>
+                            ) : (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                              </svg>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            className={`norm-btn${audioNormalize && !removeAudio ? " active" : ""}`}
+                            disabled={removeAudio}
+                            title={
+                              removeAudio
+                                ? "Audio is muted"
+                                : "EBU R128 audio loudness normalization"
+                            }
+                            aria-label="Normalize audio"
+                            onClick={() => {
+                              const next = !audioNormalize;
+                              setAudioNormalize(next);
+                              saveSettings({ audio_normalize: next });
+                            }}
+                          >
+                            {audioNormalize && !removeAudio ? (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <line x1="3" y1="6" x2="3" y2="18" />
+                                <line x1="7.5" y1="3" x2="7.5" y2="21" />
+                                <line x1="12" y1="2" x2="12" y2="22" />
+                                <line x1="16.5" y1="3" x2="16.5" y2="21" />
+                                <line x1="21" y1="6" x2="21" y2="18" />
+                              </svg>
+                            ) : (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <line x1="4" y1="10" x2="4" y2="14" />
+                                <line x1="9" y1="7" x2="9" y2="17" />
+                                <line x1="14" y1="5" x2="14" y2="19" />
+                                <line x1="19" y1="9" x2="19" y2="15" />
+                              </svg>
+                            )}
                           </button>
                         </div>
                       </div>
@@ -2157,6 +2340,22 @@ export default function App() {
                         >
                           {RESOLUTION_OPTIONS.map((r) => (
                             <option key={r}>{r}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Crop
+                        <select
+                          value={cropAspectRatio}
+                          onChange={(e) => {
+                            setCropAspectRatio(e.target.value);
+                            saveSettings({ crop_aspect_ratio: e.target.value });
+                          }}
+                        >
+                          {cropOptions.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
                           ))}
                         </select>
                       </label>
@@ -2282,13 +2481,94 @@ export default function App() {
                           <button
                             type="button"
                             className={`mute-btn${removeAudio ? " active" : ""}`}
+                            title={removeAudio ? "Unmute audio" : "Mute audio"}
+                            aria-label={removeAudio ? "Unmute audio" : "Mute audio"}
                             onClick={() => {
                               const next = !removeAudio;
                               setRemoveAudio(next);
                               saveSettings({ remove_audio: next });
                             }}
                           >
-                            {removeAudio ? "Unmute" : "Mute"}
+                            {removeAudio ? (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <line x1="1" y1="1" x2="23" y2="23" />
+                                <path d="M9 9L6 12H2v4h4l5 4v-5.58" />
+                              </svg>
+                            ) : (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                              </svg>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            className={`norm-btn${audioNormalize && !removeAudio ? " active" : ""}`}
+                            disabled={removeAudio}
+                            title={
+                              removeAudio
+                                ? "Audio is muted"
+                                : "EBU R128 audio loudness normalization"
+                            }
+                            aria-label="Normalize audio"
+                            onClick={() => {
+                              const next = !audioNormalize;
+                              setAudioNormalize(next);
+                              saveSettings({ audio_normalize: next });
+                            }}
+                          >
+                            {audioNormalize && !removeAudio ? (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <line x1="3" y1="6" x2="3" y2="18" />
+                                <line x1="7.5" y1="3" x2="7.5" y2="21" />
+                                <line x1="12" y1="2" x2="12" y2="22" />
+                                <line x1="16.5" y1="3" x2="16.5" y2="21" />
+                                <line x1="21" y1="6" x2="21" y2="18" />
+                              </svg>
+                            ) : (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <line x1="4" y1="10" x2="4" y2="14" />
+                                <line x1="9" y1="7" x2="9" y2="17" />
+                                <line x1="14" y1="5" x2="14" y2="19" />
+                                <line x1="19" y1="9" x2="19" y2="15" />
+                              </svg>
+                            )}
                           </button>
                           <button
                             type="button"
@@ -2368,6 +2648,7 @@ export default function App() {
             probeData={probeData}
             removeAudio={gifMode || removeAudio}
             onTimeUpdate={handlePreviewTimeUpdate}
+            onSnapshot={handleSnapshot}
           />
 
           <div className="output-options" aria-label="Output options">

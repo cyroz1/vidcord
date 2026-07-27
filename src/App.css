@@ -505,26 +505,30 @@ select optgroup {
 
 .settings-row.advanced {
   display: grid;
-  grid-template-columns: 68px 104px 48px minmax(0, 1fr);
+  grid-template-columns: 52px 82px 58px 46px minmax(0, 1fr);
+  gap: 6px;
   align-items: end;
-  flex-wrap: nowrap;
   z-index: 20;
 }
 
 .settings-row.advanced label {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings-row.advanced select {
-  padding-left: 8px;
-  padding-right: 24px;
-  background-position: right 7px center;
+  padding-left: 6px;
+  padding-right: 18px;
+  background-position: right 4px center;
+  font-size: 12px;
 }
 
 .settings-row.advanced input[type="number"],
 .settings-row.advanced input[type="text"] {
-  padding-left: 8px;
-  padding-right: 8px;
+  padding-left: 6px;
+  padding-right: 6px;
 }
 
 .settings-row.advanced .fps-label {
@@ -545,11 +549,6 @@ select optgroup {
 
 .settings-row.advanced .encoder-label {
   min-width: 0;
-}
-
-.settings-row.advanced .mute-btn {
-  min-width: 54px;
-  padding: 0 8px;
 }
 
 .settings-row.advanced .icon-btn {
@@ -729,13 +728,19 @@ select optgroup {
   }
 }
 
-.mute-btn {
+.mute-btn,
+.norm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   color: var(--text-secondary);
-  padding: 0 10px;
-  min-width: 62px;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
   font-size: 12px;
   line-height: 1;
   box-shadow: var(--card-top);
@@ -743,9 +748,11 @@ select optgroup {
     background 0.15s,
     color 0.15s,
     border-color 0.15s;
+  cursor: pointer;
 }
 
-.mute-btn:hover {
+.mute-btn:hover,
+.norm-btn:hover:not(:disabled) {
   color: var(--text);
   background: var(--surface2);
 }
@@ -754,6 +761,17 @@ select optgroup {
   color: var(--error);
   border-color: rgba(255, 69, 58, 0.38);
   background: rgba(255, 69, 58, 0.08);
+}
+
+.norm-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.norm-btn.active {
+  color: var(--accent);
+  border-color: rgba(10, 132, 255, 0.38);
+  background: rgba(10, 132, 255, 0.08);
 }
 
 /* ── Icon button ─────────────────────────────────────────────────────── */
