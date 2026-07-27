@@ -2159,13 +2159,44 @@ export default function App() {
                           <button
                             type="button"
                             className={`mute-btn${removeAudio ? " active" : ""}`}
+                            title={removeAudio ? "Unmute audio" : "Mute audio"}
+                            aria-label={removeAudio ? "Unmute audio" : "Mute audio"}
                             onClick={() => {
                               const next = !removeAudio;
                               setRemoveAudio(next);
                               saveSettings({ remove_audio: next });
                             }}
                           >
-                            {removeAudio ? "Unmute" : "Mute"}
+                            {removeAudio ? (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <line x1="1" y1="1" x2="23" y2="23" />
+                                <path d="M9 9L6 12H2v4h4l5 4v-5.58" />
+                              </svg>
+                            ) : (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                              </svg>
+                            )}
+                            <span>{removeAudio ? "Muted" : "Mute"}</span>
                           </button>
                           <button
                             type="button"
@@ -2176,13 +2207,29 @@ export default function App() {
                                 ? "Audio is muted"
                                 : "EBU R128 audio loudness normalization"
                             }
+                            aria-label="Normalize audio"
                             onClick={() => {
                               const next = !audioNormalize;
                               setAudioNormalize(next);
                               saveSettings({ audio_normalize: next });
                             }}
                           >
-                            {audioNormalize && !removeAudio ? "Norm On" : "Norm"}
+                            <svg
+                              width="13"
+                              height="13"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <line x1="4" y1="10" x2="4" y2="14" />
+                              <line x1="9" y1="6" x2="9" y2="18" />
+                              <line x1="14" y1="4" x2="14" y2="20" />
+                              <line x1="19" y1="8" x2="19" y2="16" />
+                            </svg>
+                            <span>{audioNormalize && !removeAudio ? "Norm On" : "Norm"}</span>
                           </button>
                         </div>
                       </div>
@@ -2359,13 +2406,44 @@ export default function App() {
                           <button
                             type="button"
                             className={`mute-btn${removeAudio ? " active" : ""}`}
+                            title={removeAudio ? "Unmute audio" : "Mute audio"}
+                            aria-label={removeAudio ? "Unmute audio" : "Mute audio"}
                             onClick={() => {
                               const next = !removeAudio;
                               setRemoveAudio(next);
                               saveSettings({ remove_audio: next });
                             }}
                           >
-                            {removeAudio ? "Unmute" : "Mute"}
+                            {removeAudio ? (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <line x1="1" y1="1" x2="23" y2="23" />
+                                <path d="M9 9L6 12H2v4h4l5 4v-5.58" />
+                              </svg>
+                            ) : (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                              </svg>
+                            )}
+                            <span>{removeAudio ? "Muted" : "Mute"}</span>
                           </button>
                           <button
                             type="button"
@@ -2376,13 +2454,29 @@ export default function App() {
                                 ? "Audio is muted"
                                 : "EBU R128 audio loudness normalization"
                             }
+                            aria-label="Normalize audio"
                             onClick={() => {
                               const next = !audioNormalize;
                               setAudioNormalize(next);
                               saveSettings({ audio_normalize: next });
                             }}
                           >
-                            {audioNormalize && !removeAudio ? "Norm On" : "Norm"}
+                            <svg
+                              width="13"
+                              height="13"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <line x1="4" y1="10" x2="4" y2="14" />
+                              <line x1="9" y1="6" x2="9" y2="18" />
+                              <line x1="14" y1="4" x2="14" y2="20" />
+                              <line x1="19" y1="8" x2="19" y2="16" />
+                            </svg>
+                            <span>{audioNormalize && !removeAudio ? "Norm On" : "Norm"}</span>
                           </button>
                           <button
                             type="button"

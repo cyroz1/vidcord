@@ -729,40 +729,18 @@ select optgroup {
   }
 }
 
-.mute-btn {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
-  color: var(--text-secondary);
-  padding: 0 10px;
-  min-width: 62px;
-  font-size: 12px;
-  line-height: 1;
-  box-shadow: var(--card-top);
-  transition:
-    background 0.15s,
-    color 0.15s,
-    border-color 0.15s;
-}
-
-.mute-btn:hover {
-  color: var(--text);
-  background: var(--surface2);
-}
-
-.mute-btn.active {
-  color: var(--error);
-  border-color: rgba(255, 69, 58, 0.38);
-  background: rgba(255, 69, 58, 0.08);
-}
-
+.mute-btn,
 .norm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   color: var(--text-secondary);
   padding: 0 8px;
-  min-width: 58px;
+  min-width: 64px;
   font-size: 12px;
   line-height: 1;
   box-shadow: var(--card-top);
@@ -773,9 +751,16 @@ select optgroup {
   cursor: pointer;
 }
 
+.mute-btn:hover,
 .norm-btn:hover:not(:disabled) {
   color: var(--text);
   background: var(--surface2);
+}
+
+.mute-btn.active {
+  color: var(--error);
+  border-color: rgba(255, 69, 58, 0.38);
+  background: rgba(255, 69, 58, 0.08);
 }
 
 .norm-btn:disabled {
