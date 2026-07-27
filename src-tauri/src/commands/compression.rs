@@ -1672,7 +1672,11 @@ pub fn format_eta(secs: f64) -> String {
 }
 
 #[tauri::command]
-pub async fn capture_snapshot(input_path: String, time: f64) -> Result<String, String> {
+pub async fn capture_snapshot(
+    input_path: String,
+    time: f64,
+    output_path: String,
+) -> Result<String, String> {
     if !valid_time_range(time, time + 0.001) {
         return Err("Invalid snapshot timestamp".to_string());
     }
@@ -1681,22 +1685,16 @@ pub async fn capture_snapshot(input_path: String, time: f64) -> Result<String, S
         return Err("Input file does not exist".to_string());
     }
 
-    let snapshot_dir = std::env::temp_dir().join("vidcord").join("snapshots");
-    tokio::fs::create_dir_all(&snapshot_dir)
-        .await
-        .map_err(|e| format!("Failed to create snapshot directory: {e}"))?;
-
-    let stem = input_path_buf
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("snapshot");
-    let timestamp_ms = (time * 1000.0).round() as u64;
-    let target_path = snapshot_dir.join(format!("{stem}-snapshot-{timestamp_ms}ms.png"));
-    let target_path_str = target_path.to_string_lossy().to_string();
+    let output_path_buf = std::path::PathBuf::from(&output_path);
+    if let Some(parent) = output_path_buf.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("Failed to create snapshot directory: {e}"))?;
+    }
 
     let input = input_path.clone();
     let time_str = format!("{:.3}", time);
-    let output_path_str = target_path_str.clone();
+    let output_target_str = output_path.clone();
 
     tokio::task::spawn_blocking(move || {
         let mut cmd = std::process::Command::new("ffmpeg");
@@ -1712,7 +1710,7 @@ pub async fn capture_snapshot(input_path: String, time: f64) -> Result<String, S
             "1",
             "-f",
             "image2",
-            &output_path_str,
+            &output_target_str,
         ]);
         configure_ffmpeg_command(&mut cmd);
         #[cfg(target_os = "windows")]
@@ -1734,15 +1732,7 @@ pub async fn capture_snapshot(input_path: String, time: f64) -> Result<String, S
     .await
     .map_err(|e| e.to_string())??;
 
-    let copy_path = target_path_str.clone();
-    let _ = tokio::task::spawn_blocking(move || {
-        if let Ok(file) = crate::commands::files::validated_clipboard_file(copy_path) {
-            let _ = crate::commands::files::copy_file_to_clipboard_platform(&file);
-        }
-    })
-    .await;
-
-    Ok(target_path_str)
+    Ok(output_path)
 }
 
 // ---------------------------------------------------------------------------

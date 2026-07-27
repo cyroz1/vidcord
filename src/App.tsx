@@ -531,17 +531,58 @@ export default function App() {
     async (timeSec: number) => {
       if (!filePath) return;
       try {
-        await captureSnapshot(filePath, timeSec);
-        addToast(
-          "info",
-          "Snapshot Copied",
-          "Frame snapshot copied to system clipboard."
-        );
+        let targetPath: string | null = null;
+        if (outputDestination === "ask") {
+          const stem = fileName.replace(/\.[^.]+$/, "") || "snapshot";
+          const selected = await saveDialog({
+            title: "Save Frame Snapshot",
+            defaultPath: `${stem}-snapshot.png`,
+            filters: [{ name: "PNG Image", extensions: ["png"] }],
+          });
+          if (!selected) return;
+          targetPath = /\.png$/i.test(selected) ? selected : `${selected}.png`;
+        } else {
+          targetPath = await resolveOutputPath(
+            filePath,
+            outputDestination === "custom" ? customOutputDirectory : undefined,
+            outputDestination === "source",
+            "png"
+          );
+        }
+
+        if (!targetPath) return;
+
+        const savedPath = await captureSnapshot(filePath, timeSec, targetPath);
+        const displayFileName = savedPath.split(/[/\\]/).pop() ?? "snapshot.png";
+
+        if (completionAction === "copy") {
+          try {
+            await copyFileToClipboard(savedPath);
+            addToast(
+              "info",
+              "Snapshot Saved & Copied",
+              `Saved ${displayFileName} and copied to clipboard.`
+            );
+          } catch {
+            await showInFileExplorer(savedPath).catch(() => {});
+            addToast("info", "Snapshot Saved", `Saved ${displayFileName}.`);
+          }
+        } else {
+          await showInFileExplorer(savedPath).catch(() => {});
+          addToast("info", "Snapshot Saved", `Saved ${displayFileName}.`);
+        }
       } catch (err: unknown) {
         addToast("error", "Snapshot Failed", String(err));
       }
     },
-    [filePath, addToast]
+    [
+      filePath,
+      fileName,
+      outputDestination,
+      customOutputDirectory,
+      completionAction,
+      addToast,
+    ]
   );
 
   useEffect(() => {
