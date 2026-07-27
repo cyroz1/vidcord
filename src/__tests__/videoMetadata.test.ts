@@ -43,12 +43,31 @@ describe("video metadata formatting", () => {
     expect(detectMatchingCropPreset(1080, 1920)).toBe("9:16");
     expect(detectMatchingCropPreset(1080, 1080)).toBe("1:1");
     expect(detectMatchingCropPreset(1440, 1080)).toBe("4:3");
+    expect(detectMatchingCropPreset(1080, 1440)).toBe("3:4");
+    expect(detectMatchingCropPreset(1080, 1350)).toBe("4:5");
+    expect(detectMatchingCropPreset(1350, 1080)).toBe("5:4");
     expect(detectMatchingCropPreset(2560, 1080)).toBeNull();
 
     const options169 = getAvailableCropOptions(1920, 1080);
-    expect(options169.map((o: CropOption) => o.value)).toEqual(["off", "1:1", "9:16", "4:3"]);
+    expect(options169.map((o: CropOption) => o.value)).toEqual([
+      "off",
+      "1:1",
+      "9:16",
+      "4:3",
+      "3:4",
+      "4:5",
+      "5:4",
+    ]);
 
     const options916 = getAvailableCropOptions(1080, 1920);
-    expect(options916.map((o: CropOption) => o.value)).toEqual(["off", "16:9", "1:1", "4:3"]);
+    expect(options916.map((o: CropOption) => o.value)).toEqual([
+      "off",
+      "16:9",
+      "1:1",
+      "4:3",
+      "3:4",
+      "4:5",
+      "5:4",
+    ]);
   });
 });

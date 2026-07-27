@@ -420,7 +420,14 @@ fn valid_vaapi_device(device: Option<&str>) -> bool {
 fn valid_crop_aspect_ratio(crop: Option<&str>) -> bool {
     matches!(
         crop,
-        None | Some("off") | Some("16:9") | Some("1:1") | Some("9:16") | Some("4:3")
+        None | Some("off")
+            | Some("16:9")
+            | Some("1:1")
+            | Some("9:16")
+            | Some("4:3")
+            | Some("3:4")
+            | Some("4:5")
+            | Some("5:4")
     )
 }
 
@@ -430,6 +437,9 @@ fn crop_filter_expression(crop: &str) -> Option<String> {
         "16:9" => Some("crop=w='min(iw\\,ih*16/9)':h='min(ih\\,iw*9/16)'".to_string()),
         "9:16" => Some("crop=w='min(iw\\,ih*9/16)':h='min(ih\\,iw*16/9)'".to_string()),
         "4:3" => Some("crop=w='min(iw\\,ih*4/3)':h='min(ih\\,iw*3/4)'".to_string()),
+        "3:4" => Some("crop=w='min(iw\\,ih*3/4)':h='min(ih\\,iw*4/3)'".to_string()),
+        "4:5" => Some("crop=w='min(iw\\,ih*4/5)':h='min(ih\\,iw*5/4)'".to_string()),
+        "5:4" => Some("crop=w='min(iw\\,ih*5/4)':h='min(ih\\,iw*4/5)'".to_string()),
         _ => None,
     }
 }
@@ -1850,6 +1860,9 @@ mod tests {
         assert!(valid_crop_aspect_ratio(Some("1:1")));
         assert!(valid_crop_aspect_ratio(Some("9:16")));
         assert!(valid_crop_aspect_ratio(Some("4:3")));
+        assert!(valid_crop_aspect_ratio(Some("3:4")));
+        assert!(valid_crop_aspect_ratio(Some("4:5")));
+        assert!(valid_crop_aspect_ratio(Some("5:4")));
         assert!(!valid_crop_aspect_ratio(Some("21:9")));
         assert!(!valid_crop_aspect_ratio(Some("invalid_crop")));
     }

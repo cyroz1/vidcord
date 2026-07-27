@@ -56,6 +56,9 @@ export const ALL_CROP_OPTIONS: CropOption[] = [
   { value: "1:1", label: "1:1" },
   { value: "9:16", label: "9:16" },
   { value: "4:3", label: "4:3" },
+  { value: "3:4", label: "3:4" },
+  { value: "4:5", label: "4:5" },
+  { value: "5:4", label: "5:4" },
 ];
 
 export function detectMatchingCropPreset(dw?: number, dh?: number): string | null {
@@ -66,6 +69,9 @@ export function detectMatchingCropPreset(dw?: number, dh?: number): string | nul
     ["1:1", 1.0],
     ["9:16", 9 / 16],
     ["4:3", 4 / 3],
+    ["3:4", 3 / 4],
+    ["4:5", 4 / 5],
+    ["5:4", 5 / 4],
   ];
 
   for (const [key, targetRatio] of presets) {
