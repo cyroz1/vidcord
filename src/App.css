@@ -734,13 +734,14 @@ select optgroup {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   color: var(--text-secondary);
-  padding: 0 8px;
-  min-width: 64px;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
   font-size: 12px;
   line-height: 1;
   box-shadow: var(--card-top);

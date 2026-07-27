@@ -2196,7 +2196,6 @@ export default function App() {
                                 <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
                               </svg>
                             )}
-                            <span>{removeAudio ? "Muted" : "Mute"}</span>
                           </button>
                           <button
                             type="button"
@@ -2229,7 +2228,6 @@ export default function App() {
                               <line x1="14" y1="4" x2="14" y2="20" />
                               <line x1="19" y1="8" x2="19" y2="16" />
                             </svg>
-                            <span>{audioNormalize && !removeAudio ? "Norm On" : "Norm"}</span>
                           </button>
                         </div>
                       </div>
@@ -2443,7 +2441,6 @@ export default function App() {
                                 <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
                               </svg>
                             )}
-                            <span>{removeAudio ? "Muted" : "Mute"}</span>
                           </button>
                           <button
                             type="button"
@@ -2476,7 +2473,6 @@ export default function App() {
                               <line x1="14" y1="4" x2="14" y2="20" />
                               <line x1="19" y1="8" x2="19" y2="16" />
                             </svg>
-                            <span>{audioNormalize && !removeAudio ? "Norm On" : "Norm"}</span>
                           </button>
                           <button
                             type="button"
