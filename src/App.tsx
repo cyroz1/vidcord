@@ -32,6 +32,7 @@ import {
   type ProbeData,
 } from "./hooks/useCompression";
 import {
+  captureSnapshot,
   checkForUpdates,
   compressVideo,
   copyFileToClipboard,
@@ -216,6 +217,10 @@ export default function App() {
     setAdvEncoder,
     removeAudio,
     setRemoveAudio,
+    audioNormalize,
+    setAudioNormalize,
+    cropAspectRatio,
+    setCropAspectRatio,
     outputDestination,
     setOutputDestination,
     customOutputDirectory,
@@ -521,6 +526,41 @@ export default function App() {
     syncTrimHistorySize();
     setPreviewFocusNow(sliderValueToTime(target.start), false);
   }, [setPreviewFocusNow, sliderValueToTime, syncTrimHistorySize]);
+
+  const handleSnapshot = useCallback(
+    async (timeSec: number) => {
+      if (!filePath) return;
+      try {
+        await captureSnapshot(filePath, timeSec);
+        addToast(
+          "info",
+          "Snapshot Copied",
+          "Frame snapshot copied to system clipboard."
+        );
+      } catch (err: unknown) {
+        addToast("error", "Snapshot Failed", String(err));
+      }
+    },
+    [filePath, addToast]
+  );
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        (e.key === "S" || e.key === "s")
+      ) {
+        if (filePath) {
+          e.preventDefault();
+          const curTime = previewRef.current?.getCurrentTime() ?? 0;
+          handleSnapshot(curTime);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [filePath, handleSnapshot]);
 
   const redoTrim = useCallback(() => {
     const target = redoStackRef.current.pop();
@@ -2123,6 +2163,23 @@ export default function App() {
                           >
                             {removeAudio ? "Unmute" : "Mute"}
                           </button>
+                          <button
+                            type="button"
+                            className={`norm-btn${audioNormalize && !removeAudio ? " active" : ""}`}
+                            disabled={removeAudio}
+                            title={
+                              removeAudio
+                                ? "Audio is muted"
+                                : "EBU R128 audio loudness normalization"
+                            }
+                            onClick={() => {
+                              const next = !audioNormalize;
+                              setAudioNormalize(next);
+                              saveSettings({ audio_normalize: next });
+                            }}
+                          >
+                            {audioNormalize && !removeAudio ? "Norm On" : "Norm"}
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -2158,6 +2215,22 @@ export default function App() {
                           {RESOLUTION_OPTIONS.map((r) => (
                             <option key={r}>{r}</option>
                           ))}
+                        </select>
+                      </label>
+                      <label>
+                        Crop
+                        <select
+                          value={cropAspectRatio}
+                          onChange={(e) => {
+                            setCropAspectRatio(e.target.value);
+                            saveSettings({ crop_aspect_ratio: e.target.value });
+                          }}
+                        >
+                          <option value="off">Off</option>
+                          <option value="16:9">16:9 Widescreen</option>
+                          <option value="1:1">1:1 Square</option>
+                          <option value="9:16">9:16 Vertical</option>
+                          <option value="4:3">4:3 Standard</option>
                         </select>
                       </label>
                       <label className="fps-label">
@@ -2292,6 +2365,23 @@ export default function App() {
                           </button>
                           <button
                             type="button"
+                            className={`norm-btn${audioNormalize && !removeAudio ? " active" : ""}`}
+                            disabled={removeAudio}
+                            title={
+                              removeAudio
+                                ? "Audio is muted"
+                                : "EBU R128 audio loudness normalization"
+                            }
+                            onClick={() => {
+                              const next = !audioNormalize;
+                              setAudioNormalize(next);
+                              saveSettings({ audio_normalize: next });
+                            }}
+                          >
+                            {audioNormalize && !removeAudio ? "Norm On" : "Norm"}
+                          </button>
+                          <button
+                            type="button"
                             className="icon-btn"
                             title="Show FFmpeg encoders"
                             aria-label="Show FFmpeg encoders"
@@ -2368,6 +2458,7 @@ export default function App() {
             probeData={probeData}
             removeAudio={gifMode || removeAudio}
             onTimeUpdate={handlePreviewTimeUpdate}
+            onSnapshot={handleSnapshot}
           />
 
           <div className="output-options" aria-label="Output options">

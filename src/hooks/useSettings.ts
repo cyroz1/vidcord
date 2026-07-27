@@ -21,6 +21,8 @@ export function useSettings() {
   const [advFps, setAdvFps] = useState("");
   const [advEncoder, setAdvEncoder] = useState("");
   const [removeAudio, setRemoveAudio] = useState(false);
+  const [audioNormalize, setAudioNormalize] = useState(false);
+  const [cropAspectRatio, setCropAspectRatio] = useState("off");
   const [outputDestination, setOutputDestination] = useState<OutputDestination>("downloads");
   const [customOutputDirectory, setCustomOutputDirectory] = useState("");
   const [completionAction, setCompletionAction] = useState<CompletionAction>("copy");
@@ -44,6 +46,8 @@ export function useSettings() {
       if (typeof s.advanced_fps === "string") setAdvFps(s.advanced_fps);
       if (typeof s.advanced_encoder === "string") setAdvEncoder(s.advanced_encoder);
       if (typeof s.remove_audio === "boolean") setRemoveAudio(s.remove_audio);
+      if (typeof s.audio_normalize === "boolean") setAudioNormalize(s.audio_normalize);
+      if (typeof s.crop_aspect_ratio === "string") setCropAspectRatio(s.crop_aspect_ratio);
       if (
         s.output_destination === "downloads" ||
         s.output_destination === "source" ||
@@ -110,6 +114,10 @@ export function useSettings() {
     setAdvEncoder,
     removeAudio,
     setRemoveAudio,
+    audioNormalize,
+    setAudioNormalize,
+    cropAspectRatio,
+    setCropAspectRatio,
     outputDestination,
     setOutputDestination,
     customOutputDirectory,

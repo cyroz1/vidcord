@@ -418,10 +418,10 @@ fn valid_vaapi_device(device: Option<&str>) -> bool {
 }
 
 fn valid_crop_aspect_ratio(crop: Option<&str>) -> bool {
-    match crop {
-        None | Some("off") | Some("16:9") | Some("1:1") | Some("9:16") | Some("4:3") => true,
-        _ => false,
-    }
+    matches!(
+        crop,
+        None | Some("off") | Some("16:9") | Some("1:1") | Some("9:16") | Some("4:3")
+    )
 }
 
 fn crop_filter_expression(crop: &str) -> Option<String> {
@@ -884,10 +884,7 @@ async fn run_ffmpeg_attempt(
                 "128k".into(),
             ]);
             if opts.audio_normalize == Some(true) {
-                cmd_args.extend([
-                    "-af".into(),
-                    "loudnorm=I=-16:TP=-1.5:LRA=11".into(),
-                ]);
+                cmd_args.extend(["-af".into(), "loudnorm=I=-16:TP=-1.5:LRA=11".into()]);
             }
         }
     }
@@ -1842,11 +1839,38 @@ mod tests {
             start_time: 0.0,
             end_time: 60.0,
             remove_audio: false,
+            audio_normalize: None,
+            crop_aspect_ratio: None,
             output_fps: None,
             scale_filter: None,
             vaapi_device: None,
             gif_mode: false,
         }
+    }
+
+    #[test]
+    fn test_valid_crop_aspect_ratio() {
+        assert!(valid_crop_aspect_ratio(None));
+        assert!(valid_crop_aspect_ratio(Some("off")));
+        assert!(valid_crop_aspect_ratio(Some("16:9")));
+        assert!(valid_crop_aspect_ratio(Some("1:1")));
+        assert!(valid_crop_aspect_ratio(Some("9:16")));
+        assert!(valid_crop_aspect_ratio(Some("4:3")));
+        assert!(!valid_crop_aspect_ratio(Some("21:9")));
+        assert!(!valid_crop_aspect_ratio(Some("invalid_crop")));
+    }
+
+    #[test]
+    fn test_video_filter_adds_crop_before_fps_and_scale() {
+        let mut opts = retry_test_options("libx264", None);
+        opts.crop_aspect_ratio = Some("1:1".into());
+        opts.output_fps = Some(30.0);
+        opts.scale_filter = Some("scale=1280:720".into());
+
+        assert_eq!(
+            video_filter_for_encoder(&opts, "libx264"),
+            "crop=min(iw\\,ih):min(iw\\,ih),fps=30,scale=1280:720"
+        );
     }
 
     #[test]

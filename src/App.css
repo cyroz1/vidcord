@@ -756,6 +756,39 @@ select optgroup {
   background: rgba(255, 69, 58, 0.08);
 }
 
+.norm-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  padding: 0 8px;
+  min-width: 58px;
+  font-size: 12px;
+  line-height: 1;
+  box-shadow: var(--card-top);
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+  cursor: pointer;
+}
+
+.norm-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface2);
+}
+
+.norm-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.norm-btn.active {
+  color: var(--accent);
+  border-color: rgba(10, 132, 255, 0.38);
+  background: rgba(10, 132, 255, 0.08);
+}
+
 /* ── Icon button ─────────────────────────────────────────────────────── */
 .icon-btn {
   background: var(--surface);

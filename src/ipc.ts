@@ -42,6 +42,8 @@ export type CompressOptions = {
   start_time: number;
   end_time: number;
   remove_audio: boolean;
+  audio_normalize?: boolean;
+  crop_aspect_ratio?: string;
   output_fps: number | null;
   scale_filter: string | null;
   vaapi_device: string | null;
@@ -204,4 +206,8 @@ export function getOs(): Promise<string> {
 
 export function sendSystemNotification(title: string, body: string): Promise<boolean> {
   return invoke<boolean>("send_system_notification", { title, body });
+}
+
+export function captureSnapshot(inputPath: string, time: number): Promise<string> {
+  return invoke<string>("capture_snapshot", { inputPath, time });
 }
