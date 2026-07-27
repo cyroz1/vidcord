@@ -2213,21 +2213,40 @@ export default function App() {
                               saveSettings({ audio_normalize: next });
                             }}
                           >
-                            <svg
-                              width="13"
-                              height="13"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2.2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <line x1="4" y1="10" x2="4" y2="14" />
-                              <line x1="9" y1="6" x2="9" y2="18" />
-                              <line x1="14" y1="4" x2="14" y2="20" />
-                              <line x1="19" y1="8" x2="19" y2="16" />
-                            </svg>
+                            {audioNormalize && !removeAudio ? (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <line x1="3" y1="6" x2="3" y2="18" />
+                                <line x1="7.5" y1="3" x2="7.5" y2="21" />
+                                <line x1="12" y1="2" x2="12" y2="22" />
+                                <line x1="16.5" y1="3" x2="16.5" y2="21" />
+                                <line x1="21" y1="6" x2="21" y2="18" />
+                              </svg>
+                            ) : (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <line x1="4" y1="10" x2="4" y2="14" />
+                                <line x1="9" y1="7" x2="9" y2="17" />
+                                <line x1="14" y1="5" x2="14" y2="19" />
+                                <line x1="19" y1="9" x2="19" y2="15" />
+                              </svg>
+                            )}
                           </button>
                         </div>
                       </div>
@@ -2458,21 +2477,40 @@ export default function App() {
                               saveSettings({ audio_normalize: next });
                             }}
                           >
-                            <svg
-                              width="13"
-                              height="13"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2.2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <line x1="4" y1="10" x2="4" y2="14" />
-                              <line x1="9" y1="6" x2="9" y2="18" />
-                              <line x1="14" y1="4" x2="14" y2="20" />
-                              <line x1="19" y1="8" x2="19" y2="16" />
-                            </svg>
+                            {audioNormalize && !removeAudio ? (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <line x1="3" y1="6" x2="3" y2="18" />
+                                <line x1="7.5" y1="3" x2="7.5" y2="21" />
+                                <line x1="12" y1="2" x2="12" y2="22" />
+                                <line x1="16.5" y1="3" x2="16.5" y2="21" />
+                                <line x1="21" y1="6" x2="21" y2="18" />
+                              </svg>
+                            ) : (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <line x1="4" y1="10" x2="4" y2="14" />
+                                <line x1="9" y1="7" x2="9" y2="17" />
+                                <line x1="14" y1="5" x2="14" y2="19" />
+                                <line x1="19" y1="9" x2="19" y2="15" />
+                              </svg>
+                            )}
                           </button>
                           <button
                             type="button"
