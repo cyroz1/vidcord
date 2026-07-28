@@ -380,11 +380,13 @@ warning-clean.
 
 ### CI / releases
 
-[`.github/workflows/build.yml`](.github/workflows/build.yml) runs five jobs:
-a shared frontend build, Rust lint + audit, clippy + tests, a 5-way bundle
-matrix (Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64), and
-a release job that extracts the matching `CHANGELOG.md` section and drafts
-a GitHub release on `v*` tags.
+[`.github/workflows/build.yml`](.github/workflows/build.yml) runs a shared
+frontend build, consolidated Rust formatting/audit/clippy/test checks, and a
+5-way platform matrix (Windows x86_64/aarch64, macOS universal, Linux
+x86_64/aarch64). Branch and pull-request runs compile every platform without
+packaging installers; tags create release-profile installers, while manual
+runs can create CI-profile installers for testing. Tag builds then extract the
+matching `CHANGELOG.md` section and draft a GitHub release.
 
 ## Project layout
 

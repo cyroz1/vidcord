@@ -1,5 +1,11 @@
 # Changelog
 
+## v7.1
+
+### Performance
+
+- Reduced redundant CI work by deduplicating branch and pull-request runs for the same commit, reusing CI-profile Rust artifacts, and reserving installer packaging for release tags and explicit manual builds.
+
 ## v7.0
 
 ### Features & Audio
