@@ -62,6 +62,7 @@ import {
   formatFrameRate,
   formatVideoDuration,
   getAvailableCropOptions,
+  getCroppedDimensions,
 } from "./videoMetadata";
 import pkg from "../package.json";
 
@@ -1170,6 +1171,7 @@ export default function App() {
       return;
     }
     const resolvedOutput = outputResult.path;
+    const [cw, ch] = getCroppedDimensions(probeData.width, probeData.height, cropAspectRatio);
 
     const outputPath = await compressVideo({
       input_path: filePath,
@@ -1180,14 +1182,10 @@ export default function App() {
       start_time: startTime,
       end_time: endTime,
       remove_audio: effectiveRemoveAudio,
+      audio_normalize: audioNormalize,
+      crop_aspect_ratio: cropAspectRatio,
       output_fps: outputFps,
-      scale_filter: buildScaleFilter(
-        probeData.width,
-        probeData.height,
-        targetH,
-        targetShort,
-        encoderName
-      ),
+      scale_filter: buildScaleFilter(cw, ch, targetH, targetShort, encoderName),
       vaapi_device: vaapiDevice,
       gif_mode: gifMode,
     }).catch((e) => {
@@ -1258,6 +1256,8 @@ export default function App() {
     encoderIdx,
     encoders,
     removeAudio,
+    audioNormalize,
+    cropAspectRatio,
     outputDestination,
     customOutputDirectory,
     fileName,

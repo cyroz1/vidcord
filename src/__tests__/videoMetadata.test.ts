@@ -6,6 +6,7 @@ import {
   formatFrameRate,
   formatVideoDuration,
   getAvailableCropOptions,
+  getCroppedDimensions,
   type CropOption,
 } from "../videoMetadata";
 
@@ -69,5 +70,12 @@ describe("video metadata formatting", () => {
       "4:5",
       "5:4",
     ]);
+  });
+
+  it("calculates cropped target dimensions for scale filter calculations", () => {
+    expect(getCroppedDimensions(3840, 2160, "1:1")).toEqual([2160, 2160]);
+    expect(getCroppedDimensions(1080, 1920, "1:1")).toEqual([1080, 1080]);
+    expect(getCroppedDimensions(1920, 1080, "off")).toEqual([1920, 1080]);
+    expect(getCroppedDimensions(1920, 1080, null)).toEqual([1920, 1080]);
   });
 });

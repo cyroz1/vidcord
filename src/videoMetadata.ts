@@ -88,3 +88,31 @@ export function getAvailableCropOptions(dw?: number, dh?: number): CropOption[] 
   if (!matched) return ALL_CROP_OPTIONS;
   return ALL_CROP_OPTIONS.filter((opt) => opt.value !== matched);
 }
+
+export function getCroppedDimensions(
+  ow: number,
+  oh: number,
+  crop: string | null | undefined
+): [number, number] {
+  if (!ow || !oh || ow <= 0 || oh <= 0 || !crop || crop === "off") {
+    return [ow, oh];
+  }
+  let targetRatio = 1.0;
+  if (crop === "16:9") targetRatio = 16 / 9;
+  else if (crop === "1:1") targetRatio = 1.0;
+  else if (crop === "9:16") targetRatio = 9 / 16;
+  else if (crop === "4:3") targetRatio = 4 / 3;
+  else if (crop === "3:4") targetRatio = 3 / 4;
+  else if (crop === "4:5") targetRatio = 4 / 5;
+  else if (crop === "5:4") targetRatio = 5 / 4;
+  else return [ow, oh];
+
+  const sourceRatio = ow / oh;
+  if (sourceRatio > targetRatio) {
+    const cw = Math.round(oh * targetRatio);
+    return [cw, oh];
+  } else {
+    const ch = Math.round(ow / targetRatio);
+    return [ow, ch];
+  }
+}
