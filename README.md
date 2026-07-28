@@ -110,10 +110,21 @@ first pass lands too large.
   and advanced controls are hidden while GIF Mode is active. Higher frame rates
   trade spatial detail for motion, and oversized GIFs are retried at
   progressively lower visual complexity without changing the selected FPS.
-- **Advanced mode** — custom target size (MB), output resolution, FPS, and any
-  FFmpeg video encoder string, with autocomplete from the encoders your
-  installed FFmpeg exposes. Leave target size empty to encode at the source
-  video's bitrate without enforcing a file-size limit.
+- **Advanced mode** — custom target size (MB), output resolution, aspect-ratio
+  crop, FPS, audio normalization, and any FFmpeg video encoder string, with
+  autocomplete from the encoders your installed FFmpeg exposes. Leave target
+  size empty to encode at the source video's bitrate without enforcing a
+  file-size limit.
+- **Aspect-ratio cropping** — crop to 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, or
+  5:4 before scaling. A preset matching the imported video's native display
+  ratio is hidden automatically.
+- **Smart audio output** — optionally normalize retained audio to EBU R128
+  `-14 LUFS` with a `0 dBTP` ceiling. Multi-track recordings export exactly
+  one audio track: the track with the most estimated data, or the first track
+  on a tie or if discovery fails.
+- **Full-resolution frame snapshots** — save the frame at the playhead as a
+  PNG with the preview overlay or `Cmd+Shift+S` / `Ctrl+Shift+S`. Snapshots
+  follow the configured output destination and copy/reveal completion action.
 - **Output FPS controls** — standard mode can leave FPS unchanged or cap it
   at 24, 30, or 60 FPS, hiding options above the source frame rate. Advanced
   mode accepts a custom FPS value, or an empty field shown as Off for no change.
@@ -138,6 +149,8 @@ first pass lands too large.
   - macOS VideoToolbox (`h264_videotoolbox`, `hevc_videotoolbox`)
 - **Three ways to open a video:** drag-and-drop onto the window, "Open with
   vidcord" from Explorer/Finder, or the in-app **Browse** button.
+- **Source details at import** — see resolution, frame rate, codec, average
+  bitrate, and duration in a compact summary.
 - **Compact fixed-size window** — stays fixed at 460×690, with standard and
   advanced controls fitted into the app surface without scrollbars.
 - **System-matched macOS chrome** — the native title bar follows macOS Light
@@ -252,14 +265,15 @@ For more distros, manual installs, or troubleshooting, read
    remembered custom folder, or **Ask when done**. Choose whether completion
    copies the output file or reveals it.
 3. **Pick a preset** — 10/25/50/100/500 MB, or flip on **Advanced mode** for
-   a custom target size, resolution, FPS, and encoder. Leave the advanced size
-   empty to use the source bitrate without a file-size limit. Standard mode can
-   also cap output FPS at 24, 30, or 60 when those values do not exceed the
-   source frame rate.
+   a custom target size, resolution, crop, FPS, audio normalization, and
+   encoder. Leave the advanced size empty to use the source bitrate without a
+   file-size limit. Standard mode can also cap output FPS at 24, 30, or 60
+   when those values do not exceed the source frame rate.
 4. **Trim** (optional) — drag the handles or use `I` / `O` to stamp the
    playhead. `Space` plays the selected range from the current playhead when it
    is inside the trim.
-5. **Toggle Remove Audio** to strip audio if you need more video bitrate.
+5. **Choose audio handling** — keep the prioritized track, normalize it, or
+   remove audio to reserve more bitrate for video.
 6. **Click Compress.** Progress shows the current attempt, encoder, bitrate,
    and ETA. When it's done, vidcord reports the final output size and runs your
    selected completion action.
@@ -281,6 +295,7 @@ custom folder, and completion action are saved for the next launch.
 | `R` / `U`                  | Reset trim to full clip                  |
 | `Cmd/Ctrl` + `Z`           | Undo trim                                |
 | `Cmd/Ctrl` + `Shift` + `Z` | Redo trim                                |
+| `Cmd/Ctrl` + `Shift` + `S` | Save a full-resolution PNG snapshot      |
 
 ## Hardware acceleration
 
