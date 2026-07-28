@@ -814,6 +814,10 @@ impl<'a> Drop for WindowProgressGuard<'a> {
     }
 }
 
+fn prioritized_audio_map(audio_idx: Option<usize>) -> String {
+    format!("0:a:{}?", audio_idx.unwrap_or(0))
+}
+
 async fn run_ffmpeg_attempt(
     app: &AppHandle,
     opts: &CompressOptions,
@@ -885,10 +889,9 @@ async fn run_ffmpeg_attempt(
         if opts.remove_audio {
             cmd_args.push("-an".into());
         } else {
-            let audio_map = match crate::ffmpeg::find_best_audio_stream_index(&opts.input_path, 0) {
-                Some(idx) => format!("0:a:{idx}?"),
-                None => "0:a?".to_string(),
-            };
+            let audio_map = prioritized_audio_map(crate::ffmpeg::find_best_audio_stream_index(
+                &opts.input_path,
+            ));
             cmd_args.extend([
                 "-map".into(),
                 audio_map,
@@ -1775,6 +1778,12 @@ mod tests {
     fn test_parse_ffmpeg_time_missing() {
         let line = "frame=  10 fps=30";
         assert_eq!(parse_ffmpeg_time(line), None);
+    }
+
+    #[test]
+    fn prioritized_audio_map_always_selects_exactly_one_stream() {
+        assert_eq!(prioritized_audio_map(Some(2)), "0:a:2?");
+        assert_eq!(prioritized_audio_map(None), "0:a:0?");
     }
 
     #[test]

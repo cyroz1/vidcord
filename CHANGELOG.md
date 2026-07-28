@@ -5,7 +5,7 @@
 ### Features & Audio
 
 - **EBU R128 Loudness Normalization**: Added optional audio loudness normalization (`-af loudnorm=I=-14:TP=0.0:LRA=11`) targeting a 0 dB True Peak limit to eliminate quiet audio without clipping or distortion.
-- **Smart Multi-Track Audio Selection**: Automatically detects multi-track audio recordings (such as OBS or ShadowPlay multi-stream MP4s) and extracts/encodes the primary audio stream with the most data instead of losing audio tracks.
+- **Smart Multi-Track Audio Selection**: Automatically detects multi-track audio recordings (such as OBS or ShadowPlay multi-stream MP4s) and extracts/encodes only the primary audio stream with the most data, preferring the first stream on ties and reliably falling back to that first stream if discovery fails.
 - **Aspect Ratio Cropping Presets**: Added aspect ratio crop options (`16:9`, `1:1` Square, `9:16` Vertical/Shorts, `4:3` Standard, `3:4`, `4:5`, `5:4`) prepended ahead of scaling filters in FFmpeg's video pipeline.
 - **Native Aspect Ratio Detection & Filtering**: Detects the input video's native display aspect ratio and dynamically excludes matching crop presets from the selector dropdown to avoid redundant crop operations (e.g. excluding 16:9 for a 1920×1080 clip).
 - **Frame Snapshots**: Added a 📷 **Snapshot** overlay button and `Cmd+Shift+S` / `Ctrl+Shift+S` global keyboard shortcut to extract full-resolution PNG frames at any playback position.

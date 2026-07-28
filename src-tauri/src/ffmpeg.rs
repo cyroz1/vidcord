@@ -545,7 +545,7 @@ pub fn best_audio_stream_from_json(data: &serde_json::Value) -> Option<usize> {
     Some(best_idx)
 }
 
-pub fn find_best_audio_stream_index(path: &str, generation: u64) -> Option<usize> {
+pub fn find_best_audio_stream_index(path: &str) -> Option<usize> {
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffprobe");
     cmd.args([
@@ -565,7 +565,12 @@ pub fn find_best_audio_stream_index(path: &str, generation: u64) -> Option<usize
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000);
     }
-    let out = probe_command_output(&mut cmd, generation).ok()?;
+    let child = match crate::gpu::spawn_captured_command(&mut cmd) {
+        Ok(child) => child,
+        Err(err) if err.kind() == ErrorKind::NotFound => return None,
+        Err(_) => return None,
+    };
+    let out = child.wait_for_output(FFPROBE_TIMEOUT).ok()??;
     if !out.status.success() {
         return None;
     }
