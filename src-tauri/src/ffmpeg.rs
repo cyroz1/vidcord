@@ -510,31 +510,7 @@ pub fn probe_video(
     }))
 }
 
-pub fn find_best_audio_stream_index(path: &str, generation: u64) -> Option<usize> {
-    #[allow(unused_mut)]
-    let mut cmd = std::process::Command::new("ffprobe");
-    cmd.args([
-        "-v",
-        "quiet",
-        "-print_format",
-        "json",
-        "-select_streams",
-        "a",
-        "-show_entries",
-        "stream=index,codec_type,bit_rate,channels,duration:format=duration,size,bit_rate",
-        path,
-    ]);
-    configure_ffmpeg_command(&mut cmd);
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
-    let out = probe_command_output(&mut cmd, generation).ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let data: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+pub fn best_audio_stream_from_json(data: &serde_json::Value) -> Option<usize> {
     let streams = data["streams"].as_array()?;
     if streams.is_empty() {
         return None;
@@ -560,13 +536,41 @@ pub fn find_best_audio_stream_index(path: &str, generation: u64) -> Option<usize
             channels * 1000
         };
 
-        if score >= max_score {
+        if score > max_score {
             max_score = score;
             best_idx = a_idx;
         }
     }
 
     Some(best_idx)
+}
+
+pub fn find_best_audio_stream_index(path: &str, generation: u64) -> Option<usize> {
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new("ffprobe");
+    cmd.args([
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-select_streams",
+        "a",
+        "-show_entries",
+        "stream=index,codec_type,bit_rate,channels,duration:format=duration,size,bit_rate",
+        path,
+    ]);
+    configure_ffmpeg_command(&mut cmd);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let out = probe_command_output(&mut cmd, generation).ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let data: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    best_audio_stream_from_json(&data)
 }
 
 // ---------------------------------------------------------------------------
@@ -1553,5 +1557,24 @@ mod tests {
 
         assert!(cache.entries.is_empty());
         assert_eq!(cache.total_bytes, 0);
+    }
+
+    #[test]
+    fn best_audio_stream_selection_prioritizes_first_stream_on_equal_data() {
+        let json_equal = serde_json::json!({
+            "streams": [
+                { "index": 1, "codec_type": "audio", "bit_rate": "192000", "channels": 2, "duration": "60.0" },
+                { "index": 2, "codec_type": "audio", "bit_rate": "192000", "channels": 2, "duration": "60.0" }
+            ]
+        });
+        assert_eq!(best_audio_stream_from_json(&json_equal), Some(0));
+
+        let json_second_higher = serde_json::json!({
+            "streams": [
+                { "index": 1, "codec_type": "audio", "bit_rate": "96000", "channels": 2, "duration": "60.0" },
+                { "index": 2, "codec_type": "audio", "bit_rate": "320000", "channels": 2, "duration": "60.0" }
+            ]
+        });
+        assert_eq!(best_audio_stream_from_json(&json_second_higher), Some(1));
     }
 }
