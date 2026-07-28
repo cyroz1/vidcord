@@ -15,6 +15,7 @@ export function useSettings() {
   const [gifQualityIdx, setGifQualityIdx] = useState(0);
   const [gifFps, setGifFps] = useState(15);
   const [advancedMode, setAdvancedMode] = useState(false);
+  const [losslessMode, setLosslessMode] = useState(false);
   const [advSize, setAdvSize] = useState("");
   const [advResolution, setAdvResolution] = useState("Native");
   const [fpsOption, setFpsOption] = useState("off");
@@ -31,7 +32,13 @@ export function useSettings() {
     (async () => {
       const s = await loadSettings().catch((): Settings => ({}));
       settingsRef.current = s;
-      if (typeof s.quality_index === "number") setQualityIdx(s.quality_index);
+      if (
+        typeof s.quality_index === "number" &&
+        s.quality_index >= 0 &&
+        s.quality_index <= 4
+      ) {
+        setQualityIdx(s.quality_index);
+      }
       if (typeof s.gif_mode === "boolean") setGifMode(s.gif_mode);
       if (s.gif_quality_index === 0 || s.gif_quality_index === 1) {
         setGifQualityIdx(s.gif_quality_index);
@@ -39,7 +46,22 @@ export function useSettings() {
       if (s.gif_fps === 15 || s.gif_fps === 30 || s.gif_fps === 50) {
         setGifFps(s.gif_fps);
       }
-      if (typeof s.advanced_mode === "boolean") setAdvancedMode(s.advanced_mode);
+      const savedLosslessMode =
+        typeof s.lossless_mode === "boolean" ? s.lossless_mode : s.quality_index === 5;
+      setLosslessMode(savedLosslessMode);
+      if (typeof s.advanced_mode === "boolean") {
+        setAdvancedMode(savedLosslessMode ? false : s.advanced_mode);
+      }
+      if (typeof s.lossless_mode !== "boolean" && s.quality_index === 5) {
+        // Migrate the short-lived Lossless Trim quality preset to its
+        // dedicated mode toggle.
+        settingsRef.current = {
+          ...settingsRef.current,
+          quality_index: 0,
+          lossless_mode: true,
+          advanced_mode: false,
+        };
+      }
       if (typeof s.advanced_target_size === "string") setAdvSize(s.advanced_target_size);
       if (typeof s.advanced_resolution === "string") setAdvResolution(s.advanced_resolution);
       if (typeof s.fps_option === "string") setFpsOption(s.fps_option);
@@ -102,6 +124,8 @@ export function useSettings() {
     setGifFps,
     advancedMode,
     setAdvancedMode,
+    losslessMode,
+    setLosslessMode,
     advSize,
     setAdvSize,
     advResolution,

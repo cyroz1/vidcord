@@ -1,7 +1,7 @@
 use crate::ffmpeg::{
     cancel_preview_jobs, cancel_superseded_probe_jobs, clear_preview_caches,
     configure_ffmpeg_command, ffmpeg_missing_error, generate_filmstrip, generate_preview,
-    generate_preview_clip, probe_video, start_probe_generation,
+    generate_preview_clip, probe_lossless_trim_info, probe_video, start_probe_generation,
 };
 use crate::log::vidcord_log;
 use std::io::{BufRead, BufReader};
@@ -227,6 +227,17 @@ pub async fn probe(path: String) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+pub async fn get_lossless_trim_info(path: String) -> Result<serde_json::Value, String> {
+    let generation = start_probe_generation();
+    tokio::task::spawn_blocking(move || {
+        cancel_superseded_probe_jobs(generation);
+        probe_lossless_trim_info(&path, generation).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 pub async fn get_preview_frame(
     path: String,
     time_sec: f64,
@@ -309,6 +320,9 @@ pub struct CompressOptions {
     pub scale_filter: Option<String>,
     pub vaapi_device: Option<String>,
     pub gif_mode: bool,
+    pub lossless_trim: bool,
+    pub fallback_output_path: Option<String>,
+    pub fallback_target_size_mb: Option<f64>,
 }
 
 /// Returns encoder-specific preset arguments. Without these, software encoders
@@ -852,17 +866,47 @@ async fn run_ffmpeg_attempt(
     let duration = format!("{:.3}", context.clip_duration);
     let start_time = format!("{:.3}", opts.start_time);
 
-    cmd_args.extend([
-        "-ss".into(),
-        start_time,
-        "-t".into(),
-        duration,
-        "-i".into(),
-        opts.input_path.clone(),
-        "-sn".into(),
-    ]);
+    if opts.lossless_trim {
+        cmd_args.extend([
+            "-ss".into(),
+            start_time,
+            "-i".into(),
+            opts.input_path.clone(),
+            "-t".into(),
+            duration,
+            "-map".into(),
+            "0".into(),
+            "-c".into(),
+            "copy".into(),
+            "-avoid_negative_ts".into(),
+            "make_zero".into(),
+        ]);
+        if opts.remove_audio {
+            cmd_args.push("-an".into());
+        }
+        if std::path::Path::new(&opts.output_path)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"))
+        {
+            cmd_args.extend(["-movflags".into(), "+faststart".into()]);
+        }
+    } else {
+        cmd_args.extend([
+            "-ss".into(),
+            start_time,
+            "-t".into(),
+            duration,
+            "-i".into(),
+            opts.input_path.clone(),
+            "-sn".into(),
+        ]);
+    }
 
-    if opts.gif_mode {
+    if opts.lossless_trim {
+        // Stream-copy arguments are complete above. Audio removal remains
+        // compatible because `-an` drops audio streams without re-encoding.
+    } else if opts.gif_mode {
         cmd_args.extend([
             "-filter_complex".into(),
             gif_filter(opts, attempt),
@@ -906,10 +950,12 @@ async fn run_ffmpeg_attempt(
         }
     }
 
-    cmd_args.extend([
-        "-metadata".into(),
-        "comment=Compressed with vidcord - vidcord.app".into(),
-    ]);
+    if !opts.lossless_trim {
+        cmd_args.extend([
+            "-metadata".into(),
+            "comment=Compressed with vidcord - vidcord.app".into(),
+        ]);
+    }
     cmd_args.push(opts.output_path.clone());
 
     vidcord_log(&format!("FFmpeg command: ffmpeg {}", cmd_args.join(" ")));
@@ -961,6 +1007,7 @@ async fn run_ffmpeg_attempt(
     let encoder_name = attempt.encoder.clone();
     let video_bitrate_k = attempt.video_bitrate_k;
     let gif_mode = opts.gif_mode;
+    let lossless_trim = opts.lossless_trim;
     let status_text = attempt.status.clone();
     let should_emit_progress = context.emit_progress;
     let clip_duration = context.clip_duration;
@@ -1048,7 +1095,8 @@ async fn run_ffmpeg_attempt(
                     "attempt_total": attempt_total,
                     "encoder": encoder_name.as_str(),
                     "video_bitrate_k": video_bitrate_k,
-                    "gif_mode": gif_mode
+                    "gif_mode": gif_mode,
+                    "lossless_trim": lossless_trim
                 }),
             );
             set_window_progress(&app_for_progress, Some(pct as u32));
@@ -1114,6 +1162,143 @@ fn lower_compression_process_priority(pid: u32) {
     }
 }
 
+fn valid_lossless_trim_options(opts: &CompressOptions) -> bool {
+    !opts.gif_mode
+        && opts.target_size_mb.is_none()
+        && opts.output_fps.is_none()
+        && opts.scale_filter.is_none()
+        && opts.audio_normalize != Some(true)
+        && matches!(opts.crop_aspect_ratio.as_deref(), None | Some("off"))
+}
+
+fn lossless_copy_attempt() -> CompressionAttempt {
+    CompressionAttempt {
+        encoder: "copy".into(),
+        video_bitrate_k: 0,
+        status: "Trimming without re-encoding...".into(),
+        try_hardware_decode: false,
+    }
+}
+
+async fn try_lossless_trim(
+    app: &AppHandle,
+    opts: CompressOptions,
+) -> Result<Option<String>, String> {
+    let job_id = begin_compression_job()?;
+    let _job_guard = CompressionJobGuard(job_id);
+    let _progress_guard = WindowProgressGuard(app);
+    let input_path = opts.input_path.clone();
+    let input_size_bytes = tokio::task::spawn_blocking(move || {
+        std::fs::metadata(input_path)
+            .ok()
+            .map(|metadata| metadata.len())
+    })
+    .await
+    .unwrap_or(None);
+
+    tokio::task::spawn_blocking(cancel_preview_jobs)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let mut candidates = vec![opts.output_path.clone()];
+    if let Some(fallback) = opts
+        .fallback_output_path
+        .as_deref()
+        .filter(|path| !path.is_empty() && *path != opts.output_path)
+    {
+        candidates.push(fallback.to_string());
+    }
+
+    let total_attempts = candidates.len();
+    for (attempt_index, output_path) in candidates.into_iter().enumerate() {
+        let mut attempt_opts = opts.clone();
+        attempt_opts.output_path = output_path.clone();
+        let mut reservation = tokio::task::spawn_blocking({
+            let reservation_path = output_path.clone();
+            move || OutputReservation::create(reservation_path)
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+
+        let run = run_ffmpeg_attempt(
+            app,
+            &attempt_opts,
+            &lossless_copy_attempt(),
+            FfmpegRunContext {
+                attempt_index,
+                total_attempts,
+                clip_duration: attempt_opts.end_time - attempt_opts.start_time,
+                job_id,
+                emit_progress: true,
+            },
+        )
+        .await;
+
+        let run = match run {
+            Ok(run) => run,
+            Err(error) => {
+                vidcord_log(&format!("Lossless trim attempt failed: {error}"));
+                continue;
+            }
+        };
+        if run.cancelled {
+            remove_partial_output(&output_path);
+            let _ = app.emit(
+                "compress-done",
+                serde_json::json!({
+                    "success": false,
+                    "cancelled": true,
+                    "message": "Cancelled."
+                }),
+            );
+            return Err("Cancelled".to_string());
+        }
+        if !run.exit_status.success() {
+            let diagnostics: Vec<&str> = run.last_lines.iter().map(String::as_str).collect();
+            vidcord_log(&format!(
+                "Lossless trim attempt exited with rc={:?}:\n{}",
+                run.exit_status.code(),
+                diagnostics.join("\n")
+            ));
+            continue;
+        }
+
+        let output_size = match std::fs::metadata(&output_path) {
+            Ok(metadata) => metadata.len(),
+            Err(error) => {
+                vidcord_log(&format!("Lossless trim output could not be read: {error}"));
+                continue;
+            }
+        };
+        let output_extension = std::path::Path::new(&output_path)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or("mp4");
+        let message = format!(
+            "Trimmed without re-encoding to {} (keyframe-aligned).",
+            format_size_mb(output_size)
+        );
+        let _ = app.emit(
+            "compress-done",
+            serde_json::json!({
+                "success": true,
+                "message": message,
+                "output_path": &output_path,
+                "input_size_bytes": input_size_bytes,
+                "output_size_bytes": output_size,
+                "lossless_trim": true,
+                "actual_start_time": opts.start_time,
+                "actual_end_time": opts.end_time,
+                "output_extension": output_extension
+            }),
+        );
+        reservation.commit();
+        return Ok(Some(output_path));
+    }
+
+    Ok(None)
+}
+
 #[cfg(unix)]
 fn cancelled_exit_status() -> std::process::ExitStatus {
     use std::os::unix::process::ExitStatusExt;
@@ -1162,6 +1347,37 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         return Err("Invalid clip time range".to_string());
     }
     let clip_duration = opts.end_time - opts.start_time;
+
+    if opts.lossless_trim {
+        if !valid_lossless_trim_options(&opts) {
+            return Err(
+                "Lossless Trim requires original video resolution and frame rate.".to_string(),
+            );
+        }
+        if let Some(output_path) = try_lossless_trim(&app, opts.clone()).await? {
+            return Ok(output_path);
+        }
+
+        let _ = app.emit(
+            "compress-progress",
+            serde_json::json!({
+                "percent": 0,
+                "eta": "Calculating...",
+                "status": "Lossless trim unavailable; compressing instead...",
+                "attempt": 1,
+                "attempt_total": 1,
+                "encoder": opts.encoder.as_str(),
+                "video_bitrate_k": opts.video_bitrate_k,
+                "gif_mode": false
+            }),
+        );
+        let mut fallback_opts = opts;
+        fallback_opts.lossless_trim = false;
+        fallback_opts.fallback_output_path = None;
+        fallback_opts.target_size_mb = fallback_opts.fallback_target_size_mb;
+        fallback_opts.fallback_target_size_mb = None;
+        return Box::pin(compress_video(app, fallback_opts)).await;
+    }
 
     let target_bytes = target_size_bytes(opts.target_size_mb)?;
     let job_id = begin_compression_job()?;
@@ -1858,6 +2074,9 @@ mod tests {
             scale_filter: None,
             vaapi_device: None,
             gif_mode: false,
+            lossless_trim: false,
+            fallback_output_path: None,
+            fallback_target_size_mb: None,
         }
     }
 
@@ -2001,6 +2220,24 @@ mod tests {
         assert!(!valid_time_range(10.0, 9.0));
         assert!(!valid_time_range(f64::NAN, 60.0));
         assert!(!valid_time_range(0.0, f64::INFINITY));
+    }
+
+    #[test]
+    fn lossless_trim_requires_unmodified_media_settings() {
+        let mut opts = retry_test_options("libx264", None);
+        opts.lossless_trim = true;
+        assert!(valid_lossless_trim_options(&opts));
+
+        opts.output_fps = Some(30.0);
+        assert!(!valid_lossless_trim_options(&opts));
+
+        opts.output_fps = None;
+        opts.remove_audio = true;
+        assert!(valid_lossless_trim_options(&opts));
+
+        opts.remove_audio = false;
+        opts.crop_aspect_ratio = Some("1:1".into());
+        assert!(!valid_lossless_trim_options(&opts));
     }
 
     #[test]

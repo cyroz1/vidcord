@@ -10,7 +10,11 @@ import {
   type ReactNode,
 } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import {
+  ask as askDialog,
+  open as openDialog,
+  save as saveDialog,
+} from "@tauri-apps/plugin-dialog";
 import "./App.css";
 import Toast from "./components/Toast";
 import ProgressSection from "./components/ProgressSection";
@@ -39,6 +43,7 @@ import {
   discardStagedOutput,
   downloadAndOpenUpdateInstaller,
   frontendReady,
+  getLosslessTrimInfo,
   getOs,
   getVaapiDevice,
   installFfmpegDependency,
@@ -48,6 +53,7 @@ import {
   resolveOutputPath,
   resolveStagingOutputPath,
   showInFileExplorer,
+  type OutputExtension,
   type FfmpegInstallResult,
 } from "./ipc";
 import {
@@ -56,6 +62,12 @@ import {
   timeToTimelineValue,
   TIMELINE_ZOOM_MAX,
 } from "./timelineZoom";
+import {
+  losslessTrimFitsTarget,
+  normalizeLosslessKeyframes,
+  snapLosslessTrimRange,
+  type LosslessTrimInfo,
+} from "./losslessTrim";
 import {
   formatAverageBitrate,
   formatCodec,
@@ -145,6 +157,27 @@ function preservesNativeContextMenu(target: EventTarget | null): boolean {
   return targetMatches(target, NATIVE_CONTEXT_MENU_SELECTOR);
 }
 
+function outputExtensionForPath(path: string, fallback: OutputExtension): OutputExtension {
+  const extension = path
+    .split(/[./\\]/)
+    .pop()
+    ?.toLowerCase();
+  if (
+    extension === "mp4" ||
+    extension === "mov" ||
+    extension === "mkv" ||
+    extension === "webm" ||
+    extension === "avi" ||
+    extension === "flv" ||
+    extension === "wmv" ||
+    extension === "gif" ||
+    extension === "png"
+  ) {
+    return extension;
+  }
+  return fallback;
+}
+
 async function openExternalUrl(url: string): Promise<void> {
   const { openUrl } = await import("@tauri-apps/plugin-opener");
   await openUrl(url);
@@ -207,6 +240,8 @@ export default function App() {
     setGifFps,
     advancedMode,
     setAdvancedMode,
+    losslessMode,
+    setLosslessMode,
     advSize,
     setAdvSize,
     advResolution,
@@ -245,6 +280,11 @@ export default function App() {
   const [fileName, setFileName] = useState("Drag a video here or click Browse");
   const [probeData, setProbeData] = useState<ProbeData | null>(null);
   const [loadingVideo, setLoadingVideo] = useState(false);
+  const [losslessInfo, setLosslessInfo] = useState<LosslessTrimInfo | null>(null);
+  const [losslessInfoLoading, setLosslessInfoLoading] = useState(false);
+  const [losslessInfoError, setLosslessInfoError] = useState<string | null>(null);
+  const [losslessOfferMode, setLosslessOfferMode] = useState(false);
+  const [losslessOfferTargetSize, setLosslessOfferTargetSize] = useState<number | null>(null);
   const [startVal, setStartVal] = useState(0);
   const [endVal, setEndVal] = useState(SLIDER_MAX);
 
@@ -279,6 +319,8 @@ export default function App() {
   const loadGenerationRef = useRef(0);
   const selectedFilePathRef = useRef<string | null>(null);
   const probeDataRef = useRef<ProbeData | null>(null);
+  const losslessInfoRef = useRef<LosslessTrimInfo | null>(null);
+  const losslessInfoRequestRef = useRef(0);
   const appContentRef = useRef<HTMLDivElement>(null);
   const updateModalRef = useRef<HTMLDivElement>(null);
   const updatePrimaryActionRef = useRef<HTMLButtonElement>(null);
@@ -332,6 +374,11 @@ export default function App() {
   const standardFpsValue = standardFpsOptions.some((option) => option.value === fpsOption)
     ? fpsOption
     : "off";
+  const clearLosslessOfferMode = useCallback(() => {
+    setLosslessOfferMode(false);
+    setLosslessOfferTargetSize(null);
+  }, []);
+  const losslessTrim = !gifMode && (losslessMode || losslessOfferMode);
   const importDetails = useMemo(() => {
     if (!probeData) return null;
     const resolution = `${probeData.width}×${probeData.height}`;
@@ -345,8 +392,8 @@ export default function App() {
     };
   }, [probeData]);
 
-  const displayW = probeData ? (probeData.display_width || probeData.width) : undefined;
-  const displayH = probeData ? (probeData.display_height || probeData.height) : undefined;
+  const displayW = probeData ? probeData.display_width || probeData.width : undefined;
+  const displayH = probeData ? probeData.display_height || probeData.height : undefined;
 
   const cropOptions = useMemo(
     () => getAvailableCropOptions(displayW, displayH),
@@ -456,8 +503,24 @@ export default function App() {
     (rawStart: number, rawEnd: number, anchor: "start" | "end" = "start") => {
       let nextStart = Math.max(0, Math.min(rawStart, SLIDER_MAX));
       let nextEnd = Math.max(0, Math.min(rawEnd, SLIDER_MAX));
-      nextStart = snapSliderValue(nextStart);
-      nextEnd = snapSliderValue(nextEnd);
+      if (!losslessTrim) {
+        nextStart = snapSliderValue(nextStart);
+        nextEnd = snapSliderValue(nextEnd);
+      }
+
+      const keyframeTimes = losslessInfoRef.current?.keyframe_times ?? [];
+      if (losslessTrim && duration > 0 && keyframeTimes.length > 0) {
+        const snapped = snapLosslessTrimRange(
+          (nextStart / SLIDER_MAX) * duration,
+          (nextEnd / SLIDER_MAX) * duration,
+          duration,
+          keyframeTimes
+        );
+        if (snapped) {
+          nextStart = (snapped.start / duration) * SLIDER_MAX;
+          nextEnd = (snapped.end / duration) * SLIDER_MAX;
+        }
+      }
 
       if (nextEnd - nextStart < MIN_TRIM_GAP) {
         if (anchor === "start") {
@@ -476,7 +539,7 @@ export default function App() {
         end: Math.round(nextEnd),
       };
     },
-    [snapSliderValue]
+    [duration, losslessTrim, snapSliderValue]
   );
 
   const flushTrimState = useCallback(() => {
@@ -592,23 +655,12 @@ export default function App() {
         addToast("error", "Snapshot Failed", String(err));
       }
     },
-    [
-      filePath,
-      fileName,
-      outputDestination,
-      customOutputDirectory,
-      completionAction,
-      addToast,
-    ]
+    [filePath, fileName, outputDestination, customOutputDirectory, completionAction, addToast]
   );
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        (e.metaKey || e.ctrlKey) &&
-        e.shiftKey &&
-        (e.key === "S" || e.key === "s")
-      ) {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "S" || e.key === "s")) {
         if (filePath) {
           e.preventDefault();
           const curTime = previewRef.current?.getCurrentTime() ?? 0;
@@ -653,6 +705,80 @@ export default function App() {
     setPreviewFocusNow(sliderValueToTime(next?.end ?? endValRef.current), false);
   }, [duration, applyTrim, setPreviewFocusNow, sliderValueToTime]);
 
+  useEffect(() => {
+    const requestId = losslessInfoRequestRef.current + 1;
+    losslessInfoRequestRef.current = requestId;
+
+    if (!losslessTrim || !filePath || !probeData || duration <= 0) {
+      losslessInfoRef.current = null;
+      setLosslessInfo(null);
+      setLosslessInfoLoading(false);
+      setLosslessInfoError(null);
+      return;
+    }
+
+    setLosslessInfoLoading(true);
+    setLosslessInfoError(null);
+    getLosslessTrimInfo(filePath)
+      .then((info) => {
+        if (
+          losslessInfoRequestRef.current !== requestId ||
+          selectedFilePathRef.current !== filePath
+        ) {
+          return;
+        }
+        const keyframeTimes = normalizeLosslessKeyframes(info.keyframe_times, duration);
+        if (keyframeTimes.length === 0) throw new Error("No usable keyframes were found.");
+        const nextInfo = { ...info, keyframe_times: keyframeTimes };
+        losslessInfoRef.current = nextInfo;
+        setLosslessInfo(nextInfo);
+        setLosslessInfoLoading(false);
+
+        const snapped = snapLosslessTrimRange(
+          sliderValueToTime(startValRef.current),
+          sliderValueToTime(endValRef.current),
+          duration,
+          keyframeTimes
+        );
+        if (snapped) {
+          const next = applyTrim(
+            timeToTimelineValue(snapped.start, duration, SLIDER_MAX),
+            timeToTimelineValue(snapped.end, duration, SLIDER_MAX),
+            { anchor: "end" }
+          );
+          if (next) setPreviewFocusNow(sliderValueToTime(next.start), false);
+        }
+      })
+      .catch((error: unknown) => {
+        if (
+          losslessInfoRequestRef.current !== requestId ||
+          selectedFilePathRef.current !== filePath
+        ) {
+          return;
+        }
+        if (isFfmpegMissingError(error)) markFfmpegMissing();
+        losslessInfoRef.current = null;
+        setLosslessInfo(null);
+        setLosslessInfoLoading(false);
+        setLosslessInfoError(String(error));
+      });
+
+    return () => {
+      if (losslessInfoRequestRef.current === requestId) {
+        losslessInfoRequestRef.current += 1;
+      }
+    };
+  }, [
+    applyTrim,
+    duration,
+    filePath,
+    losslessTrim,
+    markFfmpegMissing,
+    probeData,
+    setPreviewFocusNow,
+    sliderValueToTime,
+  ]);
+
   // --- File loading ---
   const loadVideo = useCallback(
     async (path: string) => {
@@ -672,6 +798,12 @@ export default function App() {
       setFileName(path.split(/[\\/]/).pop() ?? path);
       probeDataRef.current = null;
       setProbeData(null);
+      losslessInfoRef.current = null;
+      setLosslessInfo(null);
+      setLosslessInfoLoading(false);
+      setLosslessInfoError(null);
+      setLosslessOfferMode(false);
+      setLosslessOfferTargetSize(null);
       setLoadingVideo(true);
       pointerGestureCleanupRef.current?.();
       pointerGestureCleanupRef.current = null;
@@ -1069,9 +1201,25 @@ export default function App() {
       return;
     }
     const duration = probeData.duration;
-    const startTime = (startValRef.current / SLIDER_MAX) * duration;
-    const endTime = (endValRef.current / SLIDER_MAX) * duration;
-    const clipDuration = endTime - startTime;
+    if (losslessTrim) {
+      if (losslessInfoLoading) {
+        addToast("info", "Preparing Lossless Trim", "Finding keyframes for this video.");
+        setCompressing(false);
+        return;
+      }
+      if (!losslessInfo) {
+        addToast(
+          "error",
+          "Lossless Trim Unavailable",
+          losslessInfoError ?? "Keyframe discovery failed. Choose another quality option."
+        );
+        setCompressing(false);
+        return;
+      }
+    }
+    let startTime = (startValRef.current / SLIDER_MAX) * duration;
+    let endTime = (endValRef.current / SLIDER_MAX) * duration;
+    let clipDuration = endTime - startTime;
     if (clipDuration <= 0) {
       addToast("warning", "Warning", "Invalid trim range.");
       setCompressing(false);
@@ -1090,6 +1238,9 @@ export default function App() {
       targetH = preset.target_h;
       encoderName = "gif";
       outputFps = gifFps;
+    } else if (losslessTrim) {
+      targetSize = null;
+      encoderName = encoders[encoderIdx]?.name ?? "libx264";
     } else if (advancedMode) {
       const sizeText = advSize.trim();
       const sz = Number(sizeText);
@@ -1118,13 +1269,39 @@ export default function App() {
         encoderName = encoders[encoderIdx]?.name ?? "libx264";
       }
     } else {
-      const preset = QUALITY_PRESETS[qualityIdx];
+      const preset = QUALITY_PRESETS[qualityIdx] ?? QUALITY_PRESETS[0];
       targetSize = preset.size_mb;
       targetH = preset.target_h;
       encoderName = encoders[encoderIdx]?.name ?? "libx264";
       const selectedFps = FPS_OPTIONS.find((option) => option.value === fpsOption)?.fps ?? null;
       if (selectedFps !== null && (sourceFrameRate === null || selectedFps <= sourceFrameRate)) {
         outputFps = selectedFps;
+      }
+    }
+
+    const offerTargetSize = targetSize;
+    if (
+      !losslessTrim &&
+      !gifMode &&
+      offerTargetSize !== null &&
+      losslessTrimFitsTarget(offerTargetSize, clipDuration, probeData.bitrate)
+    ) {
+      const useLosslessTrim = await askDialog(
+        `The selected ${clipDuration.toFixed(1)}s segment is estimated to fit within ${offerTargetSize} MB without re-encoding. Lossless Trim is less precise: boundaries snap to nearby keyframes, so choose the trim points again before exporting.\n\nSwitch to Lossless Trim and preserve the original video quality and streams?`,
+        { title: "Use Lossless Trim?", kind: "info" }
+      ).catch(() => false);
+      if (useLosslessTrim) {
+        setLosslessOfferMode(true);
+        setLosslessOfferTargetSize(offerTargetSize);
+        setAdvancedMode(false);
+        saveSettings({ advanced_mode: false });
+        setCompressing(false);
+        addToast(
+          "info",
+          "Lossless Trim Selected",
+          "Choose the trim points again; keyframe-aligned cutting is less precise than re-encoding."
+        );
+        return;
       }
     }
 
@@ -1136,19 +1313,23 @@ export default function App() {
       gifMode ? 0 : probeData.bitrate
     );
     if (videoBitrate === null) {
-      addToast(
-        "warning",
-        "Source Bitrate Unavailable",
-        "Enter a target size in MB because the source bitrate could not be determined."
-      );
-      setCompressing(false);
-      return;
+      if (!losslessTrim) {
+        addToast(
+          "warning",
+          "Source Bitrate Unavailable",
+          "Enter a target size in MB because the source bitrate could not be determined."
+        );
+        setCompressing(false);
+        return;
+      }
     }
+    const requestedVideoBitrate = videoBitrate ?? 100;
 
     // Output-path resolution and VAAPI discovery are independent, so keep
     // their IPC work parallel. Ask mode stages privately until encoding ends.
-    const outputExtension = gifMode ? "gif" : "mp4";
-    const isVaapi = !gifMode && encoderName.endsWith("_vaapi");
+    const outputExtension: OutputExtension = gifMode ? "gif" : "mp4";
+    const fallbackExtension = losslessTrim ? losslessInfo?.source_container_extension : null;
+    const isVaapi = !gifMode && !losslessTrim && encoderName.endsWith("_vaapi");
     const outputPromise =
       outputDestination === "ask"
         ? resolveStagingOutputPath(filePath, outputExtension)
@@ -1158,11 +1339,27 @@ export default function App() {
             outputDestination === "source",
             outputExtension
           );
-    const [outputResult, vaapiDevice] = await Promise.all([
+    const fallbackOutputPromise =
+      losslessTrim && fallbackExtension && fallbackExtension !== outputExtension
+        ? (outputDestination === "ask"
+            ? resolveStagingOutputPath(filePath, fallbackExtension)
+            : resolveOutputPath(
+                filePath,
+                outputDestination === "custom" ? customOutputDirectory : undefined,
+                outputDestination === "source",
+                fallbackExtension
+              )
+          ).then(
+            (path) => path,
+            () => null
+          )
+        : Promise.resolve<string | null>(null);
+    const [outputResult, fallbackOutput, vaapiDevice] = await Promise.all([
       outputPromise.then(
         (path) => ({ path, error: null }),
         (error: unknown) => ({ path: null, error: String(error) })
       ),
+      fallbackOutputPromise,
       isVaapi ? getVaapiDevice().catch(() => null) : Promise.resolve(null),
     ]);
     if (!outputResult.path) {
@@ -1177,17 +1374,22 @@ export default function App() {
       input_path: filePath,
       output_path: resolvedOutput,
       encoder: encoderName,
-      video_bitrate_k: videoBitrate,
-      target_size_mb: targetSize,
+      video_bitrate_k: requestedVideoBitrate,
+      target_size_mb: losslessTrim ? null : targetSize,
       start_time: startTime,
       end_time: endTime,
       remove_audio: effectiveRemoveAudio,
-      audio_normalize: audioNormalize,
-      crop_aspect_ratio: cropAspectRatio,
-      output_fps: outputFps,
-      scale_filter: buildScaleFilter(cw, ch, targetH, targetShort, encoderName),
+      audio_normalize: losslessTrim ? false : audioNormalize,
+      crop_aspect_ratio: losslessTrim ? "off" : cropAspectRatio,
+      output_fps: losslessTrim ? null : outputFps,
+      scale_filter: losslessTrim
+        ? null
+        : buildScaleFilter(cw, ch, targetH, targetShort, encoderName),
       vaapi_device: vaapiDevice,
       gif_mode: gifMode,
+      lossless_trim: losslessTrim,
+      fallback_output_path: fallbackOutput,
+      fallback_target_size_mb: losslessOfferMode ? losslessOfferTargetSize : null,
     }).catch((e) => {
       if (String(e).includes("Cancelled")) {
         return null;
@@ -1205,15 +1407,20 @@ export default function App() {
       setFinalizingOutput(true);
       try {
         const stem = fileName.replace(/\.[^.]+$/, "") || "video";
+        const actualOutputExtension = outputExtensionForPath(outputPath, outputExtension);
+        const isGifOutput = actualOutputExtension === "gif";
         let savedOutput: string | null = null;
         while (!savedOutput) {
           const selected = await saveDialog({
-            title: gifMode ? "Save GIF" : "Save compressed video",
-            defaultPath: `${stem}-vidcord.${outputExtension}`,
+            title: isGifOutput ? "Save GIF" : "Save trimmed video",
+            defaultPath: `${stem}-vidcord.${actualOutputExtension}`,
             filters: [
-              gifMode
+              isGifOutput
                 ? { name: "GIF Image", extensions: ["gif"] }
-                : { name: "MP4 Video", extensions: ["mp4"] },
+                : {
+                    name: "Video",
+                    extensions: ["mp4", "mov", "mkv", "webm", "avi", "flv", "wmv"],
+                  },
             ],
           });
           if (!selected) {
@@ -1221,8 +1428,8 @@ export default function App() {
             addToast("warning", "Save Cancelled", "The compressed output was discarded.");
             return;
           }
-          const hasExtension = gifMode ? /\.gif$/i.test(selected) : /\.mp4$/i.test(selected);
-          const destination = hasExtension ? selected : `${selected}.${outputExtension}`;
+          const hasExtension = new RegExp(`\\.(${actualOutputExtension})$`, "i").test(selected);
+          const destination = hasExtension ? selected : `${selected}.${actualOutputExtension}`;
           savedOutput = await publishStagedOutput(outputPath, destination).catch((error) => {
             addToast("error", "Could Not Save Output", String(error));
             return null;
@@ -1246,6 +1453,12 @@ export default function App() {
     gifQualityIdx,
     gifFps,
     advancedMode,
+    losslessTrim,
+    losslessOfferMode,
+    losslessOfferTargetSize,
+    losslessInfo,
+    losslessInfoLoading,
+    losslessInfoError,
     advSize,
     advResolution,
     advFps,
@@ -1264,6 +1477,8 @@ export default function App() {
     completeOutput,
     addToast,
     markFfmpegMissing,
+    saveSettings,
+    setAdvancedMode,
     setCompressing,
   ]);
 
@@ -1549,7 +1764,8 @@ export default function App() {
     setActiveEncoderOption(0);
   }, [advEncoder, filteredEncoderOptions.length]);
 
-  const showEncoderOptions = encoderInputFocused && filteredEncoderOptions.length > 0;
+  const showEncoderOptions =
+    !losslessTrim && encoderInputFocused && filteredEncoderOptions.length > 0;
 
   const acceptEncoderOption = useCallback(
     (option: string) => {
@@ -2004,7 +2220,7 @@ export default function App() {
           </div>
         )}
 
-        <div className="scroll-area">
+        <div className={`scroll-area${losslessTrim ? " lossless-layout" : ""}`}>
           <div className="workflow-card">
             <MemoizedSubtree
               dependencies={[
@@ -2014,6 +2230,7 @@ export default function App() {
                 browseFile,
                 loadVideo,
                 gifMode,
+                losslessTrim,
                 gifQualityIdx,
                 setGifQualityIdx,
                 gifFps,
@@ -2054,6 +2271,7 @@ export default function App() {
                 acceptEncoderOption,
                 showEncoders,
                 saveSettings,
+                clearLosslessOfferMode,
               ]}
               render={() => (
                 <>
@@ -2126,13 +2344,14 @@ export default function App() {
                   )}
 
                   {/* Basic settings */}
-                  {!gifMode && !advancedMode && (
+                  {!gifMode && !advancedMode && !losslessTrim && (
                     <div className="row settings-row">
                       <label className="target-label">
                         Target
                         <select
                           value={qualityIdx}
                           onChange={(e) => {
+                            clearLosslessOfferMode();
                             setQualityIdx(+e.target.value);
                             saveSettings({ quality_index: +e.target.value });
                           }}
@@ -2311,8 +2530,59 @@ export default function App() {
                     </div>
                   )}
 
+                  {/* Lossless settings */}
+                  {losslessTrim && (
+                    <div className="row settings-row lossless-settings-row">
+                      <div className="settings-field lossless-audio-field">
+                        <span>Audio</span>
+                        <button
+                          type="button"
+                          className={`mute-btn${removeAudio ? " active" : ""}`}
+                          title={removeAudio ? "Keep audio tracks" : "Remove all audio tracks"}
+                          aria-label={removeAudio ? "Keep audio tracks" : "Remove all audio tracks"}
+                          aria-pressed={removeAudio}
+                          onClick={() => {
+                            const next = !removeAudio;
+                            setRemoveAudio(next);
+                            saveSettings({ remove_audio: next });
+                          }}
+                        >
+                          {removeAudio ? (
+                            <svg
+                              width="13"
+                              height="13"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <line x1="1" y1="1" x2="23" y2="23" />
+                              <path d="M9 9L6 12H2v4h4l5 4v-5.58" />
+                            </svg>
+                          ) : (
+                            <svg
+                              width="13"
+                              height="13"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                              <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                            </svg>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Advanced settings */}
-                  {!gifMode && advancedMode && (
+                  {!gifMode && advancedMode && !losslessTrim && (
                     <div className="row settings-row advanced">
                       <label>
                         Size (MB)
@@ -2321,9 +2591,10 @@ export default function App() {
                           min="0.1"
                           step="0.1"
                           placeholder="Source"
-                          title="Leave blank to use the source video's bitrate"
+                          title="Leave blank to use the source bitrate"
                           value={advSize}
                           onChange={(e) => {
+                            clearLosslessOfferMode();
                             setAdvSize(e.target.value);
                             saveSettings({ advanced_target_size: e.target.value });
                           }}
@@ -2590,7 +2861,10 @@ export default function App() {
             <TrimTimeline
               selectedDuration={selectedDuration}
               selectedDurationPct={selectedDurationPct}
-              editableTimes={!gifMode && advancedMode}
+              editableTimes={!gifMode && (advancedMode || losslessTrim)}
+              losslessTrim={losslessTrim}
+              losslessInfoLoading={losslessInfoLoading}
+              losslessInfoError={losslessInfoError}
               trimReady={trimReady}
               canSetInPoint={canSetInPoint}
               canSetOutPoint={canSetOutPoint}
@@ -2713,6 +2987,7 @@ export default function App() {
               ffmpegMissing ||
               cancelling ||
               finalizingOutput ||
+              (!compressing && losslessTrim && losslessInfoLoading) ||
               (!compressing && (!filePath || !probeData))
             }
           >
@@ -2724,7 +2999,9 @@ export default function App() {
                   ? "Cancel"
                   : gifMode
                     ? "Create GIF"
-                    : "Compress Video"}
+                    : losslessTrim
+                      ? "Trim Without Re-encoding"
+                      : "Compress Video"}
           </button>
 
           {/* Progress */}
@@ -2799,10 +3076,65 @@ export default function App() {
                       type="checkbox"
                       className="toggle-input"
                       aria-label="Advanced Mode"
-                      checked={advancedMode}
+                      checked={advancedMode && !losslessTrim}
                       onChange={(e) => {
-                        setAdvancedMode(e.target.checked);
-                        saveSettings({ advanced_mode: e.target.checked });
+                        clearLosslessOfferMode();
+                        const next = e.target.checked;
+                        setAdvancedMode(next);
+                        if (next) setLosslessMode(false);
+                        saveSettings({
+                          advanced_mode: next,
+                          ...(next ? { lossless_mode: false } : {}),
+                        });
+                      }}
+                    />
+                    <span className="toggle-thumb" />
+                  </span>
+                </label>
+              )}
+              {!gifMode && (
+                <label
+                  className="toggle-label footer-toggle lossless-toggle"
+                  title="Lossless Trim (less precise, keyframe aligned)"
+                >
+                  <svg
+                    className="footer-mode-icon lossless-mode-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <rect
+                      x="8"
+                      y="8"
+                      width="11"
+                      height="11"
+                      rx="2"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                    />
+                    <path
+                      d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  <span className="toggle-track">
+                    <input
+                      type="checkbox"
+                      className="toggle-input"
+                      aria-label="Lossless Trim"
+                      checked={losslessTrim}
+                      onChange={(event) => {
+                        const next = event.target.checked;
+                        clearLosslessOfferMode();
+                        setLosslessMode(next);
+                        if (next) setAdvancedMode(false);
+                        saveSettings({
+                          lossless_mode: next,
+                          ...(next ? { advanced_mode: false } : {}),
+                        });
                       }}
                     />
                     <span className="toggle-thumb" />
@@ -2820,8 +3152,14 @@ export default function App() {
                     aria-label="GIF Mode"
                     checked={gifMode}
                     onChange={(event) => {
-                      setGifMode(event.target.checked);
-                      saveSettings({ gif_mode: event.target.checked });
+                      clearLosslessOfferMode();
+                      const next = event.target.checked;
+                      setGifMode(next);
+                      if (next) setLosslessMode(false);
+                      saveSettings({
+                        gif_mode: next,
+                        ...(next ? { lossless_mode: false } : {}),
+                      });
                     }}
                   />
                   <span className="toggle-thumb" />

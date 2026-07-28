@@ -510,6 +510,104 @@ pub fn probe_video(
     }))
 }
 
+fn lossless_container_extension(path: &str, format_name: &str) -> Option<&'static str> {
+    if let Some(extension) = std::path::Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+    {
+        match extension.to_ascii_lowercase().as_str() {
+            "mp4" => return Some("mp4"),
+            "mov" => return Some("mov"),
+            "mkv" => return Some("mkv"),
+            "webm" => return Some("webm"),
+            "avi" => return Some("avi"),
+            "flv" => return Some("flv"),
+            "wmv" => return Some("wmv"),
+            _ => {}
+        }
+    }
+
+    format_name.split(',').find_map(|name| match name.trim() {
+        "mp4" | "mov" => Some("mp4"),
+        "matroska" => Some("mkv"),
+        "webm" => Some("webm"),
+        "avi" => Some("avi"),
+        "flv" => Some("flv"),
+        "asf" => Some("wmv"),
+        _ => None,
+    })
+}
+
+pub fn probe_lossless_trim_info(
+    path: &str,
+    generation: u64,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new("ffprobe");
+    cmd.args([
+        "-v",
+        "quiet",
+        "-probesize",
+        "10000000",
+        "-analyzeduration",
+        "5000000",
+        "-skip_frame",
+        "nokey",
+        "-select_streams",
+        "v:0",
+        "-show_frames",
+        "-show_entries",
+        "frame=best_effort_timestamp_time:format=format_name",
+        "-print_format",
+        "json",
+        path,
+    ]);
+    configure_ffmpeg_command(&mut cmd);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+
+    let out = probe_command_output(&mut cmd, generation)?;
+    if !out.status.success() {
+        return Err(format!(
+            "ffprobe keyframe discovery failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        )
+        .into());
+    }
+
+    let data: serde_json::Value = serde_json::from_slice(&out.stdout)?;
+    let format_name = data["format"]["format_name"]
+        .as_str()
+        .ok_or("FFprobe did not report a source container")?;
+    let source_container_extension = lossless_container_extension(path, format_name);
+    let frames = data["frames"]
+        .as_array()
+        .ok_or("FFprobe did not report keyframes")?;
+    let mut keyframe_times = Vec::with_capacity(frames.len());
+    for frame in frames {
+        let Some(value) = frame["best_effort_timestamp_time"].as_str() else {
+            continue;
+        };
+        let timestamp = value.parse::<f64>()?;
+        if timestamp.is_finite() && timestamp >= 0.0 {
+            keyframe_times.push(timestamp);
+        }
+    }
+    keyframe_times.sort_by(f64::total_cmp);
+    keyframe_times.dedup_by(|left, right| (*left - *right).abs() < 0.0005);
+    if keyframe_times.is_empty() {
+        return Err("FFprobe did not report usable keyframes".into());
+    }
+
+    Ok(serde_json::json!({
+        "keyframe_times": keyframe_times,
+        "source_container_extension": source_container_extension
+    }))
+}
+
 pub fn best_audio_stream_from_json(data: &serde_json::Value) -> Option<usize> {
     let streams = data["streams"].as_array()?;
     if streams.is_empty() {
@@ -1488,6 +1586,27 @@ pub fn clear_preview_caches() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lossless_container_extension_prefers_known_source_extension() {
+        assert_eq!(
+            lossless_container_extension("clip.mov", "mov,mp4"),
+            Some("mov")
+        );
+        assert_eq!(
+            lossless_container_extension("clip.mp4", "mov,mp4"),
+            Some("mp4")
+        );
+        assert_eq!(
+            lossless_container_extension("clip.mkv", "matroska,webm"),
+            Some("mkv")
+        );
+        assert_eq!(
+            lossless_container_extension("clip.bin", "webm"),
+            Some("webm")
+        );
+        assert_eq!(lossless_container_extension("clip.bin", "unknown"), None);
+    }
 
     #[test]
     fn ffmpeg_missing_error_is_machine_detectable_and_user_actionable() {

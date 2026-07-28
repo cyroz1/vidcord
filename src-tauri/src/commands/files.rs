@@ -583,6 +583,13 @@ fn unique_output_path(
     candidate
 }
 
+fn valid_output_extension(extension: &str) -> bool {
+    matches!(
+        extension,
+        "mp4" | "mov" | "mkv" | "webm" | "avi" | "flv" | "wmv" | "gif" | "png"
+    )
+}
+
 fn resolve_output_path_blocking(
     input_path: String,
     output_directory: Option<String>,
@@ -590,7 +597,7 @@ fn resolve_output_path_blocking(
     output_extension: Option<String>,
 ) -> Result<String, String> {
     let output_extension = output_extension.unwrap_or_else(|| "mp4".into());
-    if output_extension != "mp4" && output_extension != "gif" && output_extension != "png" {
+    if !valid_output_extension(&output_extension) {
         return Err("Invalid output format".into());
     }
     let p = std::path::Path::new(&input_path);
@@ -640,7 +647,7 @@ pub async fn resolve_staging_output_path(
 ) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
         let output_extension = output_extension.unwrap_or_else(|| "mp4".into());
-        if output_extension != "mp4" && output_extension != "gif" {
+        if !valid_output_extension(&output_extension) || output_extension == "png" {
             return Err("Invalid output format".into());
         }
         let staging = staging_directory();

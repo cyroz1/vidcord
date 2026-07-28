@@ -12,7 +12,7 @@ mod settings;
 
 use commands::compression::{
     cancel_compression, cancel_preview_generation, capture_snapshot, compress_video, get_filmstrip,
-    get_preview_clip, get_preview_frame, probe,
+    get_lossless_trim_info, get_preview_clip, get_preview_frame, probe,
 };
 use commands::encoders::{
     check_ffmpeg_available, detect_encoders, get_vaapi_device, install_ffmpeg_dependency,
@@ -296,6 +296,7 @@ pub fn run() {
             frontend_ready,
             sync_native_window_theme,
             probe,
+            get_lossless_trim_info,
             get_preview_frame,
             get_preview_clip,
             get_filmstrip,

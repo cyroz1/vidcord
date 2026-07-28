@@ -7,8 +7,9 @@
 **vidcord** is a free, open-source **Discord video compressor** for
 **Windows, macOS, and Linux**. Compress videos for Discord's upload size
 limits without uploading them to a website: choose a **10 MB, 25 MB, 50 MB,
-100 MB, or 500 MB** target, trim the clip, and export a Discord-ready `.mp4`
-from your desktop. GIF Mode creates animated `.gif` exports for Discord's
+100 MB, or 500 MB** target, trim the clip, or choose **Lossless Trim** to cut
+on source keyframes without re-encoding. Export a Discord-ready video from
+your desktop. GIF Mode creates animated `.gif` exports for Discord's
 **10 MB Free** and **50 MB Nitro Basic** tiers.
 
 vidcord supports **MP4, MOV, MKV, AVI, WebM, FLV, WMV**, and other formats
@@ -113,8 +114,7 @@ first pass lands too large.
 - **Advanced mode** — custom target size (MB), output resolution, aspect-ratio
   crop, FPS, audio normalization, and any FFmpeg video encoder string, with
   autocomplete from the encoders your installed FFmpeg exposes. Leave target
-  size empty to encode at the source video's bitrate without enforcing a
-  file-size limit.
+  size empty to encode at the source bitrate without a file-size limit.
 - **Aspect-ratio cropping** — crop to 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, or
   5:4 before scaling. A preset matching the imported video's native display
   ratio is hidden automatically.
@@ -133,6 +133,13 @@ first pass lands too large.
   in Explorer/Finder instead.
 - **Trim timeline** with fine-grained handles, draggable playhead, snap
   controls, zoom, pan, undo/redo, and optional looped playback.
+- **Lossless Trim** — use the dedicated copy-mode toggle beside Advanced to
+  preserve every source stream with a fast keyframe-aligned stream copy, or
+  remove all audio tracks without re-encoding the video. Unrelated settings are
+  hidden while the mode is active. When a selected segment is estimated to fit
+  a chosen size target at the source bitrate, pressing Compress offers this
+  mode automatically; accepting it switches to less-precise keyframe trimming
+  so you can choose the trim points again before exporting.
 - **In-app playback preview** of the trimmed segment on Windows and macOS,
   starting from the current playhead when it is inside the selected range.
 - **Responsive scrub previews** with display-sized filmstrip/frame thumbnails,

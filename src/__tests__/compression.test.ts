@@ -92,6 +92,33 @@ describe("compression status formatting", () => {
     ).toBe("Attempt 2 · gif · ETA: 8s");
   });
 
+  it("omits bitrate details for lossless progress", () => {
+    expect(
+      formatCompressionProgress({
+        percent: 50,
+        eta: "2s",
+        status: "Trimming without re-encoding...",
+        attempt: 1,
+        attempt_total: 1,
+        encoder: "copy",
+        video_bitrate_k: 0,
+        lossless_trim: true,
+      })
+    ).toBe("copy · ETA: 2s");
+  });
+
+  it("preserves the lossless completion message", () => {
+    expect(
+      formatCompressionDone({
+        success: true,
+        message: "Trimmed without re-encoding to 4.2 MB (keyframe-aligned).",
+        input_size_bytes: 10 * 1024 * 1024,
+        output_size_bytes: 4.2 * 1024 * 1024,
+        lossless_trim: true,
+      })
+    ).toBe("Trimmed without re-encoding to 4.2 MB (keyframe-aligned).");
+  });
+
   it("formats final output size with its reduction from the source", () => {
     expect(
       formatCompressionDone({

@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { LosslessTrimInfo, LosslessVideoExtension } from "./losslessTrim";
 
 export type Settings = Record<string, unknown>;
+
+export type OutputExtension = LosslessVideoExtension | "gif" | "png";
 
 export type ProbeData = {
   duration: number;
@@ -48,6 +51,9 @@ export type CompressOptions = {
   scale_filter: string | null;
   vaapi_device: string | null;
   gif_mode: boolean;
+  lossless_trim: boolean;
+  fallback_output_path?: string | null;
+  fallback_target_size_mb?: number | null;
 };
 
 export type UpdateCheckResult = {
@@ -81,6 +87,10 @@ export function syncNativeWindowTheme(dark: boolean): Promise<void> {
 
 export function probe(path: string): Promise<ProbeData> {
   return invoke<ProbeData>("probe", { path });
+}
+
+export function getLosslessTrimInfo(path: string): Promise<LosslessTrimInfo> {
+  return invoke<LosslessTrimInfo>("get_lossless_trim_info", { path });
 }
 
 export function getPreviewFrame(
@@ -183,7 +193,7 @@ export function resolveOutputPath(
   inputPath: string,
   outputDirectory?: string,
   useInputDirectory = false,
-  outputExtension: "mp4" | "gif" | "png" = "mp4"
+  outputExtension: OutputExtension = "mp4"
 ): Promise<string> {
   return invoke<string>("resolve_output_path", {
     inputPath,
@@ -195,7 +205,7 @@ export function resolveOutputPath(
 
 export function resolveStagingOutputPath(
   inputPath: string,
-  outputExtension: "mp4" | "gif" | "png" = "mp4"
+  outputExtension: OutputExtension = "mp4"
 ): Promise<string> {
   return invoke<string>("resolve_staging_output_path", { inputPath, outputExtension });
 }

@@ -17,6 +17,7 @@ export type CompressProgressPayload = {
   encoder?: string;
   video_bitrate_k?: number;
   gif_mode?: boolean;
+  lossless_trim?: boolean;
 };
 
 export type CompressDonePayload = {
@@ -27,6 +28,10 @@ export type CompressDonePayload = {
   output_size_bytes?: number;
   target_size_bytes?: number;
   smallest_output_size_bytes?: number;
+  lossless_trim?: boolean;
+  actual_start_time?: number;
+  actual_end_time?: number;
+  output_extension?: string;
 };
 
 export function useCompression({ onToast: _onToast }: Props) {
@@ -114,7 +119,7 @@ export function formatCompressionProgress(payload: CompressProgressPayload): str
     details.push(`Attempt ${payload.attempt}`);
   }
   if (payload.encoder) details.push(payload.encoder);
-  if (!payload.gif_mode && typeof payload.video_bitrate_k === "number") {
+  if (!payload.gif_mode && !payload.lossless_trim && typeof payload.video_bitrate_k === "number") {
     details.push(`${payload.video_bitrate_k} kbps`);
   }
   if (details.length > 0) return `${details.join(" · ")} · ETA: ${payload.eta}`;
@@ -122,6 +127,7 @@ export function formatCompressionProgress(payload: CompressProgressPayload): str
 }
 
 export function formatCompressionDone(payload: CompressDonePayload): string {
+  if (payload.success && payload.lossless_trim) return payload.message;
   if (payload.success && typeof payload.output_size_bytes === "number") {
     if (
       typeof payload.input_size_bytes === "number" &&

@@ -83,7 +83,7 @@
             "url": "https://vidcord.app/",
             "codeRepository": "https://github.com/cyroz1/vidcord",
             "downloadUrl": "https://github.com/cyroz1/vidcord/releases/latest",
-            "softwareVersion": "7.0.0",
+            "softwareVersion": "7.1.0",
             "applicationCategory": "MultimediaApplication",
             "operatingSystem": ["Windows", "macOS", "Linux"],
             "license": "https://github.com/cyroz1/vidcord/blob/main/LICENSE",
@@ -229,9 +229,11 @@
           <p class="hero-lede">Local video compression for Discord limits.</p>
           <p class="hero-body">
             Shrink MP4, MOV, MKV, AVI, WebM, FLV, and WMV files to Discord's current 10 / 50 / 100 /
-            500 MB upload limits, or a legacy 25 MB target, with FFmpeg on your own machine. GIF
-            Mode also creates animated GIFs for the 10 MB Free and 50 MB Nitro Basic tiers at 15,
-            30, or Discord-safe maximum 50 FPS.
+            500 MB upload limits, or a legacy 25 MB target, with FFmpeg on your own machine.
+            Lossless Trim cuts on source keyframes without re-encoding, and size-based exports offer
+            it automatically when the selected segment is estimated to fit the target. GIF Mode
+            creates animated GIFs for the 10 MB Free and 50 MB Nitro Basic tiers at 15, 30, or
+            Discord-safe maximum 50 FPS.
           </p>
 
           <div class="hero-actions">
@@ -375,8 +377,12 @@
           <h2>Trim and preview</h2>
           <p>
             Cut the part you need, scrub the timeline, preview from the playhead, then compress only
-            that segment. On Linux, FFmpeg-generated filmstrip and frame previews remain available
-            while live video scrubbing and trim playback are disabled for stability.
+            that segment—or choose Lossless Trim to preserve source streams with keyframe-aligned
+            boundaries and no re-encoding. If the selected segment already fits a chosen size
+            target, vidcord offers Lossless Trim before compressing; accepting it lets you choose
+            the trim points again with a clear less-precise keyframe warning. On Linux,
+            FFmpeg-generated filmstrip and frame previews remain available while live video
+            scrubbing and trim playback are disabled for stability.
           </p>
         </article>
         <article>
@@ -428,9 +434,13 @@
           <h2>Simple when you want it. Precise when you need it.</h2>
           <p>
             Advanced mode lets you set a custom target size, resolution, aspect-ratio crop, FPS,
-            audio normalization, and encoder string. Leave target size empty to use the source
-            video's bitrate without a file-size limit. Encoder detection shows what your installed
-            FFmpeg can actually use, while a saved encoder choice remains sticky.
+            audio normalization, and encoder string. A dedicated Lossless Trim mode uses
+            keyframe-aligned stream copying, hides unrelated settings, and can remove audio without
+            re-encoding the video. Size-based exports offer the same choice when the selected
+            segment is estimated to fit the target at the source bitrate, then lets you choose
+            less-precise keyframe-aligned trim points again before export. Encoder detection shows
+            what your installed FFmpeg can actually use, while a saved encoder choice remains
+            sticky.
           </p>
           <ul>
             <li>Strict output size checks with safer retry behavior.</li>

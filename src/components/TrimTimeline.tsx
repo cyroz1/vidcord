@@ -17,6 +17,9 @@ type Props = {
   selectedDuration: number;
   selectedDurationPct: number;
   editableTimes: boolean;
+  losslessTrim: boolean;
+  losslessInfoLoading: boolean;
+  losslessInfoError: string | null;
   trimReady: boolean;
   canSetInPoint: boolean;
   canSetOutPoint: boolean;
@@ -225,6 +228,9 @@ function TrimTimeline({
   selectedDuration,
   selectedDurationPct,
   editableTimes,
+  losslessTrim,
+  losslessInfoLoading,
+  losslessInfoError,
   trimReady,
   canSetInPoint,
   canSetOutPoint,
@@ -317,6 +323,22 @@ function TrimTimeline({
           <span className="trim-selection-meta">
             {selectedDuration.toFixed(2)}s selected ({selectedDurationPct.toFixed(1)}%)
           </span>
+          {losslessTrim && (
+            <span
+              className="trim-lossless-status"
+              role={losslessInfoError ? "alert" : "status"}
+              title={
+                losslessInfoError ??
+                "Lossless Trim is less precise: boundaries snap outward to source keyframes."
+              }
+            >
+              {losslessInfoLoading
+                ? "Finding keyframes…"
+                : losslessInfoError
+                  ? "Lossless trim unavailable"
+                  : "Lossless · less precise · keyframe aligned"}
+            </span>
+          )}
         </div>
         <div className="trim-heading-actions">
           <button
@@ -421,20 +443,22 @@ function TrimTimeline({
           </button>
         </div>
 
-        <label className="trim-inline-control" title="Timeline snap interval">
-          <TrimIcon name="snap" />
-          <select
-            value={snapMode}
-            aria-label="Timeline snap interval"
-            disabled={!trimReady}
-            onChange={(event) => onSnapModeChange(event.target.value as SnapMode)}
-          >
-            <option value="off">Off</option>
-            <option value="0.1">0.1s</option>
-            <option value="0.5">0.5s</option>
-            <option value="1.0">1.0s</option>
-          </select>
-        </label>
+        {!losslessTrim ? (
+          <label className="trim-inline-control" title="Timeline snap interval">
+            <TrimIcon name="snap" />
+            <select
+              value={snapMode}
+              aria-label="Timeline snap interval"
+              disabled={!trimReady}
+              onChange={(event) => onSnapModeChange(event.target.value as SnapMode)}
+            >
+              <option value="off">Off</option>
+              <option value="0.1">0.1s</option>
+              <option value="0.5">0.5s</option>
+              <option value="1.0">1.0s</option>
+            </select>
+          </label>
+        ) : null}
 
         <div
           className="trim-control-group trim-zoom-controls"

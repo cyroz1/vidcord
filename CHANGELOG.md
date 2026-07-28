@@ -2,6 +2,11 @@
 
 ## v7.1
 
+### Compression
+
+- Added a dedicated **Lossless Trim** mode beside Advanced that preserves source streams with a fast, keyframe-aligned stream copy, hides unrelated settings, and can remove all audio tracks without re-encoding the video. Incompatible containers fall back to normal compression.
+- Size-based compression now offers Lossless Trim when the selected segment is estimated to fit the chosen target at the source bitrate; accepting the offer switches to less-precise keyframe trimming so the user can choose trim points again before exporting.
+
 ### Performance
 
 - Reduced redundant CI work by deduplicating branch and pull-request runs for the same commit, reusing CI-profile Rust artifacts, and reserving installer packaging for release tags and explicit manual builds.

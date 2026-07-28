@@ -274,6 +274,19 @@ short graceful-exit window, then force-terminates it only while the same job sti
 
 ### Compression and output lifecycle
 
+Lossless Trim is a dedicated mode beside Advanced. Its settings area hides unrelated controls while
+keeping audio-track removal available; removing audio uses stream-copy with `-an` and does not
+re-encode the video. Size-based compression also compares the selected duration and source average
+bitrate against the target capacity and offers the same stream-copy path when it is estimated to
+fit. Accepting that offer must explain that keyframe trimming is less precise, switch the UI into
+Lossless Trim, and let the user choose the trim points again before export. It discovers source
+keyframes through a bounded, generation-owned FFprobe command, snaps visible trim boundaries outward
+(start backward and end forward), and attempts `-map 0 -c copy` without media filters or injected
+metadata. It prefers an MP4 stream-copy output, then the validated source container, and finally
+falls back to normal compression if both copy attempts are incompatible. Keyframe discovery failure
+blocks the selected Lossless Trim export; hidden resolution, crop, FPS, encoder, and audio
+normalization controls must remain non-destructive to their saved values.
+
 FFprobe returns source codec, frame rate, bitrate, dimensions, display dimensions, and duration.
 `videoMetadata.ts` formats those values for the import summary. The frontend derives the initial
 target bitrate from the selected size and trimmed duration, then caps it at the probed source
@@ -284,7 +297,8 @@ reduction.
 Output handling has two paths:
 
 - **Downloads / clip folder / custom folder**: `resolve_output_path` chooses a collision-free
-  `<stem>-vidcord[-N].mp4` candidate. Before FFmpeg starts, `OutputReservation::create` atomically
+  `<stem>-vidcord[-N].<extension>` candidate (`.mp4` for compression, or the validated source
+  video extension for Lossless Trim fallback). Before FFmpeg starts, `OutputReservation::create` atomically
   creates that exact path and owns it across every adaptive retry. Treat path resolution as
   advisory; do not replace the create-new reservation with a check-then-write flow or allow
   FFmpeg's `-y` to overwrite an unrelated file.

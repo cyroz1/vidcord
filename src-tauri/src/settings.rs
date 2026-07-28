@@ -30,6 +30,8 @@ pub struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advanced_mode: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub lossless_mode: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub advanced_target_size: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advanced_resolution: Option<String>,
@@ -41,6 +43,10 @@ pub struct Settings {
     pub advanced_encoder: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remove_audio: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio_normalize: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crop_aspect_ratio: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_destination: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -197,8 +203,19 @@ mod tests {
 
         let original = serde_json::json!({
             "quality_index": 2,
+            "gif_mode": true,
+            "gif_quality_index": 1,
+            "gif_fps": 50,
             "advanced_mode": true,
+            "lossless_mode": false,
+            "advanced_target_size": "12.5",
+            "advanced_resolution": "1080p",
+            "fps_option": "30",
+            "advanced_fps": "24",
+            "advanced_encoder": "libx264",
             "remove_audio": false,
+            "audio_normalize": true,
+            "crop_aspect_ratio": "9:16",
             "output_destination": "custom",
             "custom_output_directory": "/tmp/vidcord-exports",
             "completion_action": "copy",
@@ -217,8 +234,19 @@ mod tests {
         let loaded = SettingsManager::load_from(&path);
 
         assert_eq!(loaded["quality_index"], 2);
+        assert_eq!(loaded["gif_mode"], true);
+        assert_eq!(loaded["gif_quality_index"], 1);
+        assert_eq!(loaded["gif_fps"], 50);
         assert_eq!(loaded["advanced_mode"], true);
+        assert_eq!(loaded["lossless_mode"], false);
+        assert_eq!(loaded["advanced_target_size"], "12.5");
+        assert_eq!(loaded["advanced_resolution"], "1080p");
+        assert_eq!(loaded["fps_option"], "30");
+        assert_eq!(loaded["advanced_fps"], "24");
+        assert_eq!(loaded["advanced_encoder"], "libx264");
         assert_eq!(loaded["remove_audio"], false);
+        assert_eq!(loaded["audio_normalize"], true);
+        assert_eq!(loaded["crop_aspect_ratio"], "9:16");
         assert_eq!(loaded["output_destination"], "custom");
         assert_eq!(loaded["custom_output_directory"], "/tmp/vidcord-exports");
         assert_eq!(loaded["completion_action"], "copy");
