@@ -6,6 +6,18 @@ export type ToastMsg = {
   type: "success" | "error" | "warning" | "info";
   title: string;
   message: string;
+  actions?: ToastAction[];
+};
+
+export type ToastAction = {
+  label: string;
+  onClick: () => void;
+};
+
+type ToastOptions = {
+  actions?: ToastAction[];
+  durationMs?: number | null;
+  notifySystem?: boolean;
 };
 
 let toastId = 0;
@@ -48,16 +60,25 @@ export function useToasts() {
     }
   }, []);
 
-  const addToast = useCallback((type: ToastMsg["type"], title: string, message: string) => {
-    const id = ++toastId;
-    setToasts((t) => [...t, { id, type, title, message }]);
-    void triggerSystemNotification(title, message);
-    const handle = setTimeout(() => {
-      timersRef.current.delete(id);
-      setToasts((t) => t.filter((x) => x.id !== id));
-    }, 5000);
-    timersRef.current.set(id, handle);
-  }, []);
+  const addToast = useCallback(
+    (type: ToastMsg["type"], title: string, message: string, options?: ToastOptions) => {
+      const id = ++toastId;
+      setToasts((t) => [...t, { id, type, title, message, actions: options?.actions }]);
+      if (options?.notifySystem !== false) {
+        void triggerSystemNotification(title, message);
+      }
+
+      const durationMs = options?.durationMs === undefined ? 5000 : options.durationMs;
+      if (durationMs !== null) {
+        const handle = setTimeout(() => {
+          timersRef.current.delete(id);
+          setToasts((t) => t.filter((x) => x.id !== id));
+        }, durationMs);
+        timersRef.current.set(id, handle);
+      }
+    },
+    []
+  );
 
   const removeToast = useCallback(
     (id: number) => {

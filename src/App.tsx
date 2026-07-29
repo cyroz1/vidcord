@@ -10,11 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { listen } from "@tauri-apps/api/event";
-import {
-  ask as askDialog,
-  open as openDialog,
-  save as saveDialog,
-} from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 import Toast from "./components/Toast";
 import ProgressSection from "./components/ProgressSection";
@@ -285,6 +281,8 @@ export default function App() {
   const [losslessInfoError, setLosslessInfoError] = useState<string | null>(null);
   const [losslessOfferMode, setLosslessOfferMode] = useState(false);
   const [losslessOfferTargetSize, setLosslessOfferTargetSize] = useState<number | null>(null);
+  const skipLosslessOfferRef = useRef(false);
+  const startCompressRef = useRef<() => Promise<void>>(async () => {});
   const [startVal, setStartVal] = useState(0);
   const [endVal, setEndVal] = useState(SLIDER_MAX);
 
@@ -1280,29 +1278,50 @@ export default function App() {
     }
 
     const offerTargetSize = targetSize;
+    const skipLosslessOffer = skipLosslessOfferRef.current;
+    skipLosslessOfferRef.current = false;
     if (
       !losslessTrim &&
       !gifMode &&
+      !skipLosslessOffer &&
       offerTargetSize !== null &&
       losslessTrimFitsTarget(offerTargetSize, clipDuration, probeData.bitrate)
     ) {
-      const useLosslessTrim = await askDialog(
-        `The selected ${clipDuration.toFixed(1)}s segment is estimated to fit within ${offerTargetSize} MB without re-encoding. Lossless Trim is less precise: boundaries snap to nearby keyframes, so choose the trim points again before exporting.\n\nSwitch to Lossless Trim and preserve the original video quality and streams?`,
-        { title: "Use Lossless Trim?", kind: "info" }
-      ).catch(() => false);
-      if (useLosslessTrim) {
-        setLosslessOfferMode(true);
-        setLosslessOfferTargetSize(offerTargetSize);
-        setAdvancedMode(false);
-        saveSettings({ advanced_mode: false });
-        setCompressing(false);
-        addToast(
-          "info",
-          "Lossless Trim Selected",
-          "Choose the trim points again; keyframe-aligned cutting is less precise than re-encoding."
-        );
-        return;
-      }
+      setCompressing(false);
+      addToast(
+        "info",
+        "This clip may not need compression",
+        `It should already fit under ${offerTargetSize} MB. You can keep the original picture and sound quality, but the cut points may move slightly.`,
+        {
+          durationMs: null,
+          notifySystem: false,
+          actions: [
+            {
+              label: "Keep original quality",
+              onClick: () => {
+                setLosslessOfferMode(true);
+                setLosslessOfferTargetSize(offerTargetSize);
+                setAdvancedMode(false);
+                saveSettings({ advanced_mode: false });
+                addToast(
+                  "info",
+                  "Original quality mode is on",
+                  "Choose your start and end points again. The saved clip may start or end a little earlier than selected."
+                );
+              },
+            },
+            {
+              label: "Compress anyway",
+              onClick: () => {
+                skipLosslessOfferRef.current = true;
+                setCompressing(true);
+                void startCompressRef.current();
+              },
+            },
+          ],
+        }
+      );
+      return;
     }
 
     const effectiveRemoveAudio = gifMode || removeAudio;
@@ -1481,6 +1500,7 @@ export default function App() {
     setAdvancedMode,
     setCompressing,
   ]);
+  startCompressRef.current = startCompress;
 
   const loadListedEncoders = useCallback(async () => {
     let fallbackNames: string[] | null = null;

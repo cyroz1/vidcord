@@ -6,6 +6,7 @@
 
 - Added a dedicated **Lossless Trim** mode beside Advanced that preserves source streams with a fast, keyframe-aligned stream copy, hides unrelated settings, and can remove all audio tracks without re-encoding the video. Incompatible containers fall back to normal compression.
 - Size-based compression now offers Lossless Trim when the selected segment is estimated to fit the chosen target at the source bitrate; accepting the offer switches to less-precise keyframe trimming so the user can choose trim points again before exporting.
+- Replaced the Lossless Trim suggestion dialog with a plain-language in-app banner that lets users keep the original quality or continue with compression.
 
 ### Performance
 

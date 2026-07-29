@@ -1,10 +1,12 @@
 import { memo } from "react";
+import type { ToastAction } from "../hooks/useToasts";
 
 type ToastProps = {
   id: number;
   type: "success" | "error" | "warning" | "info";
   title: string;
   message: string;
+  actions?: ToastAction[];
   onClose: (id: number) => void;
 };
 
@@ -62,7 +64,25 @@ const messageStyle: React.CSSProperties = {
   whiteSpace: "pre-wrap",
 };
 
-function Toast({ id, type, title, message, onClose }: ToastProps) {
+const actionsStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "6px",
+  marginTop: "4px",
+};
+
+const actionButtonStyle: React.CSSProperties = {
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-xs)",
+  background: "var(--control-bg)",
+  color: "var(--text)",
+  padding: "5px 8px",
+  fontSize: "11px",
+  fontWeight: 600,
+  cursor: "pointer",
+};
+
+function Toast({ id, type, title, message, actions, onClose }: ToastProps) {
   const color = COLORS[type] ?? COLORS.info;
   // Only the left-border accent varies with type, so shallow-merge once.
   const wrapperStyle: React.CSSProperties = {
@@ -88,6 +108,23 @@ function Toast({ id, type, title, message, onClose }: ToastProps) {
         </button>
       </div>
       {message && <span style={messageStyle}>{message}</span>}
+      {actions && actions.length > 0 && (
+        <div style={actionsStyle}>
+          {actions.map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              style={actionButtonStyle}
+              onClick={() => {
+                onClose(id);
+                action.onClick();
+              }}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
