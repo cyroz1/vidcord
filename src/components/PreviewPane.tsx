@@ -116,23 +116,24 @@ const currentTimeOverlayStyle: React.CSSProperties = {
 
 const snapshotBtnStyle: React.CSSProperties = {
   position: "absolute",
-  top: "6px",
+  top: "8px",
   right: "8px",
-  fontSize: "11px",
   color: "rgba(255,255,255,0.92)",
-  background: "rgba(0,0,0,0.48)",
+  background: "rgba(0,0,0,0.38)",
   backdropFilter: "blur(8px) saturate(160%)",
   WebkitBackdropFilter: "blur(8px) saturate(160%)",
   border: "1px solid rgba(255,255,255,0.16)",
-  borderRadius: "var(--radius-xs)",
-  padding: "3px 7px",
+  borderRadius: "50%",
+  padding: 0,
+  width: "28px",
+  height: "28px",
   display: "flex",
   alignItems: "center",
+  justifyContent: "center",
   gap: "4px",
   cursor: "pointer",
-  boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+  boxShadow: "0 2px 6px rgba(0,0,0,0.24)",
   zIndex: 10,
-  fontWeight: 500,
 };
 
 type Props = {
@@ -1191,8 +1192,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
           style={snapshotBtnStyle}
         >
           <svg
-            width="12"
-            height="12"
+            width="14"
+            height="14"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -1203,7 +1204,6 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
             <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
             <circle cx="12" cy="13" r="3" />
           </svg>
-          <span>Snapshot</span>
         </button>
       )}
 

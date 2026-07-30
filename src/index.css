@@ -75,14 +75,14 @@
     --accent-text: #ffffff;
 
     --text: rgba(0, 0, 0, 0.88);
-    --text-secondary: rgba(0, 0, 0, 0.48);
-    --text-disabled: rgba(0, 0, 0, 0.26);
+    --text-secondary: rgba(0, 0, 0, 0.62);
+    --text-disabled: rgba(0, 0, 0, 0.34);
 
     --success: #28cd41;
     --error: #ff3b30;
     --warning: #ff9500;
 
-    --shadow-card: 0 2px 16px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.07);
+    --shadow-card: 0 2px 10px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
     --shadow-overlay: 0 8px 40px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.1);
     --shadow-hover: 0 4px 20px rgba(0, 0, 0, 0.14);
 

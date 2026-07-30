@@ -71,7 +71,7 @@ type TrimIconName =
   | "redo"
   | "loop"
   | "snap"
-  | "help";
+  | "more";
 
 type StrokedTrimIconName = Exclude<TrimIconName, "snap">;
 
@@ -83,7 +83,7 @@ const TRIM_ICON_PATHS: Record<StrokedTrimIconName, readonly string[]> = {
   undo: ["M6 5H3V2", "M3.2 5A5.5 5.5 0 1 1 4.5 11.5"],
   redo: ["M10 5h3V2", "M12.8 5A5.5 5.5 0 1 0 11.5 11.5"],
   loop: ["M3 6a3 3 0 0 1 3-3h6", "M10 1l2 2-2 2", "M13 10a3 3 0 0 1-3 3H4", "M6 11l-2 2 2 2"],
-  help: ["M6.4 6a1.7 1.7 0 1 1 2.45 1.53C8.2 7.86 8 8.15 8 9", "M8 11.8h.01"],
+  more: ["M4 8h.01M8 8h.01M12 8h.01"],
 };
 
 const initialPlayheadPositionStyle = { transform: "translateX(0%)" };
@@ -272,10 +272,9 @@ function TrimTimeline({
   onStartTimeCommit,
   onEndTimeCommit,
 }: Props) {
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [trimOptionsOpen, setTrimOptionsOpen] = useState(false);
   const [clockTimeFormat, setClockTimeFormat] = useState(false);
-  const helpButtonRef = useRef<HTMLButtonElement>(null);
-  const helpPointerDownRef = useRef(false);
+  const optionsButtonRef = useRef<HTMLButtonElement>(null);
   const canZoomOut = trimReady && timelineZoom > 1.0001;
   const canZoomIn = trimReady && timelineZoom < TIMELINE_ZOOM_MAX - 0.0001;
   const visibleRangeMin = Math.max(0, Math.ceil(viewStartVal));
@@ -288,40 +287,40 @@ function TrimTimeline({
       if (
         event.defaultPrevented ||
         isEditableTarget(event.target) ||
-        helpButtonRef.current?.closest("[inert]")
+        optionsButtonRef.current?.closest("[inert]")
       ) {
         return;
       }
 
       if (event.key === "?") {
         event.preventDefault();
-        setShortcutsOpen((open) => {
+        setTrimOptionsOpen((open) => {
           const next = !open;
           if (next) {
-            window.requestAnimationFrame(() => helpButtonRef.current?.focus());
+            window.requestAnimationFrame(() => optionsButtonRef.current?.focus());
           }
           return next;
         });
         return;
       }
 
-      if (event.key === "Escape" && shortcutsOpen) {
+      if (event.key === "Escape" && trimOptionsOpen) {
         event.preventDefault();
-        setShortcutsOpen(false);
+        setTrimOptionsOpen(false);
       }
     };
 
     window.addEventListener("keydown", handleShortcutKey);
     return () => window.removeEventListener("keydown", handleShortcutKey);
-  }, [shortcutsOpen]);
+  }, [trimOptionsOpen]);
 
   return (
-    <div className={`trim-section${shortcutsOpen ? " shortcuts-open" : ""}`}>
+    <div className={`trim-section${trimOptionsOpen ? " shortcuts-open" : ""}`}>
       <div className="trim-heading-row">
         <div className="trim-heading-copy">
           <span className="section-title">Trim Video</span>
           <span className="trim-selection-meta">
-            {selectedDuration.toFixed(2)}s selected ({selectedDurationPct.toFixed(1)}%)
+            {selectedDuration.toFixed(1)} sec · {selectedDurationPct.toFixed(1)}%
           </span>
           {losslessTrim && (
             <span
@@ -335,88 +334,10 @@ function TrimTimeline({
               {losslessInfoLoading
                 ? "Finding keyframes…"
                 : losslessInfoError
-                  ? "Lossless trim unavailable"
-                  : "Lossless · less precise · keyframe aligned"}
+                  ? "Unavailable"
+                  : "Keyframe aligned"}
             </span>
           )}
-        </div>
-        <div className="trim-heading-actions">
-          <button
-            type="button"
-            className={`trim-time-format-toggle${clockTimeFormat ? " active" : ""}`}
-            aria-label="Show timeline times as hours, minutes, and seconds"
-            aria-pressed={clockTimeFormat}
-            title="Show timeline times as hours:minutes:seconds"
-            onClick={() => setClockTimeFormat((enabled) => !enabled)}
-          >
-            h:m:s
-          </button>
-          <div
-            className="trim-shortcuts-popover"
-            onBlurCapture={(event) => {
-              const nextTarget = event.relatedTarget;
-              if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
-              helpPointerDownRef.current = false;
-              setShortcutsOpen(false);
-            }}
-          >
-            <button
-              ref={helpButtonRef}
-              type="button"
-              className="trim-mini-btn trim-shortcuts-btn"
-              aria-label="Keyboard shortcuts"
-              aria-controls="trim-shortcuts-panel"
-              aria-expanded={shortcutsOpen}
-              aria-describedby={shortcutsOpen ? "trim-shortcuts-panel" : undefined}
-              title="Keyboard shortcuts"
-              onPointerDown={() => {
-                helpPointerDownRef.current = true;
-              }}
-              onPointerCancel={() => {
-                helpPointerDownRef.current = false;
-              }}
-              onFocus={() => {
-                if (!helpPointerDownRef.current) setShortcutsOpen(true);
-              }}
-              onClick={() => {
-                helpPointerDownRef.current = false;
-                setShortcutsOpen((open) => !open);
-              }}
-            >
-              <TrimIcon name="help" />
-            </button>
-            <div
-              id="trim-shortcuts-panel"
-              className="trim-shortcuts-panel"
-              role="tooltip"
-              hidden={!shortcutsOpen}
-            >
-              <div className="trim-shortcuts-grid">
-                <span className="sc-key">Space</span>
-                <span>Play / Pause</span>
-                <span className="sc-key">, / .</span>
-                <span>Step 1/30s back / forward</span>
-                <span className="sc-key">I</span>
-                <span>Set in point to playhead</span>
-                <span className="sc-key">O</span>
-                <span>Set out point to playhead</span>
-                <span className="sc-key">J</span>
-                <span>Seek to in point</span>
-                <span className="sc-key">K</span>
-                <span>Seek to out point</span>
-                <span className="sc-key">[ / ]</span>
-                <span>Expand in / out point</span>
-                <span className="sc-key">R / U</span>
-                <span>Reset trim to full clip</span>
-                <span className="sc-key">Shift + Arrow</span>
-                <span>Nudge active handle</span>
-                <span className="sc-key">Cmd/Ctrl + Z</span>
-                <span>Undo / Redo trim</span>
-                <span className="sc-key">?</span>
-                <span>Toggle shortcut help</span>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
       <div className="trim-toolbar" role="toolbar" aria-label="Trim editing controls">
@@ -443,94 +364,167 @@ function TrimTimeline({
           </button>
         </div>
 
-        {!losslessTrim ? (
-          <label className="trim-inline-control" title="Timeline snap interval">
-            <TrimIcon name="snap" />
-            <select
-              value={snapMode}
-              aria-label="Timeline snap interval"
-              disabled={!trimReady}
-              onChange={(event) => onSnapModeChange(event.target.value as SnapMode)}
+        <div className="trim-toolbar-actions">
+          <div className="trim-control-group" role="group" aria-label="Trim history">
+            <button
+              type="button"
+              className="trim-mini-btn trim-icon-btn"
+              onClick={onUndoTrim}
+              aria-label="Undo trim"
+              title="Undo trim (Cmd/Ctrl+Z)"
+              disabled={!canUndoTrim}
             >
-              <option value="off">Off</option>
-              <option value="0.1">0.1s</option>
-              <option value="0.5">0.5s</option>
-              <option value="1.0">1.0s</option>
-            </select>
-          </label>
-        ) : null}
+              <TrimIcon name="undo" />
+            </button>
+            <button
+              type="button"
+              className="trim-mini-btn trim-icon-btn"
+              onClick={onRedoTrim}
+              aria-label="Redo trim"
+              title="Redo trim (Cmd/Ctrl+Shift+Z)"
+              disabled={!canRedoTrim}
+            >
+              <TrimIcon name="redo" />
+            </button>
+          </div>
 
-        <div
-          className="trim-control-group trim-zoom-controls"
-          role="group"
-          aria-label="Timeline zoom"
-        >
           <button
             type="button"
-            className="trim-mini-btn trim-icon-btn"
-            onClick={onZoomOut}
-            aria-label="Zoom timeline out"
-            title="Zoom out"
-            disabled={!canZoomOut}
+            className={`trim-loop-toggle${loopPlayback ? " active" : ""}`}
+            aria-label="Loop trim playback"
+            aria-pressed={loopPlayback}
+            title="Loop trim playback"
+            disabled={!trimReady}
+            onClick={() => onLoopPlaybackChange(!loopPlayback)}
           >
-            <TrimIcon name="minus" />
+            <TrimIcon name="loop" />
           </button>
-          <button
-            type="button"
-            className="trim-mini-btn trim-zoom-value"
-            onClick={onZoomReset}
-            aria-label="Reset timeline zoom to 1x"
-            title="Reset timeline zoom"
-            disabled={!canZoomOut}
+
+          <div
+            className="trim-options-popover"
+            onBlurCapture={(event) => {
+              const nextTarget = event.relatedTarget;
+              if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+              setTrimOptionsOpen(false);
+            }}
           >
-            {timelineZoom.toFixed(1)}x
-          </button>
-          <button
-            type="button"
-            className="trim-mini-btn trim-icon-btn"
-            onClick={onZoomIn}
-            aria-label="Zoom timeline in"
-            title="Zoom in"
-            disabled={!canZoomIn}
-          >
-            <TrimIcon name="plus" />
-          </button>
+            <button
+              ref={optionsButtonRef}
+              type="button"
+              className="trim-mini-btn trim-icon-btn"
+              aria-label="More trim options"
+              aria-haspopup="dialog"
+              aria-controls="trim-options-panel"
+              aria-expanded={trimOptionsOpen}
+              title="More trim options"
+              onClick={() => setTrimOptionsOpen((open) => !open)}
+            >
+              <TrimIcon name="more" />
+            </button>
+            <div
+              id="trim-options-panel"
+              className="trim-options-panel"
+              role="dialog"
+              aria-label="More trim options"
+              hidden={!trimOptionsOpen}
+            >
+              {!losslessTrim && (
+                <label className="trim-option-row" title="Timeline snap interval">
+                  <span>
+                    <TrimIcon name="snap" />
+                    Snap
+                  </span>
+                  <select
+                    value={snapMode}
+                    aria-label="Timeline snap interval"
+                    disabled={!trimReady}
+                    onChange={(event) => onSnapModeChange(event.target.value as SnapMode)}
+                  >
+                    <option value="off">Off</option>
+                    <option value="0.1">0.1s</option>
+                    <option value="0.5">0.5s</option>
+                    <option value="1.0">1.0s</option>
+                  </select>
+                </label>
+              )}
+
+              <div className="trim-option-row">
+                <span>Timeline zoom</span>
+                <div
+                  className="trim-control-group trim-zoom-controls"
+                  role="group"
+                  aria-label="Timeline zoom"
+                >
+                  <button
+                    type="button"
+                    className="trim-mini-btn trim-icon-btn"
+                    onClick={onZoomOut}
+                    aria-label="Zoom timeline out"
+                    title="Zoom out"
+                    disabled={!canZoomOut}
+                  >
+                    <TrimIcon name="minus" />
+                  </button>
+                  <button
+                    type="button"
+                    className="trim-mini-btn trim-zoom-value"
+                    onClick={onZoomReset}
+                    aria-label="Reset timeline zoom to 1x"
+                    title="Reset timeline zoom"
+                    disabled={!canZoomOut}
+                  >
+                    {timelineZoom.toFixed(1)}x
+                  </button>
+                  <button
+                    type="button"
+                    className="trim-mini-btn trim-icon-btn"
+                    onClick={onZoomIn}
+                    aria-label="Zoom timeline in"
+                    title="Zoom in"
+                    disabled={!canZoomIn}
+                  >
+                    <TrimIcon name="plus" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="trim-option-row">
+                <span>Time labels</span>
+                <button
+                  type="button"
+                  className={`trim-time-format-toggle${clockTimeFormat ? " active" : ""}`}
+                  aria-label="Show timeline times as hours, minutes, and seconds"
+                  aria-pressed={clockTimeFormat}
+                  onClick={() => setClockTimeFormat((enabled) => !enabled)}
+                >
+                  {clockTimeFormat ? "h:m:s" : "seconds"}
+                </button>
+              </div>
+
+              <details className="trim-shortcuts-details">
+                <summary>Keyboard shortcuts</summary>
+                <div className="trim-shortcuts-grid">
+                  <span className="sc-key">Space</span>
+                  <span>Play / Pause</span>
+                  <span className="sc-key">, / .</span>
+                  <span>Step 1/30s back / forward</span>
+                  <span className="sc-key">I / O</span>
+                  <span>Set in / out point</span>
+                  <span className="sc-key">J / K</span>
+                  <span>Seek to in / out point</span>
+                  <span className="sc-key">[ / ]</span>
+                  <span>Expand in / out point</span>
+                  <span className="sc-key">R / U</span>
+                  <span>Reset trim to full clip</span>
+                  <span className="sc-key">Shift + Arrow</span>
+                  <span>Nudge active handle</span>
+                  <span className="sc-key">Cmd/Ctrl + Z</span>
+                  <span>Undo / Redo trim</span>
+                </div>
+              </details>
+            </div>
+          </div>
         </div>
-
-        <div className="trim-control-group" role="group" aria-label="Trim history">
-          <button
-            type="button"
-            className="trim-mini-btn trim-icon-btn"
-            onClick={onUndoTrim}
-            aria-label="Undo trim"
-            title="Undo trim (Cmd/Ctrl+Z)"
-            disabled={!canUndoTrim}
-          >
-            <TrimIcon name="undo" />
-          </button>
-          <button
-            type="button"
-            className="trim-mini-btn trim-icon-btn"
-            onClick={onRedoTrim}
-            aria-label="Redo trim"
-            title="Redo trim (Cmd/Ctrl+Shift+Z)"
-            disabled={!canRedoTrim}
-          >
-            <TrimIcon name="redo" />
-          </button>
-        </div>
-
-        <button
-          type="button"
-          className={`trim-loop-toggle${loopPlayback ? " active" : ""}`}
-          aria-label="Loop trim playback"
-          aria-pressed={loopPlayback}
-          title="Loop trim playback"
-          disabled={!trimReady}
-          onClick={() => onLoopPlaybackChange(!loopPlayback)}
-        >
-          <TrimIcon name="loop" />
-        </button>
       </div>
       <div className="slider-row trim-dual-row">
         {editableTimes ? (

@@ -12,6 +12,11 @@
 
 - Reduced redundant CI work by deduplicating branch and pull-request runs for the same commit, reusing CI-profile Rust artifacts, and reserving installer packaging for release tags and explicit manual builds.
 
+### UI
+
+- Reorganized the export workflow around labeled Compress, Advanced, Lossless Trim, and GIF tabs, collapsed loaded videos into a compact file summary, balanced the Lossless Trim settings row, placed trim controls directly beneath the preview, and moved secondary timeline tools into an overflow panel.
+- Added target-aware export summaries and action labels, hid idle progress chrome, improved light-mode contrast, and reduced the frame-snapshot overlay to a hover control.
+
 ## v7.0
 
 ### Features & Audio

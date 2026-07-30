@@ -101,7 +101,7 @@ const GIF_FPS_OPTIONS = [15, 30, 50] as const;
 
 const RESOLUTION_OPTIONS = ["Native", "4K", "1440p", "1080p", "720p", "480p"];
 const FPS_OPTIONS = [
-  { label: "Off", value: "off", fps: null },
+  { label: "Source", value: "off", fps: null },
   { label: "24", value: "24", fps: 24 },
   { label: "30", value: "30", fps: 30 },
   { label: "60", value: "60", fps: 60 },
@@ -210,6 +210,62 @@ type MemoizedSubtreeProps = {
   dependencies: readonly unknown[];
   render: () => ReactNode;
 };
+
+type WorkflowMode = "compress" | "advanced" | "lossless" | "gif";
+
+type WorkflowModeSelectorProps = {
+  mode: WorkflowMode;
+  onModeChange: (mode: WorkflowMode) => void;
+};
+
+const VIDEO_FILE_ICON = (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="16" rx="3" stroke="currentColor" strokeWidth="1.6" />
+    <path d="m10 9 5 3-5 3V9Z" fill="currentColor" />
+  </svg>
+);
+
+const WorkflowModeSelector = memo(function WorkflowModeSelector({
+  mode,
+  onModeChange,
+}: WorkflowModeSelectorProps) {
+  return (
+    <div className="workflow-mode-selector" role="group" aria-label="Export mode">
+      <button
+        type="button"
+        className={mode === "compress" ? "active" : ""}
+        aria-pressed={mode === "compress"}
+        onClick={() => onModeChange("compress")}
+      >
+        Compress
+      </button>
+      <button
+        type="button"
+        className={mode === "advanced" ? "active" : ""}
+        aria-pressed={mode === "advanced"}
+        onClick={() => onModeChange("advanced")}
+      >
+        Advanced
+      </button>
+      <button
+        type="button"
+        className={mode === "lossless" ? "active" : ""}
+        aria-pressed={mode === "lossless"}
+        onClick={() => onModeChange("lossless")}
+      >
+        Lossless Trim
+      </button>
+      <button
+        type="button"
+        className={mode === "gif" ? "active" : ""}
+        aria-pressed={mode === "gif"}
+        onClick={() => onModeChange("gif")}
+      >
+        GIF
+      </button>
+    </div>
+  );
+});
 
 const MemoizedSubtree = memo(
   function MemoizedSubtree({ render }: MemoizedSubtreeProps) {
@@ -377,6 +433,60 @@ export default function App() {
     setLosslessOfferTargetSize(null);
   }, []);
   const losslessTrim = !gifMode && (losslessMode || losslessOfferMode);
+  const workflowMode: WorkflowMode = gifMode
+    ? "gif"
+    : losslessTrim
+      ? "lossless"
+      : advancedMode
+        ? "advanced"
+        : "compress";
+  const selectWorkflowMode = useCallback(
+    (mode: WorkflowMode) => {
+      clearLosslessOfferMode();
+      if (mode === "gif") {
+        setGifMode(true);
+        setLosslessMode(false);
+        setAdvancedMode(false);
+        saveSettings({
+          gif_mode: true,
+          lossless_mode: false,
+          advanced_mode: false,
+        });
+        return;
+      }
+      if (mode === "lossless") {
+        setGifMode(false);
+        setLosslessMode(true);
+        setAdvancedMode(false);
+        saveSettings({
+          gif_mode: false,
+          lossless_mode: true,
+          advanced_mode: false,
+        });
+        return;
+      }
+      if (mode === "advanced") {
+        setGifMode(false);
+        setLosslessMode(false);
+        setAdvancedMode(true);
+        saveSettings({
+          gif_mode: false,
+          lossless_mode: false,
+          advanced_mode: true,
+        });
+        return;
+      }
+      setGifMode(false);
+      setLosslessMode(false);
+      setAdvancedMode(false);
+      saveSettings({
+        gif_mode: false,
+        lossless_mode: false,
+        advanced_mode: false,
+      });
+    },
+    [clearLosslessOfferMode, saveSettings, setAdvancedMode, setGifMode, setLosslessMode]
+  );
   const importDetails = useMemo(() => {
     if (!probeData) return null;
     const resolution = `${probeData.width}×${probeData.height}`;
@@ -397,6 +507,33 @@ export default function App() {
     () => getAvailableCropOptions(displayW, displayH),
     [displayW, displayH]
   );
+  const selectedQualityPreset = QUALITY_PRESETS[qualityIdx] ?? QUALITY_PRESETS[0];
+  const selectedGifPreset = GIF_PRESETS[gifQualityIdx] ?? GIF_PRESETS[0];
+  const advancedTargetSize = Number(advSize.trim());
+  const hasAdvancedTargetSize = Number.isFinite(advancedTargetSize) && advancedTargetSize > 0;
+  const exportSummary = gifMode
+    ? `GIF · up to ${selectedGifPreset.size_mb} MB · ${gifFps} fps`
+    : losslessTrim
+      ? "Original quality · keyframe-aligned trim"
+      : advancedMode
+        ? `${hasAdvancedTargetSize ? `Up to ${advancedTargetSize} MB` : "Source bitrate"} · ${advResolution} · ${
+            advFps.trim() ? `${advFps.trim()} fps` : "Keep source FPS"
+          }`
+        : `Up to ${selectedQualityPreset.size_mb} MB · ${
+            selectedQualityPreset.target_h
+              ? `${selectedQualityPreset.target_h}p`
+              : "Native resolution"
+          } · ${standardFpsValue === "off" ? "Keep source FPS" : `${standardFpsValue} fps`}`;
+  const readyActionLabel = gifMode
+    ? `Create ${selectedGifPreset.size_mb} MB GIF`
+    : losslessTrim
+      ? "Trim Without Re-encoding"
+      : advancedMode && hasAdvancedTargetSize
+        ? `Compress to ${advancedTargetSize} MB`
+        : !advancedMode
+          ? `Compress to ${selectedQualityPreset.size_mb} MB`
+          : "Compress Video";
+  const showProgress = compressing || cancelling || finalizingOutput || eta !== "Ready";
 
   useEffect(() => {
     if (cropAspectRatio !== "off" && !cropOptions.some((o) => o.value === cropAspectRatio)) {
@@ -2240,17 +2377,20 @@ export default function App() {
           </div>
         )}
 
-        <div className={`scroll-area${losslessTrim ? " lossless-layout" : ""}`}>
+        <div className="scroll-area">
           <div className="workflow-card">
             <MemoizedSubtree
               dependencies={[
                 filePath,
                 fileName,
                 importDetails,
+                loadingVideo,
                 browseFile,
                 loadVideo,
                 gifMode,
                 losslessTrim,
+                workflowMode,
+                selectWorkflowMode,
                 gifQualityIdx,
                 setGifQualityIdx,
                 gifFps,
@@ -2296,37 +2436,61 @@ export default function App() {
               render={() => (
                 <>
                   {/* File import */}
-                  <div className={`file-section${filePath ? " has-file" : ""}`}>
-                    <button
-                      type="button"
-                      className={`drop-zone${filePath ? " has-file" : ""}`}
-                      onClick={browseFile}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const f = e.dataTransfer.files[0];
-                        if (f) loadVideo((f as File & { path?: string }).path ?? f.name);
-                      }}
-                    >
-                      <span className="drop-label" title={filePath ? fileName : undefined}>
-                        {fileName}
-                      </span>
-                      {importDetails && (
-                        <span className="import-details" aria-label={importDetails.label}>
-                          {importDetails.text}
+                  <div className="file-section">
+                    {filePath ? (
+                      <button
+                        type="button"
+                        className="loaded-file-card"
+                        onClick={browseFile}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          const file = event.dataTransfer.files[0];
+                          if (file) loadVideo((file as File & { path?: string }).path ?? file.name);
+                        }}
+                        aria-label={`Change selected video, ${fileName}`}
+                      >
+                        <span className="loaded-file-icon">{VIDEO_FILE_ICON}</span>
+                        <span className="loaded-file-copy">
+                          <span className="loaded-file-name" title={fileName}>
+                            {fileName}
+                          </span>
+                          <span className="loaded-file-details" aria-label={importDetails?.label}>
+                            {importDetails?.text ??
+                              (loadingVideo ? "Reading video…" : "Video details unavailable")}
+                          </span>
                         </span>
-                      )}
-                      <span className="browse-btn" aria-hidden="true">
-                        Browse File
-                      </span>
-                    </button>
+                        <span className="change-file-label" aria-hidden="true">
+                          Change…
+                        </span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="drop-zone"
+                        onClick={browseFile}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          const file = event.dataTransfer.files[0];
+                          if (file) loadVideo((file as File & { path?: string }).path ?? file.name);
+                        }}
+                      >
+                        <span className="drop-label">{fileName}</span>
+                        <span className="browse-btn" aria-hidden="true">
+                          Browse File
+                        </span>
+                      </button>
+                    )}
                   </div>
+
+                  <WorkflowModeSelector mode={workflowMode} onModeChange={selectWorkflowMode} />
 
                   {/* GIF settings */}
                   {gifMode && (
                     <div className="row settings-row gif-settings-row">
                       <label className="target-label">
-                        Target
+                        Target size
                         <select
                           value={gifQualityIdx}
                           onChange={(event) => {
@@ -2367,7 +2531,7 @@ export default function App() {
                   {!gifMode && !advancedMode && !losslessTrim && (
                     <div className="row settings-row">
                       <label className="target-label">
-                        Target
+                        Discord target
                         <select
                           value={qualityIdx}
                           onChange={(e) => {
@@ -2378,7 +2542,7 @@ export default function App() {
                         >
                           {QUALITY_PRESETS.map((p, i) => (
                             <option key={p.label} value={i}>
-                              {p.label}
+                              {p.label.replace(",", " ·")}
                             </option>
                           ))}
                         </select>
@@ -2553,51 +2717,50 @@ export default function App() {
                   {/* Lossless settings */}
                   {losslessTrim && (
                     <div className="row settings-row lossless-settings-row">
-                      <div className="settings-field lossless-audio-field">
-                        <span>Audio</span>
-                        <button
-                          type="button"
-                          className={`mute-btn${removeAudio ? " active" : ""}`}
-                          title={removeAudio ? "Keep audio tracks" : "Remove all audio tracks"}
-                          aria-label={removeAudio ? "Keep audio tracks" : "Remove all audio tracks"}
-                          aria-pressed={removeAudio}
-                          onClick={() => {
-                            const next = !removeAudio;
-                            setRemoveAudio(next);
-                            saveSettings({ remove_audio: next });
-                          }}
-                        >
-                          {removeAudio ? (
-                            <svg
-                              width="13"
-                              height="13"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2.2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <line x1="1" y1="1" x2="23" y2="23" />
-                              <path d="M9 9L6 12H2v4h4l5 4v-5.58" />
-                            </svg>
-                          ) : (
-                            <svg
-                              width="13"
-                              height="13"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2.2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                              <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                            </svg>
-                          )}
-                        </button>
-                      </div>
+                      <span className="lossless-settings-hint">No video re-encoding</span>
+                      <button
+                        type="button"
+                        className={`mute-btn lossless-audio-toggle${removeAudio ? " active" : ""}`}
+                        title={removeAudio ? "Keep audio tracks" : "Remove all audio tracks"}
+                        aria-label={removeAudio ? "Keep audio tracks" : "Remove all audio tracks"}
+                        aria-pressed={removeAudio}
+                        onClick={() => {
+                          const next = !removeAudio;
+                          setRemoveAudio(next);
+                          saveSettings({ remove_audio: next });
+                        }}
+                      >
+                        {removeAudio ? (
+                          <svg
+                            width="13"
+                            height="13"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <line x1="1" y1="1" x2="23" y2="23" />
+                            <path d="M9 9L6 12H2v4h4l5 4v-5.58" />
+                          </svg>
+                        ) : (
+                          <svg
+                            width="13"
+                            height="13"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                          </svg>
+                        )}
+                        <span>{removeAudio ? "Audio removed" : "Keep audio"}</span>
+                      </button>
                     </div>
                   )}
 
@@ -2877,58 +3040,9 @@ export default function App() {
                 </>
               )}
             />
-
-            <TrimTimeline
-              selectedDuration={selectedDuration}
-              selectedDurationPct={selectedDurationPct}
-              editableTimes={!gifMode && (advancedMode || losslessTrim)}
-              losslessTrim={losslessTrim}
-              losslessInfoLoading={losslessInfoLoading}
-              losslessInfoError={losslessInfoError}
-              trimReady={trimReady}
-              canSetInPoint={canSetInPoint}
-              canSetOutPoint={canSetOutPoint}
-              canUndoTrim={trimHistorySize.undo > 0}
-              canRedoTrim={trimHistorySize.redo > 0}
-              snapMode={snapMode}
-              timelineZoom={timelineZoom}
-              trimWrapRef={trimWrapRef}
-              startTime={startTime}
-              endTime={endTime}
-              viewStartVal={viewStartVal}
-              viewEndVal={viewEndVal}
-              startVal={startVal}
-              endVal={endVal}
-              startPct={startPct}
-              endPct={endPct}
-              trimPlayheadRef={trimPlayheadElementRef}
-              onSetInPoint={setInPoint}
-              onSetOutPoint={setOutPoint}
-              onSnapModeChange={setSnapModeFromTimeline}
-              onZoomOut={zoomTimelineOut}
-              onZoomReset={resetTimelineZoom}
-              onZoomIn={zoomTimelineIn}
-              onUndoTrim={undoTrim}
-              onRedoTrim={redoTrim}
-              loopPlayback={loopPlayback}
-              onLoopPlaybackChange={setLoopPlaybackFromTimeline}
-              onTrimWheel={handleTrimWheel}
-              onTimelineClick={handleTimelineClick}
-              onRangeDragStart={handleRangeDragStart}
-              onPlayheadDragStart={handlePlayheadDragStart}
-              onStartHandlePointerDown={handleStartHandlePointerDown}
-              onEndHandlePointerDown={handleEndHandlePointerDown}
-              onStartHandleFocus={handleStartHandleFocus}
-              onEndHandleFocus={handleEndHandleFocus}
-              onPointerUp={commitPointerTrimChange}
-              onStartChange={handleStartChange}
-              onEndChange={handleEndChange}
-              onStartTimeCommit={handleStartTimeCommit}
-              onEndTimeCommit={handleEndTimeCommit}
-            />
           </div>
 
-          {/* Preview */}
+          {/* Preview and trim editor */}
           <PreviewPane
             ref={previewRef}
             filePath={filePath}
@@ -2943,6 +3057,55 @@ export default function App() {
             removeAudio={gifMode || removeAudio}
             onTimeUpdate={handlePreviewTimeUpdate}
             onSnapshot={handleSnapshot}
+          />
+
+          <TrimTimeline
+            selectedDuration={selectedDuration}
+            selectedDurationPct={selectedDurationPct}
+            editableTimes={!gifMode && (advancedMode || losslessTrim)}
+            losslessTrim={losslessTrim}
+            losslessInfoLoading={losslessInfoLoading}
+            losslessInfoError={losslessInfoError}
+            trimReady={trimReady}
+            canSetInPoint={canSetInPoint}
+            canSetOutPoint={canSetOutPoint}
+            canUndoTrim={trimHistorySize.undo > 0}
+            canRedoTrim={trimHistorySize.redo > 0}
+            snapMode={snapMode}
+            timelineZoom={timelineZoom}
+            trimWrapRef={trimWrapRef}
+            startTime={startTime}
+            endTime={endTime}
+            viewStartVal={viewStartVal}
+            viewEndVal={viewEndVal}
+            startVal={startVal}
+            endVal={endVal}
+            startPct={startPct}
+            endPct={endPct}
+            trimPlayheadRef={trimPlayheadElementRef}
+            onSetInPoint={setInPoint}
+            onSetOutPoint={setOutPoint}
+            onSnapModeChange={setSnapModeFromTimeline}
+            onZoomOut={zoomTimelineOut}
+            onZoomReset={resetTimelineZoom}
+            onZoomIn={zoomTimelineIn}
+            onUndoTrim={undoTrim}
+            onRedoTrim={redoTrim}
+            loopPlayback={loopPlayback}
+            onLoopPlaybackChange={setLoopPlaybackFromTimeline}
+            onTrimWheel={handleTrimWheel}
+            onTimelineClick={handleTimelineClick}
+            onRangeDragStart={handleRangeDragStart}
+            onPlayheadDragStart={handlePlayheadDragStart}
+            onStartHandlePointerDown={handleStartHandlePointerDown}
+            onEndHandlePointerDown={handleEndHandlePointerDown}
+            onStartHandleFocus={handleStartHandleFocus}
+            onEndHandleFocus={handleEndHandleFocus}
+            onPointerUp={commitPointerTrimChange}
+            onStartChange={handleStartChange}
+            onEndChange={handleEndChange}
+            onStartTimeCommit={handleStartTimeCommit}
+            onEndTimeCommit={handleEndTimeCommit}
           />
 
           <div className="output-options" aria-label="Output options">
@@ -2976,7 +3139,7 @@ export default function App() {
             </div>
 
             <div className="output-option">
-              <label htmlFor="completion-action-select">Complete action</label>
+              <label htmlFor="completion-action-select">After export</label>
               <select
                 id="completion-action-select"
                 value={completionAction}
@@ -2986,11 +3149,17 @@ export default function App() {
                   saveSettings({ completion_action: action });
                 }}
               >
-                <option value="copy">Copy output file</option>
-                <option value="reveal">Reveal output file</option>
+                <option value="copy">Copy file</option>
+                <option value="reveal">Show in folder</option>
               </select>
             </div>
           </div>
+
+          {!showProgress && (
+            <div className="export-summary" aria-label="Export summary">
+              {exportSummary}
+            </div>
+          )}
 
           {/* Compress button */}
           <button
@@ -2999,6 +3168,7 @@ export default function App() {
               compressing
                 ? cancelCompress
                 : () => {
+                    resetProgress();
                     setCompressing(true);
                     startCompress();
                   }
@@ -3017,15 +3187,11 @@ export default function App() {
                 ? "Saving Output..."
                 : compressing
                   ? "Cancel"
-                  : gifMode
-                    ? "Create GIF"
-                    : losslessTrim
-                      ? "Trim Without Re-encoding"
-                      : "Compress Video"}
+                  : readyActionLabel}
           </button>
 
           {/* Progress */}
-          <ProgressSection progress={progress} eta={eta} />
+          {showProgress && <ProgressSection progress={progress} eta={eta} />}
 
           {/* Footer */}
           <div className="footer">
@@ -3072,119 +3238,6 @@ export default function App() {
                   <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
                 </svg>
               </a>
-            </div>
-            <div className="footer-mode-toggles">
-              {!gifMode && (
-                <label className="toggle-label footer-toggle advanced-toggle" title="Advanced Mode">
-                  <svg
-                    className="footer-mode-icon advanced-mode-icon"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"
-                      stroke="currentColor"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="1.8"
-                    />
-                    <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
-                  </svg>
-                  <span className="toggle-track">
-                    <input
-                      type="checkbox"
-                      className="toggle-input"
-                      aria-label="Advanced Mode"
-                      checked={advancedMode && !losslessTrim}
-                      onChange={(e) => {
-                        clearLosslessOfferMode();
-                        const next = e.target.checked;
-                        setAdvancedMode(next);
-                        if (next) setLosslessMode(false);
-                        saveSettings({
-                          advanced_mode: next,
-                          ...(next ? { lossless_mode: false } : {}),
-                        });
-                      }}
-                    />
-                    <span className="toggle-thumb" />
-                  </span>
-                </label>
-              )}
-              {!gifMode && (
-                <label
-                  className="toggle-label footer-toggle lossless-toggle"
-                  title="Lossless Trim (less precise, keyframe aligned)"
-                >
-                  <svg
-                    className="footer-mode-icon lossless-mode-icon"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    aria-hidden="true"
-                  >
-                    <rect
-                      x="8"
-                      y="8"
-                      width="11"
-                      height="11"
-                      rx="2"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                    />
-                    <path
-                      d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  <span className="toggle-track">
-                    <input
-                      type="checkbox"
-                      className="toggle-input"
-                      aria-label="Lossless Trim"
-                      checked={losslessTrim}
-                      onChange={(event) => {
-                        const next = event.target.checked;
-                        clearLosslessOfferMode();
-                        setLosslessMode(next);
-                        if (next) setAdvancedMode(false);
-                        saveSettings({
-                          lossless_mode: next,
-                          ...(next ? { advanced_mode: false } : {}),
-                        });
-                      }}
-                    />
-                    <span className="toggle-thumb" />
-                  </span>
-                </label>
-              )}
-              <label className="toggle-label footer-toggle gif-mode-toggle" title="GIF Mode">
-                <span className="footer-mode-icon gif-file-icon" aria-hidden="true">
-                  .gif
-                </span>
-                <span className="toggle-track">
-                  <input
-                    type="checkbox"
-                    className="toggle-input"
-                    aria-label="GIF Mode"
-                    checked={gifMode}
-                    onChange={(event) => {
-                      clearLosslessOfferMode();
-                      const next = event.target.checked;
-                      setGifMode(next);
-                      if (next) setLosslessMode(false);
-                      saveSettings({
-                        gif_mode: next,
-                        ...(next ? { lossless_mode: false } : {}),
-                      });
-                    }}
-                  />
-                  <span className="toggle-thumb" />
-                </span>
-              </label>
             </div>
           </div>
         </div>
