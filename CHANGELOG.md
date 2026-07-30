@@ -16,6 +16,7 @@
 
 - Reorganized the export workflow around labeled Compress, Advanced, Lossless Trim, and GIF tabs, collapsed loaded videos into a compact file summary, balanced the Lossless Trim settings row, placed trim controls directly beneath the preview, and moved secondary timeline tools into an overflow panel.
 - Added target-aware export summaries and action labels, hid idle progress chrome, improved light-mode contrast, and reduced the frame-snapshot overlay to a hover control.
+- Kept the import area at a stable height after loading a video and constrained expanded keyboard shortcuts within the app window.
 
 ## v7.0
 
