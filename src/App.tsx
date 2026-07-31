@@ -2607,6 +2607,22 @@ export default function App() {
                           ))}
                         </select>
                       </label>
+                      <label className="gif-crop-label">
+                        Crop
+                        <select
+                          value={cropAspectRatio}
+                          onChange={(event) => {
+                            setCropAspectRatio(event.target.value);
+                            saveSettings({ crop_aspect_ratio: event.target.value });
+                          }}
+                        >
+                          {cropOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     </div>
                   )}
 

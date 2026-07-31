@@ -115,8 +115,9 @@ first pass lands too large.
   - 500 MB @ native — Nitro Full
 - **GIF Mode** — export an optimized animated GIF for the 10 MB Discord Free
   or 50 MB Nitro Basic tier at 15, 30, or Discord-safe maximum 50 FPS. Video-only encoder, audio,
-  and advanced controls are hidden while GIF Mode is active. Higher frame rates
-  trade spatial detail for motion, and oversized GIFs are retried at
+  and unrelated video controls are hidden while GIF Mode is active; the aspect-ratio crop selector
+  remains available because it still applies to GIF output. Higher frame rates trade spatial detail
+  for motion, and oversized GIFs are retried at
   progressively lower visual complexity without changing the selected FPS.
 - **Advanced mode** — custom target size (MB), output resolution, aspect-ratio
   crop, FPS, audio normalization, and any FFmpeg video encoder string, with
@@ -213,7 +214,7 @@ Mode creates an animated `.gif`.
 
 | Main window                                                                                             | Advanced mode                                                                                                              | Lossless Trim                                                                                                            | GIF mode                                                                                                                |
 | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| ![vidcord main window with trim timeline, size preset picker, and progress bar](site/assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/assets/advancedmode.png) | ![vidcord Lossless Trim mode with keyframe-aligned trim controls and no video re-encoding](site/assets/losslesstrim.png) | ![vidcord GIF mode with Discord size target, FPS picker, trim timeline, and Create GIF button](site/assets/gifmode.png) |
+| ![vidcord main window with trim timeline, size preset picker, and progress bar](site/assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/assets/advancedmode.png) | ![vidcord Lossless Trim mode with keyframe-aligned trim controls and no video re-encoding](site/assets/losslesstrim.png) | ![vidcord GIF mode with Discord size target, FPS and crop controls, trim timeline, and Create GIF button](site/assets/gifmode.png) |
 
 | Output file                                                                                 | Windows context menu                                                                                            | macOS Finder                                                                                          |
 | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -286,9 +287,10 @@ For more distros, manual installs, or troubleshooting, read
 3. **Pick a mode or preset** — choose **Compress**, **Advanced**, **Lossless
    Trim**, or **GIF**, then select a 10/25/50/100/500 MB target where that mode
    applies. Advanced exposes custom target size, resolution, crop, FPS, audio
-   normalization, and encoder controls; leaving its size empty uses the source
-   bitrate without a file-size limit. Standard mode can cap output FPS at 24,
-   30, or 60 when those values do not exceed the source frame rate.
+   normalization, and encoder controls; GIF Mode keeps the crop selector available
+   because it applies to GIF output. Leaving its size empty uses the source bitrate
+   without a file-size limit. Standard mode can cap output FPS at 24, 30, or 60
+   when those values do not exceed the source frame rate.
 4. **Trim** (optional) — drag the handles or use `I` / `O` to stamp the
    playhead. `Space` plays the selected range from the current playhead when it
    is inside the trim.
