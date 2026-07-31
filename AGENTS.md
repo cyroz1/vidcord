@@ -452,15 +452,18 @@ The app re-renders on every trim-slider move. Established patterns:
 
 ### Commits / PRs
 
-- **Branching and worktree strategy**: Only perform development work for an active WIP release
-  from a branch named exactly `X.Y` (for example, `7.0` or `7.1`). The version branch itself is the
-  WIP branch; `CHANGELOG.md` may use either a top-level `## WIP` section or the matching `## vX.Y`
-  section while that release is under development. Do not develop on `main`, a detached HEAD,
-  `feature/...`, or `vX.Y` branches. Before editing, verify the branch name and that the changelog's
-  leading release section matches the active work; if either check fails, stop and ask the user to
-  switch to or create the appropriate `X.Y` branch/worktree. Merge the completed `X.Y` branch into
-  `main` only after all quality gates pass and version references are aligned. This prevents WIP
-  commits from triggering automated website deployments (`site/`) or breaking `main`.
+- **Branching and worktree strategy**: Application development for an active WIP release must use
+  a branch named exactly `X.Y` (for example, `7.0` or `7.1`). The version branch itself is the WIP
+  branch; `CHANGELOG.md` may use either a top-level `## WIP` section or the matching `## vX.Y`
+  section while that release is under development. Do not develop application code on `main`, a
+  detached HEAD, `feature/...`, or `vX.Y` branches. Site-only changes may be made directly on
+  `main` when they are limited to `site/**`, `wrangler.jsonc`, the site validator scripts, or
+  `.github/workflows/site.yml`; run `npm run site:check` for those changes. For application work,
+  verify the branch name and that the changelog's leading release section matches the active work;
+  if either check fails, stop and ask the user to switch to or create the appropriate `X.Y`
+  branch/worktree. Merge the completed `X.Y` branch into `main` only after all quality gates pass
+  and version references are aligned. This keeps application WIP commits isolated while allowing
+  the GitHub-connected site deployment to continue from `main`.
 - **Run the relevant quality gates before every commit.** If Rust changed: `cargo fmt --check --manifest-path src-tauri/Cargo.toml`, `cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings`, `cargo test --manifest-path src-tauri/Cargo.toml`. If frontend changed: `npm run lint`, `npm run typecheck`, `npm test`. Fix failures before committing — never push and let CI catch it.
 - Document significant changes where future users and agents will look for them. Update `AGENTS.md` for workflow, architecture, release, or repository-practice changes; update `README.md` for public product behavior, install/setup, supported-platform, or development changes; and update the website (`site/index.html`, JSON-LD, `llms.txt`, `llms-full.txt`, and related site assets) when public-facing product facts or download behavior change.
 - Keep a WIP changelog in `CHANGELOG.md` for meaningful user-visible changes made after the latest release. Use the latest `vX.Y` tag as the baseline, keep notes concise and release-note-ready, and exclude pure refactors, tests, chores, internal-only work, and iterative refinements of an already-documented change within the current WIP version. Consolidate those iterations into the broader release note when appropriate.
