@@ -27,16 +27,19 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   ├── previewScrub.ts        # Pure preview-seek and native-context-menu helpers
 │   ├── timelineZoom.ts        # Pure trim-timeline zoom/view calculations
 │   ├── videoMetadata.ts       # Pure source-metadata formatting helpers
+│   ├── losslessTrim.ts         # Pure lossless-fit, keyframe-snap, and keyframe-normalization helpers
+│   ├── settingsPresets.ts      # Preset schema, normalization, equality, and parsing helpers
 │   ├── components/
 │   │   ├── PreviewPane.tsx    # Video preview + scrub thumbnail + filmstrip
 │   │   ├── ProgressSection.tsx# Compression progress bar + ETA
 │   │   ├── TrimTimeline.tsx   # Memoized trim controls, shortcuts, zoom, playhead UI
 │   │   ├── Toast.tsx          # Single toast row
+│   │   ├── SettingsPresets.tsx # Autosave and named preset save/restore/delete controls
 │   │   └── EncodersDialog.tsx # Lazy-loaded FFmpeg encoder list dialog
 │   ├── hooks/
 │   │   ├── useCompression.ts  # Event listeners + pure bitrate/dimension helpers (tested)
 │   │   ├── useEncoders.ts     # detect_encoders + FFmpeg-missing tracking
-│   │   ├── useSettings.ts     # persisted compression/output prefs + debounced saves
+│   │   ├── useSettings.ts     # persisted compression/output prefs, presets, and debounced saves
 │   │   └── useToasts.ts       # Toast queue with per-id timer cleanup
 │   ├── __tests__/             # Vitest tests (node env, Tauri APIs mocked)
 │   └── __mocks__/@tauri-apps/ # Invoke/listen stubs so pure helpers run in Node
@@ -402,6 +405,15 @@ The frontend keeps only the newest fallback-frame target and actively cancels an
 Persisted to `~/.local/share/vidcord/settings.json` (Linux), `~/Library/Application Support/vidcord/settings.json` (macOS), or `%LOCALAPPDATA%\vidcord\settings.json` (Windows) via `dirs::data_local_dir()`.
 Writes use a flushed temporary file plus atomic replacement. Windows must use `MoveFileExW` with replace/write-through flags because `std::fs::rename` cannot replace an existing destination there; do not regress repeated settings saves to a plain rename.
 
+Named presets are stored in the optional `presets` array as `{ id, name, settings }` records. The
+frontend parses and normalizes them through `settingsPresets.ts`, accepts at most 20 presets, limits
+names to 40 characters, replaces an existing preset case-insensitively when the name matches, and
+ignores malformed or duplicate records on load. Presets capture compression and mode settings,
+including the selected encoder identity, but intentionally do not capture output destination,
+custom output folder, or completion action. The footer shows Autosave whenever the current captured
+settings no longer equal the selected preset; keep that comparison behavior when adding a new
+preset-backed setting.
+
 ### Native window theme
 
 `main.tsx` watches `prefers-color-scheme` and invokes `sync_native_window_theme`. The command is a
@@ -514,4 +526,4 @@ separate Site Checks workflow.
 - Linux live `<video>` scrubbing and Play/Stop trim controls are deliberately disabled because WebKitGTK's GStreamer playback path can crash the renderer on systems without a usable audio sink. Keep the `get_os` guard and FFmpeg-generated filmstrip/frame fallback unless live playback is validated across the supported Linux desktop environments and AppImage packaging.
 - CSP also gates drive roots on Windows (`C:/**` … `Z:/**`). If a user reports a path refused by the asset protocol, check `assetProtocol.scope`.
 - EncodersDialog is `React.lazy` + `Suspense` — don't import it eagerly in `App.tsx`, that re-grows the entry bundle.
-- Tests run in a **Node** environment, and the Tauri runtime APIs are mocked in `src/__mocks__/@tauri-apps/api/*`. Write tests against pure helpers (`useCompression.ts`, `ffmpegErrors.ts`, `previewScrub.ts`, `timelineZoom.ts`, `videoMetadata.ts`) or as Rust unit tests. Component integration tests are not currently wired up; don't invent a jsdom setup unless asked.
+- Tests run in a **Node** environment, and the Tauri runtime APIs are mocked in `src/__mocks__/@tauri-apps/api/*`. Write tests against pure helpers (`useCompression.ts`, `ffmpegErrors.ts`, `losslessTrim.ts`, `previewScrub.ts`, `settingsPresets.ts`, `timelineZoom.ts`, `videoMetadata.ts`) or as Rust unit tests. Component integration tests are not currently wired up; don't invent a jsdom setup unless asked.

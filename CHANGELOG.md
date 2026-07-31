@@ -8,15 +8,20 @@
 - Size-based compression now offers Lossless Trim when the selected segment is estimated to fit the chosen target at the source bitrate; accepting the offer switches to less-precise keyframe trimming so the user can choose trim points again before exporting.
 - Replaced the Lossless Trim suggestion dialog with a plain-language in-app banner that lets users keep the original quality or continue with compression.
 - Preserved keyframe-aligned boundaries when undoing or redoing Lossless Trim edits.
+- Lossless Trim now blocks export when keyframe discovery fails, prefers an MP4 stream-copy output, and can retain the validated source container extension before falling back to normal compression.
 
-### Performance
+### Settings
+
+- Added named settings presets alongside Autosave, with save, restore, delete, case-insensitive name replacement, and up to 20 persisted presets. Changing a compression or mode setting after restoring a preset returns the footer label to Autosave so it no longer implies the saved preset is active.
+
+### Build & Release
 
 - Reduced redundant CI work by deduplicating branch and pull-request runs for the same commit, reusing CI-profile Rust artifacts, and reserving installer packaging for release tags and explicit manual builds.
 
 ### UI
 
+- Refreshed the website's Compress, Advanced, Lossless Trim, and GIF mode screenshots and added a dedicated Lossless Trim showcase section.
 - Fixed the settings-preset footer form so its controls stay visible in a single row at the fixed app size.
-- Added named settings presets alongside the default autosaved settings, with export-setting save, restore, and delete controls.
 - Reorganized the export workflow around labeled Compress, Advanced, Lossless Trim, and GIF tabs, collapsed loaded videos into a compact file summary, balanced the Lossless Trim settings row, placed trim controls directly beneath the preview, and moved secondary timeline tools into an overflow panel.
 - Added target-aware export summaries and action labels, hid idle progress chrome, improved light-mode contrast, and reduced the frame-snapshot overlay to a hover control.
 - Kept the import area at a stable height after loading a video and constrained expanded keyboard shortcuts within the app window.

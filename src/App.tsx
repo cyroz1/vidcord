@@ -360,6 +360,12 @@ export default function App() {
       onEncodersDetected: persistDetectedEncoders,
       onFfmpegMissing: () => addToast("error", "FFmpeg Not Found", FFMPEG_MISSING_TOAST_MESSAGE),
     });
+  const currentEncoderLabel =
+    encoders[encoderIdx]?.label ?? (settingsRef.current.encoder_label as string | undefined) ?? "";
+  const currentPresetSettings = useMemo(
+    () => getSettingsSnapshot(encoderIdx, currentEncoderLabel),
+    [currentEncoderLabel, encoderIdx, getSettingsSnapshot]
+  );
   const { compressing, setCompressing, cancelling, progress, eta, cancelCompress, resetProgress } =
     useCompression({ onToast: addToast });
 
@@ -3324,6 +3330,7 @@ export default function App() {
               }
             >
               <SettingsPresets
+                currentSettings={currentPresetSettings}
                 presets={presets}
                 onRestore={restoreSettingsPreset}
                 onSave={saveSettingsPreset}

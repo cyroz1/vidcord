@@ -1,10 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
+  arePresetSettingsEqual,
   MAX_SETTINGS_PRESETS,
   normalizePresetName,
   normalizePresetSettings,
   parseSettingsPresets,
 } from "../settingsPresets";
+
+describe("arePresetSettingsEqual", () => {
+  it("detects when a preset-covered setting changes", () => {
+    const original = normalizePresetSettings({ quality_index: 2 });
+
+    expect(arePresetSettingsEqual(original, original)).toBe(true);
+    expect(arePresetSettingsEqual(original, { ...original, advanced_resolution: "720p" })).toBe(
+      false
+    );
+  });
+});
 
 describe("normalizePresetName", () => {
   it("trims and collapses whitespace", () => {

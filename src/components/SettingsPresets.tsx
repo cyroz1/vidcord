@@ -1,18 +1,35 @@
-import { useState, type ChangeEvent, type FormEvent } from "react";
-import type { SettingsPreset } from "../settingsPresets";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
+import {
+  arePresetSettingsEqual,
+  type PresetSettings,
+  type SettingsPreset,
+} from "../settingsPresets";
 
 type Props = {
+  currentSettings: PresetSettings;
   presets: SettingsPreset[];
   onRestore: (preset: SettingsPreset) => void;
   onSave: (name: string) => SettingsPreset | null;
   onDelete: (preset: SettingsPreset) => void;
 };
 
-export default function SettingsPresets({ presets, onRestore, onSave, onDelete }: Props) {
+export default function SettingsPresets({
+  currentSettings,
+  presets,
+  onRestore,
+  onSave,
+  onDelete,
+}: Props) {
   const [saveFormOpen, setSaveFormOpen] = useState(false);
   const [name, setName] = useState("");
   const [selectedPresetId, setSelectedPresetId] = useState("autosave");
   const selectedPreset = presets.find((preset) => preset.id === selectedPresetId);
+
+  useEffect(() => {
+    if (selectedPreset && !arePresetSettingsEqual(currentSettings, selectedPreset.settings)) {
+      setSelectedPresetId("autosave");
+    }
+  }, [currentSettings, selectedPreset]);
 
   const submitSave = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

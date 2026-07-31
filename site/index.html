@@ -91,6 +91,8 @@
             "description": "vidcord compresses MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord upload size limits locally on Windows, macOS, and Linux.",
             "featureList": [
               "Local video compression with FFmpeg",
+              "Saved named compression and mode presets with Autosave, restore, and delete controls",
+              "Lossless Trim stream-copy exports with outward keyframe-aligned boundaries and optional audio-track removal",
               "Discord upload targets: current 10 MB, 50 MB, 100 MB, and 500 MB limits plus a legacy 25 MB target",
               "Animated GIF exports for Discord's 10 MB Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS",
               "Output FPS controls with source-aware 24, 30, and 60 FPS presets plus advanced custom FPS",
@@ -113,6 +115,7 @@
             "image": [
               "https://vidcord.app/assets/window.png",
               "https://vidcord.app/assets/advancedmode.png",
+              "https://vidcord.app/assets/losslesstrim.png",
               "https://vidcord.app/assets/gifmode.png",
               "https://vidcord.app/assets/context.png",
               "https://vidcord.app/assets/finder.png",
@@ -444,6 +447,10 @@
           </p>
           <ul>
             <li>Strict output size checks with safer retry behavior.</li>
+            <li>
+              Named settings presets with Autosave, restore, and delete controls for export
+              settings.
+            </li>
             <li>Output FPS controls for 24, 30, 60, or a custom advanced value.</li>
             <li>Crop to 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, or 5:4 before scaling.</li>
             <li>
@@ -483,6 +490,46 @@
               loading="lazy"
               decoding="async"
               alt="vidcord advanced mode with target size, resolution, and encoder controls"
+            />
+          </picture>
+        </div>
+      </section>
+
+      <section class="detail-section" aria-label="Lossless Trim">
+        <div class="detail-copy">
+          <h2>Keep the original quality with Lossless Trim.</h2>
+          <p>
+            Lossless Trim cuts on source keyframes without re-encoding the video. Choose the section
+            you need, keep or remove audio, and export an original-quality clip quickly with
+            stream-copy processing.
+          </p>
+          <ul>
+            <li>No video re-encoding for fast, original-quality exports.</li>
+            <li>Trim boundaries snap outward to source keyframes.</li>
+            <li>Keep audio or remove every audio track without re-encoding video.</li>
+            <li>Size-based exports offer it when the selected segment is estimated to fit.</li>
+            <li>Falls back to normal compression when stream copying is incompatible.</li>
+          </ul>
+        </div>
+        <div class="detail-image">
+          <picture>
+            <source
+              type="image/webp"
+              srcset="
+                assets/losslesstrim-480.webp   480w,
+                assets/losslesstrim-720.webp   720w,
+                assets/losslesstrim-960.webp   960w,
+                assets/losslesstrim-1144.webp 1144w
+              "
+              sizes="(max-width: 760px) calc(100vw - 36px), (max-width: 1040px) 560px, 500px"
+            />
+            <img
+              src="assets/losslesstrim.png"
+              width="1144"
+              height="1668"
+              loading="lazy"
+              decoding="async"
+              alt="vidcord Lossless Trim mode with keyframe-aligned trim controls and no video re-encoding"
             />
           </picture>
         </div>

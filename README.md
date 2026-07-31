@@ -91,6 +91,7 @@ first pass lands too large.
 | ------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | Compress a video for Discord free upload limits         | Use the 10 MB preset, trim the clip, and remove audio if needed.               |
 | Compress large MP4, MOV, MKV, AVI, or WebM files        | FFmpeg handles the input format and vidcord exports a Discord-friendly `.mp4`. |
+| Preserve original video quality while trimming          | Use Lossless Trim for keyframe-aligned stream-copy output without re-encoding. |
 | Turn a video clip into a Discord GIF                    | Enable GIF Mode and choose the 10 MB Free or 50 MB Nitro Basic target.         |
 | Make a video fit Discord Nitro or boosted server limits | Pick 50 MB, 100 MB, or 500 MB presets without calculating bitrates by hand.    |
 | Keep video compression private                          | Everything runs locally on your computer; no web upload step.                  |
@@ -100,7 +101,10 @@ first pass lands too large.
 ## Features
 
 - **Saved settings presets** — the app autosaves the last settings used by default;
-  use the bottom-right preset dropdown to save, restore, and delete named export configurations.
+  use the bottom-right preset dropdown to save, restore, and delete up to 20 named compression and
+  mode configurations. Names are limited to 40 characters; changing a saved preset's settings
+  returns the selector to Autosave, while output destination and completion action remain separate
+  autosaved preferences.
 
 - **Five quality presets** covering current Discord tiers plus a legacy target:
   - 10 MB @ 480p — Discord free tier
@@ -136,13 +140,16 @@ first pass lands too large.
   in Explorer/Finder instead.
 - **Trim timeline** with fine-grained handles, draggable playhead, snap
   controls, zoom, pan, undo/redo, and optional looped playback.
-- **Lossless Trim** — use the dedicated copy-mode toggle beside Advanced to
+- **Lossless Trim** — use the dedicated copy-mode tab beside Advanced to
   preserve every source stream with a fast keyframe-aligned stream copy, or
   remove all audio tracks without re-encoding the video. Unrelated settings are
   hidden while the mode is active. When a selected segment is estimated to fit
   a chosen size target at the source bitrate, pressing Compress offers this
   mode automatically; accepting it switches to less-precise keyframe trimming
-  so you can choose the trim points again before exporting.
+  so you can choose the trim points again before exporting. Boundaries snap
+  outward to source keyframes; vidcord prefers an MP4 stream-copy output, then
+  the validated source container, and falls back to normal compression when
+  neither is compatible.
 - **In-app playback preview** of the trimmed segment on Windows and macOS,
   starting from the current playhead when it is inside the selected range.
 - **Responsive scrub previews** with display-sized filmstrip/frame thumbnails,
@@ -198,13 +205,15 @@ first pass lands too large.
 MP4, MOV, MKV, AVI, WebM, FLV, WMV, and any other container / codec
 combination your system FFmpeg can demux. Standard and Advanced mode output is
 `.mp4` — H.264 (AVC) by default or H.265 (HEVC) if you pick an `hevc_*`
-encoder. GIF Mode creates an animated `.gif`.
+encoder. Lossless Trim prefers `.mp4` and can use the validated source video
+extension when the source container is the compatible stream-copy choice. GIF
+Mode creates an animated `.gif`.
 
 ## Screenshots
 
-| Main window                                                                                             | Advanced mode                                                                                                              | GIF mode                                                                                                                |
-| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| ![vidcord main window with trim timeline, size preset picker, and progress bar](site/assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/assets/advancedmode.png) | ![vidcord GIF mode with Discord size target, FPS picker, trim timeline, and Create GIF button](site/assets/gifmode.png) |
+| Main window                                                                                             | Advanced mode                                                                                                              | Lossless Trim                                                                                                            | GIF mode                                                                                                                |
+| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| ![vidcord main window with trim timeline, size preset picker, and progress bar](site/assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/assets/advancedmode.png) | ![vidcord Lossless Trim mode with keyframe-aligned trim controls and no video re-encoding](site/assets/losslesstrim.png) | ![vidcord GIF mode with Discord size target, FPS picker, trim timeline, and Create GIF button](site/assets/gifmode.png) |
 
 | Output file                                                                                 | Windows context menu                                                                                            | macOS Finder                                                                                          |
 | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -274,23 +283,33 @@ For more distros, manual installs, or troubleshooting, read
 2. **Choose where to save** — use Downloads, the imported clip's folder, a
    remembered custom folder, or **Ask when done**. Choose whether completion
    copies the output file or reveals it.
-3. **Pick a preset** — 10/25/50/100/500 MB, or flip on **Advanced mode** for
-   a custom target size, resolution, crop, FPS, audio normalization, and
-   encoder. Leave the advanced size empty to use the source bitrate without a
-   file-size limit. Standard mode can also cap output FPS at 24, 30, or 60
-   when those values do not exceed the source frame rate.
+3. **Pick a mode or preset** — choose **Compress**, **Advanced**, **Lossless
+   Trim**, or **GIF**, then select a 10/25/50/100/500 MB target where that mode
+   applies. Advanced exposes custom target size, resolution, crop, FPS, audio
+   normalization, and encoder controls; leaving its size empty uses the source
+   bitrate without a file-size limit. Standard mode can cap output FPS at 24,
+   30, or 60 when those values do not exceed the source frame rate.
 4. **Trim** (optional) — drag the handles or use `I` / `O` to stamp the
    playhead. `Space` plays the selected range from the current playhead when it
    is inside the trim.
 5. **Choose audio handling** — keep the prioritized track, normalize it, or
    remove audio to reserve more bitrate for video.
-6. **Click Compress.** Progress shows the current attempt, encoder, bitrate,
-   and ETA. When it's done, vidcord reports the final output size and runs your
-   selected completion action.
+6. **Export.** Compress and Advanced re-encode to the selected target, Lossless
+   Trim uses **Trim Without Re-encoding** after keyframe discovery, and GIF mode
+   creates an animated GIF. Progress shows the current attempt, encoder,
+   bitrate, and ETA for encoding modes; when the export is done, vidcord reports
+   the result and runs your selected completion action.
 
-Output goes to `~/Downloads/<original-name>-vidcord.mp4` by default, with
-`-1`, `-2`, … appended if the name is taken. The selected destination mode,
-custom folder, and completion action are saved for the next launch.
+The footer preset selector starts at **Autosave**. Save the current compression
+and mode settings as a named preset, restore it later, or delete it; if you
+change one of those settings afterward, the selector returns to Autosave to
+show that the saved preset no longer matches. Output destination, custom folder,
+and completion action are saved independently for the next launch.
+
+Compression goes to `~/Downloads/<original-name>-vidcord.mp4` by default, with
+`-1`, `-2`, … appended if the name is taken. Lossless Trim uses the same
+collision-safe naming and may use the source video extension when stream copying
+requires it.
 
 ## Keyboard shortcuts
 
@@ -404,7 +423,9 @@ matching `CHANGELOG.md` section and draft a GitHub release.
 src/                       React + TypeScript frontend
   App.tsx                  Root component — trim UI, preset wiring, compress flow
   ipc.ts                   Typed wrappers around Tauri invoke() commands
-  components/              PreviewPane, TrimTimeline, ProgressSection, Toast, EncodersDialog
+  losslessTrim.ts          Pure fit and keyframe-snap helpers for Lossless Trim
+  settingsPresets.ts       Preset schema, normalization, equality, and parsing helpers
+  components/              PreviewPane, TrimTimeline, ProgressSection, Toast, SettingsPresets, EncodersDialog
   hooks/                   useCompression, useEncoders, useSettings, useToasts
   __tests__/               Vitest tests (node env, Tauri APIs mocked)
 
@@ -521,8 +542,9 @@ still looks reasonable at that bitrate.
 ### Which video formats does vidcord support?
 
 Any container your system FFmpeg can demux: **MP4, MOV, MKV, AVI, WebM,
-FLV, WMV**, and more. Output is always `.mp4` (H.264 by default, H.265
-if you pick an `hevc_*` encoder in Advanced mode).
+FLV, WMV**, and more. Compress and Advanced output `.mp4` (H.264 by default,
+H.265 if you pick an `hevc_*` encoder in Advanced mode); Lossless Trim prefers
+`.mp4` and can use the validated source extension when needed.
 
 ### Can vidcord compress MP4 files for Discord?
 
@@ -558,9 +580,12 @@ string so you can override any of it.
 
 ### Can vidcord compress a video without re-encoding?
 
-Not currently. Hitting a specific target size under Discord's limits
-requires re-encoding at a calculated bitrate; stream-copy wouldn't
-guarantee the output fits.
+Yes. **Lossless Trim** stream-copies the selected source streams and snaps the
+visible boundaries outward to source keyframes, so the export keeps original
+quality without video re-encoding. It does not promise a target size; when a
+size-based segment is estimated to fit, Compress offers the same mode with a
+keyframe-precision warning. Keyframe discovery failure blocks the lossless
+export, and incompatible stream-copy inputs fall back to normal compression.
 
 ### Does vidcord work on Linux and Wayland?
 

@@ -82,6 +82,12 @@ export function normalizePresetSettings(value: unknown): PresetSettings {
   return normalized;
 }
 
+export function arePresetSettingsEqual(left: PresetSettings, right: PresetSettings): boolean {
+  return (Object.keys(DEFAULT_PRESET_SETTINGS) as Array<keyof PresetSettings>).every((key) =>
+    Object.is(left[key], right[key])
+  );
+}
+
 export function normalizePresetName(value: string): string {
   return value.trim().replace(/\s+/g, " ").slice(0, MAX_PRESET_NAME_LENGTH);
 }

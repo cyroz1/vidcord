@@ -18,7 +18,7 @@ This file gives web crawlers and AI agents a more complete grounding source than
 
 ## What vidcord does
 
-vidcord compresses local video files under Discord upload size limits. It is intended for people who have a video clip that is too large for Discord and want a small native desktop app to trim, inspect scrub previews, compress, and save a Discord-ready MP4 or animated GIF. Windows and macOS support live video scrubbing and trim playback from the playhead. Linux uses FFmpeg-generated filmstrip and individual-frame previews while scrubbing.
+vidcord compresses local video files under Discord upload size limits. It is intended for people who have a video clip that is too large for Discord and want a small native desktop app to trim, inspect scrub previews, compress, stream-copy a lossless trim, and save a Discord-ready MP4, source-container video, or animated GIF. Windows and macOS support live video scrubbing and trim playback from the playhead. Linux uses FFmpeg-generated filmstrip and individual-frame previews while scrubbing.
 
 Supported input formats described by the site:
 
@@ -41,6 +41,12 @@ Discord target size presets described by the site:
 Standard mode can leave output FPS unchanged or cap it at 24, 30, or 60 FPS. It hides FPS options above the source video's frame rate. Advanced mode can set a custom target size, resolution, FPS value, aspect ratio cropping preset (16:9, 1:1, 9:16, 4:3, 3:4, 4:5, 5:4) with automatic native ratio exclusion, optional EBU R128 audio normalization targeting -14 LUFS with a 0 dB True Peak ceiling, and custom encoder options. Multi-track recordings such as OBS or ShadowPlay MP4s export exactly one audio stream: the stream with the most estimated data, with the first stream selected on ties or when discovery fails. A 📷 Snapshot overlay button and Cmd+Shift+S / Ctrl+Shift+S keyboard shortcut extract full-resolution PNG frames following the user's configured output destination and completion action (copy or reveal). The dedicated Lossless Trim mode beside Advanced, or accepting the size-based offer when the selected segment is estimated to fit the target, preserves source streams with a fast keyframe-aligned stream copy and no video re-encoding. Unrelated settings are hidden while audio-track removal remains available. The offer warns that keyframe trimming is less precise and switches modes so the user can choose trim points again before export. Boundaries snap outward to source keyframes so the visible timeline matches the exported range. If the source cannot be stream-copied into MP4, vidcord tries the source container before falling back to normal compression; keyframe discovery failures block the lossless export. An empty advanced FPS field shown as Off means no frame-rate change.
 
 GIF Mode replaces unrelated video settings with focused 10 MB Discord Free and 50 MB Nitro Basic targets plus a 15, 30, or Discord-safe maximum 50 FPS selector. GIF exports remove audio and use an FFmpeg-generated color palette. Higher selected frame rates begin with proportionally lower spatial detail, and oversized results retry with reduced dimensions and palette complexity while preserving the selected FPS.
+
+The footer starts at Autosave and supports up to 20 named settings presets. A preset captures the
+compression and mode settings, including the selected encoder identity, and can be saved, restored,
+replaced by reusing its name, or deleted. Changing a captured setting after restoring a preset
+returns the selector to Autosave; output destination, custom folder, and completion action remain
+independent autosaved preferences.
 
 ## Privacy and processing
 
@@ -76,6 +82,7 @@ The site documents Open With behavior:
 ## Features and capabilities
 
 - Local compression using FFmpeg
+- Saved settings presets for compression and mode configurations, with Autosave fallback when the current settings no longer match
 - Lossless Trim stream-copy exports with outward keyframe-aligned boundaries
 - Trim and FFmpeg-generated filmstrip/frame scrubbing before compression on all platforms
 - Live video scrubbing and trim playback from the playhead on Windows and macOS

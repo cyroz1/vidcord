@@ -19,6 +19,7 @@ for (const file of [
   "file.png",
   "finder.png",
   "gifmode.png",
+  "losslesstrim.png",
   "window.png",
 ]) {
   if (!fs.existsSync(`site/assets/${file}`)) {
