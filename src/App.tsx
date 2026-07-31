@@ -62,6 +62,7 @@ import {
   losslessTrimFitsTarget,
   normalizeLosslessKeyframes,
   snapLosslessTrimRange,
+  snapLosslessTrimSliderRange,
   type LosslessTrimInfo,
 } from "./losslessTrim";
 import {
@@ -652,15 +653,16 @@ export default function App() {
 
       const keyframeTimes = losslessInfoRef.current?.keyframe_times ?? [];
       if (losslessTrim && duration > 0 && keyframeTimes.length > 0) {
-        const snapped = snapLosslessTrimRange(
-          (nextStart / SLIDER_MAX) * duration,
-          (nextEnd / SLIDER_MAX) * duration,
+        const snapped = snapLosslessTrimSliderRange(
+          nextStart,
+          nextEnd,
           duration,
-          keyframeTimes
+          keyframeTimes,
+          SLIDER_MAX
         );
         if (snapped) {
-          nextStart = (snapped.start / duration) * SLIDER_MAX;
-          nextEnd = (snapped.end / duration) * SLIDER_MAX;
+          nextStart = snapped.start;
+          nextEnd = snapped.end;
         }
       }
 
@@ -735,19 +737,25 @@ export default function App() {
   const undoTrim = useCallback(() => {
     const target = undoStackRef.current.pop();
     if (!target) return;
-    redoStackRef.current.push({ start: startValRef.current, end: endValRef.current });
-    startValRef.current = target.start;
-    endValRef.current = target.end;
+    const next = losslessTrim ? normalizeTrim(target.start, target.end, "start") : target;
+    const current = { start: startValRef.current, end: endValRef.current };
+    if (next.start === current.start && next.end === current.end) {
+      syncTrimHistorySize();
+      return;
+    }
+    redoStackRef.current.push(current);
+    startValRef.current = next.start;
+    endValRef.current = next.end;
     pendingTrimStateRef.current = null;
     if (trimStateRafRef.current !== null) {
       window.cancelAnimationFrame(trimStateRafRef.current);
       trimStateRafRef.current = null;
     }
-    setStartVal(target.start);
-    setEndVal(target.end);
+    setStartVal(next.start);
+    setEndVal(next.end);
     syncTrimHistorySize();
-    setPreviewFocusNow(sliderValueToTime(target.start), false);
-  }, [setPreviewFocusNow, sliderValueToTime, syncTrimHistorySize]);
+    setPreviewFocusNow(sliderValueToTime(next.start), false);
+  }, [losslessTrim, normalizeTrim, setPreviewFocusNow, sliderValueToTime, syncTrimHistorySize]);
 
   const handleSnapshot = useCallback(
     async (timeSec: number) => {
@@ -817,19 +825,32 @@ export default function App() {
   const redoTrim = useCallback(() => {
     const target = redoStackRef.current.pop();
     if (!target) return;
-    pushUndoSnapshot({ start: startValRef.current, end: endValRef.current });
-    startValRef.current = target.start;
-    endValRef.current = target.end;
+    const next = losslessTrim ? normalizeTrim(target.start, target.end, "start") : target;
+    const current = { start: startValRef.current, end: endValRef.current };
+    if (next.start === current.start && next.end === current.end) {
+      syncTrimHistorySize();
+      return;
+    }
+    pushUndoSnapshot(current);
+    startValRef.current = next.start;
+    endValRef.current = next.end;
     pendingTrimStateRef.current = null;
     if (trimStateRafRef.current !== null) {
       window.cancelAnimationFrame(trimStateRafRef.current);
       trimStateRafRef.current = null;
     }
-    setStartVal(target.start);
-    setEndVal(target.end);
+    setStartVal(next.start);
+    setEndVal(next.end);
     syncTrimHistorySize();
-    setPreviewFocusNow(sliderValueToTime(target.start), false);
-  }, [pushUndoSnapshot, setPreviewFocusNow, sliderValueToTime, syncTrimHistorySize]);
+    setPreviewFocusNow(sliderValueToTime(next.start), false);
+  }, [
+    losslessTrim,
+    normalizeTrim,
+    pushUndoSnapshot,
+    setPreviewFocusNow,
+    sliderValueToTime,
+    syncTrimHistorySize,
+  ]);
 
   const setInPoint = useCallback(() => {
     const pt = playheadTimeRef.current;

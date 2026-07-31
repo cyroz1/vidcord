@@ -3,6 +3,7 @@ import {
   losslessTrimFitsTarget,
   normalizeLosslessKeyframes,
   snapLosslessTrimRange,
+  snapLosslessTrimSliderRange,
 } from "../losslessTrim";
 
 describe("losslessTrimFitsTarget", () => {
@@ -43,5 +44,18 @@ describe("snapLosslessTrimRange", () => {
   it("returns null when snapping cannot produce a positive range", () => {
     expect(snapLosslessTrimRange(5, 5, 10, [0, 5, 10])).toBeNull();
     expect(snapLosslessTrimRange(0, 1, 10, [])).toBeNull();
+  });
+});
+
+describe("snapLosslessTrimSliderRange", () => {
+  it("restores timeline values on outward keyframe boundaries", () => {
+    expect(snapLosslessTrimSliderRange(2400, 7200, 10, [0, 2, 5, 8, 10], 10000)).toEqual({
+      start: 2000,
+      end: 8000,
+    });
+  });
+
+  it("rejects an invalid timeline scale", () => {
+    expect(snapLosslessTrimSliderRange(0, 100, 10, [0, 10], 0)).toBeNull();
   });
 });

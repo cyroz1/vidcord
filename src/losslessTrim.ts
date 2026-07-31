@@ -83,6 +83,29 @@ export function snapLosslessTrimRange(
   return { start, end };
 }
 
+export function snapLosslessTrimSliderRange(
+  requestedStart: number,
+  requestedEnd: number,
+  duration: number,
+  keyframeTimes: readonly number[],
+  sliderMax: number
+): { start: number; end: number } | null {
+  if (!Number.isFinite(sliderMax) || sliderMax <= 0) return null;
+
+  const snapped = snapLosslessTrimRange(
+    (requestedStart / sliderMax) * duration,
+    (requestedEnd / sliderMax) * duration,
+    duration,
+    keyframeTimes
+  );
+  if (!snapped) return null;
+
+  return {
+    start: Math.round((snapped.start / duration) * sliderMax),
+    end: Math.round((snapped.end / duration) * sliderMax),
+  };
+}
+
 export function normalizeLosslessKeyframes(
   keyframeTimes: readonly number[],
   duration: number
