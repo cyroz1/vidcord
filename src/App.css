@@ -1584,7 +1584,8 @@ select optgroup {
 .footer {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  min-width: 0;
   padding-top: 2px;
 }
 
@@ -1600,14 +1601,21 @@ select optgroup {
 }
 
 .footer-meta {
-  display: contents;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 10px;
+  min-width: 0;
 }
 
 .settings-presets {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
+  flex: 1 1 auto;
   margin-left: auto;
+  min-width: 0;
 }
 
 .preset-icon {
@@ -1618,8 +1626,10 @@ select optgroup {
 }
 
 .preset-select {
+  width: 128px;
+  min-width: 0;
   min-height: 28px;
-  max-width: 154px;
+  max-width: 100%;
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   background: var(--surface);
@@ -1628,6 +1638,15 @@ select optgroup {
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.preset-save-form {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
 }
 
 .preset-delete-button {
@@ -1649,6 +1668,8 @@ select optgroup {
 
 .preset-name-input {
   width: 108px;
+  min-width: 56px;
+  flex: 1 1 108px;
   min-height: 28px;
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);

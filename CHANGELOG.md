@@ -15,6 +15,7 @@
 
 ### UI
 
+- Fixed the settings-preset footer form so its controls stay visible in a single row at the fixed app size.
 - Added named settings presets alongside the default autosaved settings, with export-setting save, restore, and delete controls.
 - Reorganized the export workflow around labeled Compress, Advanced, Lossless Trim, and GIF tabs, collapsed loaded videos into a compact file summary, balanced the Lossless Trim settings row, placed trim controls directly beneath the preview, and moved secondary timeline tools into an overflow panel.
 - Added target-aware export summaries and action labels, hid idle progress chrome, improved light-mode contrast, and reduced the frame-snapshot overlay to a hover control.
