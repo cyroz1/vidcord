@@ -140,7 +140,7 @@
                 "name": "Does vidcord upload videos?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "No. vidcord processes video files locally on your computer with your system FFmpeg binary. The app does not upload videos, require accounts, or collect telemetry. It checks GitHub Releases for updates and downloads an installer only after user approval. The website requests public release metadata from GitHub and an aggregate download count from Shields.io; neither request includes video data."
+                  "text": "No. FFmpeg runs on your computer, so videos stay local. vidcord requires no account or telemetry. The app checks GitHub for updates, while the website requests only public release data and aggregate download counts; neither request includes video data."
                 }
               },
               {
@@ -148,7 +148,7 @@
                 "name": "Which Discord upload limits are supported?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "vidcord targets Discord's current 10 MB, 50 MB, 100 MB, and 500 MB upload limits and also provides a legacy 25 MB target, plus advanced custom target, resolution, FPS, and encoder controls. Leaving the advanced target empty uses the source video's bitrate without a file-size limit. GIF Mode exports animated GIFs for the 10 MB Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS."
+                  "text": "Presets cover Discord's current 10 MB, 50 MB, 100 MB, and 500 MB limits, plus a legacy 25 MB target. Advanced mode adds custom size, resolution, FPS, and encoder controls. GIF Mode supports 10 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS."
                 }
               },
               {
@@ -156,7 +156,7 @@
                 "name": "Can vidcord change output FPS?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Yes. Standard mode can leave FPS unchanged or cap output at 24, 30, or 60 FPS without showing choices above the source frame rate. Advanced mode accepts a custom FPS value or an empty Off field for no change."
+                  "text": "Yes. Standard mode can leave FPS unchanged or cap it at 24, 30, or 60 FPS. Advanced mode accepts a custom value or Off."
                 }
               },
               {
@@ -164,7 +164,7 @@
                 "name": "How does the download button work?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "The site checks the latest GitHub release, detects Windows, macOS, or Linux in the browser, and links directly to the matching release asset. If x64 or ARM64 cannot be determined with enough certainty, it asks the user to choose. It also shows the aggregate GitHub release download count when Shields.io is available."
+                  "text": "The site detects your OS and links to the matching latest-release asset. If x64 or ARM64 is unclear, it asks you to choose. It also shows aggregate download counts when Shields.io is available."
                 }
               },
               {
@@ -172,7 +172,7 @@
                 "name": "Are scrubbing and playback previews available on Linux?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Linux supports FFmpeg-generated filmstrip and individual-frame previews while scrubbing. Live video scrubbing and trim playback are disabled because WebKitGTK's GStreamer playback path can crash the renderer on some systems."
+                  "text": "Linux uses FFmpeg to generate filmstrip and frame previews while scrubbing. Live video scrubbing and trim playback are disabled because WebKitGTK can crash the renderer on some systems."
                 }
               },
               {
@@ -180,7 +180,7 @@
                 "name": "Does vidcord include FFmpeg?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "No. vidcord uses the system ffmpeg and ffprobe binaries, so FFmpeg must be installed and available on PATH. The installer or first launch can help install it through platform package managers."
+                  "text": "No. Install ffmpeg and ffprobe and make them available on PATH. vidcord can help with the platform package-manager steps."
                 }
               },
               {
@@ -188,7 +188,7 @@
                 "name": "How do in-app updates work?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Automatic update checks are deferred until startup settles and run at most once every six hours. After user approval, vidcord streams the matching installer to Downloads, validates its size and completeness, compares it with GitHub's published SHA-256 digest, chooses an unused filename, and opens it. The GitHub release page remains available as a fallback."
+                  "text": "Update checks wait until startup settles and run at most every six hours. After approval, vidcord streams, validates, and hashes the installer against GitHub's SHA-256 digest, saves it under an unused name, and opens it. The release page remains a fallback."
                 }
               }
             ]
@@ -231,13 +231,10 @@
           <h1 id="hero-title">vidcord</h1>
           <p class="hero-lede">Local video compression for Discord limits.</p>
           <p class="hero-body">
-            Shrink MP4, MOV, MKV, AVI, WebM, FLV, and WMV files to Discord's current 10 / 50 / 100 /
-            500 MB upload limits, or a legacy 25 MB target, with FFmpeg on your own machine.
-            Lossless Trim cuts on source keyframes without re-encoding, and size-based exports offer
-            it automatically when the selected segment is estimated to fit the target. GIF Mode
-            creates animated GIFs for the 10 MB Free and 50 MB Nitro Basic tiers at 15, 30, or
-            Discord-safe maximum 50 FPS with the same aspect-ratio crop presets used by video
-            exports.
+            Compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord's 10, 50, 100, or
+            500 MB limits—or the legacy 25 MB target—using FFmpeg locally. Lossless Trim cuts on
+            keyframes without re-encoding. GIF Mode creates Discord-ready GIFs at 15, 30, or up to
+            50 FPS.
           </p>
 
           <div class="hero-actions">
@@ -368,10 +365,9 @@
           </svg>
           <h2>Discord targets</h2>
           <p>
-            Pick a current 10, 50, 100, or 500 MB Discord limit—or the legacy 25 MB target—cap FPS
-            if needed, and let the app calculate the bitrate. GIF Mode provides focused 10 MB Free
-            and 50 MB Nitro Basic animated GIF exports with selectable 15, 30, or Discord-safe
-            maximum 50 FPS plus aspect-ratio crop presets.
+            Choose a 10, 50, 100, or 500 MB limit—or the legacy 25 MB target—and let vidcord
+            calculate the bitrate. GIF Mode supports 10 MB Free and 50 MB Nitro Basic exports at 15,
+            30, or up to 50 FPS.
           </p>
         </article>
         <article>
@@ -380,13 +376,10 @@
           </svg>
           <h2>Trim and preview</h2>
           <p>
-            Cut the part you need, scrub the timeline, preview from the playhead, then compress only
-            that segment—or choose Lossless Trim to preserve source streams with keyframe-aligned
-            boundaries and no re-encoding. If the selected segment already fits a chosen size
-            target, vidcord offers Lossless Trim before compressing; accepting it lets you choose
-            the trim points again with a clear less-precise keyframe warning. On Linux,
-            FFmpeg-generated filmstrip and frame previews remain available while live video
-            scrubbing and trim playback are disabled for stability.
+            Scrub, preview, and compress only the range you need. Lossless Trim preserves source
+            streams with keyframe-aligned boundaries. If a segment already fits the target, vidcord
+            offers that option with a clear keyframe warning. Linux uses FFmpeg frame and filmstrip
+            previews for stable scrubbing.
           </p>
         </article>
         <article>
@@ -425,9 +418,9 @@
             <span class="step-number">3</span>
             <h3>Compress and save</h3>
             <p>
-              vidcord runs FFmpeg locally, verifies the size, and saves to Downloads, beside the
-              clip, to a custom folder, or wherever you choose when it finishes. Then it copies the
-              file itself to your clipboard by default or reveals it in your file manager.
+              Run FFmpeg locally, verify the size, and choose Downloads, the clip folder, a custom
+              folder, or a save prompt. Copy the output to your clipboard or reveal it in your file
+              manager.
             </p>
           </article>
         </div>
@@ -437,15 +430,11 @@
         <div class="detail-copy">
           <h2>Simple when you want it. Precise when you need it.</h2>
           <p>
-            Advanced mode lets you set a custom target size, resolution, aspect-ratio crop, FPS,
-            audio normalization, and encoder string; GIF Mode keeps the aspect-ratio crop selector
-            available because it also applies to GIF output. A dedicated Lossless Trim mode uses
-            keyframe-aligned stream copying, hides unrelated settings, and can remove audio without
-            re-encoding the video. Size-based exports offer the same choice when the selected
-            segment is estimated to fit the target at the source bitrate, then lets you choose
-            less-precise keyframe-aligned trim points again before export. Encoder detection shows
-            what your installed FFmpeg can actually use, while a saved encoder choice remains
-            sticky.
+            Advanced mode adds custom size, resolution, crop, FPS, audio normalization, and encoder
+            controls. GIF Mode keeps crop presets, while Lossless Trim preserves video streams and
+            can remove audio without re-encoding. Size-based exports offer Lossless Trim when a
+            selected segment fits the target. Encoder detection shows which installed encoders work,
+            and saved choices remain sticky.
           </p>
           <ul>
             <li>Strict output size checks with safer retry behavior.</li>
@@ -582,10 +571,9 @@
           <div>
             <h2 id="integrations-title">Open videos from Explorer or Finder</h2>
             <p>
-              vidcord registers as a video app, so you can start from your file manager and get the
-              compressed MP4 back in Downloads by default or choose another output location. While
-              vidcord is unfocused, native notifications mirror its banners; click one to restore
-              and focus the app.
+              Start from your file manager and get the compressed MP4 in Downloads or another output
+              location. Native notifications mirror vidcord's banners while the app is unfocused;
+              click one to restore and focus it.
             </p>
           </div>
         </div>
@@ -682,64 +670,57 @@
           <article>
             <h3>Does vidcord upload videos?</h3>
             <p>
-              No. vidcord runs FFmpeg on your computer, keeps files local, and does not require an
-              account or telemetry. It checks GitHub Releases for updates and only downloads an
-              installer after you approve an available update. The website requests public release
-              metadata from GitHub and an aggregate download count from Shields.io; neither request
-              includes video data.
+              No. FFmpeg runs on your computer, so videos stay local. vidcord requires no account or
+              telemetry. The app checks GitHub for updates, while the website requests only public
+              release data and aggregate download counts; neither request includes video data.
             </p>
           </article>
           <article>
             <h3>Which Discord upload limits are supported?</h3>
             <p>
-              The presets cover Discord's current 10 MB, 50 MB, 100 MB, and 500 MB upload limits,
-              plus a legacy 25 MB target. Advanced mode can set a custom target size, resolution,
-              FPS, and encoder, or use the source video's bitrate when target size is empty. GIF
-              Mode exports animated GIFs for the 10 MB Free and 50 MB Nitro Basic tiers at 15, 30,
-              or Discord-safe maximum 50 FPS.
+              Presets cover Discord's current 10 MB, 50 MB, 100 MB, and 500 MB limits, plus a legacy
+              25 MB target. Advanced mode adds custom size, resolution, FPS, and encoder controls.
+              GIF Mode supports 10 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS.
             </p>
           </article>
           <article>
             <h3>Can vidcord change output FPS?</h3>
             <p>
-              Yes. Standard mode can leave FPS unchanged or cap output at 24, 30, or 60 FPS without
-              showing choices above the source frame rate. Advanced mode accepts a custom FPS value
-              or an empty Off field for no change.
+              Yes. Standard mode can leave FPS unchanged or cap it at 24, 30, or 60 FPS. Advanced
+              mode accepts a custom value or Off.
             </p>
           </article>
           <article>
             <h3>Are scrubbing and playback previews available on Linux?</h3>
             <p>
-              Linux provides FFmpeg-generated filmstrip and individual-frame previews while
-              scrubbing. Live video scrubbing and trim playback are disabled because WebKitGTK's
-              GStreamer playback path can crash the renderer on some systems.
+              Linux uses FFmpeg to generate filmstrip and frame previews while scrubbing. Live video
+              scrubbing and trim playback are disabled because WebKitGTK can crash the renderer on
+              some systems.
             </p>
           </article>
           <article>
             <h3>Does vidcord include FFmpeg?</h3>
             <p>
-              No. Make sure <code>ffmpeg</code> and <code>ffprobe</code> are available on your PATH.
-              vidcord can help install them with the
+              No. Install <code>ffmpeg</code> and <code>ffprobe</code> and make them available on
+              PATH. vidcord can help with the
               <a href="#ffmpeg-install">platform package-manager steps</a>.
             </p>
           </article>
           <article>
             <h3>How does the download button work?</h3>
             <p>
-              The site checks the latest GitHub release, detects Windows, macOS, or Linux in the
-              browser, and links directly to the matching release asset. If x64 or ARM64 cannot be
-              determined with enough certainty, it asks you to choose. It also shows the aggregate
-              GitHub release download count when Shields.io is available.
+              The site detects your OS and links to the matching latest-release asset. If x64 or
+              ARM64 is unclear, it asks you to choose. It also shows aggregate download counts when
+              Shields.io is available.
             </p>
           </article>
           <article>
             <h3>How do in-app updates work?</h3>
             <p>
-              Automatic checks wait until startup settles and run at most once every six hours.
-              After you approve an update, vidcord streams the matching installer to Downloads,
-              validates its size and completeness, compares it with GitHub's published SHA-256
-              digest, chooses an unused filename, and opens it. The release page remains available
-              as a fallback.
+              Update checks wait until startup settles and run at most every six hours. After
+              approval, vidcord streams, validates, and hashes the installer against GitHub's
+              SHA-256 digest, saves it under an unused name, and opens it. The release page remains
+              a fallback.
             </p>
           </article>
         </div>
@@ -777,9 +758,8 @@
               </button>
             </div>
             <p>
-              When installation finishes, use Retry in vidcord. The app recognizes WinGet's FFmpeg
-              install directory without requiring a Windows restart. If winget cannot install on
-              your machine, use the full guide.
+              When it finishes, select Retry in vidcord. The app recognizes WinGet's install
+              directory without a restart. If winget fails, use the full guide.
             </p>
           </article>
 
