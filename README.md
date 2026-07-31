@@ -214,7 +214,7 @@ Mode creates an animated `.gif`.
 
 | Main window                                                                                             | Advanced mode                                                                                                              | Lossless Trim                                                                                                            | GIF mode                                                                                                                |
 | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| ![vidcord main window with trim timeline, size preset picker, and progress bar](site/assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/assets/advancedmode.png) | ![vidcord Lossless Trim mode with keyframe-aligned trim controls and no video re-encoding](site/assets/losslesstrim.png) | ![vidcord GIF mode with Discord size target, FPS and crop controls, trim timeline, and Create GIF button](site/assets/gifmode.png) |
+| ![vidcord main window with trim timeline, size preset picker, and progress bar](site/assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/assets/advancedmode.png) | ![vidcord Lossless Trim mode with keyframe-aligned trim controls and no video re-encoding](site/assets/losslesstrim.png) | ![vidcord GIF mode with Discord size target, FPS picker, trim timeline, and Create GIF button](site/assets/gifmode.png) |
 
 | Output file                                                                                 | Windows context menu                                                                                            | macOS Finder                                                                                          |
 | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -414,10 +414,8 @@ warning-clean.
 [`.github/workflows/build.yml`](.github/workflows/build.yml) runs a shared
 frontend build, consolidated Rust formatting/audit/clippy/test checks, and a
 5-way platform matrix (Windows x86_64/aarch64, macOS universal, Linux
-x86_64/aarch64). Branch and pull-request runs compile every platform without
-packaging installers; tags create release-profile installers, while manual
-runs can create CI-profile installers for testing. Tag builds then extract the
-matching `CHANGELOG.md` section and draft a GitHub release.
+x86_64/aarch64). Release tags create installers and draft a GitHub release from
+the matching `CHANGELOG.md` section.
 
 ## Project layout
 

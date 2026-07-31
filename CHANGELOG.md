@@ -4,28 +4,19 @@
 
 ### Compression
 
-- Added a dedicated **Lossless Trim** mode beside Advanced that preserves source streams with a fast, keyframe-aligned stream copy, hides unrelated settings, and can remove all audio tracks without re-encoding the video. Incompatible containers fall back to normal compression.
+- Added a dedicated **Lossless Trim** mode beside Advanced that preserves source streams with a fast, keyframe-aligned stream copy, hides unrelated settings, can remove all audio tracks without re-encoding the video, and falls back to normal compression when stream copying is incompatible. Trim boundaries snap outward to source keyframes, and exports prefer MP4 before using a validated source container.
 - Size-based compression now offers Lossless Trim when the selected segment is estimated to fit the chosen target at the source bitrate; accepting the offer switches to less-precise keyframe trimming so the user can choose trim points again before exporting.
-- Replaced the Lossless Trim suggestion dialog with a plain-language in-app banner that lets users keep the original quality or continue with compression.
-- Preserved keyframe-aligned boundaries when undoing or redoing Lossless Trim edits.
-- Lossless Trim now blocks export when keyframe discovery fails, prefers an MP4 stream-copy output, and can retain the validated source container extension before falling back to normal compression.
 
 ### Settings
 
 - Added named settings presets alongside Autosave, with save, restore, delete, case-insensitive name replacement, and up to 20 persisted presets. Changing a compression or mode setting after restoring a preset returns the footer label to Autosave so it no longer implies the saved preset is active.
 
-### Build & Release
-
-- Reduced redundant CI work by deduplicating branch and pull-request runs for the same commit, reusing CI-profile Rust artifacts, and reserving installer packaging for release tags and explicit manual builds.
-
 ### UI
 
 - Kept the persisted aspect-ratio crop selector visible in GIF Mode so switching workflows does not hide a crop that still applies to the export.
 - Refreshed the website's Compress, Advanced, Lossless Trim, and GIF mode screenshots and added a dedicated Lossless Trim showcase section.
-- Fixed the settings-preset footer form so its controls stay visible in a single row at the fixed app size.
-- Reorganized the export workflow around labeled Compress, Advanced, Lossless Trim, and GIF tabs, collapsed loaded videos into a compact file summary, balanced the Lossless Trim settings row, placed trim controls directly beneath the preview, and moved secondary timeline tools into an overflow panel.
-- Added target-aware export summaries and action labels, hid idle progress chrome, improved light-mode contrast, and reduced the frame-snapshot overlay to a hover control.
-- Kept the import area at a stable height after loading a video and constrained expanded keyboard shortcuts within the app window.
+- Reorganized the export workflow around labeled Compress, Advanced, Lossless Trim, and GIF tabs, collapsed loaded videos into a compact file summary, kept the preset footer controls visible, placed trim controls directly beneath the preview, added target-aware summaries and action labels, and moved secondary timeline tools into an overflow panel.
+- Stabilized the loaded-video layout, hid idle progress chrome, improved light-mode contrast, reduced the frame-snapshot overlay to a hover control, and constrained expanded keyboard shortcuts within the app window.
 
 ## v7.0
 
