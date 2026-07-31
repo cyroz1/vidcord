@@ -103,7 +103,6 @@ export default function SettingsPresets({
           type="button"
           className="preset-delete-button"
           aria-label={`Delete preset ${selectedPreset.name}`}
-          title={`Delete “${selectedPreset.name}”`}
           onClick={handleDelete}
         >
           Delete
