@@ -21,7 +21,6 @@
 ### UI
 
 - Kept the persisted aspect-ratio crop selector visible in GIF Mode so switching workflows does not hide a crop that still applies to the export.
-- Updated the GIF Mode website screenshot to show the crop selector alongside the target and FPS controls.
 - Refreshed the website's Compress, Advanced, Lossless Trim, and GIF mode screenshots and added a dedicated Lossless Trim showcase section.
 - Fixed the settings-preset footer form so its controls stay visible in a single row at the fixed app size.
 - Reorganized the export workflow around labeled Compress, Advanced, Lossless Trim, and GIF tabs, collapsed loaded videos into a compact file summary, balanced the Lossless Trim settings row, placed trim controls directly beneath the preview, and moved secondary timeline tools into an overflow panel.
