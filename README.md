@@ -99,6 +99,9 @@ first pass lands too large.
 
 ## Features
 
+- **Saved settings presets** — the app autosaves the last settings used by default;
+  use the bottom-right preset dropdown to save, restore, and delete named export configurations.
+
 - **Five quality presets** covering current Discord tiers plus a legacy target:
   - 10 MB @ 480p — Discord free tier
   - 25 MB @ 480p — legacy convenience target (not a current Discord tier)

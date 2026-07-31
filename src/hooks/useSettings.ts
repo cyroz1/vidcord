@@ -1,13 +1,25 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { loadSettings, saveSettings as persistSettings, type Settings } from "../ipc";
+import {
+  createSettingsPresetId,
+  MAX_SETTINGS_PRESETS,
+  normalizePresetName,
+  normalizePresetSettings,
+  parseSettingsPresets,
+  type PresetSettings,
+  type SettingsPreset,
+  type CompletionAction,
+  type OutputDestination,
+} from "../settingsPresets";
 
-export type OutputDestination = "downloads" | "source" | "ask" | "custom";
-export type CompletionAction = "reveal" | "copy";
+export type { CompletionAction, OutputDestination } from "../settingsPresets";
 
 export function useSettings() {
   const settingsRef = useRef<Settings>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const presetsRef = useRef<SettingsPreset[]>([]);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [presets, setPresets] = useState<SettingsPreset[]>([]);
 
   // Persisted settings values
   const [qualityIdx, setQualityIdx] = useState(0);
@@ -32,11 +44,10 @@ export function useSettings() {
     (async () => {
       const s = await loadSettings().catch((): Settings => ({}));
       settingsRef.current = s;
-      if (
-        typeof s.quality_index === "number" &&
-        s.quality_index >= 0 &&
-        s.quality_index <= 4
-      ) {
+      const loadedPresets = parseSettingsPresets(s.presets);
+      presetsRef.current = loadedPresets;
+      setPresets(loadedPresets);
+      if (typeof s.quality_index === "number" && s.quality_index >= 0 && s.quality_index <= 4) {
         setQualityIdx(s.quality_index);
       }
       if (typeof s.gif_mode === "boolean") setGifMode(s.gif_mode);
@@ -98,6 +109,104 @@ export function useSettings() {
     }, 250);
   }, []);
 
+  const getSettingsSnapshot = useCallback(
+    (encoderIndex = 0, encoderLabel = ""): PresetSettings => ({
+      quality_index: qualityIdx,
+      gif_mode: gifMode,
+      gif_quality_index: gifQualityIdx,
+      gif_fps: gifFps,
+      advanced_mode: advancedMode,
+      lossless_mode: losslessMode,
+      advanced_target_size: advSize,
+      advanced_resolution: advResolution,
+      fps_option: fpsOption,
+      advanced_fps: advFps,
+      advanced_encoder: advEncoder,
+      remove_audio: removeAudio,
+      audio_normalize: audioNormalize,
+      crop_aspect_ratio: cropAspectRatio,
+      encoder_index: encoderIndex,
+      encoder_label: encoderLabel,
+    }),
+    [
+      advEncoder,
+      advFps,
+      advResolution,
+      advSize,
+      advancedMode,
+      audioNormalize,
+      cropAspectRatio,
+      fpsOption,
+      gifFps,
+      gifMode,
+      gifQualityIdx,
+      losslessMode,
+      qualityIdx,
+      removeAudio,
+    ]
+  );
+
+  const restoreSettings = useCallback((value: unknown): PresetSettings => {
+    const restored = normalizePresetSettings(value);
+    setQualityIdx(restored.quality_index);
+    setGifMode(restored.gif_mode);
+    setGifQualityIdx(restored.gif_quality_index);
+    setGifFps(restored.gif_fps);
+    setAdvancedMode(restored.advanced_mode);
+    setLosslessMode(restored.lossless_mode);
+    setAdvSize(restored.advanced_target_size);
+    setAdvResolution(restored.advanced_resolution);
+    setFpsOption(restored.fps_option);
+    setAdvFps(restored.advanced_fps);
+    setAdvEncoder(restored.advanced_encoder);
+    setRemoveAudio(restored.remove_audio);
+    setAudioNormalize(restored.audio_normalize);
+    setCropAspectRatio(restored.crop_aspect_ratio);
+    return restored;
+  }, []);
+
+  const savePreset = useCallback(
+    (name: string, settings: PresetSettings): SettingsPreset | null => {
+      const normalizedName = normalizePresetName(name);
+      if (!normalizedName) return null;
+
+      const current = presetsRef.current;
+      const existing = current.find(
+        (preset) => preset.name.toLocaleLowerCase() === normalizedName.toLocaleLowerCase()
+      );
+      if (!existing && current.length >= MAX_SETTINGS_PRESETS) return null;
+
+      const nextPreset: SettingsPreset = {
+        id: existing?.id ?? createSettingsPresetId(),
+        name: normalizedName,
+        settings: normalizePresetSettings(settings),
+      };
+      const next = existing
+        ? current.map((preset) => (preset.id === existing.id ? nextPreset : preset))
+        : [...current, nextPreset];
+      presetsRef.current = next;
+      setPresets(next);
+      saveSettings({ presets: next });
+      return nextPreset;
+    },
+    [saveSettings]
+  );
+
+  const deletePreset = useCallback(
+    (id: string): SettingsPreset | null => {
+      const current = presetsRef.current;
+      const deleted = current.find((preset) => preset.id === id);
+      if (!deleted) return null;
+
+      const next = current.filter((preset) => preset.id !== id);
+      presetsRef.current = next;
+      setPresets(next);
+      saveSettings({ presets: next });
+      return deleted;
+    },
+    [saveSettings]
+  );
+
   useEffect(() => {
     return () => {
       if (saveTimerRef.current) {
@@ -148,6 +257,11 @@ export function useSettings() {
     setCustomOutputDirectory,
     completionAction,
     setCompletionAction,
+    presets,
+    getSettingsSnapshot,
+    restoreSettings,
+    savePreset,
+    deletePreset,
     saveSettings,
   };
 }

@@ -1603,6 +1603,82 @@ select optgroup {
   display: contents;
 }
 
+.settings-presets {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.preset-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
+.preset-select {
+  min-height: 28px;
+  max-width: 154px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--text);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.preset-delete-button {
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 4px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.preset-delete-button:hover {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.preset-name-input {
+  width: 108px;
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--text);
+  padding: 4px 7px;
+  font-size: 11px;
+}
+
+.preset-save-button,
+.preset-cancel-button {
+  min-height: 28px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  padding: 4px 7px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.preset-save-button {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.preset-cancel-button {
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 16px;
+}
+
 .version {
   font-size: 12px;
   color: var(--text-disabled);

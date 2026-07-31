@@ -13,6 +13,13 @@ pub struct PersistedEncoder {
     pub auto_selectable: Option<bool>,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct PersistedSettingsPreset {
+    pub id: String,
+    pub name: String,
+    pub settings: serde_json::Value,
+}
+
 /// Typed schema for persisted settings.
 /// Unknown keys in the JSON file are silently dropped on load by deserializing
 /// through this struct and re-serializing, preventing corrupt or stale data
@@ -59,6 +66,8 @@ pub struct Settings {
     pub encoder_label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encoder_capabilities: Option<Vec<PersistedEncoder>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presets: Option<Vec<PersistedSettingsPreset>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub update_last_check: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -227,6 +236,13 @@ mod tests {
                     "label": "macOS (h264_videotoolbox)",
                     "auto_selectable": true
                 }
+            ],
+            "presets": [
+                {
+                    "id": "discord-mobile",
+                    "name": "Discord mobile",
+                    "settings": { "quality_index": 1, "advanced_mode": false }
+                }
             ]
         });
 
@@ -256,6 +272,8 @@ mod tests {
             "h264_videotoolbox"
         );
         assert_eq!(loaded["encoder_capabilities"][1]["auto_selectable"], true);
+        assert_eq!(loaded["presets"][0]["id"], "discord-mobile");
+        assert_eq!(loaded["presets"][0]["settings"]["quality_index"], 1);
 
         std::fs::remove_dir_all(&dir).ok();
     }

@@ -72,12 +72,14 @@ import {
   getAvailableCropOptions,
   getCroppedDimensions,
 } from "./videoMetadata";
+import { MAX_SETTINGS_PRESETS, type SettingsPreset } from "./settingsPresets";
 import pkg from "../package.json";
 
 // EncodersDialog is only shown after an explicit user click from Advanced
 // Mode; lazy-loading it keeps the initial JS bundle smaller and is rendered
 // under a <Suspense> boundary below.
 const EncodersDialog = lazy(() => import("./components/EncodersDialog"));
+const SettingsPresets = lazy(() => import("./components/SettingsPresets"));
 
 const CURRENT_VERSION = pkg.version;
 const DISPLAY_VERSION = (() => {
@@ -316,6 +318,11 @@ export default function App() {
     setCustomOutputDirectory,
     completionAction,
     setCompletionAction,
+    presets,
+    getSettingsSnapshot,
+    restoreSettings,
+    savePreset,
+    deletePreset,
     saveSettings,
   } = useSettings();
   const persistDetectedEncoders = useCallback(
@@ -1060,6 +1067,55 @@ export default function App() {
       saveSettings({ output_destination: destination });
     },
     [chooseCustomOutputDirectory, customOutputDirectory, saveSettings, setOutputDestination]
+  );
+
+  const restoreSettingsPreset = useCallback(
+    (preset: SettingsPreset) => {
+      clearLosslessOfferMode();
+      const restored = restoreSettings(preset.settings);
+      const matchingEncoderIndex = restored.encoder_label
+        ? encoders.findIndex((encoder) => encoder.label === restored.encoder_label)
+        : -1;
+      const nextEncoderIndex =
+        matchingEncoderIndex >= 0
+          ? matchingEncoderIndex
+          : Math.max(0, Math.min(restored.encoder_index, Math.max(encoders.length - 1, 0)));
+      setEncoderIdx(nextEncoderIndex);
+      saveSettings(restored);
+      addToast("success", "Preset Restored", `Loaded “${preset.name}”.`);
+    },
+    [addToast, clearLosslessOfferMode, encoders, restoreSettings, saveSettings, setEncoderIdx]
+  );
+
+  const saveSettingsPreset = useCallback(
+    (name: string) => {
+      const currentEncoderLabel =
+        encoders[encoderIdx]?.label ??
+        (settingsRef.current.encoder_label as string | undefined) ??
+        "";
+      const preset = savePreset(name, getSettingsSnapshot(encoderIdx, currentEncoderLabel));
+      if (preset) {
+        addToast("success", "Preset Saved", `Saved “${preset.name}”.`);
+      } else {
+        addToast(
+          "error",
+          "Could Not Save Preset",
+          `You can save up to ${MAX_SETTINGS_PRESETS} presets.`
+        );
+      }
+      return preset;
+    },
+    [addToast, encoders, encoderIdx, getSettingsSnapshot, savePreset, settingsRef]
+  );
+
+  const deleteSettingsPreset = useCallback(
+    (preset: SettingsPreset) => {
+      const deleted = deletePreset(preset.id);
+      if (deleted) {
+        addToast("success", "Preset Deleted", `Removed “${deleted.name}”.`);
+      }
+    },
+    [addToast, deletePreset]
   );
 
   const completeOutput = useCallback(
@@ -3239,6 +3295,20 @@ export default function App() {
                 </svg>
               </a>
             </div>
+            <Suspense
+              fallback={
+                <span className="settings-presets" aria-hidden="true">
+                  <span className="preset-select">Autosave</span>
+                </span>
+              }
+            >
+              <SettingsPresets
+                presets={presets}
+                onRestore={restoreSettingsPreset}
+                onSave={saveSettingsPreset}
+                onDelete={deleteSettingsPreset}
+              />
+            </Suspense>
           </div>
         </div>
 
