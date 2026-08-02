@@ -404,12 +404,10 @@ pub fn probe_video(
         "10000000",
         "-analyzeduration",
         "5000000",
-        "-select_streams",
-        "v:0",
         "-print_format",
         "json",
         "-show_entries",
-        "format=duration,bit_rate:stream=codec_name,codec_type,width,height,avg_frame_rate,r_frame_rate,sample_aspect_ratio,display_aspect_ratio,bit_rate:stream_side_data=rotation",
+        "format=duration,bit_rate:stream=index,codec_name,codec_type,width,height,avg_frame_rate,r_frame_rate,sample_aspect_ratio,display_aspect_ratio,bit_rate,channels,duration,size:stream_tags=title,name,language,handler_name:stream_side_data=rotation",
         path,
     ]);
     configure_ffmpeg_command(&mut cmd);
@@ -498,6 +496,74 @@ pub fn probe_video(
         })
         .unwrap_or(0);
 
+    let audio_tracks = streams
+        .iter()
+        .filter(|stream| stream["codec_type"].as_str() == Some("audio"))
+        .enumerate()
+        .map(|(audio_index, stream)| {
+            let bitrate_bps = stream["bit_rate"]
+                .as_str()
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(0);
+            let track_duration = stream["duration"]
+                .as_str()
+                .and_then(|value| value.parse::<f64>().ok())
+                .filter(|value| value.is_finite() && *value > 0.0)
+                .unwrap_or(duration);
+            let estimated_size_bytes = if bitrate_bps > 0 && track_duration > 0.0 {
+                ((bitrate_bps as f64 * track_duration / 8.0)
+                    .min(u64::MAX as f64)
+                    .round()) as u64
+            } else {
+                0
+            };
+            let size_bytes = stream["size"]
+                .as_str()
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(estimated_size_bytes);
+            let title = stream["tags"]["title"]
+                .as_str()
+                .filter(|value| !value.trim().is_empty())
+                .map(str::trim)
+                .map(str::to_owned);
+            let tagged_name = stream["tags"]["name"]
+                .as_str()
+                .filter(|value| !value.trim().is_empty())
+                .map(str::trim)
+                .map(str::to_owned);
+            let handler_name = stream["tags"]["handler_name"]
+                .as_str()
+                .filter(|value| {
+                    let value = value.trim();
+                    !value.is_empty()
+                        && !value.eq_ignore_ascii_case("soundhandler")
+                        && !value.eq_ignore_ascii_case("core media audio")
+                })
+                .map(str::trim)
+                .map(str::to_owned);
+            let language = stream["tags"]["language"]
+                .as_str()
+                .filter(|value| !value.trim().is_empty() && !value.eq_ignore_ascii_case("und"))
+                .map(str::trim)
+                .map(str::to_owned);
+            let name = title
+                .or(tagged_name)
+                .or(handler_name)
+                .or(language)
+                .unwrap_or_else(|| format!("Track {}", audio_index + 1));
+
+            serde_json::json!({
+                "index": audio_index,
+                "name": name,
+                "codec": stream["codec_name"].as_str().unwrap_or("unknown"),
+                "bitrate_kbps": bitrate_bps as f64 / 1000.0,
+                "duration": track_duration,
+                "size_bytes": size_bytes,
+                "channels": stream["channels"].as_u64().unwrap_or(1)
+            })
+        })
+        .collect::<Vec<_>>();
+
     Ok(serde_json::json!({
         "duration": duration,
         "width": width,
@@ -506,7 +572,8 @@ pub fn probe_video(
         "display_height": display_height,
         "frame_rate": frame_rate,
         "bitrate": bitrate,
-        "codec": codec
+        "codec": codec,
+        "audio_tracks": audio_tracks
     }))
 }
 

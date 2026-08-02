@@ -121,15 +121,20 @@ first pass lands too large.
   progressively lower visual complexity without changing the selected FPS.
 - **Advanced mode** — custom target size (MB), output resolution, aspect-ratio
   crop, FPS, audio normalization, and any FFmpeg video encoder string, with
-  autocomplete from the encoders your installed FFmpeg exposes. Leave target
-  size empty to encode at the source bitrate without a file-size limit.
+  autocomplete from the encoders your installed FFmpeg exposes. Its per-video
+  audio mixer lists every source track by name and estimated size, defaults to
+  the largest track, and can select any combination without changing saved
+  settings or presets. Leave target size empty to encode at the source bitrate
+  without a file-size limit.
 - **Aspect-ratio cropping** — crop to 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, or
   5:4 before scaling. A preset matching the imported video's native display
   ratio is hidden automatically.
 - **Smart audio output** — optionally normalize retained audio to EBU R128
-  `-14 LUFS` with a `0 dBTP` ceiling. Multi-track recordings export exactly
-  one audio track: the track with the most estimated data, or the first track
-  on a tie or if discovery fails.
+  `-14 LUFS` with a `0 dBTP` ceiling. Standard compression defaults to one
+  audio track with the most estimated data, or the first track on a tie or if
+  discovery fails. Advanced mode can select one, several, or all source tracks;
+  each selected track is encoded at 128 kbps and the video bitrate budget
+  accounts for every selected track.
 - **Full-resolution frame snapshots** — save the frame at the playhead as a
   PNG with the preview overlay or `Cmd+Shift+S` / `Ctrl+Shift+S`. Snapshots
   follow the configured output destination and copy/reveal completion action.
@@ -295,7 +300,10 @@ For more distros, manual installs, or troubleshooting, read
    playhead. `Space` plays the selected range from the current playhead when it
    is inside the trim.
 5. **Choose audio handling** — keep the prioritized track, normalize it, or
-   remove audio to reserve more bitrate for video.
+   remove audio to reserve more bitrate for video. In Advanced mode, open the
+   mixer beside the mute and normalize buttons to inspect every source track,
+   select individual tracks or all tracks, and keep that choice for this video
+   only; each selected track reserves 128 kbps.
 6. **Export.** Compress and Advanced re-encode to the selected target, Lossless
    Trim uses **Trim Without Re-encoding** after keyframe discovery, and GIF mode
    creates an animated GIF. Progress shows the current attempt, encoder,

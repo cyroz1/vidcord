@@ -99,7 +99,7 @@
               "Output destinations for Downloads, the imported clip folder, a remembered custom folder, or an after-compression save prompt",
               "Completion actions that copy the output file to the system clipboard by default or reveal it in the platform file manager",
               "EBU R128 audio loudness normalization with a 0 dB True Peak target",
-              "Smart multi-track audio selection that encodes exactly one primary track with the most estimated data and prefers the first track on ties",
+              "Per-video Advanced audio track mixer with names, estimated sizes, individual or select-all checkboxes, and a 128 kbps budget per selected track",
               "Aspect ratio cropping presets (16:9, 1:1, 9:16, 4:3, 3:4, 4:5, 5:4) with automatic native ratio exclusion",
               "Full-resolution PNG frame snapshots with instant clipboard copy or file explorer reveal",
               "Real-time taskbar and Dock progress bar for unfocused monitoring",
@@ -449,8 +449,10 @@
               bitrate.
             </li>
             <li>
-              Multi-track recordings keep exactly one prioritized track: the most data, with the
-              first track winning ties or discovery fallback.
+              Advanced mode's mixer lists every source audio track by name and estimated size, then
+              lets you select one, several, or all tracks for that video. With no custom choice,
+              Advanced and standard compression keep the largest track by estimated data, with the
+              first track winning ties or discovery fallback; each selected track reserves 128 kbps.
             </li>
             <li>
               Save full-resolution PNG snapshots using the preview button or Cmd/Ctrl+Shift+S.

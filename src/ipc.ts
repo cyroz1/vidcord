@@ -14,6 +14,17 @@ export type ProbeData = {
   frame_rate?: number;
   bitrate: number;
   codec: string;
+  audio_tracks: AudioTrack[];
+};
+
+export type AudioTrack = {
+  index: number;
+  name: string;
+  codec: string;
+  bitrate_kbps: number;
+  duration: number;
+  size_bytes: number;
+  channels: number;
 };
 
 export type Encoder = {
@@ -45,6 +56,7 @@ export type CompressOptions = {
   start_time: number;
   end_time: number;
   remove_audio: boolean;
+  audio_track_indices?: number[] | null;
   audio_normalize?: boolean;
   crop_aspect_ratio?: string;
   output_fps: number | null;

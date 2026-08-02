@@ -314,6 +314,7 @@ pub struct CompressOptions {
     pub start_time: f64,
     pub end_time: f64,
     pub remove_audio: bool,
+    pub audio_track_indices: Option<Vec<usize>>,
     pub audio_normalize: Option<bool>,
     pub crop_aspect_ratio: Option<String>,
     pub output_fps: Option<f64>,
@@ -832,6 +833,15 @@ fn prioritized_audio_map(audio_idx: Option<usize>) -> String {
     format!("0:a:{}?", audio_idx.unwrap_or(0))
 }
 
+fn selected_audio_maps(audio_indices: Option<&[usize]>, input_path: &str) -> Vec<String> {
+    match audio_indices {
+        Some(indices) => indices.iter().map(|index| format!("0:a:{index}")).collect(),
+        None => vec![prioritized_audio_map(
+            crate::ffmpeg::find_best_audio_stream_index(input_path),
+        )],
+    }
+}
+
 async fn run_ffmpeg_attempt(
     app: &AppHandle,
     opts: &CompressOptions,
@@ -933,19 +943,18 @@ async fn run_ffmpeg_attempt(
         if opts.remove_audio {
             cmd_args.push("-an".into());
         } else {
-            let audio_map = prioritized_audio_map(crate::ffmpeg::find_best_audio_stream_index(
-                &opts.input_path,
-            ));
-            cmd_args.extend([
-                "-map".into(),
-                audio_map,
-                "-c:a".into(),
-                "aac".into(),
-                "-b:a".into(),
-                "128k".into(),
-            ]);
-            if opts.audio_normalize == Some(true) {
-                cmd_args.extend(["-af".into(), "loudnorm=I=-14:TP=0.0:LRA=11".into()]);
+            let audio_maps =
+                selected_audio_maps(opts.audio_track_indices.as_deref(), &opts.input_path);
+            if audio_maps.is_empty() {
+                cmd_args.push("-an".into());
+            } else {
+                for audio_map in audio_maps {
+                    cmd_args.extend(["-map".into(), audio_map]);
+                }
+                cmd_args.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "128k".into()]);
+                if opts.audio_normalize == Some(true) {
+                    cmd_args.extend(["-af".into(), "loudnorm=I=-14:TP=0.0:LRA=11".into()]);
+                }
             }
         }
     }
@@ -2003,6 +2012,15 @@ mod tests {
     }
 
     #[test]
+    fn selected_audio_maps_preserve_manual_order_and_allow_no_audio() {
+        assert_eq!(
+            selected_audio_maps(Some(&[2, 0]), "input.mp4"),
+            vec!["0:a:2", "0:a:0"]
+        );
+        assert!(selected_audio_maps(Some(&[]), "input.mp4").is_empty());
+    }
+
+    #[test]
     fn bounded_record_reader_splits_cr_and_lf() {
         let mut reader = std::io::Cursor::new(b"first\nsecond\r\nthird".as_slice());
         let mut records = Vec::new();
@@ -2068,6 +2086,7 @@ mod tests {
             start_time: 0.0,
             end_time: 60.0,
             remove_audio: false,
+            audio_track_indices: None,
             audio_normalize: None,
             crop_aspect_ratio: None,
             output_fps: None,

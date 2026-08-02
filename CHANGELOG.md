@@ -1,5 +1,11 @@
 # Changelog
 
+## v7.2
+
+### Audio
+
+- Added per-video Advanced mode audio track controls with a mixer popup that lists track names and estimated sizes, supports selecting individual tracks or all tracks, and reserves 128 kbps per selected AAC track in the target video bitrate.
+
 ## v7.1
 
 ### Compression

@@ -16,6 +16,7 @@ import Toast from "./components/Toast";
 import ProgressSection from "./components/ProgressSection";
 import PreviewPane, { type PreviewHandle } from "./components/PreviewPane";
 import TrimTimeline, { type SnapMode } from "./components/TrimTimeline";
+import AudioTrackPicker from "./components/AudioTrackPicker";
 import { useToasts } from "./hooks/useToasts";
 import { useSettings, type CompletionAction, type OutputDestination } from "./hooks/useSettings";
 import { useEncoders, type Encoder } from "./hooks/useEncoders";
@@ -74,6 +75,7 @@ import {
   getCroppedDimensions,
 } from "./videoMetadata";
 import { MAX_SETTINGS_PRESETS, type SettingsPreset } from "./settingsPresets";
+import { defaultAudioTrackIndices, normalizeAudioTrackIndices } from "./audioTracks";
 import pkg from "../package.json";
 
 // EncodersDialog is only shown after an explicit user click from Advanced
@@ -332,6 +334,20 @@ export default function App() {
     },
     [saveSettings]
   );
+  const handleRemoveAudioChange = useCallback(
+    (next: boolean) => {
+      setRemoveAudio(next);
+      saveSettings({ remove_audio: next });
+    },
+    [saveSettings, setRemoveAudio]
+  );
+  const handleAudioNormalizeChange = useCallback(
+    (next: boolean) => {
+      setAudioNormalize(next);
+      saveSettings({ audio_normalize: next });
+    },
+    [saveSettings, setAudioNormalize]
+  );
 
   // File state is declared before encoder discovery so the startup refresh can
   // yield to a cold Open With / drag-drop probe instead of competing for FFmpeg.
@@ -339,6 +355,7 @@ export default function App() {
   const [fileLoadGeneration, setFileLoadGeneration] = useState(0);
   const [fileName, setFileName] = useState("Drag a video here or click Browse");
   const [probeData, setProbeData] = useState<ProbeData | null>(null);
+  const [audioTrackSelection, setAudioTrackSelection] = useState<number[] | null>(null);
   const [loadingVideo, setLoadingVideo] = useState(false);
   const [losslessInfo, setLosslessInfo] = useState<LosslessTrimInfo | null>(null);
   const [losslessInfoLoading, setLosslessInfoLoading] = useState(false);
@@ -426,6 +443,13 @@ export default function App() {
   const modalOpen = updateInfo !== null || encodersDialogText !== null;
 
   const duration = probeData?.duration ?? 0;
+  const probedAudioTracks = probeData?.audio_tracks;
+  const audioTracks = useMemo(() => probedAudioTracks ?? [], [probedAudioTracks]);
+  const defaultAudioTracks = useMemo(() => defaultAudioTrackIndices(audioTracks), [audioTracks]);
+  const activeAudioTrackIndices = useMemo(
+    () => normalizeAudioTrackIndices(audioTrackSelection, audioTracks),
+    [audioTrackSelection, audioTracks]
+  );
   const sourceFrameRate =
     typeof probeData?.frame_rate === "number" &&
     Number.isFinite(probeData.frame_rate) &&
@@ -965,6 +989,7 @@ export default function App() {
       setFileLoadGeneration(loadGeneration);
       setFilePath(path);
       setFileName(path.split(/[\\/]/).pop() ?? path);
+      setAudioTrackSelection(null);
       probeDataRef.current = null;
       setProbeData(null);
       losslessInfoRef.current = null;
@@ -1503,6 +1528,7 @@ export default function App() {
     if (
       !losslessTrim &&
       !gifMode &&
+      audioTrackSelection === null &&
       !skipLosslessOffer &&
       offerTargetSize !== null &&
       losslessTrimFitsTarget(offerTargetSize, clipDuration, probeData.bitrate)
@@ -1544,12 +1570,20 @@ export default function App() {
       return;
     }
 
-    const effectiveRemoveAudio = gifMode || removeAudio;
+    const manualAudioTrackIndices =
+      advancedMode && !gifMode && !losslessTrim ? activeAudioTrackIndices : null;
+    const audioTrackCount =
+      advancedMode && !gifMode && !losslessTrim
+        ? activeAudioTrackIndices.length
+        : defaultAudioTracks.length;
+    const effectiveRemoveAudio =
+      gifMode || removeAudio || (manualAudioTrackIndices !== null && audioTrackCount === 0);
     const videoBitrate = resolveVideoBitrate(
       targetSize,
       clipDuration,
       effectiveRemoveAudio,
-      gifMode ? 0 : probeData.bitrate
+      gifMode ? 0 : probeData.bitrate,
+      audioTrackCount
     );
     if (videoBitrate === null) {
       if (!losslessTrim) {
@@ -1618,6 +1652,7 @@ export default function App() {
       start_time: startTime,
       end_time: endTime,
       remove_audio: effectiveRemoveAudio,
+      audio_track_indices: manualAudioTrackIndices,
       audio_normalize: losslessTrim ? false : audioNormalize,
       crop_aspect_ratio: losslessTrim ? "off" : cropAspectRatio,
       output_fps: losslessTrim ? null : outputFps,
@@ -1709,6 +1744,9 @@ export default function App() {
     encoders,
     removeAudio,
     audioNormalize,
+    activeAudioTrackIndices,
+    audioTrackSelection,
+    defaultAudioTracks,
     cropAspectRatio,
     outputDestination,
     customOutputDirectory,
@@ -2466,6 +2504,7 @@ export default function App() {
               dependencies={[
                 filePath,
                 fileName,
+                probeData,
                 importDetails,
                 loadingVideo,
                 browseFile,
@@ -2489,8 +2528,14 @@ export default function App() {
                 setEncoderIdx,
                 removeAudio,
                 setRemoveAudio,
+                handleRemoveAudioChange,
                 audioNormalize,
                 setAudioNormalize,
+                handleAudioNormalizeChange,
+                audioTracks,
+                audioTrackSelection,
+                setAudioTrackSelection,
+                fileLoadGeneration,
                 cropAspectRatio,
                 setCropAspectRatio,
                 cropOptions,
@@ -3031,98 +3076,17 @@ export default function App() {
                               </div>
                             )}
                           </div>
-                          <button
-                            type="button"
-                            className={`mute-btn${removeAudio ? " active" : ""}`}
-                            title={removeAudio ? "Unmute audio" : "Mute audio"}
-                            aria-label={removeAudio ? "Unmute audio" : "Mute audio"}
-                            onClick={() => {
-                              const next = !removeAudio;
-                              setRemoveAudio(next);
-                              saveSettings({ remove_audio: next });
-                            }}
-                          >
-                            {removeAudio ? (
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <line x1="1" y1="1" x2="23" y2="23" />
-                                <path d="M9 9L6 12H2v4h4l5 4v-5.58" />
-                              </svg>
-                            ) : (
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                              </svg>
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            className={`norm-btn${audioNormalize && !removeAudio ? " active" : ""}`}
-                            disabled={removeAudio}
-                            title={
-                              removeAudio
-                                ? "Audio is muted"
-                                : "EBU R128 audio loudness normalization"
-                            }
-                            aria-label="Normalize audio"
-                            onClick={() => {
-                              const next = !audioNormalize;
-                              setAudioNormalize(next);
-                              saveSettings({ audio_normalize: next });
-                            }}
-                          >
-                            {audioNormalize && !removeAudio ? (
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.5"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <line x1="3" y1="6" x2="3" y2="18" />
-                                <line x1="7.5" y1="3" x2="7.5" y2="21" />
-                                <line x1="12" y1="2" x2="12" y2="22" />
-                                <line x1="16.5" y1="3" x2="16.5" y2="21" />
-                                <line x1="21" y1="6" x2="21" y2="18" />
-                              </svg>
-                            ) : (
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <line x1="4" y1="10" x2="4" y2="14" />
-                                <line x1="9" y1="7" x2="9" y2="17" />
-                                <line x1="14" y1="5" x2="14" y2="19" />
-                                <line x1="19" y1="9" x2="19" y2="15" />
-                              </svg>
-                            )}
-                          </button>
+                          <AudioTrackPicker
+                            key={fileLoadGeneration}
+                            tracks={audioTracks}
+                            selection={audioTrackSelection}
+                            removeAudio={removeAudio}
+                            audioNormalize={audioNormalize}
+                            disabled={!probeData}
+                            onChange={setAudioTrackSelection}
+                            onRemoveAudioChange={handleRemoveAudioChange}
+                            onAudioNormalizeChange={handleAudioNormalizeChange}
+                          />
                           <button
                             type="button"
                             className="icon-btn"
