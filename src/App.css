@@ -202,9 +202,8 @@
 .scroll-area {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 8px 14px 6px;
+  overflow: hidden;
+  padding: 8px 14px 2px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1790,7 +1789,10 @@ select optgroup {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
   min-width: 0;
+  min-height: 28px;
+  margin: 0 14px 6px;
   padding-top: 2px;
 }
 
@@ -1821,6 +1823,7 @@ select optgroup {
   gap: 4px;
   flex: 1 1 auto;
   margin-left: auto;
+  min-height: 28px;
   min-width: 0;
 }
 
