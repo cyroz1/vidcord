@@ -11,7 +11,8 @@ mod log;
 mod settings;
 
 use commands::compression::{
-    cancel_compression, cancel_preview_generation, capture_snapshot, compress_video, get_filmstrip,
+    cancel_compression, cancel_lossless_trim_probe_command, cancel_preview_frame_generation,
+    cancel_preview_generation, capture_snapshot, compress_video, get_filmstrip,
     get_lossless_trim_info, get_preview_clip, get_preview_frame, probe,
 };
 use commands::encoders::{
@@ -301,6 +302,8 @@ pub fn run() {
             get_preview_clip,
             get_filmstrip,
             cancel_preview_generation,
+            cancel_preview_frame_generation,
+            cancel_lossless_trim_probe_command,
             detect_encoders,
             check_ffmpeg_available,
             install_ffmpeg_dependency,

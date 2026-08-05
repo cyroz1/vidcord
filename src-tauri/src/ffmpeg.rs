@@ -1,6 +1,6 @@
 use crate::log::vidcord_log;
 use std::collections::{HashMap, HashSet};
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -34,8 +34,12 @@ const VAAPI_DEVICE_TIMEOUT: Duration = Duration::from_secs(2);
 
 static PREVIEW_GENERATION: AtomicU64 = AtomicU64::new(0);
 static PREVIEW_PIDS: OnceLock<Mutex<HashSet<u32>>> = OnceLock::new();
+static PREVIEW_FRAME_GENERATION: AtomicU64 = AtomicU64::new(0);
+static PREVIEW_FRAME_PIDS: OnceLock<Mutex<HashSet<u32>>> = OnceLock::new();
 static PROBE_GENERATION: AtomicU64 = AtomicU64::new(0);
 static PROBE_PIDS: OnceLock<Mutex<HashMap<u32, u64>>> = OnceLock::new();
+static LOSSLESS_TRIM_REQUEST: AtomicU64 = AtomicU64::new(0);
+static LOSSLESS_TRIM_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 pub fn ffmpeg_missing_error() -> String {
     format!(
@@ -60,6 +64,8 @@ fn probe_command_output(
     {
         let mut guard = pids.lock().unwrap_or_else(|e| e.into_inner());
         if PROBE_GENERATION.load(Ordering::Acquire) != generation {
+            terminate_preview_process(pid);
+            let _ = child.wait_for_output(Duration::from_secs(1));
             return Err(format!("{PROBE_CANCELLED_ERROR_MARKER} Probe was cancelled.").into());
         }
         guard.insert(pid, generation);
@@ -137,7 +143,29 @@ fn terminate_preview_process(pid: u32) {
 
 pub fn cancel_preview_jobs() {
     PREVIEW_GENERATION.fetch_add(1, Ordering::AcqRel);
-    let pids = PREVIEW_PIDS.get_or_init(|| Mutex::new(HashSet::new()));
+    PREVIEW_FRAME_GENERATION.fetch_add(1, Ordering::AcqRel);
+    for pids in [
+        PREVIEW_PIDS.get_or_init(|| Mutex::new(HashSet::new())),
+        PREVIEW_FRAME_PIDS.get_or_init(|| Mutex::new(HashSet::new())),
+    ] {
+        let active: Vec<u32> = pids
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .copied()
+            .collect();
+        for pid in active {
+            terminate_preview_process(pid);
+        }
+    }
+}
+
+/// Cancels only single-frame preview requests. Filmstrip and generated-clip
+/// work keeps its own generation so rapid scrubbing cannot terminate a strip
+/// that is still filling the fallback timeline.
+pub fn cancel_preview_frame_jobs() {
+    PREVIEW_FRAME_GENERATION.fetch_add(1, Ordering::AcqRel);
+    let pids = PREVIEW_FRAME_PIDS.get_or_init(|| Mutex::new(HashSet::new()));
     let active: Vec<u32> = pids
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -153,6 +181,35 @@ pub fn start_probe_generation() -> u64 {
     PROBE_GENERATION
         .fetch_add(1, Ordering::AcqRel)
         .wrapping_add(1)
+}
+
+pub fn register_lossless_trim_probe(request_id: u64, generation: u64) {
+    LOSSLESS_TRIM_REQUEST.store(request_id, Ordering::Release);
+    LOSSLESS_TRIM_GENERATION.store(generation, Ordering::Release);
+}
+
+pub fn cancel_lossless_trim_probe(request_id: u64) {
+    if request_id == 0
+        || LOSSLESS_TRIM_REQUEST
+            .compare_exchange(request_id, 0, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+    {
+        return;
+    }
+    let generation = LOSSLESS_TRIM_GENERATION.load(Ordering::Acquire);
+    if PROBE_GENERATION.load(Ordering::Acquire) == generation {
+        PROBE_GENERATION.fetch_add(1, Ordering::AcqRel);
+    }
+    let pids = PROBE_PIDS.get_or_init(|| Mutex::new(HashMap::new()));
+    let active: Vec<u32> = pids
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .filter_map(|(&pid, &owner)| (owner == generation).then_some(pid))
+        .collect();
+    for pid in active {
+        terminate_preview_process(pid);
+    }
 }
 
 pub fn cancel_superseded_probe_jobs(generation: u64) {
@@ -182,43 +239,100 @@ pub fn cancel_superseded_probe_jobs(generation: u64) {
     }
 }
 
+struct PreviewCommandOutput {
+    status: std::process::ExitStatus,
+    stdout: Vec<u8>,
+}
+
 fn preview_command_output(
     cmd: &mut Command,
     generation: u64,
+    frame_generation: Option<u64>,
     timeout: Duration,
     output_limit: u64,
-) -> Result<Output, Box<dyn std::error::Error>> {
-    if preview_generation() != generation {
+) -> Result<PreviewCommandOutput, Box<dyn std::error::Error>> {
+    let is_current = || {
+        preview_generation() == generation
+            && frame_generation
+                .map(|value| PREVIEW_FRAME_GENERATION.load(Ordering::Acquire) == value)
+                .unwrap_or(true)
+    };
+    if !is_current() {
         return Err(preview_cancelled_error());
     }
 
-    let child = match crate::gpu::spawn_captured_command(cmd) {
+    let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(err) if err.kind() == ErrorKind::NotFound => return Err(ffmpeg_missing_error().into()),
         Err(err) => return Err(Box::new(err)),
     };
     let pid = child.id();
-    let pids = PREVIEW_PIDS.get_or_init(|| Mutex::new(HashSet::new()));
+    let pids = if frame_generation.is_some() {
+        PREVIEW_FRAME_PIDS.get_or_init(|| Mutex::new(HashSet::new()))
+    } else {
+        PREVIEW_PIDS.get_or_init(|| Mutex::new(HashSet::new()))
+    };
+    let Some(mut stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("FFmpeg preview did not expose stdout".into());
+    };
+    let output_limit = output_limit.min(usize::MAX as u64) as usize;
+    let reader = std::thread::spawn(move || {
+        let mut bytes = Vec::with_capacity(output_limit.min(64 * 1024));
+        stdout
+            .by_ref()
+            .take(output_limit.saturating_add(1) as u64)
+            .read_to_end(&mut bytes)
+            .map(|_| bytes)
+    });
     {
         let mut guard = pids.lock().unwrap_or_else(|e| e.into_inner());
-        if preview_generation() != generation {
+        if !is_current() {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = reader.join();
             return Err(preview_cancelled_error());
         }
         guard.insert(pid);
     }
 
-    let output = child.wait_for_output_with_limit(timeout, output_limit);
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) if !is_current() => {
+                terminate_preview_process(pid);
+                let _ = child.kill();
+                let _ = child.wait();
+                break Err(preview_cancelled_error());
+            }
+            Ok(None) if Instant::now() >= deadline => {
+                terminate_preview_process(pid);
+                let _ = child.kill();
+                let _ = child.wait();
+                break Err(format!(
+                    "{PREVIEW_TIMEOUT_ERROR_MARKER} FFmpeg preview timed out after {} seconds.",
+                    timeout.as_secs()
+                )
+                .into());
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+            Err(err) => break Err(Box::new(err) as Box<dyn std::error::Error>),
+        }
+    };
     pids.lock().unwrap_or_else(|e| e.into_inner()).remove(&pid);
-    let output = output?.ok_or_else(|| {
-        format!(
-            "{PREVIEW_TIMEOUT_ERROR_MARKER} FFmpeg preview timed out after {} seconds.",
-            timeout.as_secs()
-        )
-    })?;
-    if preview_generation() != generation {
+    let status = status?;
+    let stdout = reader
+        .join()
+        .map_err(|_| "FFmpeg preview output reader panicked")??;
+    if stdout.len() > output_limit {
+        return Err(format!("FFmpeg preview output exceeded {output_limit} bytes").into());
+    }
+    if !is_current() {
         return Err(preview_cancelled_error());
     }
-    Ok(output)
+    Ok(PreviewCommandOutput { status, stdout })
 }
 
 fn preview_deadline(timeout: Duration) -> Instant {
@@ -237,8 +351,6 @@ fn remaining_preview_time(deadline: Instant) -> Result<Duration, Box<dyn std::er
     Ok(remaining)
 }
 
-const PREVIEW_CLIP_SCALE_FILTER: &str =
-    "scale=w=1280:h=720:flags=fast_bilinear:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1";
 const PREVIEW_CLIP_BITRATE: &str = "2500k";
 const MAX_GENERATED_PREVIEW_CLIP_SECONDS: f64 = 12.0;
 const SPARSE_FILMSTRIP_THRESHOLD_SEC: f64 = 3.0 * 60.0;
@@ -675,6 +787,7 @@ pub fn probe_lossless_trim_info(
     }))
 }
 
+#[cfg(test)]
 pub fn best_audio_stream_from_json(data: &serde_json::Value) -> Option<usize> {
     let streams = data["streams"].as_array()?;
     if streams.is_empty() {
@@ -708,39 +821,6 @@ pub fn best_audio_stream_from_json(data: &serde_json::Value) -> Option<usize> {
     }
 
     Some(best_idx)
-}
-
-pub fn find_best_audio_stream_index(path: &str) -> Option<usize> {
-    #[allow(unused_mut)]
-    let mut cmd = std::process::Command::new("ffprobe");
-    cmd.args([
-        "-v",
-        "quiet",
-        "-print_format",
-        "json",
-        "-select_streams",
-        "a",
-        "-show_entries",
-        "stream=index,codec_type,bit_rate,channels,duration:format=duration,size,bit_rate",
-        path,
-    ]);
-    configure_ffmpeg_command(&mut cmd);
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
-    let child = match crate::gpu::spawn_captured_command(&mut cmd) {
-        Ok(child) => child,
-        Err(err) if err.kind() == ErrorKind::NotFound => return None,
-        Err(_) => return None,
-    };
-    let out = child.wait_for_output(FFPROBE_TIMEOUT).ok()??;
-    if !out.status.success() {
-        return None;
-    }
-    let data: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
-    best_audio_stream_from_json(&data)
 }
 
 // ---------------------------------------------------------------------------
@@ -845,11 +925,24 @@ fn path_hash(path: &str) -> u64 {
 }
 
 fn should_try_preview_hardware_decode(path: &str) -> bool {
+    // On WebView2 and WKWebView hosts, the software JPEG/filter pipeline is
+    // already resident in system memory. `-hwaccel auto` therefore adds a
+    // decode/upload/download round trip for every scrub frame (measured at
+    // roughly 40–75% slower on common H.264 sources). Keep the tested software
+    // path first on those platforms and retain hardware probing on Linux where
+    // VAAPI can avoid that transfer.
+    if cfg!(any(target_os = "windows", target_os = "macos")) {
+        return false;
+    }
     !PREVIEW_SOFTWARE_DECODE_PATHS
         .get_or_init(|| Mutex::new(HashSet::new()))
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .contains(&path_hash(path))
+}
+
+fn prefer_preview_hardware_decode() -> bool {
+    !cfg!(any(target_os = "windows", target_os = "macos"))
 }
 
 fn remember_preview_hardware_decode_failure(path: &str) {
@@ -871,6 +964,7 @@ pub fn generate_preview(
     preview_height: Option<u32>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let generation = preview_generation();
+    let frame_generation = PREVIEW_FRAME_GENERATION.load(Ordering::Acquire);
     let (preview_width, preview_height) =
         normalize_preview_dimensions(preview_width, preview_height);
     // Round to 0.1 s resolution for cache key
@@ -897,6 +991,7 @@ pub fn generate_preview(
         preview_width,
         preview_height,
         generation,
+        frame_generation,
     )?;
     let shared = Arc::new(bytes);
     {
@@ -917,6 +1012,7 @@ fn generate_preview_frame_with_fallback(
     preview_width: u32,
     preview_height: u32,
     generation: u64,
+    frame_generation: u64,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let deadline = preview_deadline(PREVIEW_FRAME_TIMEOUT);
     if !should_try_preview_hardware_decode(path) {
@@ -927,6 +1023,7 @@ fn generate_preview_frame_with_fallback(
             (preview_width, preview_height),
             false,
             generation,
+            Some(frame_generation),
             deadline,
         );
     }
@@ -937,6 +1034,7 @@ fn generate_preview_frame_with_fallback(
         (preview_width, preview_height),
         true,
         generation,
+        Some(frame_generation),
         deadline,
     ) {
         Ok(bytes) => Ok(bytes),
@@ -959,12 +1057,14 @@ fn generate_preview_frame_with_fallback(
                 (preview_width, preview_height),
                 false,
                 generation,
+                Some(frame_generation),
                 deadline,
             )
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_preview_frame_internal(
     path: &str,
     time_sec: f64,
@@ -972,6 +1072,7 @@ fn generate_preview_frame_internal(
     preview_dimensions: (u32, u32),
     use_auto_hwaccel: bool,
     generation: u64,
+    frame_generation: Option<u64>,
     deadline: Instant,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let (preview_width, preview_height) = preview_dimensions;
@@ -1024,6 +1125,7 @@ fn generate_preview_frame_internal(
     let out = preview_command_output(
         &mut cmd,
         generation,
+        frame_generation,
         remaining_preview_time(deadline)?,
         PREVIEW_FRAME_OUTPUT_LIMIT,
     )?;
@@ -1161,6 +1263,7 @@ fn generate_filmstrip_single_pass(
     let out = preview_command_output(
         &mut cmd,
         generation,
+        None,
         remaining_preview_time(deadline)?,
         PREVIEW_FILMSTRIP_OUTPUT_LIMIT,
     )?;
@@ -1200,6 +1303,7 @@ fn generate_sparse_seek_filmstrip(
             (preview_width, preview_height),
             use_auto_hwaccel,
             generation,
+            None,
             deadline,
         ) {
             Ok(frame) => output.extend(frame),
@@ -1223,6 +1327,7 @@ fn generate_sparse_seek_filmstrip(
                     (preview_width, preview_height),
                     false,
                     generation,
+                    None,
                     deadline,
                 ) {
                     Ok(frame) => output.extend(frame),
@@ -1287,6 +1392,7 @@ fn preview_clip_hw_encoder_order() -> &'static [&'static str] {
 
 fn preview_clip_plans() -> Vec<PreviewClipPlan> {
     let available = get_available_encoders();
+    let auto_selectable = available.auto_selectable.clone();
     let available_names: HashSet<String> = available
         .encoders
         .into_iter()
@@ -1295,7 +1401,7 @@ fn preview_clip_plans() -> Vec<PreviewClipPlan> {
     let mut plans = Vec::new();
 
     for encoder in preview_clip_hw_encoder_order() {
-        if !available_names.contains(*encoder) {
+        if !available_names.contains(*encoder) || !auto_selectable.contains(*encoder) {
             continue;
         }
 
@@ -1310,28 +1416,33 @@ fn preview_clip_plans() -> Vec<PreviewClipPlan> {
             continue;
         }
 
+        let use_auto_hwaccel = prefer_preview_hardware_decode();
         plans.push(PreviewClipPlan {
             encoder: (*encoder).to_string(),
-            use_auto_hwaccel: true,
+            use_auto_hwaccel,
             vaapi_device: None,
         });
-        plans.push(PreviewClipPlan {
-            encoder: (*encoder).to_string(),
-            use_auto_hwaccel: false,
-            vaapi_device: None,
-        });
+        if use_auto_hwaccel {
+            plans.push(PreviewClipPlan {
+                encoder: (*encoder).to_string(),
+                use_auto_hwaccel: false,
+                vaapi_device: None,
+            });
+        }
     }
 
     plans.push(PreviewClipPlan {
         encoder: "libx264".into(),
-        use_auto_hwaccel: true,
+        use_auto_hwaccel: prefer_preview_hardware_decode(),
         vaapi_device: None,
     });
-    plans.push(PreviewClipPlan {
-        encoder: "libx264".into(),
-        use_auto_hwaccel: false,
-        vaapi_device: None,
-    });
+    if prefer_preview_hardware_decode() {
+        plans.push(PreviewClipPlan {
+            encoder: "libx264".into(),
+            use_auto_hwaccel: false,
+            vaapi_device: None,
+        });
+    }
 
     plans
 }
@@ -1340,21 +1451,34 @@ pub fn generate_preview_clip(
     path: &str,
     start_time_sec: f64,
     end_time_sec: f64,
+    preview_width: Option<u32>,
+    preview_height: Option<u32>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let generation = preview_generation();
+    let (preview_width, preview_height) =
+        normalize_preview_dimensions(preview_width, preview_height);
     let start_time_sec = finite_non_negative(start_time_sec);
     let requested_end_time_sec = finite_non_negative(end_time_sec);
     let duration =
         (requested_end_time_sec - start_time_sec).clamp(0.2, MAX_GENERATED_PREVIEW_CLIP_SECONDS);
     let end_time_sec = start_time_sec + duration;
 
-    generate_preview_clip_with_fallbacks(path, start_time_sec, end_time_sec, generation)
+    generate_preview_clip_with_fallbacks(
+        path,
+        start_time_sec,
+        end_time_sec,
+        preview_width,
+        preview_height,
+        generation,
+    )
 }
 
 fn generate_preview_clip_with_fallbacks(
     path: &str,
     start_time_sec: f64,
     end_time_sec: f64,
+    preview_width: u32,
+    preview_height: u32,
     generation: u64,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut last_error: Option<String> = None;
@@ -1365,6 +1489,7 @@ fn generate_preview_clip_with_fallbacks(
             path,
             start_time_sec,
             end_time_sec,
+            (preview_width, preview_height),
             &plan,
             generation,
             deadline,
@@ -1396,6 +1521,7 @@ fn generate_preview_clip_internal(
     path: &str,
     start_time_sec: f64,
     end_time_sec: f64,
+    preview_dimensions: (u32, u32),
     plan: &PreviewClipPlan,
     generation: u64,
     deadline: Instant,
@@ -1417,10 +1543,12 @@ fn generate_preview_clip_internal(
         push_auto_hwaccel_args(&mut args);
     }
 
+    let (preview_width, preview_height) = preview_dimensions;
+    let base_scale = preview_jpeg_scale_filter(preview_width, preview_height);
     let video_filter = if plan.encoder == "h264_vaapi" {
-        format!("{PREVIEW_CLIP_SCALE_FILTER},format=nv12,hwupload")
+        format!("{base_scale},format=nv12,hwupload")
     } else {
-        PREVIEW_CLIP_SCALE_FILTER.to_string()
+        base_scale
     };
 
     args.extend([
@@ -1432,8 +1560,7 @@ fn generate_preview_clip_internal(
         path.into(),
         "-map".into(),
         "0:v:0".into(),
-        "-map".into(),
-        "0:a?".into(),
+        "-an".into(),
         "-sn".into(),
         "-vf".into(),
         video_filter,
@@ -1494,10 +1621,6 @@ fn generate_preview_clip_internal(
     }
 
     args.extend([
-        "-c:a".into(),
-        "aac".into(),
-        "-b:a".into(),
-        "96k".into(),
         "-movflags".into(),
         "frag_keyframe+empty_moov".into(),
         "-f".into(),
@@ -1521,6 +1644,7 @@ fn generate_preview_clip_internal(
     let out = preview_command_output(
         &mut cmd,
         generation,
+        None,
         remaining_preview_time(deadline)?,
         PREVIEW_CLIP_OUTPUT_LIMIT,
     )?;

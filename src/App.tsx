@@ -34,6 +34,7 @@ import {
 } from "./hooks/useCompression";
 import {
   captureSnapshot,
+  cancelLosslessTrimProbe,
   checkForUpdates,
   compressVideo,
   copyFileToClipboard,
@@ -206,9 +207,12 @@ function buildScaleFilter(
 ): string | null {
   const dims = computeTargetDimensions(ow, oh, targetH, targetShort);
   if (encoder.endsWith("_vaapi")) {
-    return dims ? `${dims[0]}:${dims[1]}` : "iw:ih";
+    return dims ? `${dims[0]}:${dims[1]}` : null;
   }
-  return dims ? `scale=${dims[0]}:${dims[1]}` : "scale=trunc(iw/2)*2:trunc(ih/2)*2";
+  if (dims) return `scale=${dims[0]}:${dims[1]}`;
+  return ow > 0 && oh > 0 && ow % 2 === 0 && oh % 2 === 0
+    ? null
+    : "scale=trunc(iw/2)*2:trunc(ih/2)*2";
 }
 
 type MemoizedSubtreeProps = {
@@ -406,6 +410,8 @@ export default function App() {
   const probeDataRef = useRef<ProbeData | null>(null);
   const losslessInfoRef = useRef<LosslessTrimInfo | null>(null);
   const losslessInfoRequestRef = useRef(0);
+  const losslessInfoCacheRef = useRef<Map<string, LosslessTrimInfo>>(new Map());
+  const snapshotInFlightRef = useRef(false);
   const appContentRef = useRef<HTMLDivElement>(null);
   const updateModalRef = useRef<HTMLDivElement>(null);
   const updatePrimaryActionRef = useRef<HTMLButtonElement>(null);
@@ -789,7 +795,8 @@ export default function App() {
 
   const handleSnapshot = useCallback(
     async (timeSec: number) => {
-      if (!filePath) return;
+      if (!filePath || snapshotInFlightRef.current) return;
+      snapshotInFlightRef.current = true;
       try {
         let targetPath: string | null = null;
         if (outputDestination === "ask") {
@@ -833,6 +840,8 @@ export default function App() {
         }
       } catch (err: unknown) {
         addToast("error", "Snapshot Failed", String(err));
+      } finally {
+        snapshotInFlightRef.current = false;
       }
     },
     [filePath, fileName, outputDestination, customOutputDirectory, completionAction, addToast]
@@ -912,7 +921,42 @@ export default function App() {
 
     setLosslessInfoLoading(true);
     setLosslessInfoError(null);
-    getLosslessTrimInfo(filePath)
+    const cacheKey = `${fileLoadGeneration}\0${filePath}`;
+    const applyInfo = (info: LosslessTrimInfo) => {
+      const keyframeTimes = normalizeLosslessKeyframes(info.keyframe_times, duration);
+      if (keyframeTimes.length === 0) throw new Error("No usable keyframes were found.");
+      const nextInfo = { ...info, keyframe_times: keyframeTimes };
+      losslessInfoRef.current = nextInfo;
+      setLosslessInfo(nextInfo);
+      setLosslessInfoLoading(false);
+
+      const snapped = snapLosslessTrimRange(
+        sliderValueToTime(startValRef.current),
+        sliderValueToTime(endValRef.current),
+        duration,
+        keyframeTimes
+      );
+      if (snapped) {
+        const next = applyTrim(
+          timeToTimelineValue(snapped.start, duration, SLIDER_MAX),
+          timeToTimelineValue(snapped.end, duration, SLIDER_MAX),
+          { anchor: "end" }
+        );
+        if (next) setPreviewFocusNow(sliderValueToTime(next.start), false);
+      }
+    };
+    const cached = losslessInfoCacheRef.current.get(cacheKey);
+    if (cached) {
+      applyInfo(cached);
+      return () => {
+        if (losslessInfoRequestRef.current === requestId) {
+          losslessInfoRequestRef.current += 1;
+          void cancelLosslessTrimProbe(requestId).catch(() => {});
+        }
+      };
+    }
+
+    getLosslessTrimInfo(filePath, requestId)
       .then((info) => {
         if (
           losslessInfoRequestRef.current !== requestId ||
@@ -923,24 +967,12 @@ export default function App() {
         const keyframeTimes = normalizeLosslessKeyframes(info.keyframe_times, duration);
         if (keyframeTimes.length === 0) throw new Error("No usable keyframes were found.");
         const nextInfo = { ...info, keyframe_times: keyframeTimes };
-        losslessInfoRef.current = nextInfo;
-        setLosslessInfo(nextInfo);
-        setLosslessInfoLoading(false);
-
-        const snapped = snapLosslessTrimRange(
-          sliderValueToTime(startValRef.current),
-          sliderValueToTime(endValRef.current),
-          duration,
-          keyframeTimes
-        );
-        if (snapped) {
-          const next = applyTrim(
-            timeToTimelineValue(snapped.start, duration, SLIDER_MAX),
-            timeToTimelineValue(snapped.end, duration, SLIDER_MAX),
-            { anchor: "end" }
-          );
-          if (next) setPreviewFocusNow(sliderValueToTime(next.start), false);
+        if (losslessInfoCacheRef.current.size >= 8 && !losslessInfoCacheRef.current.has(cacheKey)) {
+          const oldest = losslessInfoCacheRef.current.keys().next().value;
+          if (oldest) losslessInfoCacheRef.current.delete(oldest);
         }
+        losslessInfoCacheRef.current.set(cacheKey, nextInfo);
+        applyInfo(nextInfo);
       })
       .catch((error: unknown) => {
         if (
@@ -959,12 +991,15 @@ export default function App() {
     return () => {
       if (losslessInfoRequestRef.current === requestId) {
         losslessInfoRequestRef.current += 1;
+        void cancelLosslessTrimProbe(requestId).catch(() => {});
       }
     };
   }, [
     applyTrim,
     duration,
     filePath,
+    fileLoadGeneration,
+    losslessInfoCacheRef,
     losslessTrim,
     markFfmpegMissing,
     probeData,
@@ -1572,6 +1607,8 @@ export default function App() {
 
     const manualAudioTrackIndices =
       advancedMode && !gifMode && !losslessTrim ? activeAudioTrackIndices : null;
+    const audioTrackIndicesForExport =
+      gifMode || losslessTrim ? null : (manualAudioTrackIndices ?? defaultAudioTracks);
     const audioTrackCount =
       advancedMode && !gifMode && !losslessTrim
         ? activeAudioTrackIndices.length
@@ -1652,13 +1689,15 @@ export default function App() {
       start_time: startTime,
       end_time: endTime,
       remove_audio: effectiveRemoveAudio,
-      audio_track_indices: manualAudioTrackIndices,
+      audio_track_indices: audioTrackIndicesForExport,
       audio_normalize: losslessTrim ? false : audioNormalize,
       crop_aspect_ratio: losslessTrim ? "off" : cropAspectRatio,
       output_fps: losslessTrim ? null : outputFps,
       scale_filter: losslessTrim
         ? null
         : buildScaleFilter(cw, ch, targetH, targetShort, encoderName),
+      source_width: probeData.width,
+      source_height: probeData.height,
       vaapi_device: vaapiDevice,
       gif_mode: gifMode,
       lossless_trim: losslessTrim,

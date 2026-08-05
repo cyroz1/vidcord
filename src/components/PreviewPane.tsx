@@ -10,6 +10,7 @@ import {
 import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   cancelPreviewGeneration,
+  cancelPreviewFrameGeneration,
   getFilmstrip,
   getOs,
   getPreviewClip,
@@ -614,7 +615,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       if (frameInFlightRef.current) {
         queuedFrameRequestRef.current = request;
         if (!frameCancellationRef.current) {
-          const cancellation = cancelPreviewGeneration().catch(() => {});
+          const cancellation = cancelPreviewFrameGeneration().catch(() => {});
           frameCancellationRef.current = cancellation;
           void cancellation.finally(() => {
             if (frameCancellationRef.current !== cancellation) return;
@@ -905,15 +906,22 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
           endTime,
           fallbackStartTime + MAX_GENERATED_PREVIEW_CLIP_SECONDS
         );
+        const { width: previewWidth, height: previewHeight } = getPreviewPixelSize();
         const clipKey = `${sourceGeneration}\0${filePath}\0${Math.round(
           fallbackStartTime * 1000
-        )}\0${Math.round(fallbackEndTime * 1000)}`;
+        )}\0${Math.round(fallbackEndTime * 1000)}\0${previewWidth}x${previewHeight}`;
         let clipUrl =
           generatedClipCacheRef.current?.key === clipKey ? generatedClipCacheRef.current.url : null;
         if (!clipUrl) {
-          const buffer = await getPreviewClip(filePath, fallbackStartTime, fallbackEndTime);
+          const buffer = await getPreviewClip(
+            filePath,
+            fallbackStartTime,
+            fallbackEndTime,
+            previewWidth,
+            previewHeight
+          );
           if (playbackSessionRef.current !== session) return;
-          const blob = new Blob([new Uint8Array(buffer)], { type: "video/mp4" });
+          const blob = new Blob([buffer as Uint8Array<ArrayBuffer>], { type: "video/mp4" });
           clipUrl = URL.createObjectURL(blob);
           if (generatedClipCacheRef.current) {
             URL.revokeObjectURL(generatedClipCacheRef.current.url);
@@ -1009,6 +1017,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       vid.currentTime = usingGeneratedClipRef.current ? resumeClipOffset : resumeTime;
     };
 
+    if (directPreviewFailed) {
+      void playGeneratedClip();
+      return;
+    }
+
     // play() must be called synchronously inside the user-gesture handler.
     // Calling it inside oncanplay (async) breaks WebView2/Chrome's autoplay
     // policy — the promise is rejected and stopPlayback() fires immediately.
@@ -1026,6 +1039,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     seekVideoElement,
     clearEndBoundaryTimer,
     handlePlaybackBoundary,
+    directPreviewFailed,
+    getPreviewPixelSize,
   ]);
 
   const handleVideoEnded = useCallback(() => {

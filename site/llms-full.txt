@@ -100,7 +100,7 @@ The site documents Open With behavior:
 - Atomically reserved, auto-incremented filenames for auto-named output destinations
 - Encoder detection for installed FFmpeg capabilities
 - First-run preference for an available H.264 hardware encoder while preserving saved choices, including CPU
-- User-selectable CPU/GPU encoders, with software-decode retry and CPU fallback when a hardware path fails
+- User-selectable CPU/GPU encoders, with hardware-assisted decoding only where it is beneficial, software decode on Windows and macOS to avoid unnecessary transfer overhead, and CPU fallback when a hardware path fails
 - GPU acceleration support when FFmpeg exposes supported encoders
 - Fixed 460×690 non-resizable application window
 - User-approved update installer downloads with size, completeness, collision, and GitHub SHA-256 integrity checks

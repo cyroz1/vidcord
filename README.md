@@ -73,9 +73,9 @@ encoders exposed by your FFmpeg install, and drops the result in your
 choose a persistent custom folder, or have vidcord ask for a location when the
 encode finishes. By default, the completed file itself is copied to the system
 clipboard; if that fails, vidcord reveals it in the platform file manager. It
-can also be set to always reveal the output. It verifies the finished file against your selected size limit
-and automatically retries with CPU encoding and safer bitrates when FFmpeg's
-first pass lands too large.
+can also be set to always reveal the output. It verifies the finished file against your selected size limit,
+applies an encoder-specific peak-rate bound, and automatically retries with CPU
+encoding and safer bitrates when FFmpeg's first pass lands too large.
 
 - **Platform-native packaging.** Tauri uses the system WebView (Edge on Windows,
   WebKit on macOS/Linux) instead of bundling Chromium. Package size varies by
@@ -161,6 +161,9 @@ first pass lands too large.
 - **Responsive scrub previews** with display-sized filmstrip/frame thumbnails,
   sparse thumbnail generation for long videos, playhead-aware fallback preview clips,
   and hardware-accelerated preview clips where FFmpeg supports them.
+- **Efficient preview fallback** — exact frame requests use display-sized, bounded
+  in-memory output; cancelling a stale frame no longer interrupts a filmstrip that
+  is already being generated, and generated fallback clips omit unused audio.
 - **Linux preview fallback** — WebKitGTK live video scrubbing and trim playback are
   disabled for stability; FFmpeg-generated filmstrip and individual-frame previews
   remain available while scrubbing.
@@ -180,9 +183,10 @@ first pass lands too large.
   and Dark appearances together with the app surface.
 - **Remove audio** — strip the audio track to reclaim space.
 - **Strict size checks with bounded retries** — finished files are measured
-  against the selected target. Hardware jobs use at most four full attempts
-  and CPU jobs use at most two, including measured bitrate correction and CPU
-  fallback before reporting the smallest result.
+  against the selected target. Target-size encodes apply encoder-specific
+  peak-rate bounds before adaptive correction. Hardware jobs use at most four
+  full attempts and CPU jobs use at most two, including measured bitrate
+  correction and CPU fallback before reporting the smallest result.
 - **Real-time progress** with ETA, current attempt number, encoder, and
   bitrate parsed from FFmpeg's stderr.
 - **OS taskbar & dock progress integration** — reflects encoding progress directly on your OS taskbar or dock icon (macOS Dock, Windows Taskbar button, Linux Unity launcher bar) so you can track encoding while unfocused.
@@ -342,9 +346,10 @@ At startup vidcord runs `ffmpeg -encoders`, detects compatible CPU and hardware
 encoders, and prefers the first available H.264 hardware encoder on a new
 installation. A saved encoder choice, including CPU, remains unchanged.
 Advanced mode can accept any FFmpeg video encoder string; the **Encoders**
-dialog shows what your installed FFmpeg exposes. Hardware jobs first try
-hardware-assisted decoding, retry the same encoder with software decoding if
-needed, and retain the CPU fallback for encoder failures.
+dialog shows what your installed FFmpeg exposes. Hardware jobs use
+hardware-assisted decoding only where the platform policy makes it worthwhile;
+Windows and macOS keep the decode path in software to avoid extra GPU transfer
+overhead. Failed hardware encoder paths retain the CPU fallback.
 
 | Vendor / Platform | Encoder                                  | Notes                                                      |
 | ----------------- | ---------------------------------------- | ---------------------------------------------------------- |
