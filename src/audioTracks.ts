@@ -3,6 +3,7 @@ import type { AudioTrack } from "./ipc";
 export type { AudioTrack } from "./ipc";
 
 export const AUDIO_TRACK_BITRATE_KBPS = 128;
+const AUTOMATIC_TRACK_SWITCH_RATIO = 1.2;
 
 export function audioTrackSelectionScore(track: AudioTrack): number {
   if (track.bitrate_kbps > 0 && track.duration > 0) {
@@ -14,16 +15,22 @@ export function audioTrackSelectionScore(track: AudioTrack): number {
 export function defaultAudioTrackIndices(tracks: AudioTrack[]): number[] {
   if (tracks.length === 0) return [];
 
-  let bestTrack = tracks[0];
-  let bestScore = audioTrackSelectionScore(bestTrack);
+  const firstTrack = tracks[0];
+  const firstScore = audioTrackSelectionScore(firstTrack);
+  let largestTrack = firstTrack;
+  let largestScore = firstScore;
   for (const track of tracks.slice(1)) {
     const score = audioTrackSelectionScore(track);
-    if (score > bestScore) {
-      bestTrack = track;
-      bestScore = score;
+    if (score > largestScore) {
+      largestTrack = track;
+      largestScore = score;
     }
   }
-  return [bestTrack.index];
+
+  const largestIsSignificantlyLarger =
+    largestTrack.index !== firstTrack.index &&
+    largestScore >= firstScore * AUTOMATIC_TRACK_SWITCH_RATIO;
+  return [largestIsSignificantlyLarger ? largestTrack.index : firstTrack.index];
 }
 
 export function normalizeAudioTrackIndices(

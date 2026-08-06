@@ -5,6 +5,8 @@
 ### Audio
 
 - Added per-video Advanced mode audio track controls with a mixer popup that lists track names and estimated sizes, supports selecting individual tracks or all tracks, and reserves 128 kbps per selected AAC track in the target video bitrate.
+- Changed audio normalization to measure the highest sample peak and apply fixed gain to reach 0 dB, without EBU R128 loudness normalization or dynamic compression.
+- Changed automatic audio selection to start with the first source track and switch to a later track only when it has at least 20% more estimated data.
 
 ### Performance
 
@@ -21,6 +23,7 @@
 ### UI
 
 - Anchored the version, links, and settings preset controls to the bottom of the window so they stay in place when switching export modes.
+- Added the aspect-ratio crop selector to standard Compress mode alongside Advanced and GIF Mode.
 
 ## v7.1
 

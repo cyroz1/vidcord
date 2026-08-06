@@ -119,20 +119,20 @@ encoding and safer bitrates when FFmpeg's first pass lands too large.
   remains available because it still applies to GIF output. Higher frame rates trade spatial detail
   for motion, and oversized GIFs are retried at
   progressively lower visual complexity without changing the selected FPS.
-- **Advanced mode** — custom target size (MB), output resolution, aspect-ratio
-  crop, FPS, audio normalization, and any FFmpeg video encoder string, with
+- **Advanced mode** — custom target size (MB), output resolution, FPS, audio
+  normalization, and any FFmpeg video encoder string, with
   autocomplete from the encoders your installed FFmpeg exposes. Its per-video
   audio mixer lists every source track by name and estimated size, defaults to
-  the largest track, and can select any combination without changing saved
+  the first track unless another is at least 20% larger by estimated data, and can select any combination without changing saved
   settings or presets. Leave target size empty to encode at the source bitrate
   without a file-size limit.
-- **Aspect-ratio cropping** — crop to 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, or
-  5:4 before scaling. A preset matching the imported video's native display
-  ratio is hidden automatically.
-- **Smart audio output** — optionally normalize retained audio to EBU R128
-  `-14 LUFS` with a `0 dBTP` ceiling. Standard compression defaults to one
-  audio track with the most estimated data, or the first track on a tie or if
-  discovery fails. Advanced mode can select one, several, or all source tracks;
+- **Aspect-ratio cropping** — available in Compress, Advanced, and GIF Mode;
+  crop to 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, or 5:4 before scaling. A preset
+  matching the imported video's native display ratio is hidden automatically.
+- **Smart audio output** — optionally peak-normalize retained audio so its highest sample
+  peak reaches `0 dB` with a fixed gain. Standard compression starts with the first
+  source track and switches to the largest estimated-data track only when it is at
+  least 20% larger. Advanced mode can select one, several, or all source tracks;
   each selected track is encoded at 128 kbps and the video bitrate budget
   accounts for every selected track.
 - **Full-resolution frame snapshots** — save the frame at the playhead as a
@@ -295,15 +295,15 @@ For more distros, manual installs, or troubleshooting, read
    copies the output file or reveals it.
 3. **Pick a mode or preset** — choose **Compress**, **Advanced**, **Lossless
    Trim**, or **GIF**, then select a 10/25/50/100/500 MB target where that mode
-   applies. Advanced exposes custom target size, resolution, crop, FPS, audio
-   normalization, and encoder controls; GIF Mode keeps the crop selector available
-   because it applies to GIF output. Leaving its size empty uses the source bitrate
+   applies. Compress, Advanced, and GIF Mode expose the aspect-ratio crop selector;
+   Advanced also exposes custom target size, resolution, FPS, audio normalization,
+   and encoder controls. Leaving its size empty uses the source bitrate
    without a file-size limit. Standard mode can cap output FPS at 24, 30, or 60
    when those values do not exceed the source frame rate.
 4. **Trim** (optional) — drag the handles or use `I` / `O` to stamp the
    playhead. `Space` plays the selected range from the current playhead when it
    is inside the trim.
-5. **Choose audio handling** — keep the prioritized track, normalize it, or
+5. **Choose audio handling** — keep the prioritized track, peak-normalize it to 0 dB, or
    remove audio to reserve more bitrate for video. In Advanced mode, open the
    mixer beside the mute and normalize buttons to inspect every source track,
    select individual tracks or all tracks, and keep that choice for this video

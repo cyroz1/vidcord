@@ -83,7 +83,7 @@
             "url": "https://vidcord.app/",
             "codeRepository": "https://github.com/cyroz1/vidcord",
             "downloadUrl": "https://github.com/cyroz1/vidcord/releases/latest",
-            "softwareVersion": "7.1.0",
+            "softwareVersion": "7.2.0",
             "applicationCategory": "MultimediaApplication",
             "operatingSystem": ["Windows", "macOS", "Linux"],
             "license": "https://github.com/cyroz1/vidcord/blob/main/LICENSE",
@@ -98,7 +98,7 @@
               "Output FPS controls with source-aware 24, 30, and 60 FPS presets plus advanced custom FPS",
               "Output destinations for Downloads, the imported clip folder, a remembered custom folder, or an after-compression save prompt",
               "Completion actions that copy the output file to the system clipboard by default or reveal it in the platform file manager",
-              "EBU R128 audio loudness normalization with a 0 dB True Peak target",
+              "Peak audio normalization that sets the highest sample peak to 0 dB",
               "Per-video Advanced audio track mixer with names, estimated sizes, individual or select-all checkboxes, and a 128 kbps budget per selected track",
               "Aspect ratio cropping presets (16:9, 1:1, 9:16, 4:3, 3:4, 4:5, 5:4) with automatic native ratio exclusion",
               "Full-resolution PNG frame snapshots with instant clipboard copy or file explorer reveal",
@@ -430,11 +430,11 @@
         <div class="detail-copy">
           <h2>Simple when you want it. Precise when you need it.</h2>
           <p>
-            Advanced mode adds custom size, resolution, crop, FPS, audio normalization, and encoder
-            controls. GIF Mode keeps crop presets, while Lossless Trim preserves video streams and
-            can remove audio without re-encoding. Size-based exports offer Lossless Trim when a
-            selected segment fits the target. Encoder detection shows which installed encoders work,
-            and saved choices remain sticky.
+            Compress includes aspect-ratio crop presets, while Advanced mode adds custom size,
+            resolution, FPS, audio normalization, and encoder controls. GIF Mode keeps crop presets,
+            while Lossless Trim preserves video streams and can remove audio without re-encoding.
+            Size-based exports offer Lossless Trim when a selected segment fits the target. Encoder
+            detection shows which installed encoders work, and saved choices remain sticky.
           </p>
           <ul>
             <li>Strict output size checks with safer retry behavior.</li>
@@ -445,14 +445,14 @@
             <li>Output FPS controls for 24, 30, 60, or a custom advanced value.</li>
             <li>Crop to 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, or 5:4 before scaling.</li>
             <li>
-              Normalize audio to -14 LUFS with a 0 dBTP ceiling, or remove it for more video
-              bitrate.
+              Peak-normalize audio so its highest sample peak reaches 0 dB, or remove it for more
+              video bitrate.
             </li>
             <li>
               Advanced mode's mixer lists every source audio track by name and estimated size, then
               lets you select one, several, or all tracks for that video. With no custom choice,
-              Advanced and standard compression keep the largest track by estimated data, with the
-              first track winning ties or discovery fallback; each selected track reserves 128 kbps.
+              Advanced and standard compression keep the first track unless another is at least 20%
+              larger by estimated data; each selected track reserves 128 kbps.
             </li>
             <li>
               Save full-resolution PNG snapshots using the preview button or Cmd/Ctrl+Shift+S.

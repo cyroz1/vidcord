@@ -6,7 +6,7 @@ use crate::ffmpeg::{
 };
 use crate::log::vidcord_log;
 use std::io::{BufRead, BufReader};
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -20,6 +20,8 @@ const MAX_FFMPEG_DIAGNOSTIC_BYTES: usize = 256 * 1024;
 const MAX_FFMPEG_DIAGNOSTIC_LINES: usize = 200;
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(20);
 const SNAPSHOT_STDERR_LIMIT: u64 = 256 * 1024;
+const AUDIO_PEAK_TIMEOUT: Duration = Duration::from_secs(60);
+const AUDIO_PEAK_STDERR_LIMIT: u64 = 256 * 1024;
 static SNAPSHOT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 struct SnapshotGuard;
@@ -420,6 +422,7 @@ struct FfmpegRunContext {
     clip_duration: f64,
     job_id: u64,
     emit_progress: bool,
+    audio_gain_db: Option<f64>,
 }
 
 fn valid_encoder_name(encoder: &str) -> bool {
@@ -925,6 +928,174 @@ fn selected_audio_maps(audio_indices: Option<&[usize]>) -> Vec<String> {
     }
 }
 
+fn should_peak_normalize_audio(opts: &CompressOptions) -> bool {
+    opts.audio_normalize == Some(true)
+        && !opts.remove_audio
+        && !opts.gif_mode
+        && !opts.lossless_trim
+        && !opts
+            .audio_track_indices
+            .as_deref()
+            .is_some_and(|indices| indices.is_empty())
+}
+
+fn parse_max_volume_db(stderr: &[u8]) -> Result<Option<f64>, String> {
+    let text = String::from_utf8_lossy(stderr);
+    let mut found_report = false;
+    let mut max_volume_db: Option<f64> = None;
+
+    for line in text.lines() {
+        let Some((_, value)) = line.split_once("max_volume:") else {
+            continue;
+        };
+        found_report = true;
+        let value = value
+            .split_whitespace()
+            .next()
+            .ok_or_else(|| "FFmpeg returned an empty audio peak value.".to_string())?;
+        if value.eq_ignore_ascii_case("-inf") {
+            continue;
+        }
+        let value = value
+            .parse::<f64>()
+            .map_err(|_| format!("FFmpeg returned an invalid audio peak value: {value}"))?;
+        if !value.is_finite() {
+            return Err("FFmpeg returned a non-finite audio peak value.".to_string());
+        }
+        max_volume_db = Some(max_volume_db.map_or(value, |current| current.max(value)));
+    }
+
+    if found_report {
+        Ok(max_volume_db)
+    } else {
+        Err("FFmpeg did not report an audio peak.".to_string())
+    }
+}
+
+fn peak_normalization_gain_db(max_volume_db: Option<f64>) -> Option<f64> {
+    max_volume_db.map(|peak| {
+        let gain = -peak;
+        if gain.abs() < 0.000_001 {
+            0.0
+        } else {
+            gain
+        }
+    })
+}
+
+fn peak_normalization_filter(gain_db: f64) -> String {
+    format!("volume={gain_db:.6}dB")
+}
+
+fn measure_audio_peak_gain_db(opts: &CompressOptions, job_id: u64) -> Result<Option<f64>, String> {
+    if was_cancelled(job_id) {
+        return Err("Cancelled".to_string());
+    }
+
+    let duration = format!("{:.3}", opts.end_time - opts.start_time);
+    let start_time = format!("{:.3}", opts.start_time);
+    let mut cmd_args = vec![
+        "-hide_banner".to_string(),
+        "-nostdin".to_string(),
+        "-ss".to_string(),
+        start_time,
+        "-t".to_string(),
+        duration,
+        "-i".to_string(),
+        opts.input_path.clone(),
+        "-vn".to_string(),
+        "-sn".to_string(),
+        "-dn".to_string(),
+    ];
+    for audio_map in selected_audio_maps(opts.audio_track_indices.as_deref()) {
+        cmd_args.extend(["-map".to_string(), audio_map]);
+    }
+    cmd_args.extend([
+        "-af".to_string(),
+        "volumedetect".to_string(),
+        "-f".to_string(),
+        "null".to_string(),
+        "-".to_string(),
+    ]);
+
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(&cmd_args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    configure_ffmpeg_command(&mut cmd);
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+
+    let child = crate::gpu::spawn_captured_command(&mut cmd).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            ffmpeg_missing_error()
+        } else {
+            format!("Failed to start FFmpeg audio peak analysis: {error}")
+        }
+    })?;
+    let pid = child.id();
+    let registered = {
+        let mut state = compression_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        state.register_process(job_id, pid, opts.output_path.clone())
+    };
+    if !registered {
+        drop(child);
+        return Err("Cancelled".to_string());
+    }
+
+    let output_result =
+        child.wait_for_output_with_limit(AUDIO_PEAK_TIMEOUT, AUDIO_PEAK_STDERR_LIMIT);
+    let cancelled = {
+        let mut state = compression_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        state.clear_process(job_id);
+        state.is_cancelled(job_id)
+    };
+    if cancelled {
+        return Err("Cancelled".to_string());
+    }
+
+    let output = output_result.map_err(|error| {
+        format!("FFmpeg audio peak analysis failed while reading output: {error}")
+    })?;
+    let Some(output) = output else {
+        return Err(format!(
+            "FFmpeg audio peak analysis timed out after {} seconds.",
+            AUDIO_PEAK_TIMEOUT.as_secs()
+        ));
+    };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if contains_ascii_ci(&stderr, b"output file does not contain any stream") {
+            return Ok(None);
+        }
+        return Err(format!(
+            "FFmpeg audio peak analysis failed: {}",
+            stderr.trim()
+        ));
+    }
+
+    parse_max_volume_db(&output.stderr).map(peak_normalization_gain_db)
+}
+
+async fn analyze_audio_peak_gain_db(
+    opts: &CompressOptions,
+    job_id: u64,
+) -> Result<Option<f64>, String> {
+    let opts = opts.clone();
+    tokio::task::spawn_blocking(move || measure_audio_peak_gain_db(&opts, job_id))
+        .await
+        .map_err(|error| format!("Audio peak analysis worker failed: {error}"))?
+}
+
 async fn run_ffmpeg_attempt(
     app: &AppHandle,
     opts: &CompressOptions,
@@ -1043,8 +1214,8 @@ async fn run_ffmpeg_attempt(
                     cmd_args.extend(["-map".into(), audio_map]);
                 }
                 cmd_args.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "128k".into()]);
-                if opts.audio_normalize == Some(true) {
-                    cmd_args.extend(["-af".into(), "loudnorm=I=-14:TP=0.0:LRA=11".into()]);
+                if let Some(gain_db) = context.audio_gain_db {
+                    cmd_args.extend(["-af".into(), peak_normalization_filter(gain_db)]);
                 }
             }
         }
@@ -1330,6 +1501,7 @@ async fn try_lossless_trim(
                 clip_duration: attempt_opts.end_time - attempt_opts.start_time,
                 job_id,
                 emit_progress: true,
+                audio_gain_db: None,
             },
         )
         .await;
@@ -1513,6 +1685,49 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     let mut seen_attempts: std::collections::HashSet<(String, u32, bool)> =
         std::collections::HashSet::new();
 
+    let audio_gain_db = if should_peak_normalize_audio(&opts) {
+        let _ = app.emit(
+            "compress-progress",
+            serde_json::json!({
+                "percent": 0,
+                "eta": "Calculating...",
+                "status": "Analyzing audio peak...",
+                "attempt": 1,
+                "attempt_total": total_attempts,
+                "encoder": attempt.encoder.as_str(),
+                "video_bitrate_k": attempt.video_bitrate_k,
+                "gif_mode": false
+            }),
+        );
+        match analyze_audio_peak_gain_db(&opts, job_id).await {
+            Ok(gain_db) => gain_db,
+            Err(error) if error == "Cancelled" => {
+                vidcord_log("Compression cancelled during audio peak analysis.");
+                remove_partial_output(&opts.output_path);
+                let _ = app.emit(
+                    "compress-done",
+                    serde_json::json!({
+                        "success": false,
+                        "cancelled": true,
+                        "message": "Cancelled."
+                    }),
+                );
+                return Err(error);
+            }
+            Err(error) => {
+                vidcord_log(&format!("Audio peak analysis failed: {error}"));
+                remove_partial_output(&opts.output_path);
+                let _ = app.emit(
+                    "compress-done",
+                    serde_json::json!({"success": false, "message": error}),
+                );
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
+
     if opts.gif_mode
         && target_bytes.is_some()
         && clip_duration > GIF_PREFLIGHT_INITIAL_SECONDS * 2.0
@@ -1537,6 +1752,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                             clip_duration: sample_duration,
                             job_id,
                             emit_progress: false,
+                            audio_gain_db: None,
                         },
                     )
                     .await
@@ -1643,6 +1859,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 clip_duration,
                 job_id,
                 emit_progress: true,
+                audio_gain_db,
             },
         )
         .await
@@ -2128,6 +2345,28 @@ mod tests {
     fn selected_audio_maps_preserve_manual_order_and_allow_no_audio() {
         assert_eq!(selected_audio_maps(Some(&[2, 0])), vec!["0:a:2", "0:a:0"]);
         assert!(selected_audio_maps(Some(&[])).is_empty());
+    }
+
+    #[test]
+    fn max_volume_parser_chooses_the_highest_sample_peak() {
+        let stderr = b"[Parsed_volumedetect_0] max_volume: -12.5 dB\n[Parsed_volumedetect_1] max_volume: -2.0 dB\n";
+        assert_eq!(parse_max_volume_db(stderr), Ok(Some(-2.0)));
+        assert_eq!(peak_normalization_gain_db(Some(-2.0)), Some(2.0));
+        assert_eq!(peak_normalization_filter(2.0), "volume=2.000000dB");
+    }
+
+    #[test]
+    fn max_volume_parser_treats_silence_as_having_no_gain() {
+        assert_eq!(
+            parse_max_volume_db(b"[Parsed_volumedetect_0] max_volume: -inf dB\n"),
+            Ok(None)
+        );
+        assert_eq!(peak_normalization_gain_db(None), None);
+    }
+
+    #[test]
+    fn max_volume_parser_rejects_missing_reports() {
+        assert!(parse_max_volume_db(b"mean_volume: -20.0 dB\n").is_err());
     }
 
     #[test]

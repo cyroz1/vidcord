@@ -2730,6 +2730,22 @@ export default function App() {
                           ))}
                         </select>
                       </label>
+                      <label className="crop-label">
+                        Crop
+                        <select
+                          value={cropAspectRatio}
+                          onChange={(event) => {
+                            setCropAspectRatio(event.target.value);
+                            saveSettings({ crop_aspect_ratio: event.target.value });
+                          }}
+                        >
+                          {cropOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                       <label className="fps-label">
                         FPS
                         <select
@@ -2848,9 +2864,9 @@ export default function App() {
                             title={
                               removeAudio
                                 ? "Audio is muted"
-                                : "EBU R128 audio loudness normalization"
+                                : "Peak-normalize audio so its highest sample peak reaches 0 dB"
                             }
-                            aria-label="Normalize audio"
+                            aria-label="Peak-normalize audio to 0 dB"
                             onClick={() => {
                               const next = !audioNormalize;
                               setAudioNormalize(next);

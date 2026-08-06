@@ -133,11 +133,14 @@ export default memo(function AudioTrackPicker({
                 disabled={removeAudio}
                 onChange={(event) => onAudioNormalizeChange(event.target.checked)}
               />
-              <span>Normalize audio</span>
+              <span>Peak normalize to 0 dB</span>
             </label>
           </div>
           <div className="audio-track-popup-mode">
-            Track selection · {selection === null ? "Default: largest track" : "Custom selection"}
+            Track selection ·
+            {selection === null
+              ? " Default: first track unless another is 20% larger"
+              : " Custom selection"}
           </div>
           <label className="audio-track-select-all">
             <input

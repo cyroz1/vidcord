@@ -29,8 +29,24 @@ const tracks: AudioTrack[] = [
 ];
 
 describe("audio track selection", () => {
-  it("defaults to the track with the most encoded data", () => {
+  it("uses the largest track when it is at least 20% larger", () => {
     expect(defaultAudioTrackIndices(tracks)).toEqual([1]);
+  });
+
+  it("keeps the first track when the largest track is less than 20% larger", () => {
+    const nearTie = tracks.map((track, index) => ({
+      ...track,
+      bitrate_kbps: index === 0 ? 100 : 119,
+    }));
+    expect(defaultAudioTrackIndices(nearTie)).toEqual([0]);
+  });
+
+  it("switches at exactly a 20% data advantage", () => {
+    const threshold = tracks.map((track, index) => ({
+      ...track,
+      bitrate_kbps: index === 0 ? 100 : 120,
+    }));
+    expect(defaultAudioTrackIndices(threshold)).toEqual([1]);
   });
 
   it("uses the first track when fallback scores tie", () => {

@@ -582,7 +582,8 @@ select optgroup {
   }
 }
 
-.settings-row .fps-label {
+.settings-row .fps-label,
+.settings-row .crop-label {
   flex: 0 0 86px;
   min-width: 86px;
 }
