@@ -1,4 +1,11 @@
-# vidcord.app allows search crawlers and AI agents to read public site pages.
+# Public crawler policy: this site is open to search engines and AI agents.
+# Content-Signal explicitly permits search, AI input, AI training, and full reuse.
+
+User-agent: *
+Content-Signal: search=yes, ai-input=yes, ai-train=yes, use=full
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
 
 User-agent: GPTBot
 Allow: /
@@ -24,9 +31,16 @@ Allow: /
 User-agent: CCBot
 Allow: /
 
-User-agent: *
+User-agent: Amazonbot
 Allow: /
-Allow: /llms.txt
-Allow: /llms-full.txt
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+User-agent: meta-externalagent
+Allow: /
 
 Sitemap: https://vidcord.app/sitemap.xml
