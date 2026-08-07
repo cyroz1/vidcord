@@ -1,8 +1,8 @@
 use crate::ffmpeg::{
-    cancel_lossless_trim_probe, cancel_preview_frame_jobs, cancel_preview_jobs,
-    cancel_superseded_probe_jobs, clear_preview_caches, configure_ffmpeg_command,
-    ffmpeg_missing_error, generate_filmstrip, generate_preview, generate_preview_clip,
-    probe_lossless_trim_info, probe_video, start_probe_generation,
+    cancel_lossless_trim_probe as cancel_lossless_trim_probe_job, cancel_preview_frame_jobs,
+    cancel_preview_jobs, cancel_superseded_probe_jobs, clear_preview_caches,
+    configure_ffmpeg_command, ffmpeg_missing_error, generate_filmstrip, generate_preview,
+    generate_preview_clip, probe_lossless_trim_info, probe_video, start_probe_generation,
 };
 use crate::log::vidcord_log;
 use std::io::{BufRead, BufReader};
@@ -267,8 +267,8 @@ pub async fn get_lossless_trim_info(
 }
 
 #[tauri::command]
-pub async fn cancel_lossless_trim_probe_command(request_id: u64) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || cancel_lossless_trim_probe(request_id))
+pub async fn cancel_lossless_trim_probe(request_id: u64) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || cancel_lossless_trim_probe_job(request_id))
         .await
         .map_err(|error| error.to_string())
 }
