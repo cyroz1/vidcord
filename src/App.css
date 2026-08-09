@@ -582,10 +582,21 @@ select optgroup {
   }
 }
 
-.settings-row .fps-label,
 .settings-row .crop-label {
-  flex: 0 0 86px;
-  min-width: 86px;
+  flex: 0 0 64px;
+  min-width: 64px;
+}
+
+.settings-row .fps-label {
+  flex: 0 0 68px;
+  min-width: 68px;
+}
+
+.settings-row .crop-label select,
+.settings-row .fps-label select {
+  padding-left: 8px;
+  padding-right: 16px;
+  background-position: right 4px center;
 }
 
 .settings-row .target-label {

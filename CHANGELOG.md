@@ -24,6 +24,9 @@
 
 - Anchored the version, links, and settings preset controls to the bottom of the window so they stay in place when switching export modes.
 - Added the aspect-ratio crop selector to standard Compress mode alongside Advanced and GIF Mode.
+- Hid the standard FPS choice that matches the imported video's frame rate while retaining the Source option for unchanged output.
+- Added the active crop setting to the compact export summary above the action button.
+- Kept preview frames at an exact 16:9 output ratio so 16:9 videos do not show side gaps.
 
 ## v7.1
 

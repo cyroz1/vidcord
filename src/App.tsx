@@ -465,7 +465,7 @@ export default function App() {
   const standardFpsOptions = useMemo(
     () =>
       FPS_OPTIONS.filter(
-        (option) => option.fps === null || sourceFrameRate === null || option.fps <= sourceFrameRate
+        (option) => option.fps === null || sourceFrameRate === null || option.fps < sourceFrameRate
       ),
     [sourceFrameRate]
   );
@@ -555,19 +555,22 @@ export default function App() {
   const selectedGifPreset = GIF_PRESETS[gifQualityIdx] ?? GIF_PRESETS[0];
   const advancedTargetSize = Number(advSize.trim());
   const hasAdvancedTargetSize = Number.isFinite(advancedTargetSize) && advancedTargetSize > 0;
+  const cropSummary = cropAspectRatio === "off" ? "No crop" : cropAspectRatio;
   const exportSummary = gifMode
-    ? `GIF · up to ${selectedGifPreset.size_mb} MB · ${gifFps} fps`
+    ? `GIF · up to ${selectedGifPreset.size_mb} MB · ${cropSummary} · ${gifFps} fps`
     : losslessTrim
       ? "Original quality · keyframe-aligned trim"
       : advancedMode
-        ? `${hasAdvancedTargetSize ? `Up to ${advancedTargetSize} MB` : "Source bitrate"} · ${advResolution} · ${
+        ? `${hasAdvancedTargetSize ? `Up to ${advancedTargetSize} MB` : "Source bitrate"} · ${advResolution} · ${cropSummary} · ${
             advFps.trim() ? `${advFps.trim()} fps` : "Keep source FPS"
           }`
         : `Up to ${selectedQualityPreset.size_mb} MB · ${
             selectedQualityPreset.target_h
               ? `${selectedQualityPreset.target_h}p`
               : "Native resolution"
-          } · ${standardFpsValue === "off" ? "Keep source FPS" : `${standardFpsValue} fps`}`;
+          } · ${cropSummary} · ${
+            standardFpsValue === "off" ? "Keep source FPS" : `${standardFpsValue} fps`
+          }`;
   const readyActionLabel = gifMode
     ? `Create ${selectedGifPreset.size_mb} MB GIF`
     : losslessTrim
@@ -1551,7 +1554,8 @@ export default function App() {
       targetSize = preset.size_mb;
       targetH = preset.target_h;
       encoderName = encoders[encoderIdx]?.name ?? "libx264";
-      const selectedFps = FPS_OPTIONS.find((option) => option.value === fpsOption)?.fps ?? null;
+      const selectedFps =
+        FPS_OPTIONS.find((option) => option.value === standardFpsValue)?.fps ?? null;
       if (selectedFps !== null && (sourceFrameRate === null || selectedFps <= sourceFrameRate)) {
         outputFps = selectedFps;
       }
@@ -1776,7 +1780,7 @@ export default function App() {
     advResolution,
     advFps,
     advEncoder,
-    fpsOption,
+    standardFpsValue,
     sourceFrameRate,
     qualityIdx,
     encoderIdx,

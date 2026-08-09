@@ -30,9 +30,14 @@ import {
 } from "../previewScrub";
 
 const FIXED_PREVIEW_CSS_WIDTH = 432;
-const FIXED_PREVIEW_CSS_HEIGHT = 243;
-const FILMSTRIP_PREVIEW_WIDTH = 432;
-const FILMSTRIP_PREVIEW_HEIGHT = 244;
+const PREVIEW_ASPECT_WIDTH = 16;
+const PREVIEW_ASPECT_HEIGHT = 9;
+const PREVIEW_PIXEL_WIDTH_STEP = 32;
+const PREVIEW_MIN_PIXEL_WIDTH = 448;
+const PREVIEW_MAX_PIXEL_WIDTH = 960;
+const FILMSTRIP_PREVIEW_WIDTH = PREVIEW_MIN_PIXEL_WIDTH;
+const FILMSTRIP_PREVIEW_HEIGHT =
+  (FILMSTRIP_PREVIEW_WIDTH * PREVIEW_ASPECT_HEIGHT) / PREVIEW_ASPECT_WIDTH;
 const MAX_GENERATED_PREVIEW_CLIP_SECONDS = 12;
 const MEDIA_SEEK_EPSILON_SECONDS = 1 / 240;
 
@@ -49,7 +54,7 @@ const containerStyle: React.CSSProperties = {
   width: "100%",
   maxWidth: `${FIXED_PREVIEW_CSS_WIDTH}px`,
   height: "auto",
-  aspectRatio: "16 / 9",
+  aspectRatio: `${PREVIEW_ASPECT_WIDTH} / ${PREVIEW_ASPECT_HEIGHT}`,
   flexShrink: 0,
   display: "flex",
   alignItems: "center",
@@ -310,10 +315,20 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   const getPreviewPixelSize = useCallback(() => {
     const scale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
-    const even = (value: number) => Math.ceil(value / 2) * 2;
+    // 432x243 is an exact 16:9 CSS frame, but FFmpeg requires even output
+    // dimensions and would round the height to 244. Use the next even 16:9
+    // pair instead so contain never creates side gaps around a source frame.
+    const width = Math.min(
+      PREVIEW_MAX_PIXEL_WIDTH,
+      Math.max(
+        PREVIEW_MIN_PIXEL_WIDTH,
+        Math.round((FIXED_PREVIEW_CSS_WIDTH * scale) / PREVIEW_PIXEL_WIDTH_STEP) *
+          PREVIEW_PIXEL_WIDTH_STEP
+      )
+    );
     return {
-      width: even(FIXED_PREVIEW_CSS_WIDTH * scale),
-      height: even(FIXED_PREVIEW_CSS_HEIGHT * scale),
+      width,
+      height: (width * PREVIEW_ASPECT_HEIGHT) / PREVIEW_ASPECT_WIDTH,
     };
   }, []);
 

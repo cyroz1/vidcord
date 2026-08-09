@@ -139,8 +139,9 @@ encoding and safer bitrates when FFmpeg's first pass lands too large.
   PNG with the preview overlay or `Cmd+Shift+S` / `Ctrl+Shift+S`. Snapshots
   follow the configured output destination and copy/reveal completion action.
 - **Output FPS controls** — standard mode can leave FPS unchanged or cap it
-  at 24, 30, or 60 FPS, hiding options above the source frame rate. Advanced
-  mode accepts a custom FPS value, or an empty field shown as Off for no change.
+  at 24, 30, or 60 FPS, hiding options at or above the source frame rate when
+  they would be redundant. Advanced mode accepts a custom FPS value, or an
+  empty field shown as Off for no change.
 - **Completion actions** — copy the finished output file itself to the system
   clipboard by default, with an automatic reveal fallback, or always reveal it
   in Explorer/Finder instead.
@@ -299,7 +300,7 @@ For more distros, manual installs, or troubleshooting, read
    Advanced also exposes custom target size, resolution, FPS, audio normalization,
    and encoder controls. Leaving its size empty uses the source bitrate
    without a file-size limit. Standard mode can cap output FPS at 24, 30, or 60
-   when those values do not exceed the source frame rate.
+   when those values are below the source frame rate.
 4. **Trim** (optional) — drag the handles or use `I` / `O` to stamp the
    playhead. `Space` plays the selected range from the current playhead when it
    is inside the trim.
@@ -573,9 +574,10 @@ legacy convenience target rather than a current Discord account tier; the
 
 ### Can I change the output FPS?
 
-Yes. Standard mode offers Off, 24, 30, and 60 FPS, and hides choices above
-the source video's frame rate. Advanced mode lets you enter any positive FPS
-value, or leave the Off field empty to keep the original cadence.
+Yes. Standard mode offers Off, 24, 30, and 60 FPS, and hides choices at or
+above the source video's frame rate when they would be redundant. Advanced mode
+lets you enter any positive FPS value, or leave the Off field empty to keep the
+original cadence.
 
 ### How is vidcord different from using FFmpeg directly?
 
