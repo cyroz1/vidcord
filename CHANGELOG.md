@@ -27,6 +27,7 @@
 - Hid the standard FPS choice that matches the imported video's frame rate while retaining the Source option for unchanged output.
 - Added the active crop setting to the compact export summary above the action button.
 - Kept preview frames at an exact 16:9 output ratio so 16:9 videos do not show side gaps.
+- Fixed the compress button glow being clipped at the footer boundary.
 
 ## v7.1
 
