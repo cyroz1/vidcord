@@ -1,11 +1,13 @@
 use crate::ffmpeg::{
+    cancel_lossless_trim_probe as cancel_lossless_trim_probe_job, cancel_preview_frame_jobs,
     cancel_preview_jobs, cancel_superseded_probe_jobs, clear_preview_caches,
     configure_ffmpeg_command, ffmpeg_missing_error, generate_filmstrip, generate_preview,
     generate_preview_clip, probe_lossless_trim_info, probe_video, start_probe_generation,
 };
 use crate::log::vidcord_log;
 use std::io::{BufRead, BufReader};
-use std::process::Stdio;
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{
@@ -16,6 +18,28 @@ use tauri::{
 const MAX_FFMPEG_STDERR_RECORD_BYTES: usize = 16 * 1024;
 const MAX_FFMPEG_DIAGNOSTIC_BYTES: usize = 256 * 1024;
 const MAX_FFMPEG_DIAGNOSTIC_LINES: usize = 200;
+const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(20);
+const SNAPSHOT_STDERR_LIMIT: u64 = 256 * 1024;
+const AUDIO_PEAK_TIMEOUT: Duration = Duration::from_secs(60);
+const AUDIO_PEAK_STDERR_LIMIT: u64 = 256 * 1024;
+static SNAPSHOT_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+struct SnapshotGuard;
+
+impl SnapshotGuard {
+    fn acquire() -> Result<Self, String> {
+        SNAPSHOT_ACTIVE
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| Self)
+            .map_err(|_| "A snapshot is already being created.".to_string())
+    }
+}
+
+impl Drop for SnapshotGuard {
+    fn drop(&mut self) {
+        SNAPSHOT_ACTIVE.store(false, Ordering::Release);
+    }
+}
 
 fn read_bounded_records<R, F>(reader: &mut R, mut on_record: F) -> std::io::Result<()>
 where
@@ -227,14 +251,26 @@ pub async fn probe(path: String) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub async fn get_lossless_trim_info(path: String) -> Result<serde_json::Value, String> {
+pub async fn get_lossless_trim_info(
+    path: String,
+    request_id: Option<u64>,
+) -> Result<serde_json::Value, String> {
     let generation = start_probe_generation();
+    let request_id = request_id.unwrap_or(0);
+    crate::ffmpeg::register_lossless_trim_probe(request_id, generation);
     tokio::task::spawn_blocking(move || {
         cancel_superseded_probe_jobs(generation);
         probe_lossless_trim_info(&path, generation).map_err(|error| error.to_string())
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn cancel_lossless_trim_probe(request_id: u64) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || cancel_lossless_trim_probe_job(request_id))
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -258,11 +294,19 @@ pub async fn get_preview_clip(
     path: String,
     start_time_sec: f64,
     end_time_sec: f64,
+    preview_width: Option<u32>,
+    preview_height: Option<u32>,
 ) -> Result<tauri::ipc::Response, String> {
     tokio::task::spawn_blocking(move || {
-        generate_preview_clip(&path, start_time_sec, end_time_sec)
-            .map(tauri::ipc::Response::new)
-            .map_err(|e| e.to_string())
+        generate_preview_clip(
+            &path,
+            start_time_sec,
+            end_time_sec,
+            preview_width,
+            preview_height,
+        )
+        .map(tauri::ipc::Response::new)
+        .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -300,6 +344,13 @@ pub async fn cancel_preview_generation() -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn cancel_preview_frame_generation() -> Result<(), String> {
+    tokio::task::spawn_blocking(cancel_preview_frame_jobs)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands — compression
 // ---------------------------------------------------------------------------
@@ -314,10 +365,13 @@ pub struct CompressOptions {
     pub start_time: f64,
     pub end_time: f64,
     pub remove_audio: bool,
+    pub audio_track_indices: Option<Vec<usize>>,
     pub audio_normalize: Option<bool>,
     pub crop_aspect_ratio: Option<String>,
     pub output_fps: Option<f64>,
     pub scale_filter: Option<String>,
+    pub source_width: Option<u32>,
+    pub source_height: Option<u32>,
     pub vaapi_device: Option<String>,
     pub gif_mode: bool,
     pub lossless_trim: bool,
@@ -368,6 +422,7 @@ struct FfmpegRunContext {
     clip_duration: f64,
     job_id: u64,
     emit_progress: bool,
+    audio_gain_db: Option<f64>,
 }
 
 fn valid_encoder_name(encoder: &str) -> bool {
@@ -469,7 +524,7 @@ fn format_fps_filter_value(fps: f64) -> String {
     value
 }
 
-fn video_filter_for_encoder(opts: &CompressOptions, encoder: &str) -> String {
+fn video_filter_for_encoder(opts: &CompressOptions, encoder: &str) -> Option<String> {
     let mut filters = Vec::new();
     if let Some(crop_expr) = opts
         .crop_aspect_ratio
@@ -483,24 +538,30 @@ fn video_filter_for_encoder(opts: &CompressOptions, encoder: &str) -> String {
     }
 
     if encoder.ends_with("_vaapi") {
-        let scale = opts
-            .scale_filter
-            .as_deref()
-            .map(|filter| filter.strip_prefix("scale=").unwrap_or(filter))
-            .unwrap_or("iw:ih");
-        filters.extend([
-            "format=nv12".to_string(),
-            "hwupload".to_string(),
-            format!("scale_vaapi={scale}"),
-        ]);
-    } else {
-        filters.push(match opts.scale_filter.as_deref() {
-            Some(filter) if filter.contains('=') => filter.to_string(),
-            Some(filter) => format!("scale={filter}"),
-            None => "scale=trunc(iw/2)*2:trunc(ih/2)*2".into(),
+        filters.extend(["format=nv12".to_string(), "hwupload".to_string()]);
+        if let Some(filter) = opts.scale_filter.as_deref() {
+            let scale = filter.strip_prefix("scale=").unwrap_or(filter);
+            filters.push(format!("scale_vaapi={scale}"));
+        } else if source_dimensions_need_even_fix(opts) {
+            filters.push("scale_vaapi=trunc(iw/2)*2:trunc(ih/2)*2".into());
+        }
+    } else if let Some(filter) = opts.scale_filter.as_deref() {
+        filters.push(if filter.contains('=') {
+            filter.to_string()
+        } else {
+            format!("scale={filter}")
         });
+    } else if source_dimensions_need_even_fix(opts) {
+        filters.push("scale=trunc(iw/2)*2:trunc(ih/2)*2".into());
     }
-    filters.join(",")
+    (!filters.is_empty()).then(|| filters.join(","))
+}
+
+fn source_dimensions_need_even_fix(opts: &CompressOptions) -> bool {
+    match (opts.source_width, opts.source_height) {
+        (Some(width), Some(height)) if width > 0 && height > 0 => width % 2 != 0 || height % 2 != 0,
+        _ => true,
+    }
 }
 
 fn gif_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> String {
@@ -543,12 +604,19 @@ fn gif_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> String {
 }
 
 const OVERSIZE_RETRY_LIMIT_PER_ENCODER: usize = 1;
-const OVERSIZE_RETRY_SAFETY: f64 = 0.96;
+const OVERSIZE_RETRY_SAFETY: f64 = 0.90;
+const LOSSLESS_FASTSTART_MAX_INPUT_BYTES: u64 = 256 * 1024 * 1024;
 const GIF_PREFLIGHT_INITIAL_SECONDS: f64 = 1.0;
 const GIF_PREFLIGHT_EXTENDED_SECONDS: f64 = 3.0;
 const GIF_PREFLIGHT_UNCERTAINTY_LOW: f64 = 0.80;
 const GIF_PREFLIGHT_UNCERTAINTY_HIGH: f64 = 1.25;
 static GIF_PREFLIGHT_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn should_use_lossless_faststart(input_size: Option<u64>) -> bool {
+    input_size
+        .map(|size| size <= LOSSLESS_FASTSTART_MAX_INPUT_BYTES)
+        .unwrap_or(true)
+}
 
 struct TemporaryOutput(std::path::PathBuf);
 
@@ -591,8 +659,16 @@ impl Drop for TemporaryOutput {
     }
 }
 
-fn supports_auto_hardware_decode(encoder: &str) -> bool {
-    encoder != "libx264" && encoder != "gif" && !encoder.ends_with("_vaapi")
+fn supports_auto_hardware_decode(opts: &CompressOptions, encoder: &str) -> bool {
+    encoder != "libx264"
+        && encoder != "gif"
+        && !encoder.ends_with("_vaapi")
+        && !opts.lossless_trim
+        && opts.crop_aspect_ratio.as_deref().unwrap_or("off") == "off"
+        && opts.output_fps.is_none()
+        && opts.scale_filter.is_none()
+        && !source_dimensions_need_even_fix(opts)
+        && !cfg!(any(target_os = "windows", target_os = "macos"))
 }
 
 fn initial_attempt(opts: &CompressOptions) -> CompressionAttempt {
@@ -602,7 +678,7 @@ fn initial_attempt(opts: &CompressOptions) -> CompressionAttempt {
         opts.encoder.clone()
     };
     CompressionAttempt {
-        try_hardware_decode: supports_auto_hardware_decode(&encoder),
+        try_hardware_decode: supports_auto_hardware_decode(opts, &encoder),
         encoder,
         video_bitrate_k: opts.video_bitrate_k.max(100),
         status: if opts.gif_mode {
@@ -630,7 +706,20 @@ fn max_adaptive_attempts(opts: &CompressOptions, has_target: bool) -> usize {
         1
     };
     encoder_phases * attempts_per_encoder
-        + usize::from(supports_auto_hardware_decode(&opts.encoder))
+        + usize::from(supports_auto_hardware_decode(opts, &opts.encoder))
+}
+
+fn target_rate_control_args(encoder: &str, bitrate_k: u32, has_target: bool) -> Vec<String> {
+    if !has_target || encoder == "gif" {
+        return Vec::new();
+    }
+    let bitrate_k = bitrate_k.max(100);
+    vec![
+        "-maxrate".into(),
+        format!("{bitrate_k}k"),
+        "-bufsize".into(),
+        format!("{}k", bitrate_k.saturating_mul(2)),
+    ]
 }
 
 fn next_gif_attempt(
@@ -832,6 +921,181 @@ fn prioritized_audio_map(audio_idx: Option<usize>) -> String {
     format!("0:a:{}?", audio_idx.unwrap_or(0))
 }
 
+fn selected_audio_maps(audio_indices: Option<&[usize]>) -> Vec<String> {
+    match audio_indices {
+        Some(indices) => indices.iter().map(|index| format!("0:a:{index}")).collect(),
+        None => vec![prioritized_audio_map(None)],
+    }
+}
+
+fn should_peak_normalize_audio(opts: &CompressOptions) -> bool {
+    opts.audio_normalize == Some(true)
+        && !opts.remove_audio
+        && !opts.gif_mode
+        && !opts.lossless_trim
+        && !opts
+            .audio_track_indices
+            .as_deref()
+            .is_some_and(|indices| indices.is_empty())
+}
+
+fn parse_max_volume_db(stderr: &[u8]) -> Result<Option<f64>, String> {
+    let text = String::from_utf8_lossy(stderr);
+    let mut found_report = false;
+    let mut max_volume_db: Option<f64> = None;
+
+    for line in text.lines() {
+        let Some((_, value)) = line.split_once("max_volume:") else {
+            continue;
+        };
+        found_report = true;
+        let value = value
+            .split_whitespace()
+            .next()
+            .ok_or_else(|| "FFmpeg returned an empty audio peak value.".to_string())?;
+        if value.eq_ignore_ascii_case("-inf") {
+            continue;
+        }
+        let value = value
+            .parse::<f64>()
+            .map_err(|_| format!("FFmpeg returned an invalid audio peak value: {value}"))?;
+        if !value.is_finite() {
+            return Err("FFmpeg returned a non-finite audio peak value.".to_string());
+        }
+        max_volume_db = Some(max_volume_db.map_or(value, |current| current.max(value)));
+    }
+
+    if found_report {
+        Ok(max_volume_db)
+    } else {
+        Err("FFmpeg did not report an audio peak.".to_string())
+    }
+}
+
+fn peak_normalization_gain_db(max_volume_db: Option<f64>) -> Option<f64> {
+    max_volume_db.map(|peak| {
+        let gain = -peak;
+        if gain.abs() < 0.000_001 {
+            0.0
+        } else {
+            gain
+        }
+    })
+}
+
+fn peak_normalization_filter(gain_db: f64) -> String {
+    format!("volume={gain_db:.6}dB")
+}
+
+fn measure_audio_peak_gain_db(opts: &CompressOptions, job_id: u64) -> Result<Option<f64>, String> {
+    if was_cancelled(job_id) {
+        return Err("Cancelled".to_string());
+    }
+
+    let duration = format!("{:.3}", opts.end_time - opts.start_time);
+    let start_time = format!("{:.3}", opts.start_time);
+    let mut cmd_args = vec![
+        "-hide_banner".to_string(),
+        "-nostdin".to_string(),
+        "-ss".to_string(),
+        start_time,
+        "-t".to_string(),
+        duration,
+        "-i".to_string(),
+        opts.input_path.clone(),
+        "-vn".to_string(),
+        "-sn".to_string(),
+        "-dn".to_string(),
+    ];
+    for audio_map in selected_audio_maps(opts.audio_track_indices.as_deref()) {
+        cmd_args.extend(["-map".to_string(), audio_map]);
+    }
+    cmd_args.extend([
+        "-af".to_string(),
+        "volumedetect".to_string(),
+        "-f".to_string(),
+        "null".to_string(),
+        "-".to_string(),
+    ]);
+
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(&cmd_args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    configure_ffmpeg_command(&mut cmd);
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+
+    let child = crate::gpu::spawn_captured_command(&mut cmd).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            ffmpeg_missing_error()
+        } else {
+            format!("Failed to start FFmpeg audio peak analysis: {error}")
+        }
+    })?;
+    let pid = child.id();
+    let registered = {
+        let mut state = compression_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        state.register_process(job_id, pid, opts.output_path.clone())
+    };
+    if !registered {
+        drop(child);
+        return Err("Cancelled".to_string());
+    }
+
+    let output_result =
+        child.wait_for_output_with_limit(AUDIO_PEAK_TIMEOUT, AUDIO_PEAK_STDERR_LIMIT);
+    let cancelled = {
+        let mut state = compression_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        state.clear_process(job_id);
+        state.is_cancelled(job_id)
+    };
+    if cancelled {
+        return Err("Cancelled".to_string());
+    }
+
+    let output = output_result.map_err(|error| {
+        format!("FFmpeg audio peak analysis failed while reading output: {error}")
+    })?;
+    let Some(output) = output else {
+        return Err(format!(
+            "FFmpeg audio peak analysis timed out after {} seconds.",
+            AUDIO_PEAK_TIMEOUT.as_secs()
+        ));
+    };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if contains_ascii_ci(&stderr, b"output file does not contain any stream") {
+            return Ok(None);
+        }
+        return Err(format!(
+            "FFmpeg audio peak analysis failed: {}",
+            stderr.trim()
+        ));
+    }
+
+    parse_max_volume_db(&output.stderr).map(peak_normalization_gain_db)
+}
+
+async fn analyze_audio_peak_gain_db(
+    opts: &CompressOptions,
+    job_id: u64,
+) -> Result<Option<f64>, String> {
+    let opts = opts.clone();
+    tokio::task::spawn_blocking(move || measure_audio_peak_gain_db(&opts, job_id))
+        .await
+        .map_err(|error| format!("Audio peak analysis worker failed: {error}"))?
+}
+
 async fn run_ffmpeg_attempt(
     app: &AppHandle,
     opts: &CompressOptions,
@@ -884,7 +1148,11 @@ async fn run_ffmpeg_attempt(
         if opts.remove_audio {
             cmd_args.push("-an".into());
         }
-        if std::path::Path::new(&opts.output_path)
+        if should_use_lossless_faststart(
+            std::fs::metadata(&opts.input_path)
+                .ok()
+                .map(|metadata| metadata.len()),
+        ) && std::path::Path::new(&opts.output_path)
             .extension()
             .and_then(|extension| extension.to_str())
             .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"))
@@ -917,7 +1185,6 @@ async fn run_ffmpeg_attempt(
             "-an".into(),
         ]);
     } else {
-        let vf = video_filter_for_encoder(opts, &attempt.encoder);
         cmd_args.extend([
             "-map".into(),
             "0:v:0".into(),
@@ -925,27 +1192,31 @@ async fn run_ffmpeg_attempt(
             attempt.encoder.clone(),
             "-b:v".into(),
             format!("{}k", attempt.video_bitrate_k),
-            "-vf".into(),
-            vf,
         ]);
+        if let Some(vf) = video_filter_for_encoder(opts, &attempt.encoder) {
+            cmd_args.extend(["-vf".into(), vf]);
+        }
+        cmd_args.extend(target_rate_control_args(
+            &attempt.encoder,
+            attempt.video_bitrate_k,
+            opts.target_size_mb.is_some(),
+        ));
         cmd_args.extend(encoder_preset_args(&attempt.encoder));
 
         if opts.remove_audio {
             cmd_args.push("-an".into());
         } else {
-            let audio_map = prioritized_audio_map(crate::ffmpeg::find_best_audio_stream_index(
-                &opts.input_path,
-            ));
-            cmd_args.extend([
-                "-map".into(),
-                audio_map,
-                "-c:a".into(),
-                "aac".into(),
-                "-b:a".into(),
-                "128k".into(),
-            ]);
-            if opts.audio_normalize == Some(true) {
-                cmd_args.extend(["-af".into(), "loudnorm=I=-14:TP=0.0:LRA=11".into()]);
+            let audio_maps = selected_audio_maps(opts.audio_track_indices.as_deref());
+            if audio_maps.is_empty() {
+                cmd_args.push("-an".into());
+            } else {
+                for audio_map in audio_maps {
+                    cmd_args.extend(["-map".into(), audio_map]);
+                }
+                cmd_args.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "128k".into()]);
+                if let Some(gain_db) = context.audio_gain_db {
+                    cmd_args.extend(["-af".into(), peak_normalization_filter(gain_db)]);
+                }
             }
         }
     }
@@ -1230,6 +1501,7 @@ async fn try_lossless_trim(
                 clip_duration: attempt_opts.end_time - attempt_opts.start_time,
                 job_id,
                 emit_progress: true,
+                audio_gain_db: None,
             },
         )
         .await;
@@ -1413,6 +1685,49 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     let mut seen_attempts: std::collections::HashSet<(String, u32, bool)> =
         std::collections::HashSet::new();
 
+    let audio_gain_db = if should_peak_normalize_audio(&opts) {
+        let _ = app.emit(
+            "compress-progress",
+            serde_json::json!({
+                "percent": 0,
+                "eta": "Calculating...",
+                "status": "Analyzing audio peak...",
+                "attempt": 1,
+                "attempt_total": total_attempts,
+                "encoder": attempt.encoder.as_str(),
+                "video_bitrate_k": attempt.video_bitrate_k,
+                "gif_mode": false
+            }),
+        );
+        match analyze_audio_peak_gain_db(&opts, job_id).await {
+            Ok(gain_db) => gain_db,
+            Err(error) if error == "Cancelled" => {
+                vidcord_log("Compression cancelled during audio peak analysis.");
+                remove_partial_output(&opts.output_path);
+                let _ = app.emit(
+                    "compress-done",
+                    serde_json::json!({
+                        "success": false,
+                        "cancelled": true,
+                        "message": "Cancelled."
+                    }),
+                );
+                return Err(error);
+            }
+            Err(error) => {
+                vidcord_log(&format!("Audio peak analysis failed: {error}"));
+                remove_partial_output(&opts.output_path);
+                let _ = app.emit(
+                    "compress-done",
+                    serde_json::json!({"success": false, "message": error}),
+                );
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
+
     if opts.gif_mode
         && target_bytes.is_some()
         && clip_duration > GIF_PREFLIGHT_INITIAL_SECONDS * 2.0
@@ -1437,6 +1752,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                             clip_duration: sample_duration,
                             job_id,
                             emit_progress: false,
+                            audio_gain_db: None,
                         },
                     )
                     .await
@@ -1543,6 +1859,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 clip_duration,
                 job_id,
                 emit_progress: true,
+                audio_gain_db,
             },
         )
         .await
@@ -1921,6 +2238,8 @@ pub async fn capture_snapshot(
             .map_err(|e| format!("Failed to create snapshot directory: {e}"))?;
     }
 
+    let _snapshot_guard = SnapshotGuard::acquire()?;
+
     let input = input_path.clone();
     let time_str = format!("{:.3}", time);
     let output_target_str = output_path.clone();
@@ -1947,10 +2266,30 @@ pub async fn capture_snapshot(
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x08000000);
         }
-        let output = cmd
-            .output()
-            .map_err(|e| format!("Failed to execute FFmpeg for snapshot: {e}"))?;
+        let child = match crate::gpu::spawn_captured_command(&mut cmd) {
+            Ok(child) => child,
+            Err(error) => {
+                let _ = std::fs::remove_file(&output_target_str);
+                return Err(format!("Failed to execute FFmpeg for snapshot: {error}"));
+            }
+        };
+        let output = match child.wait_for_output_with_limit(SNAPSHOT_TIMEOUT, SNAPSHOT_STDERR_LIMIT)
+        {
+            Ok(output) => output,
+            Err(error) => {
+                let _ = std::fs::remove_file(&output_target_str);
+                return Err(format!("FFmpeg snapshot process failed: {error}"));
+            }
+        };
+        let Some(output) = output else {
+            let _ = std::fs::remove_file(&output_target_str);
+            return Err(format!(
+                "FFmpeg frame snapshot timed out after {} seconds.",
+                SNAPSHOT_TIMEOUT.as_secs()
+            ));
+        };
         if !output.status.success() {
+            let _ = std::fs::remove_file(&output_target_str);
             return Err(format!(
                 "FFmpeg frame snapshot failed: {}",
                 String::from_utf8_lossy(&output.stderr)
@@ -2000,6 +2339,34 @@ mod tests {
     fn prioritized_audio_map_always_selects_exactly_one_stream() {
         assert_eq!(prioritized_audio_map(Some(2)), "0:a:2?");
         assert_eq!(prioritized_audio_map(None), "0:a:0?");
+    }
+
+    #[test]
+    fn selected_audio_maps_preserve_manual_order_and_allow_no_audio() {
+        assert_eq!(selected_audio_maps(Some(&[2, 0])), vec!["0:a:2", "0:a:0"]);
+        assert!(selected_audio_maps(Some(&[])).is_empty());
+    }
+
+    #[test]
+    fn max_volume_parser_chooses_the_highest_sample_peak() {
+        let stderr = b"[Parsed_volumedetect_0] max_volume: -12.5 dB\n[Parsed_volumedetect_1] max_volume: -2.0 dB\n";
+        assert_eq!(parse_max_volume_db(stderr), Ok(Some(-2.0)));
+        assert_eq!(peak_normalization_gain_db(Some(-2.0)), Some(2.0));
+        assert_eq!(peak_normalization_filter(2.0), "volume=2.000000dB");
+    }
+
+    #[test]
+    fn max_volume_parser_treats_silence_as_having_no_gain() {
+        assert_eq!(
+            parse_max_volume_db(b"[Parsed_volumedetect_0] max_volume: -inf dB\n"),
+            Ok(None)
+        );
+        assert_eq!(peak_normalization_gain_db(None), None);
+    }
+
+    #[test]
+    fn max_volume_parser_rejects_missing_reports() {
+        assert!(parse_max_volume_db(b"mean_volume: -20.0 dB\n").is_err());
     }
 
     #[test]
@@ -2068,10 +2435,13 @@ mod tests {
             start_time: 0.0,
             end_time: 60.0,
             remove_audio: false,
+            audio_track_indices: None,
             audio_normalize: None,
             crop_aspect_ratio: None,
             output_fps: None,
             scale_filter: None,
+            source_width: Some(1920),
+            source_height: Some(1080),
             vaapi_device: None,
             gif_mode: false,
             lossless_trim: false,
@@ -2104,7 +2474,7 @@ mod tests {
 
         assert_eq!(
             video_filter_for_encoder(&opts, "libx264"),
-            "crop=min(iw\\,ih):min(iw\\,ih),fps=30,scale=1280:720"
+            Some("crop=min(iw\\,ih):min(iw\\,ih),fps=30,scale=1280:720".into())
         );
     }
 
@@ -2116,7 +2486,7 @@ mod tests {
 
         assert_eq!(
             video_filter_for_encoder(&opts, "libx264"),
-            "fps=30,scale=1280:720"
+            Some("fps=30,scale=1280:720".into())
         );
     }
 
@@ -2128,7 +2498,7 @@ mod tests {
 
         assert_eq!(
             video_filter_for_encoder(&opts, "h264_vaapi"),
-            "fps=24,format=nv12,hwupload,scale_vaapi=1280:720"
+            Some("fps=24,format=nv12,hwupload,scale_vaapi=1280:720".into())
         );
     }
 
@@ -2198,6 +2568,25 @@ mod tests {
     }
 
     #[test]
+    fn target_size_rate_control_caps_peak_bitrate() {
+        assert_eq!(
+            target_rate_control_args("h264_nvenc", 900, true),
+            vec!["-maxrate", "900k", "-bufsize", "1800k"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        );
+        assert!(target_rate_control_args("h264_nvenc", 900, false).is_empty());
+    }
+
+    #[test]
+    fn lossless_faststart_skips_large_inputs() {
+        assert!(should_use_lossless_faststart(Some(256 * 1024 * 1024)));
+        assert!(!should_use_lossless_faststart(Some(256 * 1024 * 1024 + 1)));
+        assert!(should_use_lossless_faststart(None));
+    }
+
+    #[test]
     fn test_vaapi_device_validation_rejects_untrusted_values() {
         assert!(valid_vaapi_device(None));
         #[cfg(target_os = "linux")]
@@ -2261,7 +2650,7 @@ mod tests {
         let (next, retries, cpu_used) =
             next_oversize_attempt(&attempt, 1_000, 2_000, 0, false).unwrap();
         assert_eq!(next.encoder, "h264_nvenc");
-        assert_eq!(next.video_bitrate_k, 432);
+        assert_eq!(next.video_bitrate_k, 405);
         assert_eq!(retries, 1);
         assert!(!cpu_used);
 
@@ -2269,7 +2658,7 @@ mod tests {
         let (next, retries, cpu_used) =
             next_oversize_attempt(&attempt, 1_000, 1_500, retries, cpu_used).unwrap();
         assert_eq!(next.encoder, "libx264");
-        assert_eq!(next.video_bitrate_k, 276);
+        assert_eq!(next.video_bitrate_k, 243);
         assert_eq!(retries, 0);
         assert!(cpu_used);
     }
@@ -2285,7 +2674,7 @@ mod tests {
         let (second, retries, cpu_used) =
             next_oversize_attempt(&first, 1_000, 2_000, 0, true).unwrap();
         assert_eq!(second.encoder, "libx264");
-        assert_eq!(second.video_bitrate_k, 432);
+        assert_eq!(second.video_bitrate_k, 405);
         assert_eq!(retries, 1);
         assert!(cpu_used);
 
@@ -2294,7 +2683,7 @@ mod tests {
 
     #[test]
     fn test_adaptive_bitrate_has_safety_margin_and_minimum() {
-        assert_eq!(adaptive_bitrate_for_oversize(1_000, 900, 1_000), 864);
+        assert_eq!(adaptive_bitrate_for_oversize(1_000, 900, 1_000), 810);
         assert_eq!(adaptive_bitrate_for_oversize(120, 1, 10_000), 100);
     }
 
@@ -2304,12 +2693,21 @@ mod tests {
         let cpu = retry_test_options("libx264", Some(100.0));
         let no_target = retry_test_options("h264_nvenc", None);
 
-        assert_eq!(max_adaptive_attempts(&hardware, true), 5);
+        assert_eq!(
+            max_adaptive_attempts(&hardware, true),
+            4 + usize::from(!cfg!(any(target_os = "windows", target_os = "macos")))
+        );
         assert_eq!(max_adaptive_attempts(&cpu, true), 2);
-        assert_eq!(max_adaptive_attempts(&no_target, false), 3);
+        assert_eq!(
+            max_adaptive_attempts(&no_target, false),
+            2 + usize::from(!cfg!(any(target_os = "windows", target_os = "macos")))
+        );
         assert_eq!(max_adaptive_attempts(&cpu, false), 1);
         assert_eq!(initial_attempt(&no_target).video_bitrate_k, 900);
-        assert!(initial_attempt(&no_target).try_hardware_decode);
+        assert_eq!(
+            initial_attempt(&no_target).try_hardware_decode,
+            !cfg!(any(target_os = "windows", target_os = "macos"))
+        );
     }
 
     #[test]
@@ -2333,7 +2731,10 @@ mod tests {
             cpu_fallback_used = next_cpu_used;
         }
 
-        assert_eq!(attempts.len() + 1, max_adaptive_attempts(&opts, true));
+        assert_eq!(
+            attempts.len() + usize::from(!cfg!(any(target_os = "windows", target_os = "macos"))),
+            max_adaptive_attempts(&opts, true)
+        );
         assert_eq!(
             attempts
                 .iter()

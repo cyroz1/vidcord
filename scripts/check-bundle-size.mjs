@@ -4,9 +4,11 @@ import zlib from "node:zlib";
 
 const assetDir = path.join("dist", "assets");
 const limits = {
-  javascriptRaw: 245 * 1024,
-  javascriptGzip: 80 * 1024,
-  cssGzip: 6.5 * 1024,
+  // Advanced audio-track controls add a compact, user-gesture-only popup.
+  javascriptRaw: 250 * 1024,
+  javascriptGzip: 81 * 1024,
+  // The track popup adds its compact list, checkbox, and light-mode styles.
+  cssGzip: 7 * 1024,
 };
 
 if (!fs.existsSync(assetDir)) {

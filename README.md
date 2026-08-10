@@ -73,9 +73,9 @@ encoders exposed by your FFmpeg install, and drops the result in your
 choose a persistent custom folder, or have vidcord ask for a location when the
 encode finishes. By default, the completed file itself is copied to the system
 clipboard; if that fails, vidcord reveals it in the platform file manager. It
-can also be set to always reveal the output. It verifies the finished file against your selected size limit
-and automatically retries with CPU encoding and safer bitrates when FFmpeg's
-first pass lands too large.
+can also be set to always reveal the output. It verifies the finished file against your selected size limit,
+applies an encoder-specific peak-rate bound, and automatically retries with CPU
+encoding and safer bitrates when FFmpeg's first pass lands too large.
 
 - **Platform-native packaging.** Tauri uses the system WebView (Edge on Windows,
   WebKit on macOS/Linux) instead of bundling Chromium. Package size varies by
@@ -119,23 +119,29 @@ first pass lands too large.
   remains available because it still applies to GIF output. Higher frame rates trade spatial detail
   for motion, and oversized GIFs are retried at
   progressively lower visual complexity without changing the selected FPS.
-- **Advanced mode** — custom target size (MB), output resolution, aspect-ratio
-  crop, FPS, audio normalization, and any FFmpeg video encoder string, with
-  autocomplete from the encoders your installed FFmpeg exposes. Leave target
-  size empty to encode at the source bitrate without a file-size limit.
-- **Aspect-ratio cropping** — crop to 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, or
-  5:4 before scaling. A preset matching the imported video's native display
-  ratio is hidden automatically.
-- **Smart audio output** — optionally normalize retained audio to EBU R128
-  `-14 LUFS` with a `0 dBTP` ceiling. Multi-track recordings export exactly
-  one audio track: the track with the most estimated data, or the first track
-  on a tie or if discovery fails.
+- **Advanced mode** — custom target size (MB), output resolution, FPS, audio
+  normalization, and any FFmpeg video encoder string, with
+  autocomplete from the encoders your installed FFmpeg exposes. Its per-video
+  audio mixer lists every source track by name and estimated size, defaults to
+  the first track unless another is at least 20% larger by estimated data, and can select any combination without changing saved
+  settings or presets. Leave target size empty to encode at the source bitrate
+  without a file-size limit.
+- **Aspect-ratio cropping** — available in Compress, Advanced, and GIF Mode;
+  crop to 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, or 5:4 before scaling. A preset
+  matching the imported video's native display ratio is hidden automatically.
+- **Smart audio output** — optionally peak-normalize retained audio so its highest sample
+  peak reaches `0 dB` with a fixed gain. Standard compression starts with the first
+  source track and switches to the largest estimated-data track only when it is at
+  least 20% larger. Advanced mode can select one, several, or all source tracks;
+  each selected track is encoded at 128 kbps and the video bitrate budget
+  accounts for every selected track.
 - **Full-resolution frame snapshots** — save the frame at the playhead as a
   PNG with the preview overlay or `Cmd+Shift+S` / `Ctrl+Shift+S`. Snapshots
   follow the configured output destination and copy/reveal completion action.
 - **Output FPS controls** — standard mode can leave FPS unchanged or cap it
-  at 24, 30, or 60 FPS, hiding options above the source frame rate. Advanced
-  mode accepts a custom FPS value, or an empty field shown as Off for no change.
+  at 24, 30, or 60 FPS, hiding options at or above the source frame rate when
+  they would be redundant. Advanced mode accepts a custom FPS value, or an
+  empty field shown as Off for no change.
 - **Completion actions** — copy the finished output file itself to the system
   clipboard by default, with an automatic reveal fallback, or always reveal it
   in Explorer/Finder instead.
@@ -156,6 +162,9 @@ first pass lands too large.
 - **Responsive scrub previews** with display-sized filmstrip/frame thumbnails,
   sparse thumbnail generation for long videos, playhead-aware fallback preview clips,
   and hardware-accelerated preview clips where FFmpeg supports them.
+- **Efficient preview fallback** — exact frame requests use display-sized, bounded
+  in-memory output; cancelling a stale frame no longer interrupts a filmstrip that
+  is already being generated, and generated fallback clips omit unused audio.
 - **Linux preview fallback** — WebKitGTK live video scrubbing and trim playback are
   disabled for stability; FFmpeg-generated filmstrip and individual-frame previews
   remain available while scrubbing.
@@ -175,9 +184,10 @@ first pass lands too large.
   and Dark appearances together with the app surface.
 - **Remove audio** — strip the audio track to reclaim space.
 - **Strict size checks with bounded retries** — finished files are measured
-  against the selected target. Hardware jobs use at most four full attempts
-  and CPU jobs use at most two, including measured bitrate correction and CPU
-  fallback before reporting the smallest result.
+  against the selected target. Target-size encodes apply encoder-specific
+  peak-rate bounds before adaptive correction. Hardware jobs use at most four
+  full attempts and CPU jobs use at most two, including measured bitrate
+  correction and CPU fallback before reporting the smallest result.
 - **Real-time progress** with ETA, current attempt number, encoder, and
   bitrate parsed from FFmpeg's stderr.
 - **OS taskbar & dock progress integration** — reflects encoding progress directly on your OS taskbar or dock icon (macOS Dock, Windows Taskbar button, Linux Unity launcher bar) so you can track encoding while unfocused.
@@ -286,16 +296,19 @@ For more distros, manual installs, or troubleshooting, read
    copies the output file or reveals it.
 3. **Pick a mode or preset** — choose **Compress**, **Advanced**, **Lossless
    Trim**, or **GIF**, then select a 10/25/50/100/500 MB target where that mode
-   applies. Advanced exposes custom target size, resolution, crop, FPS, audio
-   normalization, and encoder controls; GIF Mode keeps the crop selector available
-   because it applies to GIF output. Leaving its size empty uses the source bitrate
+   applies. Compress, Advanced, and GIF Mode expose the aspect-ratio crop selector;
+   Advanced also exposes custom target size, resolution, FPS, audio normalization,
+   and encoder controls. Leaving its size empty uses the source bitrate
    without a file-size limit. Standard mode can cap output FPS at 24, 30, or 60
-   when those values do not exceed the source frame rate.
+   when those values are below the source frame rate.
 4. **Trim** (optional) — drag the handles or use `I` / `O` to stamp the
    playhead. `Space` plays the selected range from the current playhead when it
    is inside the trim.
-5. **Choose audio handling** — keep the prioritized track, normalize it, or
-   remove audio to reserve more bitrate for video.
+5. **Choose audio handling** — keep the prioritized track, peak-normalize it to 0 dB, or
+   remove audio to reserve more bitrate for video. In Advanced mode, open the
+   mixer beside the mute and normalize buttons to inspect every source track,
+   select individual tracks or all tracks, and keep that choice for this video
+   only; each selected track reserves 128 kbps.
 6. **Export.** Compress and Advanced re-encode to the selected target, Lossless
    Trim uses **Trim Without Re-encoding** after keyframe discovery, and GIF mode
    creates an animated GIF. Progress shows the current attempt, encoder,
@@ -334,9 +347,10 @@ At startup vidcord runs `ffmpeg -encoders`, detects compatible CPU and hardware
 encoders, and prefers the first available H.264 hardware encoder on a new
 installation. A saved encoder choice, including CPU, remains unchanged.
 Advanced mode can accept any FFmpeg video encoder string; the **Encoders**
-dialog shows what your installed FFmpeg exposes. Hardware jobs first try
-hardware-assisted decoding, retry the same encoder with software decoding if
-needed, and retain the CPU fallback for encoder failures.
+dialog shows what your installed FFmpeg exposes. Hardware jobs use
+hardware-assisted decoding only where the platform policy makes it worthwhile;
+Windows and macOS keep the decode path in software to avoid extra GPU transfer
+overhead. Failed hardware encoder paths retain the CPU fallback.
 
 | Vendor / Platform | Encoder                                  | Notes                                                      |
 | ----------------- | ---------------------------------------- | ---------------------------------------------------------- |
@@ -560,9 +574,10 @@ legacy convenience target rather than a current Discord account tier; the
 
 ### Can I change the output FPS?
 
-Yes. Standard mode offers Off, 24, 30, and 60 FPS, and hides choices above
-the source video's frame rate. Advanced mode lets you enter any positive FPS
-value, or leave the Off field empty to keep the original cadence.
+Yes. Standard mode offers Off, 24, 30, and 60 FPS, and hides choices at or
+above the source video's frame rate when they would be redundant. Advanced mode
+lets you enter any positive FPS value, or leave the Off field empty to keep the
+original cadence.
 
 ### How is vidcord different from using FFmpeg directly?
 

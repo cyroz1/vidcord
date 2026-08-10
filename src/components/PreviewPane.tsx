@@ -10,6 +10,7 @@ import {
 import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   cancelPreviewGeneration,
+  cancelPreviewFrameGeneration,
   getFilmstrip,
   getOs,
   getPreviewClip,
@@ -29,9 +30,14 @@ import {
 } from "../previewScrub";
 
 const FIXED_PREVIEW_CSS_WIDTH = 432;
-const FIXED_PREVIEW_CSS_HEIGHT = 243;
-const FILMSTRIP_PREVIEW_WIDTH = 432;
-const FILMSTRIP_PREVIEW_HEIGHT = 244;
+const PREVIEW_ASPECT_WIDTH = 16;
+const PREVIEW_ASPECT_HEIGHT = 9;
+const PREVIEW_PIXEL_WIDTH_STEP = 32;
+const PREVIEW_MIN_PIXEL_WIDTH = 448;
+const PREVIEW_MAX_PIXEL_WIDTH = 960;
+const FILMSTRIP_PREVIEW_WIDTH = PREVIEW_MIN_PIXEL_WIDTH;
+const FILMSTRIP_PREVIEW_HEIGHT =
+  (FILMSTRIP_PREVIEW_WIDTH * PREVIEW_ASPECT_HEIGHT) / PREVIEW_ASPECT_WIDTH;
 const MAX_GENERATED_PREVIEW_CLIP_SECONDS = 12;
 const MEDIA_SEEK_EPSILON_SECONDS = 1 / 240;
 
@@ -40,15 +46,17 @@ const MEDIA_SEEK_EPSILON_SECONDS = 1 / 240;
 // trim-slider move during scrubbing, so this is a measurable win.
 const containerStyle: React.CSSProperties = {
   background: "var(--surface)",
-  border: "1px solid var(--border-subtle)",
+  boxSizing: "border-box",
   borderRadius: "var(--radius)",
   overflow: "hidden",
   contain: "paint",
   position: "relative",
+  // The pane itself is the exact 16:9 frame. Keeping the media edge flush
+  // removes the light border/gutter that otherwise shows beside 16:9 frames.
   width: "100%",
   maxWidth: `${FIXED_PREVIEW_CSS_WIDTH}px`,
   height: "auto",
-  aspectRatio: "16 / 9",
+  aspectRatio: `${PREVIEW_ASPECT_WIDTH} / ${PREVIEW_ASPECT_HEIGHT}`,
   flexShrink: 0,
   display: "flex",
   alignItems: "center",
@@ -84,11 +92,18 @@ const overlayGroupStyle: React.CSSProperties = {
   justifyContent: "center",
 };
 
-const overlayBtnStyle: React.CSSProperties = {
+const glassOverlayStyle: React.CSSProperties = {
   background: "rgba(0, 0, 0, 0.38)",
-  backdropFilter: "blur(12px) saturate(160%)",
-  WebkitBackdropFilter: "blur(12px) saturate(160%)",
-  border: "1px solid rgba(255, 255, 255, 0.22)",
+  backdropFilter: "blur(8px) saturate(160%)",
+  WebkitBackdropFilter: "blur(8px) saturate(160%)",
+  border: "1px solid rgba(255, 255, 255, 0.16)",
+  boxShadow: "0 2px 6px rgba(0,0,0,0.24)",
+  color: "rgba(255,255,255,0.92)",
+};
+
+const overlayBtnStyle: React.CSSProperties = {
+  ...glassOverlayStyle,
+  willChange: "backdrop-filter",
   borderRadius: "50%",
   width: "44px",
   height: "44px",
@@ -96,33 +111,24 @@ const overlayBtnStyle: React.CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   cursor: "pointer",
-  boxShadow: "0 4px 16px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.18)",
 };
 
 const currentTimeOverlayStyle: React.CSSProperties = {
+  ...glassOverlayStyle,
   position: "absolute",
   bottom: "6px",
   right: "8px",
   fontSize: "11px",
-  color: "rgba(255,255,255,0.90)",
-  background: "rgba(0,0,0,0.48)",
-  backdropFilter: "blur(8px) saturate(160%)",
-  WebkitBackdropFilter: "blur(8px) saturate(160%)",
-  border: "1px solid rgba(255,255,255,0.12)",
   borderRadius: "var(--radius-xs)",
   padding: "2px 6px",
   pointerEvents: "none",
 };
 
 const snapshotBtnStyle: React.CSSProperties = {
+  ...glassOverlayStyle,
   position: "absolute",
   top: "8px",
   right: "8px",
-  color: "rgba(255,255,255,0.92)",
-  background: "rgba(0,0,0,0.38)",
-  backdropFilter: "blur(8px) saturate(160%)",
-  WebkitBackdropFilter: "blur(8px) saturate(160%)",
-  border: "1px solid rgba(255,255,255,0.16)",
   borderRadius: "50%",
   padding: 0,
   width: "28px",
@@ -132,7 +138,6 @@ const snapshotBtnStyle: React.CSSProperties = {
   justifyContent: "center",
   gap: "4px",
   cursor: "pointer",
-  boxShadow: "0 2px 6px rgba(0,0,0,0.24)",
   zIndex: 10,
 };
 
@@ -309,10 +314,20 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   const getPreviewPixelSize = useCallback(() => {
     const scale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
-    const even = (value: number) => Math.ceil(value / 2) * 2;
+    // The preview content box is an exact 16:9 CSS frame, but FFmpeg requires
+    // even output dimensions. Use the next even 16:9 pair so contain never
+    // creates side gaps around a source frame.
+    const width = Math.min(
+      PREVIEW_MAX_PIXEL_WIDTH,
+      Math.max(
+        PREVIEW_MIN_PIXEL_WIDTH,
+        Math.round((FIXED_PREVIEW_CSS_WIDTH * scale) / PREVIEW_PIXEL_WIDTH_STEP) *
+          PREVIEW_PIXEL_WIDTH_STEP
+      )
+    );
     return {
-      width: even(FIXED_PREVIEW_CSS_WIDTH * scale),
-      height: even(FIXED_PREVIEW_CSS_HEIGHT * scale),
+      width,
+      height: (width * PREVIEW_ASPECT_HEIGHT) / PREVIEW_ASPECT_WIDTH,
     };
   }, []);
 
@@ -614,7 +629,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       if (frameInFlightRef.current) {
         queuedFrameRequestRef.current = request;
         if (!frameCancellationRef.current) {
-          const cancellation = cancelPreviewGeneration().catch(() => {});
+          const cancellation = cancelPreviewFrameGeneration().catch(() => {});
           frameCancellationRef.current = cancellation;
           void cancellation.finally(() => {
             if (frameCancellationRef.current !== cancellation) return;
@@ -905,15 +920,22 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
           endTime,
           fallbackStartTime + MAX_GENERATED_PREVIEW_CLIP_SECONDS
         );
+        const { width: previewWidth, height: previewHeight } = getPreviewPixelSize();
         const clipKey = `${sourceGeneration}\0${filePath}\0${Math.round(
           fallbackStartTime * 1000
-        )}\0${Math.round(fallbackEndTime * 1000)}`;
+        )}\0${Math.round(fallbackEndTime * 1000)}\0${previewWidth}x${previewHeight}`;
         let clipUrl =
           generatedClipCacheRef.current?.key === clipKey ? generatedClipCacheRef.current.url : null;
         if (!clipUrl) {
-          const buffer = await getPreviewClip(filePath, fallbackStartTime, fallbackEndTime);
+          const buffer = await getPreviewClip(
+            filePath,
+            fallbackStartTime,
+            fallbackEndTime,
+            previewWidth,
+            previewHeight
+          );
           if (playbackSessionRef.current !== session) return;
-          const blob = new Blob([new Uint8Array(buffer)], { type: "video/mp4" });
+          const blob = new Blob([buffer as Uint8Array<ArrayBuffer>], { type: "video/mp4" });
           clipUrl = URL.createObjectURL(blob);
           if (generatedClipCacheRef.current) {
             URL.revokeObjectURL(generatedClipCacheRef.current.url);
@@ -1009,6 +1031,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       vid.currentTime = usingGeneratedClipRef.current ? resumeClipOffset : resumeTime;
     };
 
+    if (directPreviewFailed) {
+      void playGeneratedClip();
+      return;
+    }
+
     // play() must be called synchronously inside the user-gesture handler.
     // Calling it inside oncanplay (async) breaks WebView2/Chrome's autoplay
     // policy — the promise is rejected and stopPlayback() fires immediately.
@@ -1026,6 +1053,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     seekVideoElement,
     clearEndBoundaryTimer,
     handlePlaybackBoundary,
+    directPreviewFailed,
+    getPreviewPixelSize,
   ]);
 
   const handleVideoEnded = useCallback(() => {

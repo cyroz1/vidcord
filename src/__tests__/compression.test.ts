@@ -23,6 +23,13 @@ describe("calculateBitrate", () => {
     expect(withoutAudio).toBeGreaterThan(withAudio);
   });
 
+  it("reserves the same AAC bitrate for each selected audio track", () => {
+    const oneTrack = calculateBitrate(100, 60, false, 1);
+    const twoTracks = calculateBitrate(100, 60, false, 2);
+    expect(twoTracks).toBeLessThan(oneTrack);
+    expect(oneTrack - twoTracks).toBe(115);
+  });
+
   it("clamps to minimum 100 kbps for tiny size targets", () => {
     expect(calculateBitrate(0.001, 3600, false)).toBe(100);
   });
@@ -45,6 +52,10 @@ describe("resolveVideoBitrate", () => {
 
   it("keeps size-based calculation when source bitrate is unavailable", () => {
     expect(resolveVideoBitrate(10, 60, false, 0)).toBe(calculateBitrate(10, 60, false));
+  });
+
+  it("does not reserve audio bitrate when no tracks are selected", () => {
+    expect(resolveVideoBitrate(10, 60, false, 0, 0)).toBe(calculateBitrate(10, 60, true, 0));
   });
 
   it("requires a known source bitrate when the target size is empty", () => {

@@ -16,6 +16,7 @@ import Toast from "./components/Toast";
 import ProgressSection from "./components/ProgressSection";
 import PreviewPane, { type PreviewHandle } from "./components/PreviewPane";
 import TrimTimeline, { type SnapMode } from "./components/TrimTimeline";
+import AudioTrackPicker from "./components/AudioTrackPicker";
 import { useToasts } from "./hooks/useToasts";
 import { useSettings, type CompletionAction, type OutputDestination } from "./hooks/useSettings";
 import { useEncoders, type Encoder } from "./hooks/useEncoders";
@@ -33,6 +34,7 @@ import {
 } from "./hooks/useCompression";
 import {
   captureSnapshot,
+  cancelLosslessTrimProbe,
   checkForUpdates,
   compressVideo,
   copyFileToClipboard,
@@ -74,6 +76,7 @@ import {
   getCroppedDimensions,
 } from "./videoMetadata";
 import { MAX_SETTINGS_PRESETS, type SettingsPreset } from "./settingsPresets";
+import { defaultAudioTrackIndices, normalizeAudioTrackIndices } from "./audioTracks";
 import pkg from "../package.json";
 
 // EncodersDialog is only shown after an explicit user click from Advanced
@@ -204,9 +207,12 @@ function buildScaleFilter(
 ): string | null {
   const dims = computeTargetDimensions(ow, oh, targetH, targetShort);
   if (encoder.endsWith("_vaapi")) {
-    return dims ? `${dims[0]}:${dims[1]}` : "iw:ih";
+    return dims ? `${dims[0]}:${dims[1]}` : null;
   }
-  return dims ? `scale=${dims[0]}:${dims[1]}` : "scale=trunc(iw/2)*2:trunc(ih/2)*2";
+  if (dims) return `scale=${dims[0]}:${dims[1]}`;
+  return ow > 0 && oh > 0 && ow % 2 === 0 && oh % 2 === 0
+    ? null
+    : "scale=trunc(iw/2)*2:trunc(ih/2)*2";
 }
 
 type MemoizedSubtreeProps = {
@@ -332,6 +338,20 @@ export default function App() {
     },
     [saveSettings]
   );
+  const handleRemoveAudioChange = useCallback(
+    (next: boolean) => {
+      setRemoveAudio(next);
+      saveSettings({ remove_audio: next });
+    },
+    [saveSettings, setRemoveAudio]
+  );
+  const handleAudioNormalizeChange = useCallback(
+    (next: boolean) => {
+      setAudioNormalize(next);
+      saveSettings({ audio_normalize: next });
+    },
+    [saveSettings, setAudioNormalize]
+  );
 
   // File state is declared before encoder discovery so the startup refresh can
   // yield to a cold Open With / drag-drop probe instead of competing for FFmpeg.
@@ -339,6 +359,7 @@ export default function App() {
   const [fileLoadGeneration, setFileLoadGeneration] = useState(0);
   const [fileName, setFileName] = useState("Drag a video here or click Browse");
   const [probeData, setProbeData] = useState<ProbeData | null>(null);
+  const [audioTrackSelection, setAudioTrackSelection] = useState<number[] | null>(null);
   const [loadingVideo, setLoadingVideo] = useState(false);
   const [losslessInfo, setLosslessInfo] = useState<LosslessTrimInfo | null>(null);
   const [losslessInfoLoading, setLosslessInfoLoading] = useState(false);
@@ -389,6 +410,8 @@ export default function App() {
   const probeDataRef = useRef<ProbeData | null>(null);
   const losslessInfoRef = useRef<LosslessTrimInfo | null>(null);
   const losslessInfoRequestRef = useRef(0);
+  const losslessInfoCacheRef = useRef<Map<string, LosslessTrimInfo>>(new Map());
+  const snapshotInFlightRef = useRef(false);
   const appContentRef = useRef<HTMLDivElement>(null);
   const updateModalRef = useRef<HTMLDivElement>(null);
   const updatePrimaryActionRef = useRef<HTMLButtonElement>(null);
@@ -426,6 +449,13 @@ export default function App() {
   const modalOpen = updateInfo !== null || encodersDialogText !== null;
 
   const duration = probeData?.duration ?? 0;
+  const probedAudioTracks = probeData?.audio_tracks;
+  const audioTracks = useMemo(() => probedAudioTracks ?? [], [probedAudioTracks]);
+  const defaultAudioTracks = useMemo(() => defaultAudioTrackIndices(audioTracks), [audioTracks]);
+  const activeAudioTrackIndices = useMemo(
+    () => normalizeAudioTrackIndices(audioTrackSelection, audioTracks),
+    [audioTrackSelection, audioTracks]
+  );
   const sourceFrameRate =
     typeof probeData?.frame_rate === "number" &&
     Number.isFinite(probeData.frame_rate) &&
@@ -435,7 +465,7 @@ export default function App() {
   const standardFpsOptions = useMemo(
     () =>
       FPS_OPTIONS.filter(
-        (option) => option.fps === null || sourceFrameRate === null || option.fps <= sourceFrameRate
+        (option) => option.fps === null || sourceFrameRate === null || option.fps < sourceFrameRate
       ),
     [sourceFrameRate]
   );
@@ -525,19 +555,22 @@ export default function App() {
   const selectedGifPreset = GIF_PRESETS[gifQualityIdx] ?? GIF_PRESETS[0];
   const advancedTargetSize = Number(advSize.trim());
   const hasAdvancedTargetSize = Number.isFinite(advancedTargetSize) && advancedTargetSize > 0;
+  const cropSummary = cropAspectRatio === "off" ? "No crop" : cropAspectRatio;
   const exportSummary = gifMode
-    ? `GIF · up to ${selectedGifPreset.size_mb} MB · ${gifFps} fps`
+    ? `GIF · up to ${selectedGifPreset.size_mb} MB · ${cropSummary} · ${gifFps} fps`
     : losslessTrim
       ? "Original quality · keyframe-aligned trim"
       : advancedMode
-        ? `${hasAdvancedTargetSize ? `Up to ${advancedTargetSize} MB` : "Source bitrate"} · ${advResolution} · ${
+        ? `${hasAdvancedTargetSize ? `Up to ${advancedTargetSize} MB` : "Source bitrate"} · ${advResolution} · ${cropSummary} · ${
             advFps.trim() ? `${advFps.trim()} fps` : "Keep source FPS"
           }`
         : `Up to ${selectedQualityPreset.size_mb} MB · ${
             selectedQualityPreset.target_h
               ? `${selectedQualityPreset.target_h}p`
               : "Native resolution"
-          } · ${standardFpsValue === "off" ? "Keep source FPS" : `${standardFpsValue} fps`}`;
+          } · ${cropSummary} · ${
+            standardFpsValue === "off" ? "Keep source FPS" : `${standardFpsValue} fps`
+          }`;
   const readyActionLabel = gifMode
     ? `Create ${selectedGifPreset.size_mb} MB GIF`
     : losslessTrim
@@ -765,7 +798,8 @@ export default function App() {
 
   const handleSnapshot = useCallback(
     async (timeSec: number) => {
-      if (!filePath) return;
+      if (!filePath || snapshotInFlightRef.current) return;
+      snapshotInFlightRef.current = true;
       try {
         let targetPath: string | null = null;
         if (outputDestination === "ask") {
@@ -809,6 +843,8 @@ export default function App() {
         }
       } catch (err: unknown) {
         addToast("error", "Snapshot Failed", String(err));
+      } finally {
+        snapshotInFlightRef.current = false;
       }
     },
     [filePath, fileName, outputDestination, customOutputDirectory, completionAction, addToast]
@@ -888,7 +924,42 @@ export default function App() {
 
     setLosslessInfoLoading(true);
     setLosslessInfoError(null);
-    getLosslessTrimInfo(filePath)
+    const cacheKey = `${fileLoadGeneration}\0${filePath}`;
+    const applyInfo = (info: LosslessTrimInfo) => {
+      const keyframeTimes = normalizeLosslessKeyframes(info.keyframe_times, duration);
+      if (keyframeTimes.length === 0) throw new Error("No usable keyframes were found.");
+      const nextInfo = { ...info, keyframe_times: keyframeTimes };
+      losslessInfoRef.current = nextInfo;
+      setLosslessInfo(nextInfo);
+      setLosslessInfoLoading(false);
+
+      const snapped = snapLosslessTrimRange(
+        sliderValueToTime(startValRef.current),
+        sliderValueToTime(endValRef.current),
+        duration,
+        keyframeTimes
+      );
+      if (snapped) {
+        const next = applyTrim(
+          timeToTimelineValue(snapped.start, duration, SLIDER_MAX),
+          timeToTimelineValue(snapped.end, duration, SLIDER_MAX),
+          { anchor: "end" }
+        );
+        if (next) setPreviewFocusNow(sliderValueToTime(next.start), false);
+      }
+    };
+    const cached = losslessInfoCacheRef.current.get(cacheKey);
+    if (cached) {
+      applyInfo(cached);
+      return () => {
+        if (losslessInfoRequestRef.current === requestId) {
+          losslessInfoRequestRef.current += 1;
+          void cancelLosslessTrimProbe(requestId).catch(() => {});
+        }
+      };
+    }
+
+    getLosslessTrimInfo(filePath, requestId)
       .then((info) => {
         if (
           losslessInfoRequestRef.current !== requestId ||
@@ -899,24 +970,12 @@ export default function App() {
         const keyframeTimes = normalizeLosslessKeyframes(info.keyframe_times, duration);
         if (keyframeTimes.length === 0) throw new Error("No usable keyframes were found.");
         const nextInfo = { ...info, keyframe_times: keyframeTimes };
-        losslessInfoRef.current = nextInfo;
-        setLosslessInfo(nextInfo);
-        setLosslessInfoLoading(false);
-
-        const snapped = snapLosslessTrimRange(
-          sliderValueToTime(startValRef.current),
-          sliderValueToTime(endValRef.current),
-          duration,
-          keyframeTimes
-        );
-        if (snapped) {
-          const next = applyTrim(
-            timeToTimelineValue(snapped.start, duration, SLIDER_MAX),
-            timeToTimelineValue(snapped.end, duration, SLIDER_MAX),
-            { anchor: "end" }
-          );
-          if (next) setPreviewFocusNow(sliderValueToTime(next.start), false);
+        if (losslessInfoCacheRef.current.size >= 8 && !losslessInfoCacheRef.current.has(cacheKey)) {
+          const oldest = losslessInfoCacheRef.current.keys().next().value;
+          if (oldest) losslessInfoCacheRef.current.delete(oldest);
         }
+        losslessInfoCacheRef.current.set(cacheKey, nextInfo);
+        applyInfo(nextInfo);
       })
       .catch((error: unknown) => {
         if (
@@ -935,12 +994,15 @@ export default function App() {
     return () => {
       if (losslessInfoRequestRef.current === requestId) {
         losslessInfoRequestRef.current += 1;
+        void cancelLosslessTrimProbe(requestId).catch(() => {});
       }
     };
   }, [
     applyTrim,
     duration,
     filePath,
+    fileLoadGeneration,
+    losslessInfoCacheRef,
     losslessTrim,
     markFfmpegMissing,
     probeData,
@@ -965,6 +1027,7 @@ export default function App() {
       setFileLoadGeneration(loadGeneration);
       setFilePath(path);
       setFileName(path.split(/[\\/]/).pop() ?? path);
+      setAudioTrackSelection(null);
       probeDataRef.current = null;
       setProbeData(null);
       losslessInfoRef.current = null;
@@ -1491,7 +1554,8 @@ export default function App() {
       targetSize = preset.size_mb;
       targetH = preset.target_h;
       encoderName = encoders[encoderIdx]?.name ?? "libx264";
-      const selectedFps = FPS_OPTIONS.find((option) => option.value === fpsOption)?.fps ?? null;
+      const selectedFps =
+        FPS_OPTIONS.find((option) => option.value === standardFpsValue)?.fps ?? null;
       if (selectedFps !== null && (sourceFrameRate === null || selectedFps <= sourceFrameRate)) {
         outputFps = selectedFps;
       }
@@ -1503,6 +1567,7 @@ export default function App() {
     if (
       !losslessTrim &&
       !gifMode &&
+      audioTrackSelection === null &&
       !skipLosslessOffer &&
       offerTargetSize !== null &&
       losslessTrimFitsTarget(offerTargetSize, clipDuration, probeData.bitrate)
@@ -1544,12 +1609,22 @@ export default function App() {
       return;
     }
 
-    const effectiveRemoveAudio = gifMode || removeAudio;
+    const manualAudioTrackIndices =
+      advancedMode && !gifMode && !losslessTrim ? activeAudioTrackIndices : null;
+    const audioTrackIndicesForExport =
+      gifMode || losslessTrim ? null : (manualAudioTrackIndices ?? defaultAudioTracks);
+    const audioTrackCount =
+      advancedMode && !gifMode && !losslessTrim
+        ? activeAudioTrackIndices.length
+        : defaultAudioTracks.length;
+    const effectiveRemoveAudio =
+      gifMode || removeAudio || (manualAudioTrackIndices !== null && audioTrackCount === 0);
     const videoBitrate = resolveVideoBitrate(
       targetSize,
       clipDuration,
       effectiveRemoveAudio,
-      gifMode ? 0 : probeData.bitrate
+      gifMode ? 0 : probeData.bitrate,
+      audioTrackCount
     );
     if (videoBitrate === null) {
       if (!losslessTrim) {
@@ -1618,12 +1693,15 @@ export default function App() {
       start_time: startTime,
       end_time: endTime,
       remove_audio: effectiveRemoveAudio,
+      audio_track_indices: audioTrackIndicesForExport,
       audio_normalize: losslessTrim ? false : audioNormalize,
       crop_aspect_ratio: losslessTrim ? "off" : cropAspectRatio,
       output_fps: losslessTrim ? null : outputFps,
       scale_filter: losslessTrim
         ? null
         : buildScaleFilter(cw, ch, targetH, targetShort, encoderName),
+      source_width: probeData.width,
+      source_height: probeData.height,
       vaapi_device: vaapiDevice,
       gif_mode: gifMode,
       lossless_trim: losslessTrim,
@@ -1702,13 +1780,16 @@ export default function App() {
     advResolution,
     advFps,
     advEncoder,
-    fpsOption,
+    standardFpsValue,
     sourceFrameRate,
     qualityIdx,
     encoderIdx,
     encoders,
     removeAudio,
     audioNormalize,
+    activeAudioTrackIndices,
+    audioTrackSelection,
+    defaultAudioTracks,
     cropAspectRatio,
     outputDestination,
     customOutputDirectory,
@@ -2466,6 +2547,7 @@ export default function App() {
               dependencies={[
                 filePath,
                 fileName,
+                probeData,
                 importDetails,
                 loadingVideo,
                 browseFile,
@@ -2489,8 +2571,14 @@ export default function App() {
                 setEncoderIdx,
                 removeAudio,
                 setRemoveAudio,
+                handleRemoveAudioChange,
                 audioNormalize,
                 setAudioNormalize,
+                handleAudioNormalizeChange,
+                audioTracks,
+                audioTrackSelection,
+                setAudioTrackSelection,
+                fileLoadGeneration,
                 cropAspectRatio,
                 setCropAspectRatio,
                 cropOptions,
@@ -2646,6 +2734,22 @@ export default function App() {
                           ))}
                         </select>
                       </label>
+                      <label className="crop-label">
+                        Crop
+                        <select
+                          value={cropAspectRatio}
+                          onChange={(event) => {
+                            setCropAspectRatio(event.target.value);
+                            saveSettings({ crop_aspect_ratio: event.target.value });
+                          }}
+                        >
+                          {cropOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                       <label className="fps-label">
                         FPS
                         <select
@@ -2764,9 +2868,9 @@ export default function App() {
                             title={
                               removeAudio
                                 ? "Audio is muted"
-                                : "EBU R128 audio loudness normalization"
+                                : "Peak-normalize audio so its highest sample peak reaches 0 dB"
                             }
-                            aria-label="Normalize audio"
+                            aria-label="Peak-normalize audio to 0 dB"
                             onClick={() => {
                               const next = !audioNormalize;
                               setAudioNormalize(next);
@@ -2816,7 +2920,9 @@ export default function App() {
                   {/* Lossless settings */}
                   {losslessTrim && (
                     <div className="row settings-row lossless-settings-row">
-                      <span className="lossless-settings-hint">No video re-encoding</span>
+                      <span className="lossless-settings-hint">
+                        Copies the original video at keyframes; no re-encoding.
+                      </span>
                       <button
                         type="button"
                         className={`mute-btn lossless-audio-toggle${removeAudio ? " active" : ""}`}
@@ -3031,98 +3137,17 @@ export default function App() {
                               </div>
                             )}
                           </div>
-                          <button
-                            type="button"
-                            className={`mute-btn${removeAudio ? " active" : ""}`}
-                            title={removeAudio ? "Unmute audio" : "Mute audio"}
-                            aria-label={removeAudio ? "Unmute audio" : "Mute audio"}
-                            onClick={() => {
-                              const next = !removeAudio;
-                              setRemoveAudio(next);
-                              saveSettings({ remove_audio: next });
-                            }}
-                          >
-                            {removeAudio ? (
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <line x1="1" y1="1" x2="23" y2="23" />
-                                <path d="M9 9L6 12H2v4h4l5 4v-5.58" />
-                              </svg>
-                            ) : (
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                              </svg>
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            className={`norm-btn${audioNormalize && !removeAudio ? " active" : ""}`}
-                            disabled={removeAudio}
-                            title={
-                              removeAudio
-                                ? "Audio is muted"
-                                : "EBU R128 audio loudness normalization"
-                            }
-                            aria-label="Normalize audio"
-                            onClick={() => {
-                              const next = !audioNormalize;
-                              setAudioNormalize(next);
-                              saveSettings({ audio_normalize: next });
-                            }}
-                          >
-                            {audioNormalize && !removeAudio ? (
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.5"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <line x1="3" y1="6" x2="3" y2="18" />
-                                <line x1="7.5" y1="3" x2="7.5" y2="21" />
-                                <line x1="12" y1="2" x2="12" y2="22" />
-                                <line x1="16.5" y1="3" x2="16.5" y2="21" />
-                                <line x1="21" y1="6" x2="21" y2="18" />
-                              </svg>
-                            ) : (
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <line x1="4" y1="10" x2="4" y2="14" />
-                                <line x1="9" y1="7" x2="9" y2="17" />
-                                <line x1="14" y1="5" x2="14" y2="19" />
-                                <line x1="19" y1="9" x2="19" y2="15" />
-                              </svg>
-                            )}
-                          </button>
+                          <AudioTrackPicker
+                            key={fileLoadGeneration}
+                            tracks={audioTracks}
+                            selection={audioTrackSelection}
+                            removeAudio={removeAudio}
+                            audioNormalize={audioNormalize}
+                            disabled={!probeData}
+                            onChange={setAudioTrackSelection}
+                            onRemoveAudioChange={handleRemoveAudioChange}
+                            onAudioNormalizeChange={handleAudioNormalizeChange}
+                          />
                           <button
                             type="button"
                             className="icon-btn"
@@ -3291,69 +3316,69 @@ export default function App() {
 
           {/* Progress */}
           {showProgress && <ProgressSection progress={progress} eta={eta} />}
+        </div>
 
-          {/* Footer */}
-          <div className="footer">
-            <div className="footer-meta">
-              <span className="version">{DISPLAY_VERSION}</span>
-              <a
-                href="https://vidcord.app/"
-                onClick={(e) => {
-                  e.preventDefault();
-                  void openExternalUrl("https://vidcord.app/").catch(() => {});
-                }}
-                className="gh-link"
-                aria-label="Website"
-                title="Website"
-              >
-                <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
-                  <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4" />
-                  <path
-                    d="M1.75 8h12.5M8 1.5c1.7 1.74 2.55 3.9 2.55 6.5S9.7 12.76 8 14.5C6.3 12.76 5.45 10.6 5.45 8S6.3 3.24 8 1.5Z"
-                    stroke="currentColor"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="1.4"
-                  />
-                </svg>
-              </a>
-              <a
-                href="https://github.com/cyroz1/vidcord"
-                onClick={(e) => {
-                  e.preventDefault();
-                  void openExternalUrl("https://github.com/cyroz1/vidcord").catch(() => {});
-                }}
-                className="gh-link"
-                aria-label="GitHub"
-                title="GitHub"
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  width="16"
-                  height="16"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
-                </svg>
-              </a>
-            </div>
-            <Suspense
-              fallback={
-                <span className="settings-presets" aria-hidden="true">
-                  <span className="preset-select">Autosave</span>
-                </span>
-              }
+        {/* Footer stays outside the scroll area so it remains anchored to the window. */}
+        <div className="footer">
+          <div className="footer-meta">
+            <span className="version">{DISPLAY_VERSION}</span>
+            <a
+              href="https://vidcord.app/"
+              onClick={(e) => {
+                e.preventDefault();
+                void openExternalUrl("https://vidcord.app/").catch(() => {});
+              }}
+              className="gh-link"
+              aria-label="Website"
+              title="Website"
             >
-              <SettingsPresets
-                currentSettings={currentPresetSettings}
-                presets={presets}
-                onRestore={restoreSettingsPreset}
-                onSave={saveSettingsPreset}
-                onDelete={deleteSettingsPreset}
-              />
-            </Suspense>
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
+                <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4" />
+                <path
+                  d="M1.75 8h12.5M8 1.5c1.7 1.74 2.55 3.9 2.55 6.5S9.7 12.76 8 14.5C6.3 12.76 5.45 10.6 5.45 8S6.3 3.24 8 1.5Z"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.4"
+                />
+              </svg>
+            </a>
+            <a
+              href="https://github.com/cyroz1/vidcord"
+              onClick={(e) => {
+                e.preventDefault();
+                void openExternalUrl("https://github.com/cyroz1/vidcord").catch(() => {});
+              }}
+              className="gh-link"
+              aria-label="GitHub"
+              title="GitHub"
+            >
+              <svg
+                viewBox="0 0 16 16"
+                width="16"
+                height="16"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+              </svg>
+            </a>
           </div>
+          <Suspense
+            fallback={
+              <span className="settings-presets" aria-hidden="true">
+                <span className="preset-select">Autosave</span>
+              </span>
+            }
+          >
+            <SettingsPresets
+              currentSettings={currentPresetSettings}
+              presets={presets}
+              onRestore={restoreSettingsPreset}
+              onSave={saveSettingsPreset}
+              onDelete={deleteSettingsPreset}
+            />
+          </Suspense>
         </div>
 
         {/* Toasts */}

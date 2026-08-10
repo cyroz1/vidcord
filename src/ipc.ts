@@ -14,6 +14,17 @@ export type ProbeData = {
   frame_rate?: number;
   bitrate: number;
   codec: string;
+  audio_tracks: AudioTrack[];
+};
+
+export type AudioTrack = {
+  index: number;
+  name: string;
+  codec: string;
+  bitrate_kbps: number;
+  duration: number;
+  size_bytes: number;
+  channels: number;
 };
 
 export type Encoder = {
@@ -45,10 +56,13 @@ export type CompressOptions = {
   start_time: number;
   end_time: number;
   remove_audio: boolean;
+  audio_track_indices?: number[] | null;
   audio_normalize?: boolean;
   crop_aspect_ratio?: string;
   output_fps: number | null;
   scale_filter: string | null;
+  source_width?: number | null;
+  source_height?: number | null;
   vaapi_device: string | null;
   gif_mode: boolean;
   lossless_trim: boolean;
@@ -89,8 +103,12 @@ export function probe(path: string): Promise<ProbeData> {
   return invoke<ProbeData>("probe", { path });
 }
 
-export function getLosslessTrimInfo(path: string): Promise<LosslessTrimInfo> {
-  return invoke<LosslessTrimInfo>("get_lossless_trim_info", { path });
+export function getLosslessTrimInfo(path: string, requestId?: number): Promise<LosslessTrimInfo> {
+  return invoke<LosslessTrimInfo>("get_lossless_trim_info", { path, requestId });
+}
+
+export function cancelLosslessTrimProbe(requestId: number): Promise<void> {
+  return invoke("cancel_lossless_trim_probe", { requestId });
 }
 
 export function getPreviewFrame(
@@ -110,9 +128,17 @@ export function getPreviewFrame(
 export function getPreviewClip(
   path: string,
   startTimeSec: number,
-  endTimeSec: number
+  endTimeSec: number,
+  previewWidth?: number,
+  previewHeight?: number
 ): Promise<Uint8Array> {
-  return invoke<Uint8Array>("get_preview_clip", { path, startTimeSec, endTimeSec });
+  return invoke<Uint8Array>("get_preview_clip", {
+    path,
+    startTimeSec,
+    endTimeSec,
+    previewWidth,
+    previewHeight,
+  });
 }
 
 export function getFilmstrip(
@@ -133,6 +159,10 @@ export function getFilmstrip(
 
 export function cancelPreviewGeneration(): Promise<void> {
   return invoke("cancel_preview_generation");
+}
+
+export function cancelPreviewFrameGeneration(): Promise<void> {
+  return invoke("cancel_preview_frame_generation");
 }
 
 export function detectEncoders(): Promise<Encoder[]> {

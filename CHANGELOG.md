@@ -1,5 +1,34 @@
 # Changelog
 
+## v7.2
+
+### Audio
+
+- Added per-video Advanced mode audio track controls with a mixer popup that lists track names and estimated sizes, supports selecting individual tracks or all tracks, and reserves 128 kbps per selected AAC track in the target video bitrate.
+- Changed audio normalization to measure the highest sample peak and apply fixed gain to reach 0 dB, without EBU R128 loudness normalization or dynamic compression.
+- Changed automatic audio selection to start with the first source track and switch to a later track only when it has at least 20% more estimated data.
+
+### Performance
+
+- Size-target video exports now apply encoder-specific peak-rate bounds and skip redundant native-size filtering, reducing oversized full-encode retries while retaining the bounded CPU fallback.
+- Standard exports reuse the audio track identified during import instead of running a second FFprobe scan.
+- Frame snapshots serialize concurrent requests and enforce bounded FFmpeg work, so repeated shortcut presses cannot pile up overlapping jobs.
+
+### Preview
+
+- Exact scrub-frame work is isolated from background filmstrip generation, so cancelling a stale frame no longer interrupts the fallback timeline.
+- Static previews and generated fallback clips request display-sized, bounded in-memory media; generated clips omit unused audio and repeated direct-preview attempts stop after a source failure.
+- Lossless Trim keyframe discovery cancels superseded probes and reuses recent results for the current import.
+
+### UI
+
+- Anchored the version, links, and settings preset controls to the bottom of the window so they stay in place when switching export modes.
+- Added the aspect-ratio crop selector to standard Compress mode alongside Advanced and GIF Mode.
+- Hid the standard FPS choice that matches the imported video's frame rate while retaining the Source option for unchanged output.
+- Added the active crop setting to the compact export summary above the action button.
+- Kept preview frames at an exact 16:9 output ratio so 16:9 videos do not show side gaps.
+- Fixed the compress button glow being clipped at the footer boundary.
+
 ## v7.1
 
 ### Compression

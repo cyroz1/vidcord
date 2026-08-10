@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { cancelCompression, type ProbeData } from "../ipc";
+import { AUDIO_TRACK_BITRATE_KBPS } from "../audioTracks";
 
 export type { ProbeData };
 
@@ -159,10 +160,11 @@ export function formatCompressionDone(payload: CompressDonePayload): string {
 export function calculateBitrate(
   sizeMb: number,
   durationSec: number,
-  removeAudio: boolean
+  removeAudio: boolean,
+  audioTrackCount = 1
 ): number {
   const totalKbits = sizeMb * 1024 * 8;
-  const audioKbits = removeAudio ? 0 : 128 * durationSec;
+  const audioKbits = removeAudio ? 0 : AUDIO_TRACK_BITRATE_KBPS * audioTrackCount * durationSec;
   const videoBitrate = (totalKbits - audioKbits) / durationSec;
   return Math.max(100, Math.floor(videoBitrate * 0.9));
 }
@@ -171,14 +173,15 @@ export function resolveVideoBitrate(
   sizeMb: number | null,
   durationSec: number,
   removeAudio: boolean,
-  sourceBitrateKbps: number
+  sourceBitrateKbps: number,
+  audioTrackCount = 1
 ): number | null {
   if (sizeMb === null) {
     if (!Number.isFinite(sourceBitrateKbps) || sourceBitrateKbps <= 0) return null;
     return Math.max(100, Math.floor(sourceBitrateKbps));
   }
 
-  const targetBitrate = calculateBitrate(sizeMb, durationSec, removeAudio);
+  const targetBitrate = calculateBitrate(sizeMb, durationSec, removeAudio, audioTrackCount);
   if (!Number.isFinite(sourceBitrateKbps) || sourceBitrateKbps <= 0) return targetBitrate;
   return Math.min(targetBitrate, Math.floor(sourceBitrateKbps));
 }
