@@ -92,11 +92,18 @@ const overlayGroupStyle: React.CSSProperties = {
   justifyContent: "center",
 };
 
-const overlayBtnStyle: React.CSSProperties = {
+const glassOverlayStyle: React.CSSProperties = {
   background: "rgba(0, 0, 0, 0.38)",
-  backdropFilter: "blur(12px) saturate(160%)",
-  WebkitBackdropFilter: "blur(12px) saturate(160%)",
-  border: "1px solid rgba(255, 255, 255, 0.22)",
+  backdropFilter: "blur(8px) saturate(160%)",
+  WebkitBackdropFilter: "blur(8px) saturate(160%)",
+  border: "1px solid rgba(255, 255, 255, 0.16)",
+  boxShadow: "0 2px 6px rgba(0,0,0,0.24)",
+  color: "rgba(255,255,255,0.92)",
+};
+
+const overlayBtnStyle: React.CSSProperties = {
+  ...glassOverlayStyle,
+  willChange: "backdrop-filter",
   borderRadius: "50%",
   width: "44px",
   height: "44px",
@@ -104,33 +111,24 @@ const overlayBtnStyle: React.CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   cursor: "pointer",
-  boxShadow: "0 4px 16px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.18)",
 };
 
 const currentTimeOverlayStyle: React.CSSProperties = {
+  ...glassOverlayStyle,
   position: "absolute",
   bottom: "6px",
   right: "8px",
   fontSize: "11px",
-  color: "rgba(255,255,255,0.90)",
-  background: "rgba(0,0,0,0.48)",
-  backdropFilter: "blur(8px) saturate(160%)",
-  WebkitBackdropFilter: "blur(8px) saturate(160%)",
-  border: "1px solid rgba(255,255,255,0.12)",
   borderRadius: "var(--radius-xs)",
   padding: "2px 6px",
   pointerEvents: "none",
 };
 
 const snapshotBtnStyle: React.CSSProperties = {
+  ...glassOverlayStyle,
   position: "absolute",
   top: "8px",
   right: "8px",
-  color: "rgba(255,255,255,0.92)",
-  background: "rgba(0,0,0,0.38)",
-  backdropFilter: "blur(8px) saturate(160%)",
-  WebkitBackdropFilter: "blur(8px) saturate(160%)",
-  border: "1px solid rgba(255,255,255,0.16)",
   borderRadius: "50%",
   padding: 0,
   width: "28px",
@@ -140,7 +138,6 @@ const snapshotBtnStyle: React.CSSProperties = {
   justifyContent: "center",
   gap: "4px",
   cursor: "pointer",
-  boxShadow: "0 2px 6px rgba(0,0,0,0.24)",
   zIndex: 10,
 };
 

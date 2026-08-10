@@ -1979,13 +1979,14 @@ select optgroup {
 }
 
 .preview-controls {
-  opacity: 0;
   pointer-events: none;
-  transition: opacity 150ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-.preview-control-button {
-  pointer-events: auto;
+.preview-controls .preview-control-button {
+  opacity: 0;
+  pointer-events: none;
+  will-change: opacity;
+  transition: opacity 150ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .snapshot-button {
@@ -1996,20 +1997,16 @@ select optgroup {
     background 150ms ease;
 }
 
-.preview-pane:hover .preview-controls,
-.preview-pane:focus-within .preview-controls:not(.is-playing),
+.preview-pane:hover .preview-controls .preview-control-button,
+.preview-pane:focus-within .preview-controls:not(.is-playing) .preview-control-button,
 .preview-pane:hover .snapshot-button,
 .preview-pane:focus-within .snapshot-button {
   opacity: 1;
-}
-
-.preview-pane:hover .snapshot-button,
-.preview-pane:focus-within .snapshot-button {
   pointer-events: auto;
 }
 
 @media (hover: none) {
-  .preview-controls,
+  .preview-controls .preview-control-button,
   .snapshot-button {
     opacity: 1;
     pointer-events: auto;
@@ -2121,7 +2118,7 @@ select optgroup {
     transition: opacity 120ms cubic-bezier(0.23, 1, 0.32, 1);
   }
 
-  .preview-controls,
+  .preview-controls .preview-control-button,
   .snapshot-button {
     transition: opacity 120ms cubic-bezier(0.23, 1, 0.32, 1);
   }
