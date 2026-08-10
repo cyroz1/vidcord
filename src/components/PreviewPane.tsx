@@ -46,17 +46,15 @@ const MEDIA_SEEK_EPSILON_SECONDS = 1 / 240;
 // trim-slider move during scrubbing, so this is a measurable win.
 const containerStyle: React.CSSProperties = {
   background: "var(--surface)",
-  border: "1px solid var(--border-subtle)",
-  boxSizing: "content-box",
+  boxSizing: "border-box",
   borderRadius: "var(--radius)",
   overflow: "hidden",
   contain: "paint",
   position: "relative",
-  // Keep the border outside the ratio calculation so the media content box
-  // remains an exact 16:9 frame. With global border-box sizing, a 1px border
-  // on each side otherwise leaves contain with a fractional side gutter.
-  width: "calc(100% - 2px)",
-  maxWidth: `${FIXED_PREVIEW_CSS_WIDTH - 2}px`,
+  // The pane itself is the exact 16:9 frame. Keeping the media edge flush
+  // removes the light border/gutter that otherwise shows beside 16:9 frames.
+  width: "100%",
+  maxWidth: `${FIXED_PREVIEW_CSS_WIDTH}px`,
   height: "auto",
   aspectRatio: `${PREVIEW_ASPECT_WIDTH} / ${PREVIEW_ASPECT_HEIGHT}`,
   flexShrink: 0,

@@ -489,6 +489,10 @@
 
 .settings-row {
   position: relative;
+  /* Keep every mode's settings slot identical across WebView text metrics. */
+  flex: 0 0 49.5px;
+  min-height: 49.5px;
+  height: 49.5px;
 }
 
 .settings-row label,
@@ -673,9 +677,6 @@ select optgroup {
 }
 
 .lossless-settings-row {
-  flex: 0 0 51px;
-  min-height: 51px;
-  height: 51px;
   align-items: center;
   justify-content: space-between;
   flex-wrap: nowrap;
