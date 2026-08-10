@@ -2920,7 +2920,9 @@ export default function App() {
                   {/* Lossless settings */}
                   {losslessTrim && (
                     <div className="row settings-row lossless-settings-row">
-                      <span className="lossless-settings-hint">No video re-encoding</span>
+                      <span className="lossless-settings-hint">
+                        Copies the original video at keyframes; no re-encoding.
+                      </span>
                       <button
                         type="button"
                         className={`mute-btn lossless-audio-toggle${removeAudio ? " active" : ""}`}

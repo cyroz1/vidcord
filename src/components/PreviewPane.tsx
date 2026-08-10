@@ -47,12 +47,16 @@ const MEDIA_SEEK_EPSILON_SECONDS = 1 / 240;
 const containerStyle: React.CSSProperties = {
   background: "var(--surface)",
   border: "1px solid var(--border-subtle)",
+  boxSizing: "content-box",
   borderRadius: "var(--radius)",
   overflow: "hidden",
   contain: "paint",
   position: "relative",
-  width: "100%",
-  maxWidth: `${FIXED_PREVIEW_CSS_WIDTH}px`,
+  // Keep the border outside the ratio calculation so the media content box
+  // remains an exact 16:9 frame. With global border-box sizing, a 1px border
+  // on each side otherwise leaves contain with a fractional side gutter.
+  width: "calc(100% - 2px)",
+  maxWidth: `${FIXED_PREVIEW_CSS_WIDTH - 2}px`,
   height: "auto",
   aspectRatio: `${PREVIEW_ASPECT_WIDTH} / ${PREVIEW_ASPECT_HEIGHT}`,
   flexShrink: 0,
@@ -315,9 +319,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   const getPreviewPixelSize = useCallback(() => {
     const scale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
-    // 432x243 is an exact 16:9 CSS frame, but FFmpeg requires even output
-    // dimensions and would round the height to 244. Use the next even 16:9
-    // pair instead so contain never creates side gaps around a source frame.
+    // The preview content box is an exact 16:9 CSS frame, but FFmpeg requires
+    // even output dimensions. Use the next even 16:9 pair so contain never
+    // creates side gaps around a source frame.
     const width = Math.min(
       PREVIEW_MAX_PIXEL_WIDTH,
       Math.max(

@@ -202,11 +202,14 @@
 .scroll-area {
   flex: 1;
   min-height: 0;
-  overflow: visible;
-  padding: 8px 14px 2px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 8px 14px 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
 }
 
@@ -366,6 +369,7 @@
 
 /* ── Workflow mode selector ──────────────────────────────────────────── */
 .workflow-mode-selector {
+  flex: 0 0 auto;
   min-width: 0;
   display: grid;
   grid-template-columns: 1fr 1fr 1.35fr 0.62fr;
@@ -415,6 +419,7 @@
 }
 
 .output-options {
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
@@ -668,7 +673,9 @@ select optgroup {
 }
 
 .lossless-settings-row {
-  min-height: 32px;
+  flex: 0 0 51px;
+  min-height: 51px;
+  height: 51px;
   align-items: center;
   justify-content: space-between;
   flex-wrap: nowrap;
@@ -676,10 +683,12 @@ select optgroup {
 }
 
 .lossless-settings-hint {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--text-secondary);
   font-size: 11px;
+  line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1163,6 +1172,8 @@ select optgroup {
   flex-direction: column;
   gap: 5px;
   box-shadow: var(--shadow-card), var(--card-top);
+  flex: 0 0 90px;
+  height: 90px;
   min-width: 0;
   max-width: 100%;
   contain: layout style;
@@ -1736,6 +1747,7 @@ select optgroup {
 }
 
 .export-summary {
+  flex: 0 0 auto;
   min-height: 18px;
   display: flex;
   align-items: center;
@@ -1748,6 +1760,7 @@ select optgroup {
 
 /* ── Compress button (liquid glass primary) ──────────────────────────── */
 .compress-btn {
+  flex: 0 0 auto;
   background: linear-gradient(180deg, var(--accent-hover) 0%, var(--accent) 100%);
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: var(--radius);
@@ -2029,6 +2042,7 @@ select optgroup {
 }
 
 .progress-section {
+  flex: 0 0 auto;
   min-width: 0;
 }
 
