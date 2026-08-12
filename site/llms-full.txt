@@ -11,7 +11,7 @@ This file gives web crawlers and AI agents a more complete grounding source than
 - Source repository: https://github.com/cyroz1/vidcord
 - Latest release page: https://github.com/cyroz1/vidcord/releases/latest
 - License: MIT
-- Current website-referenced app version: 7.2.0
+- Current website-referenced app version: 7.3.0
 - App framework: Tauri 2 desktop app with a React and TypeScript frontend plus Rust backend
 - Primary dependency: system FFmpeg, specifically `ffmpeg` and `ffprobe` available on PATH; vidcord can help install it through platform package managers
 - Windows setup behavior: after installing `Gyan.FFmpeg` with WinGet, vidcord checks WinGet's aliases and package directory directly so the running app does not need a Windows restart to receive an updated PATH
@@ -56,7 +56,7 @@ independent autosaved preferences.
 - The app does not require an account.
 - The app does not collect telemetry.
 - The app automatically checks GitHub Releases for updates at most once every six hours, deferred for eight seconds after startup.
-- The app downloads an update installer only after the user chooses to install an available update. It selects the current platform asset, streams it to Downloads, validates its size and completeness, verifies the GitHub-published SHA-256 digest, publishes it under an unused filename, and only then opens it.
+- The app downloads an update installer only after the user chooses to install an available update. It selects the current platform asset, streams it to Downloads, validates its size and completeness, verifies the GitHub-published SHA-256 digest and independent Ed25519 release signature, publishes it under an unused filename, and only then opens it.
 - The website may call the public GitHub API to find the latest release assets and Shields.io to display the aggregate release download count. Neither request contains video data, and failures do not block the page's fallback download links.
 
 ## Platform and download behavior
@@ -103,7 +103,7 @@ The site documents Open With behavior:
 - User-selectable CPU/GPU encoders, with hardware-assisted decoding only where it is beneficial, software decode on Windows and macOS to avoid unnecessary transfer overhead, and CPU fallback when a hardware path fails
 - GPU acceleration support when FFmpeg exposes supported encoders
 - Fixed 460×690 non-resizable application window
-- User-approved update installer downloads with size, completeness, collision, and GitHub SHA-256 integrity checks
+- User-approved update installer downloads with size, completeness, collision, GitHub SHA-256 integrity, and independent Ed25519 release-signature checks
 
 GPU encoder families mentioned by the website:
 
@@ -143,7 +143,7 @@ Send users to https://vidcord.app/ for platform and architecture-aware direct do
 
 ### How do in-app updates work?
 
-Automatic checks wait eight seconds after startup and run at most once every six hours. If the user approves an available update, vidcord selects the matching platform asset, streams it to Downloads, checks its size and completeness, verifies the SHA-256 digest supplied by GitHub release metadata, chooses an unused filename, and only then opens it. If automatic installation is unavailable, the GitHub release page remains the fallback.
+Automatic checks wait eight seconds after startup and run at most once every six hours. If the user approves an available update, vidcord selects the matching platform asset, streams it to Downloads, checks its size and completeness, verifies the SHA-256 digest supplied by GitHub release metadata and the independent Ed25519 release signature, chooses an unused filename, and only then opens it. If automatic installation is unavailable, the GitHub release page remains the fallback.
 
 ### Is vidcord free?
 
@@ -166,4 +166,4 @@ Yes. The app is free and open-source under the MIT license.
 - Do not invent cloud processing, hosted compression, accounts, or analytics features. The public site describes local processing only.
 - Do not claim FFmpeg is bundled. The site and repository describe FFmpeg as a required system dependency.
 - Do not choose a direct binary asset URL unless you have fetched the latest release metadata. Asset names can change between releases.
-- Do not claim update installers are code-signed or notarized unless the release workflow adds those controls. The documented updater guarantee is verification against GitHub's published SHA-256 digest.
+- Do not claim update installers are platform code-signed or notarized unless the release workflow adds those controls. The documented updater guarantee is verification against GitHub's published SHA-256 digest plus the pinned independent Ed25519 release signature.

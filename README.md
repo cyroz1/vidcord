@@ -203,8 +203,10 @@ encoding and safer bitrates when FFmpeg's first pass lands too large.
   to a remembered custom folder, or choose a filename after compression finishes.
 - **Verified in-app updates** — update checks run after startup settles and no
   more than once every six hours. After approval, vidcord streams the matching
-  installer to Downloads, validates its size, completeness, and GitHub-published
-  SHA-256 digest, chooses an unused filename, and opens it.
+  installer to Downloads, validates its size and completeness, compares the
+  downloaded bytes with GitHub's published SHA-256 digest, verifies the
+  independent Ed25519 release signature, chooses an unused filename, and opens
+  it.
 - **Automated FFmpeg setup assistance** — Windows installers offer `winget`,
   and first launch prompts to install through the platform package manager.
   No FFmpeg binaries are bundled with vidcord.
@@ -410,8 +412,8 @@ cargo test  --manifest-path src-tauri/Cargo.toml
 ```
 
 CI treats any clippy warning as an error and also runs npm/Rust audit, version,
-asset, lint, typecheck, test, and build checks. Keep new Rust code
-warning-clean.
+asset, lint, typecheck, test, build-tool integrity, artifact provenance, and
+build checks. Keep new Rust code warning-clean.
 
 ### Build profiles
 
@@ -428,8 +430,10 @@ warning-clean.
 [`.github/workflows/build.yml`](.github/workflows/build.yml) runs a shared
 frontend build, consolidated Rust formatting/audit/clippy/test checks, and a
 5-way platform matrix (Windows x86_64/aarch64, macOS universal, Linux
-x86_64/aarch64). Release tags create installers and draft a GitHub release from
-the matching `CHANGELOG.md` section.
+x86_64/aarch64). Release builds attest their installer provenance, and the
+release job verifies those attestations and creates detached Ed25519 signatures
+before drafting a GitHub release from the matching `CHANGELOG.md` section. See
+[`RELEASE_SIGNING.md`](RELEASE_SIGNING.md) for the signing-key contract.
 
 ## Project layout
 
@@ -536,8 +540,9 @@ When an update is available, vidcord offers the matching Windows, macOS, or
 Linux installer and keeps the GitHub release page as a fallback. After you
 approve the download, the app streams it to Downloads, enforces size and
 completeness limits, compares the bytes with the SHA-256 digest published in
-GitHub release metadata, and only then gives the installer an unused filename
-and opens it. This integrity check does not replace platform code signing.
+GitHub release metadata, verifies the pinned independent Ed25519 release
+signature, and only then gives the installer an unused filename and opens it.
+This independent release signature does not replace platform code signing.
 
 ### What are Discord's video upload size limits?
 

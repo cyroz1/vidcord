@@ -1,5 +1,12 @@
 # Changelog
 
+## v7.3
+
+### Security
+
+- Added independent Ed25519 release-signature verification to in-app updates. Installers now require a valid signature bound to the release tag, asset name, and downloaded SHA-256 digest before they can be opened.
+- Pinned GitHub Actions and the Rust/Node toolchains, installed the Tauri CLI from the lockfile, verified build-tool integrity, and added signed artifact provenance checks before release publication.
+
 ## v7.2
 
 ### Audio

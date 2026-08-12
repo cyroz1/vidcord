@@ -1,6 +1,6 @@
 [package]
 name = "vidcord"
-version = "7.2.0"
+version = "7.3.0"
 description = "Compress videos for Discord"
 authors = ["cyroz1"]
 edition = "2021"
@@ -27,6 +27,7 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 semver = "1"
+ring = "0.17"
 sha2 = "0.10"
 url = "2"
 regex-lite = "0.1"

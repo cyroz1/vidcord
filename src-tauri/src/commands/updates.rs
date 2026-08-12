@@ -1,4 +1,5 @@
 use crate::log::vidcord_log;
+use ring::signature::{UnparsedPublicKey, ED25519};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -9,7 +10,10 @@ static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static DOWNLOAD_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static TEMP_DOWNLOAD_COUNTER: AtomicU64 = AtomicU64::new(0);
 const MAX_UPDATE_INSTALLER_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_UPDATE_SIGNATURE_BYTES: usize = 64;
 const MAX_DOWNLOAD_NAME_COLLISIONS: usize = 10_000;
+const UPDATE_SIGNATURE_CONTEXT: &str = "vidcord-update-signature-v1";
+const UPDATE_SIGNING_PUBLIC_KEY_HEX: &str = include_str!("../../update-signing-public-key.hex");
 
 fn http_client() -> &'static reqwest::Client {
     HTTP_CLIENT.get_or_init(|| {
@@ -46,7 +50,6 @@ fn normalize_semver(input: &str) -> String {
 #[derive(Clone, Debug, serde::Deserialize)]
 struct ReleaseAsset {
     name: String,
-    browser_download_url: String,
     size: Option<u64>,
     digest: Option<String>,
 }
@@ -62,25 +65,42 @@ struct GitHubRelease {
 #[derive(Clone, Debug)]
 struct SelectedAsset {
     name: String,
-    browser_download_url: String,
+    release_tag: String,
+    download_url: String,
+    signature_url: String,
     size: Option<u64>,
     sha256: [u8; 32],
+}
+
+fn decode_hex(input: &str, expected_bytes: usize, error: &str) -> Result<Vec<u8>, String> {
+    let input = input.trim();
+    if input.len() != expected_bytes * 2 || !input.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(error.to_string());
+    }
+
+    input
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            std::str::from_utf8(pair)
+                .ok()
+                .and_then(|value| u8::from_str_radix(value, 16).ok())
+                .ok_or_else(|| error.to_string())
+        })
+        .collect()
 }
 
 fn parse_sha256_digest(digest: Option<&str>) -> Result<[u8; 32], String> {
     let digest = digest
         .and_then(|value| value.strip_prefix("sha256:"))
         .ok_or_else(|| "Update installer is missing a valid SHA-256 digest.".to_string())?;
-    if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err("Update installer is missing a valid SHA-256 digest.".to_string());
-    }
-
-    let mut parsed = [0u8; 32];
-    for (index, byte) in parsed.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&digest[index * 2..index * 2 + 2], 16)
-            .map_err(|_| "Update installer is missing a valid SHA-256 digest.".to_string())?;
-    }
-    Ok(parsed)
+    decode_hex(
+        digest,
+        32,
+        "Update installer is missing a valid SHA-256 digest.",
+    )?
+    .try_into()
+    .map_err(|_| "Update installer is missing a valid SHA-256 digest.".to_string())
 }
 
 fn platform_asset_suffixes() -> Result<&'static [&'static str], String> {
@@ -94,8 +114,34 @@ fn platform_asset_suffixes() -> Result<&'static [&'static str], String> {
     }
 }
 
+fn release_tag(release: &GitHubRelease) -> Result<&str, String> {
+    let tag = release
+        .tag_name
+        .as_deref()
+        .ok_or_else(|| "Update release is missing a valid tag.".to_string())?;
+    let version = tag.strip_prefix('v').unwrap_or(tag);
+    if tag.is_empty()
+        || version.is_empty()
+        || !tag.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-' || byte == b'_'
+        })
+        || semver::Version::parse(&normalize_semver(tag)).is_err()
+    {
+        return Err("Update release is missing a valid tag.".to_string());
+    }
+    Ok(tag)
+}
+
+fn canonical_release_asset_url(tag: &str, name: &str) -> Result<String, String> {
+    safe_asset_filename(name)?;
+    Ok(format!(
+        "https://github.com/cyroz1/vidcord/releases/download/{tag}/{name}"
+    ))
+}
+
 fn select_platform_asset(release: &GitHubRelease) -> Result<SelectedAsset, String> {
     let suffixes = platform_asset_suffixes()?;
+    let release_tag = release_tag(release)?.to_string();
     let asset = release
         .assets
         .iter()
@@ -107,9 +153,21 @@ fn select_platform_asset(release: &GitHubRelease) -> Result<SelectedAsset, Strin
                     .any(|suffix| name.ends_with(&suffix.to_ascii_lowercase()))
         })
         .ok_or_else(|| "No update installer was found for this platform.".to_string())?;
+    let name = safe_asset_filename(&asset.name)?.to_string();
+    let signature_name = format!("{name}.sig");
+    if !release
+        .assets
+        .iter()
+        .any(|candidate| candidate.name == signature_name)
+    {
+        return Err("Update installer is missing an independent release signature.".to_string());
+    }
+
     Ok(SelectedAsset {
-        name: asset.name.clone(),
-        browser_download_url: asset.browser_download_url.clone(),
+        download_url: canonical_release_asset_url(&release_tag, &name)?,
+        signature_url: canonical_release_asset_url(&release_tag, &signature_name)?,
+        name,
+        release_tag,
         size: asset.size,
         sha256: parse_sha256_digest(asset.digest.as_deref())?,
     })
@@ -155,6 +213,34 @@ fn safe_asset_filename(name: &str) -> Result<&str, String> {
     } else {
         Ok(name)
     }
+}
+
+fn sha256_hex(digest: &[u8; 32]) -> String {
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn release_signature_message(release_tag: &str, asset_name: &str, sha256: &[u8; 32]) -> Vec<u8> {
+    format!(
+        "{UPDATE_SIGNATURE_CONTEXT}\n{release_tag}\n{asset_name}\n{}\n",
+        sha256_hex(sha256)
+    )
+    .into_bytes()
+}
+
+fn verify_release_signature(message: &[u8], signature: &[u8]) -> Result<(), String> {
+    if signature.len() != MAX_UPDATE_SIGNATURE_BYTES {
+        return Err("Update installer has an invalid release signature.".to_string());
+    }
+    let public_key = decode_hex(
+        UPDATE_SIGNING_PUBLIC_KEY_HEX,
+        32,
+        "vidcord has an invalid update signing key.",
+    )?;
+    UnparsedPublicKey::new(&ED25519, public_key)
+        .verify(message, signature)
+        .map_err(|_| {
+            "Update installer failed its independent release-signature verification.".to_string()
+        })
 }
 
 fn download_target_path(asset_name: &str) -> Result<PathBuf, String> {
@@ -295,10 +381,54 @@ async fn copy_download_without_clobber(source: &Path, destination: &Path) -> std
     copy_result
 }
 
+async fn download_release_signature(url: &str) -> Result<[u8; 64], String> {
+    let resp = download_client()
+        .get(url)
+        .header("Accept", "application/octet-stream")
+        .send()
+        .await
+        .map_err(|e| {
+            let msg = e.to_string();
+            vidcord_log(&format!("update install: signature request failed: {msg}"));
+            msg
+        })?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        vidcord_log(&format!("update install: signature HTTP {status}"));
+        return Err("Update installer signature could not be downloaded.".to_string());
+    }
+    if resp
+        .content_length()
+        .is_some_and(|length| length > MAX_UPDATE_SIGNATURE_BYTES as u64)
+    {
+        return Err("Update installer signature is too large.".to_string());
+    }
+
+    let mut signature = Vec::with_capacity(MAX_UPDATE_SIGNATURE_BYTES);
+    let mut resp = resp;
+    loop {
+        let chunk = resp.chunk().await.map_err(|e| e.to_string())?;
+        let Some(chunk) = chunk else { break };
+        let Some(next_length) = signature.len().checked_add(chunk.len()) else {
+            return Err("Update installer signature size overflowed.".to_string());
+        };
+        if next_length > MAX_UPDATE_SIGNATURE_BYTES {
+            return Err("Update installer signature is too large.".to_string());
+        }
+        signature.extend_from_slice(&chunk);
+    }
+
+    signature
+        .try_into()
+        .map_err(|_| "Update installer has an invalid release signature.".to_string())
+}
+
 async fn write_download_stream(
     path: PathBuf,
     mut resp: reqwest::Response,
-    expected_sha256: [u8; 32],
+    asset: &SelectedAsset,
+    signature: &[u8],
 ) -> Result<PathBuf, String> {
     let content_length = resp.content_length();
     if let Some(content_length) = content_length {
@@ -352,8 +482,9 @@ async fn write_download_stream(
         &path,
         content_length,
         written,
-        expected_sha256,
+        asset,
         hasher.finalize().into(),
+        signature,
     )
     .await
 }
@@ -363,16 +494,22 @@ async fn finish_verified_download(
     path: &Path,
     content_length: Option<u64>,
     written: u64,
-    expected_sha256: [u8; 32],
+    asset: &SelectedAsset,
     actual_sha256: [u8; 32],
+    signature: &[u8],
 ) -> Result<PathBuf, String> {
     if content_length.is_some_and(|expected| expected != written) {
         let _ = tokio::fs::remove_file(tmp).await;
         return Err("Update installer download was incomplete.".to_string());
     }
-    if actual_sha256 != expected_sha256 {
+    if actual_sha256 != asset.sha256 {
         let _ = tokio::fs::remove_file(tmp).await;
         return Err("Update installer failed its SHA-256 integrity check.".to_string());
+    }
+    let message = release_signature_message(&asset.release_tag, &asset.name, &actual_sha256);
+    if let Err(error) = verify_release_signature(&message, signature) {
+        let _ = tokio::fs::remove_file(tmp).await;
+        return Err(error);
     }
 
     let published_path = match publish_download_without_clobber(tmp, path).await {
@@ -471,6 +608,7 @@ pub async fn check_for_updates(current_version: String) -> Result<serde_json::Va
 pub async fn download_and_open_update_installer() -> Result<serde_json::Value, String> {
     let release = fetch_latest_release().await?;
     let asset = select_platform_asset(&release)?;
+    let signature = download_release_signature(&asset.signature_url).await?;
     if let Some(size) = asset.size {
         validate_download_size(size)?;
     }
@@ -483,7 +621,7 @@ pub async fn download_and_open_update_installer() -> Result<serde_json::Value, S
         .map_err(|e| e.to_string())?;
 
     let resp = download_client()
-        .get(&asset.browser_download_url)
+        .get(&asset.download_url)
         .header("Accept", "application/octet-stream")
         .send()
         .await
@@ -499,7 +637,7 @@ pub async fn download_and_open_update_installer() -> Result<serde_json::Value, S
         return Err(format!("Download failed with HTTP {status}"));
     }
 
-    let downloaded_path = write_download_stream(target_path, resp, asset.sha256).await?;
+    let downloaded_path = write_download_stream(target_path, resp, &asset, &signature).await?;
     let path_for_open = downloaded_path.clone();
     tokio::task::spawn_blocking(move || open_installer(&path_for_open))
         .await
@@ -578,6 +716,7 @@ mod tests {
     #[test]
     fn selects_current_platform_asset() {
         let suffix = platform_asset_suffixes().unwrap()[0];
+        let installer_name = format!("vidcord_9.0.0{suffix}");
         let release = GitHubRelease {
             tag_name: Some("v9.0".to_string()),
             name: None,
@@ -585,22 +724,54 @@ mod tests {
             assets: vec![
                 ReleaseAsset {
                     name: "vidcord_9.0.0_unrelated.zip".to_string(),
-                    browser_download_url: "https://example.com/wrong".to_string(),
                     size: Some(1024),
                     digest: Some(format!("sha256:{}", "00".repeat(32))),
                 },
                 ReleaseAsset {
-                    name: format!("vidcord_9.0.0{suffix}"),
-                    browser_download_url: "https://example.com/right".to_string(),
+                    name: installer_name.clone(),
                     size: Some(2048),
                     digest: Some(format!("sha256:{}", "11".repeat(32))),
+                },
+                ReleaseAsset {
+                    name: format!("{installer_name}.sig"),
+                    size: Some(MAX_UPDATE_SIGNATURE_BYTES as u64),
+                    digest: None,
                 },
             ],
         };
 
         let asset = select_platform_asset(&release).unwrap();
-        assert_eq!(asset.browser_download_url, "https://example.com/right");
+        assert_eq!(
+            asset.download_url,
+            format!("https://github.com/cyroz1/vidcord/releases/download/v9.0/{installer_name}")
+        );
+        assert_eq!(
+            asset.signature_url,
+            format!(
+                "https://github.com/cyroz1/vidcord/releases/download/v9.0/{installer_name}.sig"
+            )
+        );
         assert_eq!(asset.sha256, [0x11; 32]);
+    }
+
+    #[test]
+    fn rejects_unsigned_platform_assets() {
+        let suffix = platform_asset_suffixes().unwrap()[0];
+        let release = GitHubRelease {
+            tag_name: Some("v9.0".to_string()),
+            name: None,
+            html_url: None,
+            assets: vec![ReleaseAsset {
+                name: format!("vidcord_9.0.0{suffix}"),
+                size: Some(2048),
+                digest: Some(format!("sha256:{}", "11".repeat(32))),
+            }],
+        };
+
+        assert_eq!(
+            select_platform_asset(&release).unwrap_err(),
+            "Update installer is missing an independent release signature."
+        );
     }
 
     #[test]
@@ -649,6 +820,67 @@ mod tests {
         assert_eq!(collision_safe_download_path(&path, 0).unwrap(), path);
     }
 
+    fn release_signature_fixture() -> [u8; MAX_UPDATE_SIGNATURE_BYTES] {
+        [
+            98, 32, 169, 93, 102, 240, 194, 161, 1, 0, 149, 139, 248, 233, 2, 2, 38, 33, 74, 98,
+            68, 26, 70, 249, 97, 22, 128, 250, 215, 171, 140, 40, 11, 195, 79, 13, 100, 10, 11,
+            249, 222, 163, 21, 21, 66, 197, 73, 70, 6, 140, 90, 45, 121, 87, 160, 224, 178, 123,
+            208, 95, 176, 184, 65, 6,
+        ]
+    }
+
+    fn test_selected_asset(expected_sha256: [u8; 32]) -> SelectedAsset {
+        SelectedAsset {
+            name: "vidcord_7.3.0_x64-setup.exe".to_string(),
+            release_tag: "v7.3.0".to_string(),
+            download_url: String::new(),
+            signature_url: String::new(),
+            size: Some(18),
+            sha256: expected_sha256,
+        }
+    }
+
+    #[test]
+    fn release_signature_binds_release_context_and_digest() {
+        let message =
+            release_signature_message("v7.3.0", "vidcord_7.3.0_x64-setup.exe", &[0x33; 32]);
+        verify_release_signature(&message, &release_signature_fixture()).unwrap();
+
+        let mut altered_message = message;
+        altered_message[0] ^= 1;
+        assert!(verify_release_signature(&altered_message, &release_signature_fixture()).is_err());
+    }
+
+    #[tokio::test]
+    async fn invalid_release_signature_removes_temp_file_without_publishing() {
+        let directory = unique_test_directory();
+        tokio::fs::create_dir(&directory).await.unwrap();
+        let preferred = directory.join("vidcord.exe");
+        let tmp = directory.join(".vidcord.download");
+        tokio::fs::write(&tmp, b"verified installer").await.unwrap();
+        let asset = test_selected_asset([0x33; 32]);
+
+        let error = finish_verified_download(
+            &tmp,
+            &preferred,
+            Some(18),
+            18,
+            &asset,
+            [0x33; 32],
+            &[0; MAX_UPDATE_SIGNATURE_BYTES],
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            "Update installer failed its independent release-signature verification."
+        );
+        assert!(!tmp.exists());
+        assert!(!preferred.exists());
+        tokio::fs::remove_dir(directory).await.unwrap();
+    }
+
     #[tokio::test]
     async fn publishing_update_never_replaces_existing_downloads() {
         let directory = unique_test_directory();
@@ -688,11 +920,19 @@ mod tests {
         let preferred = directory.join("vidcord.exe");
         let tmp = directory.join(".vidcord.download");
         tokio::fs::write(&tmp, b"tampered installer").await.unwrap();
+        let asset = test_selected_asset([0x11; 32]);
 
-        let error =
-            finish_verified_download(&tmp, &preferred, Some(18), 18, [0x11; 32], [0x22; 32])
-                .await
-                .unwrap_err();
+        let error = finish_verified_download(
+            &tmp,
+            &preferred,
+            Some(18),
+            18,
+            &asset,
+            [0x22; 32],
+            &[0; MAX_UPDATE_SIGNATURE_BYTES],
+        )
+        .await
+        .unwrap_err();
 
         assert_eq!(
             error,
@@ -710,11 +950,20 @@ mod tests {
         let preferred = directory.join("vidcord.exe");
         let tmp = directory.join(".vidcord.download");
         tokio::fs::write(&tmp, b"verified installer").await.unwrap();
+        let asset = test_selected_asset([0x33; 32]);
+        let signature = release_signature_fixture();
 
-        let published =
-            finish_verified_download(&tmp, &preferred, Some(18), 18, [0x33; 32], [0x33; 32])
-                .await
-                .unwrap();
+        let published = finish_verified_download(
+            &tmp,
+            &preferred,
+            Some(18),
+            18,
+            &asset,
+            [0x33; 32],
+            &signature,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(published, preferred);
         assert_eq!(

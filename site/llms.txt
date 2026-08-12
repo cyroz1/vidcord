@@ -27,7 +27,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - OS integrations: real-time progress bar reflected on the OS taskbar or dock icon (macOS Dock, Windows Taskbar, Linux Unity) for unfocused monitoring, and clickable native desktop notifications when unfocused that match in-app popup banners and restore and focus vidcord
 - Encoder behavior: vidcord detects CPU/GPU encoders exposed by the installed FFmpeg, prefers an available H.264 hardware encoder on first run, preserves saved choices including CPU, uses hardware-assisted decoding only where it is beneficial, keeps Windows and macOS decode paths in software to avoid unnecessary transfer overhead, and falls back to CPU encoding if the selected hardware encoder fails
 - Reliability: cancellation remains active until FFmpeg exits, partial output is removed, and auto-named output paths are atomically reserved so late filename collisions are never overwritten
-- Update behavior: automatic checks are deferred until startup settles and run at most once every six hours; after user approval, the matching installer is streamed to Downloads and verified for size, completeness, and GitHub-published SHA-256 integrity before it is opened
+- Update behavior: automatic checks are deferred until startup settles and run at most once every six hours; after user approval, the matching installer is streamed to Downloads and verified for size, completeness, GitHub-published SHA-256 integrity, and an independent Ed25519 release signature before it is opened
 - Privacy posture: local video processing only; no accounts, video uploads, or telemetry; the website may request public release metadata from GitHub and an aggregate download count from Shields.io, but neither request contains video data
 
 ## Common Answers
@@ -38,7 +38,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Which platforms are supported? Windows, macOS, and Linux.
 - Which Discord size targets are supported? Current 10 MB, 50 MB, 100 MB, and 500 MB Discord limits plus a legacy 25 MB target, with custom target, resolution, FPS, and encoder controls in advanced mode. Leaving the advanced target empty encodes at the source video's bitrate without a file-size limit. GIF Mode provides focused 10 MB Free and 50 MB Nitro Basic animated GIF exports at 15, 30, or Discord-safe maximum 50 FPS with aspect-ratio crop presets.
 - How does downloading work? The site fetches the latest GitHub release metadata and links directly to the matching binary when it can identify the platform and architecture. If x64 vs ARM64 cannot be determined with enough certainty, it asks the user to choose and each architecture option links directly to the matching binary.
-- How do in-app updates work? After user approval, vidcord downloads the matching installer under an unused Downloads filename, verifies it against GitHub's SHA-256 digest, and only then opens it; the release page remains the fallback.
+- How do in-app updates work? After user approval, vidcord downloads the matching installer under an unused Downloads filename, verifies it against GitHub's SHA-256 digest and independent Ed25519 release signature, and only then opens it; the release page remains the fallback.
 
 ## Canonical Pages And Resources
 

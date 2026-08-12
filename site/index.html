@@ -83,7 +83,7 @@
             "url": "https://vidcord.app/",
             "codeRepository": "https://github.com/cyroz1/vidcord",
             "downloadUrl": "https://github.com/cyroz1/vidcord/releases/latest",
-            "softwareVersion": "7.2.0",
+            "softwareVersion": "7.3.0",
             "applicationCategory": "MultimediaApplication",
             "operatingSystem": ["Windows", "macOS", "Linux"],
             "license": "https://github.com/cyroz1/vidcord/blob/main/LICENSE",
@@ -109,7 +109,7 @@
               "First-run H.264 hardware encoder preference with automatic software-decode and CPU fallbacks",
               "Open With integration from Windows File Explorer and macOS Finder",
               "Race-safe compression cancellation and collision-safe output reservation",
-              "User-approved installer downloads verified with GitHub-published SHA-256 digests",
+              "User-approved installer downloads verified with GitHub-published SHA-256 digests and independent Ed25519 release signatures",
               "No uploads, accounts, or telemetry"
             ],
             "image": [
@@ -188,7 +188,7 @@
                 "name": "How do in-app updates work?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Update checks wait until startup settles and run at most every six hours. After approval, vidcord streams, validates, and hashes the installer against GitHub's SHA-256 digest, saves it under an unused name, and opens it. The release page remains a fallback."
+                  "text": "Update checks wait until startup settles and run at most every six hours. After approval, vidcord streams, validates, and hashes the installer against GitHub's SHA-256 digest, verifies its independent Ed25519 release signature, saves it under an unused name, and opens it. The release page remains a fallback."
                 }
               }
             ]
@@ -461,7 +461,10 @@
             <li>Atomically reserved auto-named outputs that never overwrite your files.</li>
             <li>Downloads, source-folder, remembered custom-folder, and ask-when-done options.</li>
             <li>Copy the output file itself to the clipboard or reveal it in your file manager.</li>
-            <li>User-approved update installers verified against GitHub's SHA-256 digest.</li>
+            <li>
+              User-approved update installers verified against GitHub's SHA-256 digest and an
+              independent Ed25519 release signature.
+            </li>
           </ul>
         </div>
         <div class="detail-image">
@@ -721,8 +724,8 @@
             <p>
               Update checks wait until startup settles and run at most every six hours. After
               approval, vidcord streams, validates, and hashes the installer against GitHub's
-              SHA-256 digest, saves it under an unused name, and opens it. The release page remains
-              a fallback.
+              SHA-256 digest, verifies its independent Ed25519 release signature, saves it under an
+              unused name, and opens it. The release page remains a fallback.
             </p>
           </article>
         </div>

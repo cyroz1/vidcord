@@ -4828,7 +4828,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vidcord"
-version = "7.2.0"
+version = "7.3.0"
 dependencies = [
  "dirs",
  "libc",
@@ -4836,6 +4836,7 @@ dependencies = [
  "objc2-app-kit",
  "regex-lite",
  "reqwest 0.12.28",
+ "ring",
  "semver",
  "serde",
  "serde_json",
