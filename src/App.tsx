@@ -13,7 +13,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 import Toast from "./components/Toast";
-import ProgressSection from "./components/ProgressSection";
+import ExportSection from "./components/ExportSection";
 import PreviewPane, { type PreviewHandle } from "./components/PreviewPane";
 import TrimTimeline, { type SnapMode } from "./components/TrimTimeline";
 import AudioTrackPicker from "./components/AudioTrackPicker";
@@ -90,6 +90,47 @@ const DISPLAY_VERSION = (() => {
   const [major = "0", minor = "0"] = String(CURRENT_VERSION).split(".");
   return `v${major}.${minor}`;
 })();
+
+const FOOTER_META = (
+  <div className="footer-meta">
+    <span className="version">{DISPLAY_VERSION}</span>
+    <a
+      href="https://vidcord.app/"
+      onClick={(e) => {
+        e.preventDefault();
+        void openExternalUrl("https://vidcord.app/").catch(() => {});
+      }}
+      className="gh-link"
+      aria-label="Website"
+      title="Website"
+    >
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
+        <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4" />
+        <path
+          d="M1.75 8h12.5M8 1.5c1.7 1.74 2.55 3.9 2.55 6.5S9.7 12.76 8 14.5C6.3 12.76 5.45 10.6 5.45 8S6.3 3.24 8 1.5Z"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="1.4"
+        />
+      </svg>
+    </a>
+    <a
+      href="https://github.com/cyroz1/vidcord"
+      onClick={(e) => {
+        e.preventDefault();
+        void openExternalUrl("https://github.com/cyroz1/vidcord").catch(() => {});
+      }}
+      className="gh-link"
+      aria-label="GitHub"
+      title="GitHub"
+    >
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+      </svg>
+    </a>
+  </div>
+);
 
 const QUALITY_PRESETS = [
   { label: "10MB, 480p", size_mb: 10, target_h: 480 },
@@ -1021,6 +1062,7 @@ export default function App() {
         );
         return;
       }
+      previewRef.current?.stopPlayback();
       const loadGeneration = loadGenerationRef.current + 1;
       loadGenerationRef.current = loadGeneration;
       selectedFilePathRef.current = path;
@@ -1157,6 +1199,14 @@ export default function App() {
       saveSettings({ output_destination: destination });
     },
     [chooseCustomOutputDirectory, customOutputDirectory, saveSettings, setOutputDestination]
+  );
+
+  const changeCompletionAction = useCallback(
+    (action: CompletionAction) => {
+      setCompletionAction(action);
+      saveSettings({ completion_action: action });
+    },
+    [saveSettings, setCompletionAction]
   );
 
   const restoreSettingsPreset = useCallback(
@@ -1470,6 +1520,8 @@ export default function App() {
 
   // --- Compression ---
   const startCompress = useCallback(async () => {
+    resetProgress();
+    setCompressing(true);
     if (ffmpegMissing) {
       addToast("warning", "FFmpeg Not Found", FFMPEG_MISSING_TOAST_MESSAGE);
       setCompressing(false);
@@ -1599,7 +1651,6 @@ export default function App() {
               label: "Compress anyway",
               onClick: () => {
                 skipLosslessOfferRef.current = true;
-                setCompressing(true);
                 void startCompressRef.current();
               },
             },
@@ -1800,6 +1851,7 @@ export default function App() {
     saveSettings,
     setAdvancedMode,
     setCompressing,
+    resetProgress,
   ]);
   startCompressRef.current = startCompress;
 
@@ -3232,138 +3284,34 @@ export default function App() {
             onEndTimeCommit={handleEndTimeCommit}
           />
 
-          <div className="output-options" aria-label="Output options">
-            <div className="output-option">
-              <label htmlFor="output-destination-select">Save to</label>
-              <div className="output-select-row">
-                <select
-                  id="output-destination-select"
-                  value={outputDestination}
-                  onChange={(event) =>
-                    void changeOutputDestination(event.target.value as OutputDestination)
-                  }
-                >
-                  <option value="downloads">Downloads</option>
-                  <option value="source">Clip folder</option>
-                  <option value="ask">Ask when done</option>
-                  <option value="custom">Custom folder</option>
-                </select>
-                {outputDestination === "custom" && (
-                  <button
-                    type="button"
-                    className="custom-folder-btn"
-                    title={customOutputDirectory || "Choose a custom output folder"}
-                    aria-label="Choose a custom output folder"
-                    onClick={() => void chooseCustomOutputDirectory()}
-                  >
-                    {customOutputDirectory.split(/[\\/]/).filter(Boolean).pop() || "Choose"}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="output-option">
-              <label htmlFor="completion-action-select">After export</label>
-              <select
-                id="completion-action-select"
-                value={completionAction}
-                onChange={(event) => {
-                  const action = event.target.value as CompletionAction;
-                  setCompletionAction(action);
-                  saveSettings({ completion_action: action });
-                }}
-              >
-                <option value="copy">Copy file</option>
-                <option value="reveal">Show in folder</option>
-              </select>
-            </div>
-          </div>
-
-          {!showProgress && (
-            <div className="export-summary" aria-label="Export summary">
-              {exportSummary}
-            </div>
-          )}
-
-          {/* Compress button */}
-          <button
-            className={`compress-btn${compressing ? " cancel" : ""}`}
-            onClick={
-              compressing
-                ? cancelCompress
-                : () => {
-                    resetProgress();
-                    setCompressing(true);
-                    startCompress();
-                  }
-            }
-            disabled={
-              ffmpegMissing ||
-              cancelling ||
-              finalizingOutput ||
-              (!compressing && losslessTrim && losslessInfoLoading) ||
-              (!compressing && (!filePath || !probeData))
-            }
-          >
-            {cancelling
-              ? "Cancelling..."
-              : finalizingOutput
-                ? "Saving Output..."
-                : compressing
-                  ? "Cancel"
-                  : readyActionLabel}
-          </button>
-
-          {/* Progress */}
-          {showProgress && <ProgressSection progress={progress} eta={eta} />}
+          <ExportSection
+            outputDestination={outputDestination}
+            customOutputDirectory={customOutputDirectory}
+            completionAction={completionAction}
+            exportSummary={exportSummary}
+            readyActionLabel={readyActionLabel}
+            showProgress={showProgress}
+            compressing={compressing}
+            cancelling={cancelling}
+            finalizingOutput={finalizingOutput}
+            ffmpegMissing={ffmpegMissing}
+            losslessTrim={losslessTrim}
+            losslessInfoLoading={losslessInfoLoading}
+            filePath={filePath}
+            probeReady={probeData !== null}
+            progress={progress}
+            eta={eta}
+            onOutputDestinationChange={changeOutputDestination}
+            onChooseCustomOutputDirectory={chooseCustomOutputDirectory}
+            onCompletionActionChange={changeCompletionAction}
+            onStartCompression={startCompress}
+            onCancelCompression={cancelCompress}
+          />
         </div>
 
         {/* Footer stays outside the scroll area so it remains anchored to the window. */}
         <div className="footer">
-          <div className="footer-meta">
-            <span className="version">{DISPLAY_VERSION}</span>
-            <a
-              href="https://vidcord.app/"
-              onClick={(e) => {
-                e.preventDefault();
-                void openExternalUrl("https://vidcord.app/").catch(() => {});
-              }}
-              className="gh-link"
-              aria-label="Website"
-              title="Website"
-            >
-              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
-                <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4" />
-                <path
-                  d="M1.75 8h12.5M8 1.5c1.7 1.74 2.55 3.9 2.55 6.5S9.7 12.76 8 14.5C6.3 12.76 5.45 10.6 5.45 8S6.3 3.24 8 1.5Z"
-                  stroke="currentColor"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="1.4"
-                />
-              </svg>
-            </a>
-            <a
-              href="https://github.com/cyroz1/vidcord"
-              onClick={(e) => {
-                e.preventDefault();
-                void openExternalUrl("https://github.com/cyroz1/vidcord").catch(() => {});
-              }}
-              className="gh-link"
-              aria-label="GitHub"
-              title="GitHub"
-            >
-              <svg
-                viewBox="0 0 16 16"
-                width="16"
-                height="16"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
-              </svg>
-            </a>
-          </div>
+          {FOOTER_META}
           <Suspense
             fallback={
               <span className="settings-presets" aria-hidden="true">

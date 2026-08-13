@@ -8,7 +8,9 @@ use std::time::{Duration, Instant};
 
 mod encoders;
 
-pub use encoders::{get_available_encoders, invalidate_encoder_cache};
+pub use encoders::{
+    get_available_encoders, get_or_discover_encoder_listing, invalidate_encoder_cache,
+};
 
 static VAAPI_CACHE: OnceLock<Option<String>> = OnceLock::new();
 #[cfg(target_os = "linux")]
@@ -27,6 +29,8 @@ const PREVIEW_FRAME_CACHE_MAX_ENTRIES: usize = 60;
 const PREVIEW_FRAME_CACHE_MAX_BYTES: usize = 16 * 1024 * 1024;
 const PREVIEW_FILMSTRIP_OUTPUT_LIMIT: u64 = 32 * 1024 * 1024;
 const PREVIEW_CLIP_OUTPUT_LIMIT: u64 = 64 * 1024 * 1024;
+const PREVIEW_CLIP_FAILED_PLAN_MAX_ENTRIES: usize = 128;
+const PREVIEW_CLIP_FAILED_PLAN_TTL: Duration = Duration::from_secs(10 * 60);
 #[cfg(target_os = "linux")]
 const VAAPI_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(6);
 #[cfg(target_os = "linux")]
@@ -900,14 +904,26 @@ impl FrameCache {
         self.total_bytes += data_len;
     }
 
-    fn clear(&mut self) {
-        self.entries.clear();
-        self.total_bytes = 0;
+    fn clear_path(&mut self, source_hash: u64) {
+        let keys: Vec<_> = self
+            .entries
+            .keys()
+            .filter(|(path_hash, _, _, _)| *path_hash == source_hash)
+            .copied()
+            .collect();
+        for key in keys {
+            if let Some(removed) = self.entries.remove(&key) {
+                self.total_bytes = self.total_bytes.saturating_sub(removed.data.len());
+            }
+        }
     }
 }
 
 static PREVIEW_FRAME_CACHE: OnceLock<Mutex<FrameCache>> = OnceLock::new();
 static PREVIEW_SOFTWARE_DECODE_PATHS: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
+type PreviewClipPlanKey = (u64, String, bool);
+static PREVIEW_CLIP_FAILED_PLANS: OnceLock<Mutex<HashMap<PreviewClipPlanKey, Instant>>> =
+    OnceLock::new();
 
 fn get_frame_cache() -> &'static Mutex<FrameCache> {
     PREVIEW_FRAME_CACHE.get_or_init(|| {
@@ -951,6 +967,49 @@ fn remember_preview_hardware_decode_failure(path: &str) {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .insert(path_hash(path));
+}
+
+fn preview_clip_plan_key(path: &str, plan: &PreviewClipPlan) -> (u64, String, bool) {
+    (path_hash(path), plan.encoder.clone(), plan.use_auto_hwaccel)
+}
+
+fn preview_clip_plan_failed(path: &str, plan: &PreviewClipPlan) -> bool {
+    let now = Instant::now();
+    let mut failed_plans = PREVIEW_CLIP_FAILED_PLANS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    failed_plans
+        .retain(|_, failed_at| now.duration_since(*failed_at) < PREVIEW_CLIP_FAILED_PLAN_TTL);
+    failed_plans.contains_key(&preview_clip_plan_key(path, plan))
+}
+
+fn remember_preview_clip_plan_failure(path: &str, plan: &PreviewClipPlan) {
+    let now = Instant::now();
+    let mut failed_plans = PREVIEW_CLIP_FAILED_PLANS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    failed_plans
+        .retain(|_, failed_at| now.duration_since(*failed_at) < PREVIEW_CLIP_FAILED_PLAN_TTL);
+    if failed_plans.len() >= PREVIEW_CLIP_FAILED_PLAN_MAX_ENTRIES {
+        if let Some(oldest_key) = failed_plans
+            .iter()
+            .min_by_key(|(_, failed_at)| *failed_at)
+            .map(|(key, _)| key.clone())
+        {
+            failed_plans.remove(&oldest_key);
+        }
+    }
+    failed_plans.insert(preview_clip_plan_key(path, plan), now);
+}
+
+pub(crate) fn clear_preview_clip_plan_cache() {
+    PREVIEW_CLIP_FAILED_PLANS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -1284,10 +1343,65 @@ fn generate_sparse_seek_filmstrip(
     generation: u64,
     deadline: Instant,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let mut output = Vec::new();
-    let mut last_error: Option<String> = None;
+    let try_hardware_decode = should_try_preview_hardware_decode(path);
+    match generate_sparse_seek_filmstrip_internal(
+        path,
+        duration_sec,
+        frame_count,
+        (preview_width, preview_height),
+        generation,
+        deadline,
+        try_hardware_decode,
+    ) {
+        Ok(output) => Ok(output),
+        Err(err)
+            if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER)
+                || is_preview_cancelled_error(err.as_ref())
+                || is_preview_timeout_error(err.as_ref())
+                || !try_hardware_decode =>
+        {
+            Err(err)
+        }
+        Err(err) => {
+            remember_preview_hardware_decode_failure(path);
+            vidcord_log(&format!(
+                "Hardware sparse filmstrip decode failed; retrying software decode: {err}"
+            ));
+            generate_sparse_seek_filmstrip_internal(
+                path,
+                duration_sec,
+                frame_count,
+                (preview_width, preview_height),
+                generation,
+                deadline,
+                false,
+            )
+        }
+    }
+}
+
+fn generate_sparse_seek_filmstrip_internal(
+    path: &str,
+    duration_sec: f64,
+    frame_count: usize,
+    preview_dimensions: (u32, u32),
+    generation: u64,
+    deadline: Instant,
+    use_auto_hwaccel: bool,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    // Keep all sparse seeks in one FFmpeg process. Each input is bounded to a
+    // short window and trimmed to its first decoded frame, avoiding the
+    // process-startup cost of one command per thumbnail.
     let max_time = (duration_sec - 0.05).max(0.0);
-    let mut use_auto_hwaccel = should_try_preview_hardware_decode(path);
+    let mut args: Vec<String> = vec![
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-y".into(),
+    ];
+    if use_auto_hwaccel {
+        push_auto_hwaccel_args(&mut args);
+    }
 
     for idx in 0..frame_count {
         let ratio = if frame_count <= 1 {
@@ -1295,67 +1409,72 @@ fn generate_sparse_seek_filmstrip(
         } else {
             idx as f64 / (frame_count - 1) as f64
         };
-        let time_sec = max_time * ratio;
-        match generate_preview_frame_internal(
-            path,
-            time_sec,
-            "7",
-            (preview_width, preview_height),
-            use_auto_hwaccel,
-            generation,
-            None,
-            deadline,
-        ) {
-            Ok(frame) => output.extend(frame),
-            Err(err)
-                if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER)
-                    || is_preview_cancelled_error(err.as_ref())
-                    || is_preview_timeout_error(err.as_ref()) =>
-            {
-                return Err(err)
-            }
-            Err(err) if use_auto_hwaccel => {
-                remember_preview_hardware_decode_failure(path);
-                vidcord_log(&format!(
-                    "Hardware sparse filmstrip decode failed; using software decode for remaining frames: {err}"
-                ));
-                use_auto_hwaccel = false;
-                match generate_preview_frame_internal(
-                    path,
-                    time_sec,
-                    "7",
-                    (preview_width, preview_height),
-                    false,
-                    generation,
-                    None,
-                    deadline,
-                ) {
-                    Ok(frame) => output.extend(frame),
-                    Err(err)
-                        if err.to_string().starts_with(FFMPEG_MISSING_ERROR_MARKER)
-                            || is_preview_cancelled_error(err.as_ref())
-                            || is_preview_timeout_error(err.as_ref()) =>
-                    {
-                        return Err(err)
-                    }
-                    Err(err) => {
-                        last_error = Some(err.to_string());
-                    }
-                }
-            }
-            Err(err) => {
-                last_error = Some(err.to_string());
-            }
-        }
+        args.extend([
+            "-ss".into(),
+            format_time_arg(max_time * ratio),
+            "-t".into(),
+            "0.5".into(),
+            "-i".into(),
+            path.into(),
+        ]);
     }
 
-    if output.is_empty() {
-        return Err(last_error
-            .unwrap_or_else(|| "FFmpeg sparse filmstrip failed".to_string())
-            .into());
+    let (preview_width, preview_height) = preview_dimensions;
+    let scale = preview_jpeg_scale_filter(preview_width, preview_height);
+    let mut filters = Vec::with_capacity(frame_count + 1);
+    for idx in 0..frame_count {
+        filters.push(format!(
+            "[{idx}:v]trim=end_frame=1,setpts=PTS-STARTPTS,{scale}[v{idx}]"
+        ));
+    }
+    let concat_inputs = (0..frame_count)
+        .map(|idx| format!("[v{idx}]"))
+        .collect::<String>();
+    filters.push(format!(
+        "{concat_inputs}concat=n={frame_count}:v=1:a=0[outv]"
+    ));
+    args.extend([
+        "-filter_complex".into(),
+        filters.join(";"),
+        "-map".into(),
+        "[outv]".into(),
+        "-frames:v".into(),
+        frame_count.to_string(),
+        "-q:v".into(),
+        "7".into(),
+        "-f".into(),
+        "image2pipe".into(),
+        "-vcodec".into(),
+        "mjpeg".into(),
+        "-".into(),
+    ]);
+
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new("ffmpeg");
+    cmd.args(&args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    configure_ffmpeg_command(&mut cmd);
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
     }
 
-    Ok(output)
+    let out = preview_command_output(
+        &mut cmd,
+        generation,
+        None,
+        remaining_preview_time(deadline)?,
+        PREVIEW_FILMSTRIP_OUTPUT_LIMIT,
+    )?;
+
+    if !out.status.success() || out.stdout.is_empty() {
+        return Err("FFmpeg sparse filmstrip failed".into());
+    }
+
+    Ok(out.stdout)
 }
 
 #[derive(Clone)]
@@ -1485,6 +1604,13 @@ fn generate_preview_clip_with_fallbacks(
     let deadline = preview_deadline(PREVIEW_CLIP_TIMEOUT);
 
     for plan in preview_clip_plans() {
+        if preview_clip_plan_failed(path, &plan) {
+            vidcord_log(&format!(
+                "Skipping previously failed preview clip plan {} (hwdecode={})",
+                plan.encoder, plan.use_auto_hwaccel
+            ));
+            continue;
+        }
         match generate_preview_clip_internal(
             path,
             start_time_sec,
@@ -1503,6 +1629,7 @@ fn generate_preview_clip_with_fallbacks(
                 return Err(err)
             }
             Err(err) => {
+                remember_preview_clip_plan_failure(path, &plan);
                 vidcord_log(&format!(
                     "Preview clip encode failed with {} (hwdecode={}): {err}",
                     plan.encoder, plan.use_auto_hwaccel
@@ -1762,16 +1889,22 @@ pub fn find_vaapi_device() -> Option<String> {
 // Cache management
 // ---------------------------------------------------------------------------
 
-pub fn clear_preview_caches() {
+pub fn clear_preview_caches_for_path(path: &str) {
+    let source_hash = path_hash(path);
     get_frame_cache()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .clear();
+        .clear_path(source_hash);
     PREVIEW_SOFTWARE_DECODE_PATHS
         .get_or_init(|| Mutex::new(HashSet::new()))
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .clear();
+        .remove(&source_hash);
+    PREVIEW_CLIP_FAILED_PLANS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|(path_hash, _, _), _| *path_hash != source_hash);
 }
 
 #[cfg(test)]
@@ -1872,6 +2005,19 @@ mod tests {
 
         assert!(cache.entries.is_empty());
         assert_eq!(cache.total_bytes, 0);
+    }
+
+    #[test]
+    fn frame_cache_can_clear_one_source_without_dropping_other_sources() {
+        let mut cache = FrameCache::new(60, 100);
+        cache.insert((1, 1, 1, 1), Arc::new(vec![1; 6]));
+        cache.insert((2, 2, 2, 2), Arc::new(vec![2; 7]));
+
+        cache.clear_path(1);
+
+        assert!(cache.get((1, 1, 1, 1)).is_none());
+        assert!(cache.get((2, 2, 2, 2)).is_some());
+        assert_eq!(cache.total_bytes, 7);
     }
 
     #[test]

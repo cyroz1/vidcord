@@ -1,5 +1,5 @@
 use crate::ffmpeg::{
-    configure_ffmpeg_command, ffmpeg_missing_error, get_available_encoders,
+    configure_ffmpeg_command, get_available_encoders, get_or_discover_encoder_listing,
     invalidate_encoder_cache,
 };
 use crate::gpu::spawn_captured_command;
@@ -22,7 +22,6 @@ static LIST_ENCODER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
 static FFMPEG_AVAIL_CACHE: OnceLock<Mutex<Option<(bool, Instant)>>> = OnceLock::new();
 const FFMPEG_CACHE_TTL: Duration = Duration::from_secs(30);
 const COMMAND_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
-const ENCODER_LIST_TIMEOUT: Duration = Duration::from_secs(8);
 
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -567,32 +566,7 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
 #[tauri::command]
 pub async fn list_ffmpeg_video_encoders() -> Result<String, String> {
     tokio::task::spawn_blocking(|| -> Result<String, String> {
-        #[allow(unused_mut)]
-        let mut cmd = std::process::Command::new("ffmpeg");
-        cmd.args(["-hide_banner", "-encoders"]);
-        configure_ffmpeg_command(&mut cmd);
-
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000);
-        }
-
-        let child = spawn_captured_command(&mut cmd).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                ffmpeg_missing_error()
-            } else {
-                format!("Failed to run ffmpeg: {e}")
-            }
-        })?;
-        let output = child
-            .wait_for_output(ENCODER_LIST_TIMEOUT)
-            .map_err(|e| format!("Failed while listing FFmpeg encoders: {e}"))?
-            .ok_or_else(|| "FFmpeg encoder listing timed out.".to_string())?;
-        if !output.status.success() {
-            return Err("FFmpeg could not list its video encoders.".to_string());
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stdout = get_or_discover_encoder_listing()?;
 
         let re = LIST_ENCODER_RE.get_or_init(|| {
             regex_lite::Regex::new(r"^\s*V[A-Z.]*\s+(\S+)\s+(.*)").expect("invalid regex literal")

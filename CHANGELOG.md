@@ -2,6 +2,10 @@
 
 ## v7.3
 
+### Performance
+
+- Reduced preview-scrubbing contention with bounded background filmstrip work, shared encoder discovery, source-scoped frame caching, and memoized trim-insensitive controls.
+
 ### Security
 
 - Added independent Ed25519 release-signature verification to in-app updates. Installers now require a valid signature bound to the release tag, asset name, and downloaded SHA-256 digest before they can be opened.

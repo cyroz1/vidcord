@@ -1,6 +1,6 @@
 use crate::ffmpeg::{
     cancel_lossless_trim_probe as cancel_lossless_trim_probe_job, cancel_preview_frame_jobs,
-    cancel_preview_jobs, cancel_superseded_probe_jobs, clear_preview_caches,
+    cancel_preview_jobs, cancel_superseded_probe_jobs, clear_preview_caches_for_path,
     configure_ffmpeg_command, ffmpeg_missing_error, generate_filmstrip, generate_preview,
     generate_preview_clip, probe_lossless_trim_info, probe_video, start_probe_generation,
 };
@@ -232,8 +232,9 @@ pub async fn probe(path: String) -> Result<serde_json::Value, String> {
     let result = tokio::task::spawn_blocking(move || {
         cancel_superseded_probe_jobs(generation);
         cancel_preview_jobs();
-        // Clear both preview caches when loading a new file
-        clear_preview_caches();
+        // Clear only entries associated with this source so switching between
+        // files can reuse recently generated frames for the other sources.
+        clear_preview_caches_for_path(&path);
         probe_video(&path, generation).map_err(|e| e.to_string())
     })
     .await

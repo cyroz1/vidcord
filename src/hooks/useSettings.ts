@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { startTransition, useEffect, useRef, useState, useCallback } from "react";
 import { loadSettings, saveSettings as persistSettings, type Settings } from "../ipc";
 import {
   createSettingsPresetId,
@@ -46,23 +46,8 @@ export function useSettings() {
       settingsRef.current = s;
       const loadedPresets = parseSettingsPresets(s.presets);
       presetsRef.current = loadedPresets;
-      setPresets(loadedPresets);
-      if (typeof s.quality_index === "number" && s.quality_index >= 0 && s.quality_index <= 4) {
-        setQualityIdx(s.quality_index);
-      }
-      if (typeof s.gif_mode === "boolean") setGifMode(s.gif_mode);
-      if (s.gif_quality_index === 0 || s.gif_quality_index === 1) {
-        setGifQualityIdx(s.gif_quality_index);
-      }
-      if (s.gif_fps === 15 || s.gif_fps === 30 || s.gif_fps === 50) {
-        setGifFps(s.gif_fps);
-      }
       const savedLosslessMode =
         typeof s.lossless_mode === "boolean" ? s.lossless_mode : s.quality_index === 5;
-      setLosslessMode(savedLosslessMode);
-      if (typeof s.advanced_mode === "boolean") {
-        setAdvancedMode(savedLosslessMode ? false : s.advanced_mode);
-      }
       if (typeof s.lossless_mode !== "boolean" && s.quality_index === 5) {
         // Migrate the short-lived Lossless Trim quality preset to its
         // dedicated mode toggle.
@@ -73,29 +58,46 @@ export function useSettings() {
           advanced_mode: false,
         };
       }
-      if (typeof s.advanced_target_size === "string") setAdvSize(s.advanced_target_size);
-      if (typeof s.advanced_resolution === "string") setAdvResolution(s.advanced_resolution);
-      if (typeof s.fps_option === "string") setFpsOption(s.fps_option);
-      if (typeof s.advanced_fps === "string") setAdvFps(s.advanced_fps);
-      if (typeof s.advanced_encoder === "string") setAdvEncoder(s.advanced_encoder);
-      if (typeof s.remove_audio === "boolean") setRemoveAudio(s.remove_audio);
-      if (typeof s.audio_normalize === "boolean") setAudioNormalize(s.audio_normalize);
-      if (typeof s.crop_aspect_ratio === "string") setCropAspectRatio(s.crop_aspect_ratio);
-      if (
-        s.output_destination === "downloads" ||
-        s.output_destination === "source" ||
-        s.output_destination === "ask" ||
-        s.output_destination === "custom"
-      ) {
-        setOutputDestination(s.output_destination);
-      }
-      if (typeof s.custom_output_directory === "string") {
-        setCustomOutputDirectory(s.custom_output_directory);
-      }
-      if (s.completion_action === "reveal" || s.completion_action === "copy") {
-        setCompletionAction(s.completion_action);
-      }
-      setSettingsLoaded(true);
+      startTransition(() => {
+        setPresets(loadedPresets);
+        if (typeof s.quality_index === "number" && s.quality_index >= 0 && s.quality_index <= 4) {
+          setQualityIdx(s.quality_index);
+        }
+        if (typeof s.gif_mode === "boolean") setGifMode(s.gif_mode);
+        if (s.gif_quality_index === 0 || s.gif_quality_index === 1) {
+          setGifQualityIdx(s.gif_quality_index);
+        }
+        if (s.gif_fps === 15 || s.gif_fps === 30 || s.gif_fps === 50) {
+          setGifFps(s.gif_fps);
+        }
+        setLosslessMode(savedLosslessMode);
+        if (typeof s.advanced_mode === "boolean") {
+          setAdvancedMode(savedLosslessMode ? false : s.advanced_mode);
+        }
+        if (typeof s.advanced_target_size === "string") setAdvSize(s.advanced_target_size);
+        if (typeof s.advanced_resolution === "string") setAdvResolution(s.advanced_resolution);
+        if (typeof s.fps_option === "string") setFpsOption(s.fps_option);
+        if (typeof s.advanced_fps === "string") setAdvFps(s.advanced_fps);
+        if (typeof s.advanced_encoder === "string") setAdvEncoder(s.advanced_encoder);
+        if (typeof s.remove_audio === "boolean") setRemoveAudio(s.remove_audio);
+        if (typeof s.audio_normalize === "boolean") setAudioNormalize(s.audio_normalize);
+        if (typeof s.crop_aspect_ratio === "string") setCropAspectRatio(s.crop_aspect_ratio);
+        if (
+          s.output_destination === "downloads" ||
+          s.output_destination === "source" ||
+          s.output_destination === "ask" ||
+          s.output_destination === "custom"
+        ) {
+          setOutputDestination(s.output_destination);
+        }
+        if (typeof s.custom_output_directory === "string") {
+          setCustomOutputDirectory(s.custom_output_directory);
+        }
+        if (s.completion_action === "reveal" || s.completion_action === "copy") {
+          setCompletionAction(s.completion_action);
+        }
+        setSettingsLoaded(true);
+      });
     })();
   }, []);
 
