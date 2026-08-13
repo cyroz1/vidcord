@@ -3,6 +3,10 @@ import type { LosslessTrimInfo, LosslessVideoExtension } from "./losslessTrim";
 
 export type Settings = Record<string, unknown>;
 
+export function isTauriRuntime(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
 export type OutputExtension = LosslessVideoExtension | "gif" | "png";
 
 export type ProbeData = {

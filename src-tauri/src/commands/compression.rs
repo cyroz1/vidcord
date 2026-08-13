@@ -1823,7 +1823,15 @@ fn is_resource_contention_error(message: &str) -> bool {
         "cannot allocate memory",
         "no free surfaces",
         "too many sessions",
+        "session limit",
         "out of memory",
+        "no capable devices",
+        "no device available",
+        "device creation failed",
+        "failed to create a hardware device",
+        "could not create a hardware device",
+        "surface allocation failed",
+        "encoder is busy",
         "failed to initialize encoder",
         "failed to init encoder",
     ]
@@ -3536,6 +3544,11 @@ mod tests {
         ));
         assert!(is_resource_contention_error("No free surfaces available"));
         assert!(is_resource_contention_error("Failed to initialize encoder"));
+        assert!(is_resource_contention_error(
+            "Failed to create a hardware device"
+        ));
+        assert!(is_resource_contention_error("Session limit reached"));
+        assert!(is_resource_contention_error("Encoder is busy"));
         assert!(!is_resource_contention_error("Invalid input file"));
     }
 

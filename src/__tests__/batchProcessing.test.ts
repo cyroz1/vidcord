@@ -3,7 +3,10 @@ import {
   batchClipDuration,
   batchOutputSummary,
   batchProgressFromItems,
+  classifyBatchResult,
+  detectVideoPathPlatform,
   formatBatchVideoDetails,
+  formatBatchCompletionSummary,
   groupOutputPathsByFolder,
   normalizeBatchTrimRange,
   normalizeVideoPaths,
@@ -17,9 +20,27 @@ describe("batch processing helpers", () => {
     expect(
       normalizeVideoPaths(
         ["C:/clips/one.mp4", "c:\\clips\\ONE.MP4", "C:/clips/two.txt", "C:/clips/two.mov"],
-        VIDEO_EXTENSION
+        VIDEO_EXTENSION,
+        "windows"
       )
     ).toEqual(["C:/clips/one.mp4", "C:/clips/two.mov"]);
+  });
+
+  it("keeps case-sensitive and backslash-containing POSIX paths distinct", () => {
+    expect(
+      normalizeVideoPaths(
+        ["/clips/One.mp4", "/clips/one.mp4", "/clips\\one.mp4"],
+        VIDEO_EXTENSION,
+        "macos"
+      )
+    ).toEqual(["/clips/One.mp4", "/clips/one.mp4", "/clips\\one.mp4"]);
+  });
+
+  it("detects the native path platform from the webview user agent", () => {
+    expect(detectVideoPathPlatform("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")).toBe("windows");
+    expect(detectVideoPathPlatform("Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0)")).toBe("macos");
+    expect(detectVideoPathPlatform("Mozilla/5.0 (X11; Linux x86_64)")).toBe("linux");
+    expect(detectVideoPathPlatform("Mozilla/5.0")).toBe("unknown");
   });
 
   it("keeps independent start and end trims when the duration allows them", () => {
@@ -77,5 +98,37 @@ describe("batch processing helpers", () => {
     expect(
       groupOutputPathsByFolder(["C:/out/one.mp4", "C:/out/two.mp4", "C:/other/three.mp4"])
     ).toEqual(["C:/out/one.mp4", "C:/other/three.mp4"]);
+  });
+
+  it("distinguishes saved, failed, and publication-cancelled results", () => {
+    expect(
+      classifyBatchResult(
+        { success: true, cancelled: false, message: "Encoded" },
+        "C:/out/one.mp4",
+        false
+      )
+    ).toEqual({ status: "completed", message: "Encoded", outputPath: "C:/out/one.mp4" });
+    expect(
+      classifyBatchResult({ success: true, cancelled: false, message: "Encoded" }, undefined, true)
+    ).toEqual({ status: "cancelled", message: "Output publication was cancelled." });
+    expect(
+      classifyBatchResult(
+        { success: false, cancelled: true, message: "Cancelled" },
+        undefined,
+        false
+      )
+    ).toEqual({ status: "cancelled", message: "Cancelled" });
+    expect(
+      classifyBatchResult({ success: true, cancelled: false, message: "Encoded" }, undefined, false)
+    ).toEqual({ status: "failed", message: "Encoded" });
+  });
+
+  it("summarizes cancellation separately from encode failures", () => {
+    expect(formatBatchCompletionSummary(true, 1, 2, 3)).toBe(
+      "Batch cancelled: 1 succeeded, 2 failed, 3 cancelled."
+    );
+    expect(formatBatchCompletionSummary(false, 2, 0, 0)).toBe(
+      "Batch complete: 2 succeeded, 0 failed."
+    );
   });
 });

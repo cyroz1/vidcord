@@ -1,4 +1,4 @@
-import type { ProbeData } from "./ipc";
+import type { BatchItemResult, ProbeData } from "./ipc";
 import {
   formatAverageBitrate,
   formatCodec,
@@ -26,14 +26,27 @@ export type BatchQueueItem = {
   outputPath?: string;
 };
 
+export type VideoPathPlatform = "windows" | "macos" | "linux" | "unknown";
+
+export type BatchCompletionStatus = "completed" | "failed" | "cancelled";
+
 export type BatchTrimRange = {
   start: number;
   end: number;
 };
 
+export function detectVideoPathPlatform(userAgent: string): VideoPathPlatform {
+  const normalized = userAgent.toLowerCase();
+  if (normalized.includes("windows")) return "windows";
+  if (normalized.includes("mac os") || normalized.includes("macintosh")) return "macos";
+  if (normalized.includes("linux")) return "linux";
+  return "unknown";
+}
+
 export function normalizeVideoPaths(
   paths: readonly string[],
-  supportedExtension: RegExp
+  supportedExtension: RegExp,
+  platform: VideoPathPlatform = "unknown"
 ): string[] {
   const seen = new Set<string>();
   const normalized: string[] = [];
@@ -42,13 +55,45 @@ export function normalizeVideoPaths(
     if (typeof rawPath !== "string") continue;
     const path = rawPath.trim();
     if (!path || !supportedExtension.test(path)) continue;
-    const key = path.replaceAll("/", "\\").toLocaleLowerCase();
+    const key = platform === "windows" ? path.replaceAll("/", "\\").toLowerCase() : path;
     if (seen.has(key)) continue;
     seen.add(key);
     normalized.push(path);
   }
 
   return normalized;
+}
+
+export function classifyBatchResult(
+  result: Pick<BatchItemResult, "success" | "cancelled" | "message">,
+  outputPath: string | undefined,
+  publicationCancelled: boolean,
+  publicationFailureMessage?: string
+): { status: BatchCompletionStatus; message: string; outputPath?: string } {
+  if (result.success && outputPath) {
+    return { status: "completed", message: result.message, outputPath };
+  }
+  if (result.success && publicationCancelled) {
+    return { status: "cancelled", message: "Output publication was cancelled." };
+  }
+  if (result.cancelled) {
+    return { status: "cancelled", message: result.message };
+  }
+  return {
+    status: "failed",
+    message: publicationFailureMessage ?? (result.message || "Output was not published."),
+  };
+}
+
+export function formatBatchCompletionSummary(
+  cancelled: boolean,
+  succeeded: number,
+  failed: number,
+  cancelledItems: number
+): string {
+  const prefix = cancelled ? "Batch cancelled" : "Batch complete";
+  const cancelledPart = cancelledItems > 0 ? `, ${cancelledItems} cancelled` : "";
+  return `${prefix}: ${succeeded} succeeded, ${failed} failed${cancelledPart}.`;
 }
 
 export function normalizeBatchTrimRange(

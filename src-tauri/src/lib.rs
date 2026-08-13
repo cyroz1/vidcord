@@ -38,6 +38,37 @@ struct StartupTiming {
     logged_frontend_ready: AtomicBool,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::append_pending_files;
+
+    #[test]
+    fn pending_open_files_are_merged_before_frontend_ready() {
+        let mut pending = None;
+        append_pending_files(&mut pending, vec!["one.mp4".to_string()]);
+        append_pending_files(
+            &mut pending,
+            vec!["two.mp4".to_string(), "three.mp4".to_string()],
+        );
+        assert_eq!(
+            pending,
+            Some(vec![
+                "one.mp4".to_string(),
+                "two.mp4".to_string(),
+                "three.mp4".to_string()
+            ])
+        );
+    }
+}
+
+fn append_pending_files(pending: &mut Option<Vec<String>>, paths: Vec<String>) {
+    if let Some(existing) = pending {
+        existing.extend(paths);
+    } else {
+        *pending = Some(paths);
+    }
+}
+
 fn emit_or_defer_open_files(app: &AppHandle, paths: Vec<String>) {
     // The pending-file mutex is also the readiness-transition gate. Holding it
     // through the readiness check and emit linearizes file-open delivery with a
@@ -49,7 +80,7 @@ fn emit_or_defer_open_files(app: &AppHandle, paths: Vec<String>) {
             let _ = win.emit("open-file", &paths);
         }
     } else {
-        *pending = Some(paths);
+        append_pending_files(&mut pending, paths);
     }
 }
 

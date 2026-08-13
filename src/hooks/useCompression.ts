@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { cancelCompression, type ProbeData } from "../ipc";
+import { cancelCompression, isTauriRuntime, type ProbeData } from "../ipc";
 import type { BatchDonePayload, BatchProgressPayload } from "../ipc";
 import { AUDIO_TRACK_BITRATE_KBPS } from "../audioTracks";
 
@@ -48,6 +48,7 @@ export function useCompression({ onToast: _onToast }: Props) {
 
   // Subscribe to backend compression events
   useEffect(() => {
+    if (!isTauriRuntime()) return;
     const unsub1 = listen<CompressProgressPayload>("compress-progress", (e) => {
       if (cancellingRef.current) return;
       setProgress(e.payload.percent);

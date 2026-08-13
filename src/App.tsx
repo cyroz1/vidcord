@@ -48,6 +48,7 @@ import {
   getOs,
   getVaapiDevice,
   installFfmpegDependency,
+  isTauriRuntime,
   listFfmpegVideoEncoders,
   probe as probeVideo,
   publishBatchStagedOutputs,
@@ -62,11 +63,15 @@ import {
 } from "./ipc";
 import {
   batchClipDuration,
+  classifyBatchResult,
+  detectVideoPathPlatform,
   formatBatchVideoDetails,
+  formatBatchCompletionSummary,
   groupOutputPathsByFolder,
   normalizeBatchTrimRange,
   normalizeVideoPaths,
   type BatchQueueItem,
+  type VideoPathPlatform,
 } from "./batchProcessing";
 import {
   getSelectionCenter,
@@ -432,7 +437,14 @@ export default function App() {
   const [filePath, setFilePath] = useState<string | null>(null);
   const [batchPaths, setBatchPaths] = useState<string[]>([]);
   const [batchQueue, setBatchQueue] = useState<BatchQueueItem[]>([]);
+  const [pathPlatform, setPathPlatform] = useState<VideoPathPlatform>(() =>
+    detectVideoPathPlatform(typeof navigator === "undefined" ? "" : navigator.userAgent)
+  );
   const batchProbeDataRef = useRef<Map<number, ProbeData>>(new Map());
+  const settingsLoadedRef = useRef(settingsLoaded);
+  const pendingSelectionRef = useRef<readonly string[] | null>(null);
+  const openFileListenerReadyRef = useRef(false);
+  const frontendReadySentRef = useRef(false);
   const [fileLoadGeneration, setFileLoadGeneration] = useState(0);
   const [fileName, setFileName] = useState("Drag a video here or click Browse");
   const [probeData, setProbeData] = useState<ProbeData | null>(null);
@@ -522,6 +534,20 @@ export default function App() {
   const [snapMode, setSnapMode] = useState<SnapMode>("off");
   const [timelineZoom, setTimelineZoom] = useState(1);
   const [timelineCenterVal, setTimelineCenterVal] = useState(SLIDER_MAX / 2);
+
+  useEffect(() => {
+    let active = true;
+    getOs()
+      .then((os) => {
+        if (active && (os === "windows" || os === "macos" || os === "linux" || os === "unknown")) {
+          setPathPlatform(os);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // --- UI state ---
   const [updateInfo, setUpdateInfo] = useState<{
@@ -1263,7 +1289,7 @@ export default function App() {
         );
         return;
       }
-      const normalizedPaths = normalizeVideoPaths(paths, SUPPORTED_VIDEO_EXTENSION);
+      const normalizedPaths = normalizeVideoPaths(paths, SUPPORTED_VIDEO_EXTENSION, pathPlatform);
       if (normalizedPaths.length === 0) {
         addToast(
           "warning",
@@ -1359,21 +1385,47 @@ export default function App() {
       finalizingOutput,
       loadVideo,
       markFfmpegMissing,
+      pathPlatform,
       resetProgress,
     ]
   );
 
   const loadSelection = useCallback(
     async (paths: readonly string[]) => {
-      const normalizedPaths = normalizeVideoPaths(paths, SUPPORTED_VIDEO_EXTENSION);
+      if (!settingsLoadedRef.current) {
+        pendingSelectionRef.current = [...paths];
+        return;
+      }
+      const normalizedPaths = normalizeVideoPaths(paths, SUPPORTED_VIDEO_EXTENSION, pathPlatform);
       if (normalizedPaths.length > 1) {
         await loadBatch(normalizedPaths);
       } else if (normalizedPaths.length === 1) {
         await loadVideo(normalizedPaths[0]);
       }
     },
-    [loadBatch, loadVideo]
+    [loadBatch, loadVideo, pathPlatform]
   );
+
+  const markFrontendReady = useCallback(() => {
+    if (
+      !settingsLoadedRef.current ||
+      !openFileListenerReadyRef.current ||
+      frontendReadySentRef.current
+    ) {
+      return;
+    }
+    frontendReadySentRef.current = true;
+    frontendReady().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    settingsLoadedRef.current = settingsLoaded;
+    if (!settingsLoaded) return;
+    markFrontendReady();
+    const pending = pendingSelectionRef.current;
+    pendingSelectionRef.current = null;
+    if (pending && pending.length > 0) void loadSelection(pending);
+  }, [loadSelection, markFrontendReady, settingsLoaded]);
 
   const removeBatchItem = useCallback(
     async (itemId: number) => {
@@ -1640,22 +1692,27 @@ export default function App() {
 
   useEffect(() => {
     let disposed = false;
+    if (!isTauriRuntime()) return;
     const unsub = listen<string | string[]>("open-file", (e) => {
       const paths = Array.isArray(e.payload) ? e.payload : [e.payload];
       void loadSelectionRef.current(paths);
     });
     unsub
       .then(() => {
-        if (!disposed) frontendReady().catch(() => {});
+        if (disposed) return;
+        openFileListenerReadyRef.current = true;
+        markFrontendReady();
       })
       .catch(() => {});
     return () => {
       disposed = true;
+      openFileListenerReadyRef.current = false;
       unsub.then((fn) => fn());
     };
-  }, []);
+  }, [markFrontendReady]);
 
   useEffect(() => {
+    if (!isTauriRuntime()) return;
     const unlisten = listen<{ paths: string[] }>("tauri://drag-drop", (e) => {
       if (e.payload.paths.length > 0) void loadSelectionRef.current(e.payload.paths);
     });
@@ -1880,6 +1937,8 @@ export default function App() {
     const selectedPaths = [...batchPaths];
     const probeFailures = new Map<number, string>();
     const stagedOutputPaths: string[] = [];
+    let publicationCancelled = false;
+    let publicationFailureMessage: string | undefined;
     const prepared: Array<{
       id: number;
       inputPath: string;
@@ -2078,6 +2137,7 @@ export default function App() {
 
       if (outputDestination === "ask") {
         if (done.cancelled) {
+          publicationCancelled = successfulResults.length > 0;
           await Promise.all(
             successfulResults.map((result) =>
               discardStagedOutput(result.output_path!).catch(() => {})
@@ -2092,6 +2152,7 @@ export default function App() {
               multiple: false,
             });
             if (typeof selectedFolder !== "string" || !selectedFolder) {
+              publicationCancelled = true;
               await Promise.all(
                 successfulResults.map((result) =>
                   discardStagedOutput(result.output_path!).catch(() => {})
@@ -2113,6 +2174,7 @@ export default function App() {
                 finalOutputById.set(successfulResults[index].id, published);
               });
               if (publication.error) {
+                publicationFailureMessage = publication.error;
                 await Promise.all(
                   successfulResults
                     .slice(publication.published_paths.length)
@@ -2122,6 +2184,7 @@ export default function App() {
               }
             }
           } catch (error: unknown) {
+            publicationFailureMessage = String(error);
             await Promise.all(
               successfulResults.map((result) =>
                 discardStagedOutput(result.output_path!).catch(() => {})
@@ -2141,14 +2204,20 @@ export default function App() {
       const resultById = new Map(done.results.map((result) => [result.id, result]));
       const outputPathsForCompletion: string[] = [];
       const finalQueueById = new Map<number, BatchQueueItem>();
+      const existingQueueById = new Map(batchQueue.map((item) => [item.id, item]));
       let successCount = 0;
       let failedCount = 0;
+      let cancelledCount = 0;
       for (const [id, inputPath] of selectedPaths.entries()) {
+        const existingItem = existingQueueById.get(id);
+        const probedData = batchProbeDataRef.current.get(id);
         const item: BatchQueueItem = {
           id,
           inputPath,
           status: "queued",
           progress: 0,
+          details:
+            existingItem?.details ?? (probedData ? formatBatchVideoDetails(probedData) : undefined),
         };
         const result = resultById.get(item.id);
         const probeFailure = probeFailures.get(item.id);
@@ -2163,7 +2232,11 @@ export default function App() {
           continue;
         }
         if (!result) {
-          failedCount += 1;
+          if (done.cancelled) {
+            cancelledCount += 1;
+          } else {
+            failedCount += 1;
+          }
           finalQueueById.set(item.id, {
             ...item,
             status: done.cancelled ? "cancelled" : "failed",
@@ -2175,34 +2248,41 @@ export default function App() {
           continue;
         }
         const outputPath = finalOutputById.get(result.id);
-        if (result.success && outputPath) {
+        const outcome = classifyBatchResult(
+          result,
+          outputPath,
+          publicationCancelled,
+          publicationFailureMessage
+        );
+        if (outcome.status === "completed") {
           successCount += 1;
-          outputPathsForCompletion.push(outputPath);
-          finalQueueById.set(item.id, {
-            ...item,
-            status: "completed",
-            progress: 100,
-            message: result.message,
-            outputPath,
-          });
-          continue;
+          outputPathsForCompletion.push(outcome.outputPath!);
+        } else if (outcome.status === "cancelled") {
+          cancelledCount += 1;
+        } else {
+          failedCount += 1;
         }
-        failedCount += 1;
         finalQueueById.set(item.id, {
           ...item,
-          status: result.cancelled ? "cancelled" : "failed",
+          status: outcome.status,
           progress: 100,
-          message: result.message,
+          message: outcome.message,
+          ...(outcome.outputPath ? { outputPath: outcome.outputPath } : {}),
         });
       }
       setBatchQueue((queue) => queue.map((item) => finalQueueById.get(item.id) ?? item));
 
-      if (!done.cancelled && outputPathsForCompletion.length > 0) {
+      if (outputPathsForCompletion.length > 0) {
         await completeBatchOutputs(outputPathsForCompletion);
       }
-      const summary = `Batch complete: ${successCount} succeeded, ${failedCount} failed.`;
+      const summary = formatBatchCompletionSummary(
+        done.cancelled || publicationCancelled,
+        successCount,
+        failedCount,
+        cancelledCount
+      );
       addToast(
-        done.cancelled ? "warning" : failedCount > 0 ? "warning" : "success",
+        done.cancelled || publicationCancelled || failedCount > 0 ? "warning" : "success",
         "Batch Summary",
         summary
       );
@@ -2230,6 +2310,7 @@ export default function App() {
   }, [
     addToast,
     audioNormalize,
+    batchQueue,
     batchPaths,
     batchTrimEndSeconds,
     batchTrimStartSeconds,

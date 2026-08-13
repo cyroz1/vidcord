@@ -739,14 +739,19 @@ fn unique_output_path_with_reserved(
 }
 
 fn output_path_key(path: &std::path::Path) -> String {
-    let key = path.to_string_lossy().replace('\\', "/");
     #[cfg(target_os = "windows")]
     {
-        key.to_ascii_lowercase()
+        path.to_string_lossy()
+            .replace('\\', "/")
+            .to_ascii_lowercase()
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
-        key
+        path.to_string_lossy().to_ascii_lowercase()
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        path.to_string_lossy().into_owned()
     }
 }
 
@@ -1046,7 +1051,7 @@ mod tests {
     use super::{
         deliver_notification_if_unfocused, escape_xdg_notification_markup,
         is_cargo_target_profile_directory, macos_notification_arguments,
-        notification_response_requests_focus, publish_staged_output_blocking,
+        notification_response_requests_focus, output_path_key, publish_staged_output_blocking,
         publish_staged_output_without_replacing_blocking, publish_to_temporary,
         resolve_output_path_blocking, staging_directory, unique_output_path,
         unique_output_path_with_reserved, validated_clipboard_file, without_appimage_library_paths,
@@ -1107,6 +1112,38 @@ mod tests {
 
         assert_eq!(first, directory.join("holiday-vidcord.mp4"));
         assert_eq!(second, directory.join("holiday-vidcord-1.mp4"));
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[test]
+    fn batch_output_path_case_collision_matches_filesystem_conventions() {
+        let directory = std::env::temp_dir().join(format!(
+            "vidcord_batch_case_output_path_test_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut reserved = std::collections::HashSet::new();
+        let first = directory.join("Holiday-vidcord.mp4");
+        reserved.insert(first.clone());
+
+        let second = unique_output_path_with_reserved(
+            std::path::Path::new("holiday.mov"),
+            &directory,
+            "mp4",
+            &reserved,
+        );
+
+        if cfg!(any(target_os = "windows", target_os = "macos")) {
+            assert_eq!(second, directory.join("holiday-vidcord-1.mp4"));
+        } else {
+            assert_eq!(second, directory.join("holiday-vidcord.mp4"));
+        }
+        let case_variant = directory.join("holiday-vidcord.mp4");
+        if cfg!(any(target_os = "windows", target_os = "macos")) {
+            assert_eq!(output_path_key(&first), output_path_key(&case_variant));
+        } else {
+            assert_ne!(output_path_key(&first), output_path_key(&case_variant));
+        }
         std::fs::remove_dir_all(directory).ok();
     }
 
