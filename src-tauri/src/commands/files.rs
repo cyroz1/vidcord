@@ -258,31 +258,47 @@ pub(crate) fn copy_files_to_clipboard_platform(files: &[std::path::PathBuf]) -> 
         return Err("No output files are available to copy.".to_string());
     }
     let mut command = std::process::Command::new("osascript");
-    command
-        .args([
-            "-e",
-            "on run argv",
-            "-e",
-            "set theFiles to {}",
-            "-e",
-            "repeat with thePath in argv",
-            "-e",
-            "set end of theFiles to POSIX file thePath",
-            "-e",
-            "end repeat",
-            "-e",
-            "set the clipboard to theFiles",
-            "-e",
-            "end run",
-            "--",
-        ])
-        .args(files);
+    command.args(macos_clipboard_arguments(files));
     let copied = run_desktop_command(&mut command)
         .map_err(|e| format!("Could not access the system clipboard: {e}"))?;
     if !copied {
         return Err("Could not copy the file to the system clipboard.".to_string());
     }
     Ok(())
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_clipboard_arguments(files: &[std::path::PathBuf]) -> Vec<std::ffi::OsString> {
+    let mut arguments = vec![
+        "-l".into(),
+        "JavaScript".into(),
+        "-e".into(),
+        r#"
+ObjC.import('AppKit');
+ObjC.import('Foundation');
+
+function run(argv) {
+  if (argv.length === 0) {
+    throw new Error('No files were provided.');
+  }
+
+  var pasteboard = $.NSPasteboard.generalPasteboard;
+  var filenames = $.NSMutableArray.array;
+  argv.forEach(function (path) {
+    filenames.addObject(path);
+  });
+
+  pasteboard.clearContents;
+  if (!ObjC.unwrap(pasteboard.setPropertyListForType(filenames, 'NSFilenamesPboardType'))) {
+    throw new Error('NSPasteboard rejected the file list.');
+  }
+}
+"#
+        .into(),
+        "--".into(),
+    ];
+    arguments.extend(files.iter().map(|file| file.as_os_str().to_os_string()));
+    arguments
 }
 
 #[cfg(target_os = "macos")]
@@ -1050,7 +1066,7 @@ pub async fn discard_staged_output(staged_path: String) -> Result<(), String> {
 mod tests {
     use super::{
         deliver_notification_if_unfocused, escape_xdg_notification_markup,
-        is_cargo_target_profile_directory, macos_notification_arguments,
+        is_cargo_target_profile_directory, macos_clipboard_arguments, macos_notification_arguments,
         notification_response_requests_focus, output_path_key, publish_staged_output_blocking,
         publish_staged_output_without_replacing_blocking, publish_to_temporary,
         resolve_output_path_blocking, staging_directory, unique_output_path,
@@ -1329,6 +1345,29 @@ mod tests {
         assert_eq!(args[8], body);
         assert!(!args[3].contains(title));
         assert!(!args[3].contains(body));
+    }
+
+    #[test]
+    fn macos_clipboard_arguments_use_multi_file_property_list_and_preserve_paths() {
+        let files = vec![
+            std::path::PathBuf::from("/tmp/clip one.mp4"),
+            std::path::PathBuf::from("/tmp/clip-two.mp4"),
+        ];
+        let args = macos_clipboard_arguments(&files);
+        let script = args
+            .iter()
+            .find_map(|argument| {
+                argument
+                    .to_str()
+                    .filter(|value| value.contains("NSPasteboard.generalPasteboard"))
+            })
+            .unwrap();
+
+        assert!(script.contains("NSPasteboard.generalPasteboard"));
+        assert!(script.contains("filenames.addObject(path)"));
+        assert!(script.contains("setPropertyListForType(filenames, 'NSFilenamesPboardType')"));
+        assert_eq!(args[args.len() - 2], files[0].as_os_str());
+        assert_eq!(args[args.len() - 1], files[1].as_os_str());
     }
 
     #[test]

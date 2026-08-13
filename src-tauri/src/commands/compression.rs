@@ -1055,6 +1055,19 @@ fn remove_partial_output(output_path: &str) {
     }
 }
 
+fn discard_cancelled_batch_outputs(results: &mut [BatchItemResult]) {
+    for result in results.iter_mut().filter(|result| result.success) {
+        if let Some(output_path) = result.output_path.take() {
+            remove_partial_output(&output_path);
+        }
+        result.success = false;
+        result.cancelled = true;
+        result.input_size_bytes = None;
+        result.output_size_bytes = None;
+        result.message = "Discarded because batch processing was cancelled.".to_string();
+    }
+}
+
 fn was_cancelled(job_id: u64) -> bool {
     let state = compression_state()
         .lock()
@@ -2280,9 +2293,12 @@ pub async fn compress_batch(
     }
 
     results.sort_by_key(|result| result.id);
+    let cancelled = cancellation_requested || results.iter().any(|result| result.cancelled);
+    if cancelled {
+        discard_cancelled_batch_outputs(&mut results);
+    }
     let succeeded = results.iter().filter(|result| result.success).count();
     let failed = results.len().saturating_sub(succeeded);
-    let cancelled = cancellation_requested || results.iter().any(|result| result.cancelled);
     let message = if cancelled {
         format!("Batch cancelled: {succeeded} succeeded, {failed} skipped or failed.")
     } else {
@@ -3603,6 +3619,41 @@ mod tests {
         assert_eq!(std::fs::read(&completed).unwrap(), b"encoded");
 
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn cancelled_batch_outputs_are_removed_and_reclassified() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let output = std::env::temp_dir().join(format!(
+            "vidcord-cancelled-batch-output-{}-{unique}.mp4",
+            std::process::id()
+        ));
+        std::fs::write(&output, b"encoded").unwrap();
+
+        let mut results = vec![BatchItemResult {
+            id: 1,
+            input_path: "input.mp4".to_string(),
+            success: true,
+            cancelled: false,
+            message: "Compressed".to_string(),
+            output_path: Some(output.to_string_lossy().into_owned()),
+            input_size_bytes: Some(100),
+            output_size_bytes: Some(50),
+        }];
+
+        discard_cancelled_batch_outputs(&mut results);
+
+        assert!(!output.exists());
+        assert!(!results[0].success);
+        assert!(results[0].cancelled);
+        assert!(results[0].output_path.is_none());
+        assert_eq!(
+            results[0].message,
+            "Discarded because batch processing was cancelled."
+        );
     }
 
     #[test]

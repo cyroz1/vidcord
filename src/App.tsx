@@ -2272,7 +2272,7 @@ export default function App() {
       }
       setBatchQueue((queue) => queue.map((item) => finalQueueById.get(item.id) ?? item));
 
-      if (outputPathsForCompletion.length > 0) {
+      if (!done.cancelled && outputPathsForCompletion.length > 0) {
         await completeBatchOutputs(outputPathsForCompletion);
       }
       const summary = formatBatchCompletionSummary(

@@ -119,6 +119,7 @@
               "https://vidcord.app/assets/advancedmode.png",
               "https://vidcord.app/assets/losslesstrim.png",
               "https://vidcord.app/assets/gifmode.png",
+              "https://vidcord.app/assets/batchmode.png",
               "https://vidcord.app/assets/context.png",
               "https://vidcord.app/assets/finder.png",
               "https://vidcord.app/assets/file.png"
@@ -357,7 +358,7 @@
                 width="1144"
                 height="1668"
                 decoding="async"
-                alt="vidcord desktop app with video preview, trim timeline, preset picker, and compression controls"
+                alt="vidcord Compress mode with video preview, trim timeline, and Discord target controls"
               />
             </picture>
           </div>
@@ -592,6 +593,48 @@
               loading="lazy"
               decoding="async"
               alt="vidcord GIF mode with Discord size targets, frame-rate control, trim timeline, and Create GIF button"
+            />
+          </picture>
+        </div>
+      </section>
+
+      <section class="detail-section" aria-label="Batch mode">
+        <div class="detail-copy">
+          <h2>Compress a whole queue in Batch mode.</h2>
+          <p>
+            Select multiple videos and vidcord probes, trims, and encodes each one independently.
+            The queue keeps source details and per-file progress visible while the aggregate status
+            shows how much of the batch is complete.
+          </p>
+          <ul>
+            <li>
+              Select multiple videos through Browse, drag-and-drop, Open With, or the command line.
+            </li>
+            <li>Apply shared standard Compress settings with separate start and end trims.</li>
+            <li>Run up to two encodes at once, with a serial fallback when resources contend.</li>
+            <li>Continue after individual failures and keep collision-safe MP4 outputs.</li>
+            <li>Cancel active work while queued items are skipped cleanly.</li>
+          </ul>
+        </div>
+        <div class="detail-image">
+          <picture>
+            <source
+              type="image/webp"
+              srcset="
+                assets/batchmode-480.webp   480w,
+                assets/batchmode-720.webp   720w,
+                assets/batchmode-960.webp   960w,
+                assets/batchmode-1144.webp 1144w
+              "
+              sizes="(max-width: 760px) calc(100vw - 36px), (max-width: 1040px) 560px, 500px"
+            />
+            <img
+              src="assets/batchmode.png"
+              width="1144"
+              height="1668"
+              loading="lazy"
+              decoding="async"
+              alt="vidcord Batch mode with a multi-video queue, per-file status, and aggregate compression progress"
             />
           </picture>
         </div>

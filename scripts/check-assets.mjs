@@ -15,6 +15,7 @@ function expectSame(left, right) {
 
 for (const file of [
   "advancedmode.png",
+  "batchmode.png",
   "context.png",
   "file.png",
   "finder.png",

@@ -9,6 +9,10 @@
 - Batch trim fields default to zero seconds and clamp overlapping start/end requests proportionally so every source retains at least one second. Aggregate progress and ETA now account for the whole remaining queue instead of jumping between active workers.
 - Batch output allocation stays collision-safe. Ask when done stages successful outputs for one folder selection, then publishes the full set without overwriting existing files; completion actions copy successful outputs as one clipboard group or reveal each distinct output folder once.
 
+### Known Issues
+
+- On macOS, Batch completion can still paste only the first output into Discord even when multiple videos finish. The app writes the complete file list to the system pasteboard, but Discord's multi-file paste handling remains unresolved.
+
 ### Performance
 
 - Reduced preview-scrubbing contention with bounded background filmstrip work, shared encoder discovery, source-scoped frame caching, and memoized trim-insensitive controls.
