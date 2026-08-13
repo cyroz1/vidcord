@@ -16,6 +16,8 @@ export type PresetSettings = {
   remove_audio: boolean;
   audio_normalize: boolean;
   crop_aspect_ratio: string;
+  batch_trim_start_seconds: number;
+  batch_trim_end_seconds: number;
   encoder_index: number;
   encoder_label: string;
 };
@@ -40,6 +42,8 @@ const DEFAULT_PRESET_SETTINGS: PresetSettings = {
   remove_audio: false,
   audio_normalize: false,
   crop_aspect_ratio: "off",
+  batch_trim_start_seconds: 0,
+  batch_trim_end_seconds: 0,
   encoder_index: 0,
   encoder_label: "",
 };
@@ -74,6 +78,18 @@ export function normalizePresetSettings(value: unknown): PresetSettings {
     normalized.gif_quality_index = 0;
   }
   if (![15, 30, 50].includes(normalized.gif_fps)) normalized.gif_fps = 15;
+  if (
+    !Number.isFinite(normalized.batch_trim_start_seconds) ||
+    normalized.batch_trim_start_seconds < 0
+  ) {
+    normalized.batch_trim_start_seconds = 0;
+  }
+  if (
+    !Number.isFinite(normalized.batch_trim_end_seconds) ||
+    normalized.batch_trim_end_seconds < 0
+  ) {
+    normalized.batch_trim_end_seconds = 0;
+  }
   if (!Number.isInteger(normalized.encoder_index) || normalized.encoder_index < 0) {
     normalized.encoder_index = 0;
   }

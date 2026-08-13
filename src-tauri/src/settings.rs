@@ -55,6 +55,10 @@ pub struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crop_aspect_ratio: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub batch_trim_start_seconds: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub batch_trim_end_seconds: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output_destination: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_output_directory: Option<String>,

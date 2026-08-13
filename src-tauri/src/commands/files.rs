@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 #[cfg(target_os = "linux")]
 use std::process::{Command, Stdio};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -71,9 +72,9 @@ fn configure_desktop_command(command: &mut Command) {
     }
 }
 
-/// State bucket for a file received via Apple Events or CLI args before the
+/// State bucket for files received via Apple Events or CLI args before the
 /// frontend listener is registered.
-pub struct PendingFile(pub std::sync::Mutex<Option<String>>);
+pub struct PendingFile(pub std::sync::Mutex<Option<Vec<String>>>);
 
 #[tauri::command]
 pub async fn show_in_file_explorer(path: String) -> Result<(), String> {
@@ -154,8 +155,7 @@ pub(crate) fn validated_clipboard_file(path: String) -> Result<std::path::PathBu
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String> {
-    use std::iter::once;
+pub(crate) fn copy_files_to_clipboard_platform(files: &[std::path::PathBuf]) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Foundation::{GlobalFree, POINT};
     use windows_sys::Win32::System::DataExchange::{
@@ -167,14 +167,17 @@ pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<
     use windows_sys::Win32::System::Ole::CF_HDROP;
     use windows_sys::Win32::UI::Shell::DROPFILES;
 
-    let wide_path: Vec<u16> = file
-        .as_os_str()
-        .encode_wide()
-        .chain(once(0))
-        .chain(once(0))
-        .collect();
+    if files.is_empty() {
+        return Err("No output files are available to copy.".to_string());
+    }
+    let mut wide_paths = Vec::new();
+    for file in files {
+        wide_paths.extend(file.as_os_str().encode_wide());
+        wide_paths.push(0);
+    }
+    wide_paths.push(0);
     let header_size = std::mem::size_of::<DROPFILES>();
-    let allocation_size = header_size + wide_path.len() * std::mem::size_of::<u16>();
+    let allocation_size = header_size + wide_paths.len() * std::mem::size_of::<u16>();
 
     unsafe {
         let memory = GlobalAlloc(GMEM_MOVEABLE, allocation_size);
@@ -204,9 +207,9 @@ pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<
             header_size,
         );
         std::ptr::copy_nonoverlapping(
-            wide_path.as_ptr().cast::<u8>(),
+            wide_paths.as_ptr().cast::<u8>(),
             locked.cast::<u8>().add(header_size),
-            wide_path.len() * std::mem::size_of::<u16>(),
+            wide_paths.len() * std::mem::size_of::<u16>(),
         );
         GlobalUnlock(memory);
 
@@ -244,20 +247,36 @@ pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_os = "windows")]
 pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String> {
+    copy_files_to_clipboard_platform(&[file.to_path_buf()])
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn copy_files_to_clipboard_platform(files: &[std::path::PathBuf]) -> Result<(), String> {
+    if files.is_empty() {
+        return Err("No output files are available to copy.".to_string());
+    }
     let mut command = std::process::Command::new("osascript");
     command
         .args([
             "-e",
             "on run argv",
             "-e",
-            "set the clipboard to (POSIX file (item 1 of argv))",
+            "set theFiles to {}",
+            "-e",
+            "repeat with thePath in argv",
+            "-e",
+            "set end of theFiles to POSIX file thePath",
+            "-e",
+            "end repeat",
+            "-e",
+            "set the clipboard to theFiles",
             "-e",
             "end run",
             "--",
         ])
-        .arg(file);
+        .args(files);
     let copied = run_desktop_command(&mut command)
         .map_err(|e| format!("Could not access the system clipboard: {e}"))?;
     if !copied {
@@ -266,23 +285,46 @@ pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(target_os = "macos")]
 pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String> {
+    copy_files_to_clipboard_platform(&[file.to_path_buf()])
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn copy_files_to_clipboard_platform(files: &[std::path::PathBuf]) -> Result<(), String> {
     use std::io::Write;
 
-    let uri = url::Url::from_file_path(file)
-        .map_err(|_| "Could not create a clipboard file URL.".to_string())?
-        .to_string();
+    if files.is_empty() {
+        return Err("No output files are available to copy.".to_string());
+    }
+
+    let uris = files
+        .iter()
+        .map(|file| {
+            url::Url::from_file_path(file)
+                .map(|url| url.to_string())
+                .map_err(|_| "Could not create a clipboard file URL.".to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let uri_list = format!("{}\r\n", uris.join("\r\n"));
 
     if std::env::var_os("WAYLAND_DISPLAY").is_some() {
         let mut command = Command::new("wl-copy");
         command
-            .args(["--type", "text/uri-list", "--", &uri])
+            .args(["--type", "text/uri-list", "--"])
+            .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         configure_desktop_command(&mut command);
-        if run_desktop_command(&mut command).unwrap_or(false) {
-            return Ok(());
+        if let Ok(mut child) = command.spawn() {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(uri_list.as_bytes());
+            }
+            if wait_for_desktop_child(child)
+                .is_ok_and(|status| status.is_some_and(|status| status.success()))
+            {
+                return Ok(());
+            }
         }
     }
 
@@ -295,7 +337,7 @@ pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<
     configure_desktop_command(&mut command);
     if let Ok(mut child) = command.spawn() {
         if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(format!("{uri}\r\n").as_bytes());
+            let _ = stdin.write_all(uri_list.as_bytes());
         }
         if wait_for_desktop_child(child)
             .is_ok_and(|status| status.is_some_and(|status| status.success()))
@@ -310,11 +352,29 @@ pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<
     )
 }
 
+#[cfg(target_os = "linux")]
+pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String> {
+    copy_files_to_clipboard_platform(&[file.to_path_buf()])
+}
+
 #[tauri::command]
 pub async fn copy_file_to_clipboard(path: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let file = validated_clipboard_file(path)?;
         copy_file_to_clipboard_platform(&file)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn copy_files_to_clipboard(paths: Vec<String>) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let files = paths
+            .into_iter()
+            .map(validated_clipboard_file)
+            .collect::<Result<Vec<_>, _>>()?;
+        copy_files_to_clipboard_platform(&files)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -558,6 +618,72 @@ pub async fn resolve_output_path(
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+pub async fn resolve_batch_output_paths(
+    input_paths: Vec<String>,
+    output_directory: Option<String>,
+    use_input_directory: Option<bool>,
+    staging: Option<bool>,
+    output_extension: Option<String>,
+) -> Result<Vec<String>, String> {
+    tokio::task::spawn_blocking(move || {
+        let output_extension = output_extension.unwrap_or_else(|| "mp4".into());
+        if output_extension != "mp4" {
+            return Err("Invalid output format".into());
+        }
+
+        let staging = staging.unwrap_or(false);
+        let staging_path = if staging {
+            let directory = staging_directory();
+            std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+            Some(directory)
+        } else {
+            None
+        };
+        let mut reserved = HashSet::new();
+        let mut outputs = Vec::with_capacity(input_paths.len());
+        for input_path in input_paths {
+            let input = std::path::PathBuf::from(&input_path);
+            let directory = if let Some(staging_path) = staging_path.as_ref() {
+                staging_path.clone()
+            } else if use_input_directory.unwrap_or(false) {
+                input
+                    .parent()
+                    .filter(|directory| directory.is_dir())
+                    .ok_or_else(|| {
+                        "The imported clip's folder is no longer available.".to_string()
+                    })?
+                    .to_path_buf()
+            } else if let Some(directory) = output_directory
+                .as_deref()
+                .filter(|path| !path.trim().is_empty())
+            {
+                let directory = std::path::PathBuf::from(directory);
+                if !directory.is_dir() {
+                    return Err(
+                        "The custom output folder is no longer available. Choose it again.".into(),
+                    );
+                }
+                directory
+            } else {
+                let downloads = dirs::download_dir()
+                    .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
+                    .ok_or("Cannot find Downloads folder")?;
+                std::fs::create_dir_all(&downloads).map_err(|e| e.to_string())?;
+                downloads
+            };
+
+            let output =
+                unique_output_path_with_reserved(&input, &directory, &output_extension, &reserved);
+            reserved.insert(output.clone());
+            outputs.push(output.to_string_lossy().into_owned());
+        }
+        Ok(outputs)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn unique_output_path(
     input_path: &std::path::Path,
     directory: &std::path::Path,
@@ -581,6 +707,47 @@ fn unique_output_path(
         counter += 1;
     }
     candidate
+}
+
+fn unique_output_path_with_reserved(
+    input_path: &std::path::Path,
+    directory: &std::path::Path,
+    output_extension: &str,
+    reserved: &HashSet<std::path::PathBuf>,
+) -> std::path::PathBuf {
+    let stem = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("video");
+    let suffix = if output_extension == "png" {
+        "snapshot"
+    } else {
+        "vidcord"
+    };
+
+    let mut candidate = directory.join(format!("{stem}-{suffix}.{output_extension}"));
+    let mut counter = 1u32;
+    while candidate.exists()
+        || reserved
+            .iter()
+            .any(|path| output_path_key(path) == output_path_key(&candidate))
+    {
+        candidate = directory.join(format!("{stem}-{suffix}-{counter}.{output_extension}"));
+        counter += 1;
+    }
+    candidate
+}
+
+fn output_path_key(path: &std::path::Path) -> String {
+    let key = path.to_string_lossy().replace('\\', "/");
+    #[cfg(target_os = "windows")]
+    {
+        key.to_ascii_lowercase()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        key
+    }
 }
 
 fn valid_output_extension(extension: &str) -> bool {
@@ -704,6 +871,128 @@ fn publish_staged_output_blocking(
     Ok(destination.to_string_lossy().into_owned())
 }
 
+fn copy_file_to_new_destination(
+    source: &std::path::Path,
+    destination: &std::path::Path,
+) -> Result<(), String> {
+    let mut destination_file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(destination)
+        .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                "The selected output filename is already in use.".to_string()
+            } else {
+                error.to_string()
+            }
+        })?;
+
+    let result = (|| -> Result<(), String> {
+        let mut source_file = std::fs::File::open(source).map_err(|error| error.to_string())?;
+        std::io::copy(&mut source_file, &mut destination_file)
+            .map_err(|error| error.to_string())?;
+        use std::io::Write;
+        destination_file
+            .flush()
+            .and_then(|_| destination_file.sync_all())
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    })();
+    drop(destination_file);
+    if result.is_err() {
+        let _ = std::fs::remove_file(destination);
+    }
+    result
+}
+
+fn publish_staged_output_without_replacing_blocking(
+    staged_path: String,
+    destination_path: String,
+) -> Result<String, String> {
+    let staged = validated_staged_output(&staged_path)?;
+    let destination = std::path::PathBuf::from(destination_path);
+    let parent = destination
+        .parent()
+        .filter(|path| path.is_dir())
+        .ok_or_else(|| "The selected output folder is unavailable.".to_string())?;
+    let file_name = destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| "Choose a valid output filename.".to_string())?;
+
+    let mut temp_path = parent.join(format!(
+        ".{file_name}.vidcord-batch-{}.tmp",
+        std::process::id()
+    ));
+    let mut suffix = 1u32;
+    while temp_path.exists() {
+        temp_path = parent.join(format!(
+            ".{file_name}.vidcord-batch-{}-{suffix}.tmp",
+            std::process::id()
+        ));
+        suffix += 1;
+    }
+
+    let publish_result = (|| -> Result<(), String> {
+        publish_to_temporary(&staged, &temp_path)?;
+        match std::fs::hard_link(&temp_path, &destination) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                return Err("The selected output filename is already in use.".to_string());
+            }
+            Err(_) => copy_file_to_new_destination(&temp_path, &destination)?,
+        }
+        std::fs::remove_file(&temp_path).map_err(|error| error.to_string())?;
+        std::fs::remove_file(&staged).map_err(|error| error.to_string())?;
+        Ok(())
+    })();
+
+    if publish_result.is_err() {
+        let _ = std::fs::remove_file(&temp_path);
+    }
+    publish_result?;
+    Ok(destination.to_string_lossy().into_owned())
+}
+
+#[derive(serde::Serialize)]
+pub struct BatchPublicationPayload {
+    pub published_paths: Vec<String>,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub async fn publish_batch_staged_outputs(
+    staged_paths: Vec<String>,
+    destination_paths: Vec<String>,
+) -> Result<BatchPublicationPayload, String> {
+    if staged_paths.len() != destination_paths.len() {
+        return Err("Batch staged outputs and destinations must have the same length.".to_string());
+    }
+    tokio::task::spawn_blocking(move || {
+        let mut published_paths = Vec::with_capacity(staged_paths.len());
+        for (index, (staged_path, destination_path)) in
+            staged_paths.into_iter().zip(destination_paths).enumerate()
+        {
+            match publish_staged_output_without_replacing_blocking(staged_path, destination_path) {
+                Ok(path) => published_paths.push(path),
+                Err(error) => {
+                    return Ok(BatchPublicationPayload {
+                        published_paths,
+                        error: Some(format!("Output {} could not be saved: {error}", index + 1)),
+                    });
+                }
+            }
+        }
+        Ok(BatchPublicationPayload {
+            published_paths,
+            error: None,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn publish_to_temporary(
     staged: &std::path::Path,
     temporary_path: &std::path::Path,
@@ -757,9 +1046,10 @@ mod tests {
     use super::{
         deliver_notification_if_unfocused, escape_xdg_notification_markup,
         is_cargo_target_profile_directory, macos_notification_arguments,
-        notification_response_requests_focus, publish_staged_output_blocking, publish_to_temporary,
+        notification_response_requests_focus, publish_staged_output_blocking,
+        publish_staged_output_without_replacing_blocking, publish_to_temporary,
         resolve_output_path_blocking, staging_directory, unique_output_path,
-        validated_clipboard_file, without_appimage_library_paths,
+        unique_output_path_with_reserved, validated_clipboard_file, without_appimage_library_paths,
     };
 
     #[test]
@@ -798,6 +1088,25 @@ mod tests {
             directory.join("holiday-vidcord-1.mp4")
         );
         assert_eq!(std::fs::read(&first).unwrap(), b"existing");
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[test]
+    fn batch_output_paths_reserve_duplicate_stems_in_memory() {
+        let directory = std::env::temp_dir().join(format!(
+            "vidcord_batch_output_path_test_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut reserved = std::collections::HashSet::new();
+        let input = std::path::Path::new("holiday.mov");
+
+        let first = unique_output_path_with_reserved(input, &directory, "mp4", &reserved);
+        reserved.insert(first.clone());
+        let second = unique_output_path_with_reserved(input, &directory, "mp4", &reserved);
+
+        assert_eq!(first, directory.join("holiday-vidcord.mp4"));
+        assert_eq!(second, directory.join("holiday-vidcord-1.mp4"));
         std::fs::remove_dir_all(directory).ok();
     }
 
@@ -885,6 +1194,36 @@ mod tests {
         assert_eq!(published, destination.to_string_lossy());
         assert_eq!(std::fs::read(&destination).unwrap(), b"compressed-video");
         assert!(!staged.exists());
+        std::fs::remove_dir_all(destination_dir).ok();
+    }
+
+    #[test]
+    fn batch_staged_output_never_replaces_an_existing_destination() {
+        let staging = staging_directory();
+        std::fs::create_dir_all(&staging).unwrap();
+        let staged = staging.join(format!(
+            "publish-batch-collision-{}.mp4",
+            std::process::id()
+        ));
+        std::fs::write(&staged, b"compressed-video").unwrap();
+
+        let destination_dir = std::env::temp_dir().join(format!(
+            "vidcord_publish_batch_collision_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&destination_dir).unwrap();
+        let destination = destination_dir.join("saved.mp4");
+        std::fs::write(&destination, b"existing").unwrap();
+
+        assert!(publish_staged_output_without_replacing_blocking(
+            staged.to_string_lossy().into_owned(),
+            destination.to_string_lossy().into_owned(),
+        )
+        .is_err());
+        assert_eq!(std::fs::read(&destination).unwrap(), b"existing");
+        assert!(staged.exists());
+
+        std::fs::remove_file(staged).ok();
         std::fs::remove_dir_all(destination_dir).ok();
     }
 

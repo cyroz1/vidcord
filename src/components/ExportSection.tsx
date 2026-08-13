@@ -13,6 +13,8 @@ type Props = {
   cancelling: boolean;
   finalizingOutput: boolean;
   ffmpegMissing: boolean;
+  batchMode: boolean;
+  batchReady: boolean;
   losslessTrim: boolean;
   losslessInfoLoading: boolean;
   filePath: string | null;
@@ -37,6 +39,8 @@ function ExportSection({
   cancelling,
   finalizingOutput,
   ffmpegMissing,
+  batchMode,
+  batchReady,
   losslessTrim,
   losslessInfoLoading,
   filePath,
@@ -86,9 +90,7 @@ function ExportSection({
           <select
             id="completion-action-select"
             value={completionAction}
-            onChange={(event) =>
-              onCompletionActionChange(event.target.value as CompletionAction)
-            }
+            onChange={(event) => onCompletionActionChange(event.target.value as CompletionAction)}
           >
             <option value="copy">Copy file</option>
             <option value="reveal">Show in folder</option>
@@ -110,7 +112,7 @@ function ExportSection({
           cancelling ||
           finalizingOutput ||
           (!compressing && losslessTrim && losslessInfoLoading) ||
-          (!compressing && (!filePath || !probeReady))
+          (!compressing && (batchMode ? !batchReady : !filePath || !probeReady))
         }
       >
         {cancelling

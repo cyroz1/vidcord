@@ -12,6 +12,12 @@ on source keyframes without re-encoding. Export a Discord-ready video from
 your desktop. GIF Mode creates animated `.gif` exports for Discord's
 **10 MB Free** and **50 MB Nitro Basic** tiers.
 
+Select multiple videos through Browse, drag-and-drop, Open With, command-line
+file arguments, or a second app instance to enter **Batch mode** automatically.
+Batch mode probes each file, applies the same standard Compress settings to
+every video, and produces collision-safe MP4 outputs while keeping processing
+local.
+
 vidcord supports **MP4, MOV, MKV, AVI, WebM, FLV, WMV**, and other formats
 handled by your system [FFmpeg](https://ffmpeg.org) install. It wraps FFmpeg
 with hardware-accelerated encoding (NVIDIA NVENC, AMD AMF, Intel Quick Sync,
@@ -91,6 +97,7 @@ encoding and safer bitrates when FFmpeg's first pass lands too large.
 | ------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | Compress a video for Discord free upload limits         | Use the 10 MB preset, trim the clip, and remove audio if needed.               |
 | Compress large MP4, MOV, MKV, AVI, or WebM files        | FFmpeg handles the input format and vidcord exports a Discord-friendly `.mp4`. |
+| Compress several videos in one pass                       | Batch mode applies shared Compress settings, runs up to two encodes in parallel, and keeps going after individual failures. |
 | Preserve original video quality while trimming          | Use Lossless Trim for keyframe-aligned stream-copy output without re-encoding. |
 | Turn a video clip into a Discord GIF                    | Enable GIF Mode and choose the 10 MB Free or 50 MB Nitro Basic target.         |
 | Make a video fit Discord Nitro or boosted server limits | Pick 50 MB, 100 MB, or 500 MB presets without calculating bitrates by hand.    |
@@ -106,6 +113,16 @@ encoding and safer bitrates when FFmpeg's first pass lands too large.
   returns the selector to Autosave, while output destination and completion action remain separate
   autosaved preferences.
 
+- **Automatic Batch mode** — selecting two or more videos switches from the single-video
+  workflows automatically. The queue probes and shows each file's resolution, frame rate, codec,
+  bitrate, and duration, with per-file queued, encoding, completed, failed, or cancelled states.
+  Batch uses standard Compress controls only, always writes MP4 output, and provides separate
+  start-trim and end-trim seconds that default to `0`. Remove queued items before export; when a
+  trim would leave less than one second, the two trim values are reduced proportionally.
+- **Parallel batch encoding** — up to two videos encode concurrently by default. If the selected
+  encoder reports a device, session, or resource-contention error, remaining work continues one
+  video at a time. Individual probe or encode failures do not stop the queue, and aggregate
+  progress and ETA cover the whole remaining batch rather than only the currently active item.
 - **Five quality presets** covering current Discord tiers plus a legacy target:
   - 10 MB @ 480p — Discord free tier
   - 25 MB @ 480p — legacy convenience target (not a current Discord tier)
@@ -157,9 +174,9 @@ encoding and safer bitrates when FFmpeg's first pass lands too large.
   outward to source keyframes; vidcord prefers an MP4 stream-copy output, then
   the validated source container, and falls back to normal compression when
   neither is compatible.
-- **In-app playback preview** of the trimmed segment on Windows and macOS,
+- **In-app playback preview** of the trimmed segment in single-video mode on Windows and macOS,
   starting from the current playhead when it is inside the selected range.
-- **Responsive scrub previews** with display-sized filmstrip/frame thumbnails,
+- **Responsive single-video scrub previews** with display-sized filmstrip/frame thumbnails,
   sparse thumbnail generation for long videos, playhead-aware fallback preview clips,
   and hardware-accelerated preview clips where FFmpeg supports them.
 - **Efficient preview fallback** — exact frame requests use display-sized, bounded
@@ -174,12 +191,16 @@ encoding and safer bitrates when FFmpeg's first pass lands too large.
   - Intel Quick Sync (`h264_qsv`, `hevc_qsv`)
   - Linux VAAPI (`h264_vaapi`, `hevc_vaapi`)
   - macOS VideoToolbox (`h264_videotoolbox`, `hevc_videotoolbox`)
-- **Three ways to open a video:** drag-and-drop onto the window, "Open with
-  vidcord" from Explorer/Finder, or the in-app **Browse** button.
+- **Multiple ways to open videos:** drag-and-drop onto the window, "Open with
+  vidcord" from Explorer/Finder, command-line file arguments, a second-instance
+  launch, or the in-app **Browse** button. Selecting one video preserves the
+  normal workflow; selecting multiple videos activates Batch mode.
 - **Source details at import** — see resolution, frame rate, codec, average
-  bitrate, and duration in a compact summary.
+  bitrate, and duration in a compact summary. Batch mode shows those details
+  for every queued video.
 - **Compact fixed-size window** — stays fixed at 460×690, with standard and
-  advanced controls fitted into the app surface without scrollbars.
+  advanced controls fitted into the app surface; long Batch queues use an
+  internal scrollbar rather than expanding the window.
 - **System-matched macOS chrome** — the native title bar follows macOS Light
   and Dark appearances together with the app surface.
 - **Remove audio** — strip the audio track to reclaim space.
@@ -189,18 +210,23 @@ encoding and safer bitrates when FFmpeg's first pass lands too large.
   full attempts and CPU jobs use at most two, including measured bitrate
   correction and CPU fallback before reporting the smallest result.
 - **Real-time progress** with ETA, current attempt number, encoder, and
-  bitrate parsed from FFmpeg's stderr.
+  bitrate parsed from FFmpeg's stderr. Batch progress is aggregated across all
+  items and its ETA estimates the remaining queue.
 - **OS taskbar & dock progress integration** — reflects encoding progress directly on your OS taskbar or dock icon (macOS Dock, Windows Taskbar button, Linux Unity launcher bar) so you can track encoding while unfocused.
 - **Native system notifications** — mirrors every in-app banner and error in order as
   a matching OS notification while vidcord is unfocused on Windows, macOS, and Linux;
   clicking a notification restores and focuses the app.
 - **Race-safe cancellation** — cancelling keeps the job owned until FFmpeg
-  exits, prevents another encode from starting early, and removes partial output.
+  exits, prevents another encode from starting early, removes partial output,
+  terminates active batch children, and skips queued batch items.
 - **Collision-safe auto-named output** — direct destination modes atomically
   reserve `name-vidcord.mp4` before encoding and bump `-1`, `-2`, … if needed,
   even if another file appears at the intended path just before compression starts.
+  Batch allocation reserves one unique MP4 path per input.
 - **Flexible output location** — save to Downloads, beside the imported clip,
   to a remembered custom folder, or choose a filename after compression finishes.
+  For a batch using Ask when done, successful outputs are staged until one
+  destination folder is chosen and then published together.
 - **Verified in-app updates** — update checks run after startup settles and no
   more than once every six hours. After approval, vidcord streams the matching
   installer to Downloads, validates its size and completeness, compares the
@@ -291,6 +317,11 @@ For more distros, manual installs, or troubleshooting, read
 
 ## Usage
 
+Opening one video uses the normal single-video workflows. Select two or more
+supported videos to activate Batch mode automatically; Browse, drag-and-drop,
+Open With, command-line file arguments, and second-instance forwarding all
+preserve the full selection.
+
 1. **Open a video** — drop it onto the window, right-click → _Open with
    vidcord_ from Explorer/Finder, or click **Browse File**.
 2. **Choose where to save** — use Downloads, the imported clip's folder, a
@@ -317,6 +348,13 @@ For more distros, manual installs, or troubleshooting, read
    bitrate, and ETA for encoding modes; when the export is done, vidcord reports
    the result and runs your selected completion action.
 
+In Batch mode, the queue shows source details and per-file status while each
+video uses the same standard Compress target, crop, FPS, encoder, audio, and
+separate start/end trim settings. Up to two encodes run in parallel by default;
+resource contention switches the remaining queue to one-at-a-time processing.
+The queue continues after individual probe or encode failures, reports an
+aggregate ETA for the remaining work, and skips queued items when cancelled.
+
 The footer preset selector starts at **Autosave**. Save the current compression
 and mode settings as a named preset, restore it later, or delete it; if you
 change one of those settings afterward, the selector returns to Autosave to
@@ -327,6 +365,13 @@ Compression goes to `~/Downloads/<original-name>-vidcord.mp4` by default, with
 `-1`, `-2`, … appended if the name is taken. Lossless Trim uses the same
 collision-safe naming and may use the source video extension when stream copying
 requires it.
+
+Batch compression always produces MP4 outputs. Direct destinations reserve a
+unique path for every successful item. With **Ask when done**, all successful
+outputs are staged until one destination folder is chosen, then published
+together without overwriting existing files. The default completion action
+copies successful outputs as one clipboard group; the reveal action opens each
+distinct output folder once.
 
 ## Keyboard shortcuts
 
@@ -570,6 +615,17 @@ H.265 if you pick an `hevc_*` encoder in Advanced mode); Lossless Trim prefers
 Yes. MP4 is the main output format and one of the common supported input
 formats. You can open an existing `.mp4`, trim it, choose a Discord size
 limit, and export a smaller `.mp4` ready to upload.
+
+### Can vidcord compress multiple videos at once?
+
+Yes. Select two or more supported videos through Browse, drag-and-drop, Open
+With, command-line file arguments, or a second-instance launch. vidcord enters
+Batch mode automatically, probes each file, shows source details and status in
+a removable queue, and applies the standard Compress target, crop, FPS,
+encoder, audio, and separate start/end trim settings to every item. Batch
+always produces MP4 files, runs up to two encodes concurrently by default,
+falls back to one at a time after resource contention, continues after
+individual failures, and reports an aggregate ETA for the remaining queue.
 
 ### Does vidcord require Discord Nitro?
 

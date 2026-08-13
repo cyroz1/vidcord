@@ -16,6 +16,7 @@ import Toast from "./components/Toast";
 import ExportSection from "./components/ExportSection";
 import PreviewPane, { type PreviewHandle } from "./components/PreviewPane";
 import TrimTimeline, { type SnapMode } from "./components/TrimTimeline";
+import BatchQueue from "./components/BatchQueue";
 import AudioTrackPicker from "./components/AudioTrackPicker";
 import { useToasts } from "./hooks/useToasts";
 import { useSettings, type CompletionAction, type OutputDestination } from "./hooks/useSettings";
@@ -36,8 +37,10 @@ import {
   captureSnapshot,
   cancelLosslessTrimProbe,
   checkForUpdates,
+  compressBatch,
   compressVideo,
   copyFileToClipboard,
+  copyFilesToClipboard,
   discardStagedOutput,
   downloadAndOpenUpdateInstaller,
   frontendReady,
@@ -47,13 +50,24 @@ import {
   installFfmpegDependency,
   listFfmpegVideoEncoders,
   probe as probeVideo,
+  publishBatchStagedOutputs,
   publishStagedOutput,
   resolveOutputPath,
+  resolveBatchOutputPaths,
   resolveStagingOutputPath,
   showInFileExplorer,
   type OutputExtension,
   type FfmpegInstallResult,
+  type BatchCompressItem,
 } from "./ipc";
+import {
+  batchClipDuration,
+  formatBatchVideoDetails,
+  groupOutputPathsByFolder,
+  normalizeBatchTrimRange,
+  normalizeVideoPaths,
+  type BatchQueueItem,
+} from "./batchProcessing";
 import {
   getSelectionCenter,
   getTimelineViewBounds,
@@ -261,10 +275,11 @@ type MemoizedSubtreeProps = {
   render: () => ReactNode;
 };
 
-type WorkflowMode = "compress" | "advanced" | "lossless" | "gif";
+type WorkflowMode = "compress" | "advanced" | "lossless" | "gif" | "batch";
 
 type WorkflowModeSelectorProps = {
   mode: WorkflowMode;
+  batchMode: boolean;
   onModeChange: (mode: WorkflowMode) => void;
 };
 
@@ -277,6 +292,7 @@ const VIDEO_FILE_ICON = (
 
 const WorkflowModeSelector = memo(function WorkflowModeSelector({
   mode,
+  batchMode,
   onModeChange,
 }: WorkflowModeSelectorProps) {
   return (
@@ -286,6 +302,7 @@ const WorkflowModeSelector = memo(function WorkflowModeSelector({
         className={mode === "compress" ? "active" : ""}
         aria-pressed={mode === "compress"}
         onClick={() => onModeChange("compress")}
+        disabled={batchMode}
       >
         Compress
       </button>
@@ -294,6 +311,7 @@ const WorkflowModeSelector = memo(function WorkflowModeSelector({
         className={mode === "advanced" ? "active" : ""}
         aria-pressed={mode === "advanced"}
         onClick={() => onModeChange("advanced")}
+        disabled={batchMode}
       >
         Advanced
       </button>
@@ -302,6 +320,7 @@ const WorkflowModeSelector = memo(function WorkflowModeSelector({
         className={mode === "lossless" ? "active" : ""}
         aria-pressed={mode === "lossless"}
         onClick={() => onModeChange("lossless")}
+        disabled={batchMode}
       >
         Lossless Trim
       </button>
@@ -310,8 +329,18 @@ const WorkflowModeSelector = memo(function WorkflowModeSelector({
         className={mode === "gif" ? "active" : ""}
         aria-pressed={mode === "gif"}
         onClick={() => onModeChange("gif")}
+        disabled={batchMode}
       >
         GIF
+      </button>
+      <button
+        type="button"
+        className={mode === "batch" ? "active" : ""}
+        aria-pressed={mode === "batch"}
+        onClick={() => onModeChange("batch")}
+        disabled={!batchMode}
+      >
+        Batch
       </button>
     </div>
   );
@@ -360,6 +389,10 @@ export default function App() {
     setAudioNormalize,
     cropAspectRatio,
     setCropAspectRatio,
+    batchTrimStartSeconds,
+    setBatchTrimStartSeconds,
+    batchTrimEndSeconds,
+    setBatchTrimEndSeconds,
     outputDestination,
     setOutputDestination,
     customOutputDirectory,
@@ -397,6 +430,9 @@ export default function App() {
   // File state is declared before encoder discovery so the startup refresh can
   // yield to a cold Open With / drag-drop probe instead of competing for FFmpeg.
   const [filePath, setFilePath] = useState<string | null>(null);
+  const [batchPaths, setBatchPaths] = useState<string[]>([]);
+  const [batchQueue, setBatchQueue] = useState<BatchQueueItem[]>([]);
+  const batchProbeDataRef = useRef<Map<number, ProbeData>>(new Map());
   const [fileLoadGeneration, setFileLoadGeneration] = useState(0);
   const [fileName, setFileName] = useState("Drag a video here or click Browse");
   const [probeData, setProbeData] = useState<ProbeData | null>(null);
@@ -409,6 +445,13 @@ export default function App() {
   const [losslessOfferTargetSize, setLosslessOfferTargetSize] = useState<number | null>(null);
   const skipLosslessOfferRef = useRef(false);
   const startCompressRef = useRef<() => Promise<void>>(async () => {});
+  const startBatchRef = useRef<() => Promise<void>>(async () => {});
+  const batchCancelledRef = useRef(false);
+  const singleModeBeforeBatchRef = useRef<{
+    gifMode: boolean;
+    advancedMode: boolean;
+    losslessMode: boolean;
+  } | null>(null);
   const [startVal, setStartVal] = useState(0);
   const [endVal, setEndVal] = useState(SLIDER_MAX);
 
@@ -428,8 +471,16 @@ export default function App() {
     () => getSettingsSnapshot(encoderIdx, currentEncoderLabel),
     [currentEncoderLabel, encoderIdx, getSettingsSnapshot]
   );
-  const { compressing, setCompressing, cancelling, progress, eta, cancelCompress, resetProgress } =
-    useCompression({ onToast: addToast });
+  const {
+    compressing,
+    setCompressing,
+    cancelling,
+    progress,
+    eta,
+    batchProgress,
+    cancelCompress,
+    resetProgress,
+  } = useCompression({ onToast: addToast });
 
   const previewRef = useRef<PreviewHandle>(null);
   const trimWrapRef = useRef<HTMLDivElement>(null);
@@ -489,6 +540,7 @@ export default function App() {
   const showUpdateModal = updateInfo !== null && encodersDialogText === null;
   const modalOpen = updateInfo !== null || encodersDialogText !== null;
 
+  const isBatchMode = batchPaths.length > 1;
   const duration = probeData?.duration ?? 0;
   const probedAudioTracks = probeData?.audio_tracks;
   const audioTracks = useMemo(() => probedAudioTracks ?? [], [probedAudioTracks]);
@@ -517,16 +569,47 @@ export default function App() {
     setLosslessOfferMode(false);
     setLosslessOfferTargetSize(null);
   }, []);
-  const losslessTrim = !gifMode && (losslessMode || losslessOfferMode);
-  const workflowMode: WorkflowMode = gifMode
-    ? "gif"
-    : losslessTrim
-      ? "lossless"
-      : advancedMode
-        ? "advanced"
-        : "compress";
+  const enterBatchMode = useCallback(() => {
+    if (!singleModeBeforeBatchRef.current) {
+      singleModeBeforeBatchRef.current = { gifMode, advancedMode, losslessMode };
+    }
+    clearLosslessOfferMode();
+    setGifMode(false);
+    setAdvancedMode(false);
+    setLosslessMode(false);
+  }, [
+    advancedMode,
+    clearLosslessOfferMode,
+    gifMode,
+    losslessMode,
+    setAdvancedMode,
+    setGifMode,
+    setLosslessMode,
+  ]);
+  const leaveBatchMode = useCallback(() => {
+    setBatchPaths([]);
+    setBatchQueue([]);
+    batchProbeDataRef.current.clear();
+    const previous = singleModeBeforeBatchRef.current;
+    singleModeBeforeBatchRef.current = null;
+    if (!previous) return;
+    setGifMode(previous.gifMode);
+    setAdvancedMode(previous.advancedMode);
+    setLosslessMode(previous.losslessMode);
+  }, [setAdvancedMode, setBatchPaths, setGifMode, setLosslessMode]);
+  const losslessTrim = !isBatchMode && !gifMode && (losslessMode || losslessOfferMode);
+  const workflowMode: WorkflowMode = isBatchMode
+    ? "batch"
+    : gifMode
+      ? "gif"
+      : losslessTrim
+        ? "lossless"
+        : advancedMode
+          ? "advanced"
+          : "compress";
   const selectWorkflowMode = useCallback(
     (mode: WorkflowMode) => {
+      if (isBatchMode) return;
       clearLosslessOfferMode();
       if (mode === "gif") {
         setGifMode(true);
@@ -570,7 +653,14 @@ export default function App() {
         advanced_mode: false,
       });
     },
-    [clearLosslessOfferMode, saveSettings, setAdvancedMode, setGifMode, setLosslessMode]
+    [
+      clearLosslessOfferMode,
+      isBatchMode,
+      saveSettings,
+      setAdvancedMode,
+      setGifMode,
+      setLosslessMode,
+    ]
   );
   const importDetails = useMemo(() => {
     if (!probeData) return null;
@@ -597,30 +687,36 @@ export default function App() {
   const advancedTargetSize = Number(advSize.trim());
   const hasAdvancedTargetSize = Number.isFinite(advancedTargetSize) && advancedTargetSize > 0;
   const cropSummary = cropAspectRatio === "off" ? "No crop" : cropAspectRatio;
-  const exportSummary = gifMode
-    ? `GIF · up to ${selectedGifPreset.size_mb} MB · ${cropSummary} · ${gifFps} fps`
-    : losslessTrim
-      ? "Original quality · keyframe-aligned trim"
-      : advancedMode
-        ? `${hasAdvancedTargetSize ? `Up to ${advancedTargetSize} MB` : "Source bitrate"} · ${advResolution} · ${cropSummary} · ${
-            advFps.trim() ? `${advFps.trim()} fps` : "Keep source FPS"
-          }`
-        : `Up to ${selectedQualityPreset.size_mb} MB · ${
-            selectedQualityPreset.target_h
-              ? `${selectedQualityPreset.target_h}p`
-              : "Native resolution"
-          } · ${cropSummary} · ${
-            standardFpsValue === "off" ? "Keep source FPS" : `${standardFpsValue} fps`
-          }`;
-  const readyActionLabel = gifMode
-    ? `Create ${selectedGifPreset.size_mb} MB GIF`
-    : losslessTrim
-      ? "Trim Without Re-encoding"
-      : advancedMode && hasAdvancedTargetSize
-        ? `Compress to ${advancedTargetSize} MB`
-        : !advancedMode
-          ? `Compress to ${selectedQualityPreset.size_mb} MB`
-          : "Compress Video";
+  const exportSummary = isBatchMode
+    ? `${batchPaths.length} videos · Up to ${selectedQualityPreset.size_mb} MB each · ${cropSummary} · ${
+        standardFpsValue === "off" ? "Keep source FPS" : `${standardFpsValue} fps`
+      }`
+    : gifMode
+      ? `GIF · up to ${selectedGifPreset.size_mb} MB · ${cropSummary} · ${gifFps} fps`
+      : losslessTrim
+        ? "Original quality · keyframe-aligned trim"
+        : advancedMode
+          ? `${hasAdvancedTargetSize ? `Up to ${advancedTargetSize} MB` : "Source bitrate"} · ${advResolution} · ${cropSummary} · ${
+              advFps.trim() ? `${advFps.trim()} fps` : "Keep source FPS"
+            }`
+          : `Up to ${selectedQualityPreset.size_mb} MB · ${
+              selectedQualityPreset.target_h
+                ? `${selectedQualityPreset.target_h}p`
+                : "Native resolution"
+            } · ${cropSummary} · ${
+              standardFpsValue === "off" ? "Keep source FPS" : `${standardFpsValue} fps`
+            }`;
+  const readyActionLabel = isBatchMode
+    ? `Compress ${batchPaths.length} videos`
+    : gifMode
+      ? `Create ${selectedGifPreset.size_mb} MB GIF`
+      : losslessTrim
+        ? "Trim Without Re-encoding"
+        : advancedMode && hasAdvancedTargetSize
+          ? `Compress to ${advancedTargetSize} MB`
+          : !advancedMode
+            ? `Compress to ${selectedQualityPreset.size_mb} MB`
+            : "Compress Video";
   const showProgress = compressing || cancelling || finalizingOutput || eta !== "Ready";
 
   useEffect(() => {
@@ -1054,6 +1150,15 @@ export default function App() {
   // --- File loading ---
   const loadVideo = useCallback(
     async (path: string) => {
+      if (compressing || cancelling || finalizingOutput) {
+        addToast(
+          "info",
+          "Compression In Progress",
+          "Cancel the current export before choosing another video."
+        );
+        return;
+      }
+      if (isBatchMode) leaveBatchMode();
       if (!SUPPORTED_VIDEO_EXTENSION.test(path)) {
         addToast(
           "warning",
@@ -1135,7 +1240,148 @@ export default function App() {
         }
       }
     },
-    [addToast, markFfmpegMissing, resetProgress, syncTrimHistorySize]
+    [
+      addToast,
+      cancelling,
+      compressing,
+      finalizingOutput,
+      isBatchMode,
+      leaveBatchMode,
+      markFfmpegMissing,
+      resetProgress,
+      syncTrimHistorySize,
+    ]
+  );
+
+  const loadBatch = useCallback(
+    async (paths: readonly string[]) => {
+      if (compressing || cancelling || finalizingOutput) {
+        addToast(
+          "info",
+          "Compression In Progress",
+          "Cancel the current export before choosing another video."
+        );
+        return;
+      }
+      const normalizedPaths = normalizeVideoPaths(paths, SUPPORTED_VIDEO_EXTENSION);
+      if (normalizedPaths.length === 0) {
+        addToast(
+          "warning",
+          "Unsupported Video",
+          "Choose MP4, AVI, MOV, MKV, FLV, WMV, or WebM files."
+        );
+        return;
+      }
+      if (normalizedPaths.length === 1) {
+        await loadVideo(normalizedPaths[0]);
+        return;
+      }
+
+      enterBatchMode();
+      previewRef.current?.stopPlayback();
+      selectedFilePathRef.current = null;
+      setFilePath(null);
+      setFileName(`${normalizedPaths.length} videos selected`);
+      setProbeData(null);
+      probeDataRef.current = null;
+      setAudioTrackSelection(null);
+      const loadGeneration = loadGenerationRef.current + 1;
+      loadGenerationRef.current = loadGeneration;
+      setFileLoadGeneration(loadGeneration);
+      setLoadingVideo(true);
+      setLosslessInfo(null);
+      losslessInfoRef.current = null;
+      setLosslessInfoLoading(false);
+      setLosslessInfoError(null);
+      clearLosslessOfferMode();
+      batchCancelledRef.current = false;
+      batchProbeDataRef.current.clear();
+      setBatchPaths(normalizedPaths);
+      setBatchQueue(
+        normalizedPaths.map((inputPath, id) => ({
+          id,
+          inputPath,
+          status: "queued",
+          progress: 0,
+          message: "Waiting for details...",
+        }))
+      );
+      resetProgress();
+
+      try {
+        for (let id = 0; id < normalizedPaths.length; id += 1) {
+          if (loadGenerationRef.current !== loadGeneration) return;
+          const inputPath = normalizedPaths[id];
+          setBatchQueue((items) =>
+            items.map((item) =>
+              item.id === id ? { ...item, status: "probing", message: "Reading details..." } : item
+            )
+          );
+          try {
+            const data = await probeVideo(inputPath);
+            if (loadGenerationRef.current !== loadGeneration) return;
+            batchProbeDataRef.current.set(id, data);
+            setBatchQueue((items) =>
+              items.map((item) =>
+                item.id === id
+                  ? {
+                      ...item,
+                      status: "queued",
+                      progress: 0,
+                      details: formatBatchVideoDetails(data),
+                      message: "Ready",
+                    }
+                  : item
+              )
+            );
+          } catch (error: unknown) {
+            if (loadGenerationRef.current !== loadGeneration) return;
+            if (isFfmpegMissingError(error)) markFfmpegMissing();
+            setBatchQueue((items) =>
+              items.map((item) =>
+                item.id === id
+                  ? { ...item, status: "failed", progress: 0, message: String(error) }
+                  : item
+              )
+            );
+          }
+        }
+      } finally {
+        if (loadGenerationRef.current === loadGeneration) setLoadingVideo(false);
+      }
+    },
+    [
+      addToast,
+      cancelling,
+      clearLosslessOfferMode,
+      compressing,
+      enterBatchMode,
+      finalizingOutput,
+      loadVideo,
+      markFfmpegMissing,
+      resetProgress,
+    ]
+  );
+
+  const loadSelection = useCallback(
+    async (paths: readonly string[]) => {
+      const normalizedPaths = normalizeVideoPaths(paths, SUPPORTED_VIDEO_EXTENSION);
+      if (normalizedPaths.length > 1) {
+        await loadBatch(normalizedPaths);
+      } else if (normalizedPaths.length === 1) {
+        await loadVideo(normalizedPaths[0]);
+      }
+    },
+    [loadBatch, loadVideo]
+  );
+
+  const removeBatchItem = useCallback(
+    async (itemId: number) => {
+      if (loadingVideo || compressing || cancelling || finalizingOutput) return;
+      if (itemId < 0 || itemId >= batchPaths.length) return;
+      await loadSelection(batchPaths.filter((_, index) => index !== itemId));
+    },
+    [batchPaths, cancelling, compressing, finalizingOutput, loadSelection, loadingVideo]
   );
 
   useEffect(() => {
@@ -1164,16 +1410,18 @@ export default function App() {
   const browseFile = useCallback(async () => {
     try {
       const selected = await openDialog({
-        multiple: false,
+        multiple: true,
         filters: [
           { name: "Video", extensions: ["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"] },
         ],
       });
-      if (selected && typeof selected === "string") await loadVideo(selected);
+      if (selected) {
+        await loadSelection(typeof selected === "string" ? [selected] : selected);
+      }
     } catch (error) {
       addToast("error", "Could Not Open File Picker", String(error));
     }
-  }, [addToast, loadVideo]);
+  }, [addToast, loadSelection]);
 
   const chooseCustomOutputDirectory = useCallback(async (): Promise<string | null> => {
     try {
@@ -1212,6 +1460,13 @@ export default function App() {
   const restoreSettingsPreset = useCallback(
     (preset: SettingsPreset) => {
       clearLosslessOfferMode();
+      const previousModeSettings = isBatchMode
+        ? {
+            gif_mode: settingsRef.current.gif_mode,
+            advanced_mode: settingsRef.current.advanced_mode,
+            lossless_mode: settingsRef.current.lossless_mode,
+          }
+        : null;
       const restored = restoreSettings(preset.settings);
       const matchingEncoderIndex = restored.encoder_label
         ? encoders.findIndex((encoder) => encoder.label === restored.encoder_label)
@@ -1221,10 +1476,29 @@ export default function App() {
           ? matchingEncoderIndex
           : Math.max(0, Math.min(restored.encoder_index, Math.max(encoders.length - 1, 0)));
       setEncoderIdx(nextEncoderIndex);
-      saveSettings(restored);
+      if (isBatchMode) {
+        setGifMode(false);
+        setAdvancedMode(false);
+        setLosslessMode(false);
+        saveSettings({ ...restored, ...previousModeSettings });
+      } else {
+        saveSettings(restored);
+      }
       addToast("success", "Preset Restored", `Loaded “${preset.name}”.`);
     },
-    [addToast, clearLosslessOfferMode, encoders, restoreSettings, saveSettings, setEncoderIdx]
+    [
+      addToast,
+      clearLosslessOfferMode,
+      encoders,
+      isBatchMode,
+      restoreSettings,
+      saveSettings,
+      setAdvancedMode,
+      setEncoderIdx,
+      setGifMode,
+      setLosslessMode,
+      settingsRef,
+    ]
   );
 
   const saveSettingsPreset = useCallback(
@@ -1301,19 +1575,75 @@ export default function App() {
     [addToast, completionAction]
   );
 
+  const completeBatchOutputs = useCallback(
+    async (outputPaths: readonly string[]) => {
+      if (outputPaths.length === 0) return;
+      if (completionAction === "copy") {
+        try {
+          await copyFilesToClipboard([...outputPaths]);
+          addToast("success", "Batch Complete", `${outputPaths.length} output files were copied.`);
+          return;
+        } catch (clipboardError) {
+          const revealErrors: string[] = [];
+          for (const outputPath of groupOutputPathsByFolder(outputPaths)) {
+            try {
+              await showInFileExplorer(outputPath);
+            } catch (error) {
+              revealErrors.push(String(error));
+            }
+          }
+          if (revealErrors.length === 0) {
+            addToast(
+              "warning",
+              "Clipboard Unavailable",
+              "The batch outputs were saved and their folders were revealed instead."
+            );
+          } else {
+            addToast("success", "Batch Complete", "The batch outputs were saved.");
+            addToast(
+              "error",
+              "Complete Action Failed",
+              `${String(clipboardError)} Reveal also failed: ${revealErrors.join("; ")}`
+            );
+          }
+          return;
+        }
+      }
+
+      const errors: string[] = [];
+      for (const outputPath of groupOutputPathsByFolder(outputPaths)) {
+        try {
+          await showInFileExplorer(outputPath);
+        } catch (error) {
+          errors.push(String(error));
+        }
+      }
+      if (errors.length === 0) {
+        addToast("success", "Batch Complete", "The output folders were revealed.");
+      } else {
+        addToast("success", "Batch Complete", "The batch outputs were saved.");
+        addToast("error", "Complete Action Failed", errors.join("; "));
+      }
+    },
+    [addToast, completionAction]
+  );
+
   // --- OS file-open integrations ---
   // Route listener callbacks through a ref so we subscribe exactly once per
-  // mount while always invoking the latest loadVideo. Previously the empty
+  // mount while always invoking the latest selection handler. Previously the empty
   // dep array + eslint-disable meant a stale loadVideo closure would be
   // retained if its identity ever changed.
-  const loadVideoRef = useRef(loadVideo);
+  const loadSelectionRef = useRef(loadSelection);
   useEffect(() => {
-    loadVideoRef.current = loadVideo;
-  }, [loadVideo]);
+    loadSelectionRef.current = loadSelection;
+  }, [loadSelection]);
 
   useEffect(() => {
     let disposed = false;
-    const unsub = listen<string>("open-file", (e) => loadVideoRef.current(e.payload));
+    const unsub = listen<string | string[]>("open-file", (e) => {
+      const paths = Array.isArray(e.payload) ? e.payload : [e.payload];
+      void loadSelectionRef.current(paths);
+    });
     unsub
       .then(() => {
         if (!disposed) frontendReady().catch(() => {});
@@ -1327,12 +1657,35 @@ export default function App() {
 
   useEffect(() => {
     const unlisten = listen<{ paths: string[] }>("tauri://drag-drop", (e) => {
-      if (e.payload.paths.length > 0) loadVideoRef.current(e.payload.paths[0]);
+      if (e.payload.paths.length > 0) void loadSelectionRef.current(e.payload.paths);
     });
     return () => {
       unlisten.then((fn: () => void) => fn());
     };
   }, []);
+
+  useEffect(() => {
+    if (!isBatchMode || !batchProgress) return;
+    setBatchQueue((items) =>
+      items.map((item) => {
+        if (item.id !== batchProgress.item_id) return item;
+        const status =
+          batchProgress.phase === "encoding"
+            ? "encoding"
+            : batchProgress.phase === "completed"
+              ? "completed"
+              : batchProgress.phase === "failed"
+                ? "failed"
+                : "cancelled";
+        return {
+          ...item,
+          status,
+          progress: batchProgress.item_percent,
+          message: batchProgress.status,
+        };
+      })
+    );
+  }, [batchProgress, isBatchMode]);
 
   useEffect(() => {
     const suppressContextMenu = (event: MouseEvent) => {
@@ -1519,7 +1872,389 @@ export default function App() {
   }, [saveSettings, settingsLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Compression ---
+  const startBatch = useCallback(async () => {
+    resetProgress();
+    setCompressing(true);
+    setLoadingVideo(true);
+    batchCancelledRef.current = false;
+    const selectedPaths = [...batchPaths];
+    const probeFailures = new Map<number, string>();
+    const stagedOutputPaths: string[] = [];
+    const prepared: Array<{
+      id: number;
+      inputPath: string;
+      probe: ProbeData;
+      clipDuration: number;
+      startTime: number;
+      endTime: number;
+      targetSize: number;
+      encoderName: string;
+      outputFps: number | null;
+      audioTrackIndices: number[];
+      removeAudio: boolean;
+      scaleFilter: string | null;
+    }> = [];
+
+    try {
+      if (ffmpegMissing) {
+        addToast("warning", "FFmpeg Not Found", FFMPEG_MISSING_TOAST_MESSAGE);
+        return;
+      }
+
+      const preset = QUALITY_PRESETS[qualityIdx] ?? QUALITY_PRESETS[0];
+      const encoderName = encoders[encoderIdx]?.name ?? "libx264";
+      const requestedFps = FPS_OPTIONS.find((option) => option.value === fpsOption)?.fps ?? null;
+
+      for (let id = 0; id < selectedPaths.length; id += 1) {
+        if (batchCancelledRef.current) return;
+        const inputPath = selectedPaths[id];
+        let data = batchProbeDataRef.current.get(id);
+        if (!data) {
+          setBatchQueue((items) =>
+            items.map((item) =>
+              item.id === id ? { ...item, status: "probing", message: "Reading details..." } : item
+            )
+          );
+          try {
+            data = await probeVideo(inputPath);
+            batchProbeDataRef.current.set(id, data);
+          } catch (error: unknown) {
+            if (isFfmpegMissingError(error)) markFfmpegMissing();
+            const message = String(error);
+            probeFailures.set(id, message);
+            setBatchQueue((items) =>
+              items.map((item) =>
+                item.id === id ? { ...item, status: "failed", progress: 100, message } : item
+              )
+            );
+            continue;
+          }
+        }
+
+        if (!data) continue;
+
+        const trim = normalizeBatchTrimRange(
+          data.duration,
+          batchTrimStartSeconds,
+          batchTrimEndSeconds
+        );
+        const clipDuration = batchClipDuration(data.duration, trim);
+        if (clipDuration <= 0) {
+          const message = "The selected trim leaves no usable video.";
+          probeFailures.set(id, message);
+          setBatchQueue((items) =>
+            items.map((item) =>
+              item.id === id ? { ...item, status: "failed", progress: 100, message } : item
+            )
+          );
+          continue;
+        }
+
+        const sourceRate =
+          typeof data.frame_rate === "number" &&
+          Number.isFinite(data.frame_rate) &&
+          data.frame_rate > 0
+            ? data.frame_rate
+            : null;
+        const outputFps =
+          requestedFps !== null && (sourceRate === null || requestedFps <= sourceRate)
+            ? requestedFps
+            : null;
+        const audioTrackIndices = defaultAudioTrackIndices(data.audio_tracks);
+        const effectiveRemoveAudio = removeAudio || audioTrackIndices.length === 0;
+        const videoBitrate = resolveVideoBitrate(
+          preset.size_mb,
+          clipDuration,
+          effectiveRemoveAudio,
+          data.bitrate,
+          audioTrackIndices.length
+        );
+        if (videoBitrate === null) {
+          const message = "Source bitrate is unavailable for this video.";
+          probeFailures.set(id, message);
+          setBatchQueue((items) =>
+            items.map((item) =>
+              item.id === id ? { ...item, status: "failed", progress: 100, message } : item
+            )
+          );
+          continue;
+        }
+
+        const [cropWidth, cropHeight] = getCroppedDimensions(
+          data.width,
+          data.height,
+          cropAspectRatio
+        );
+        prepared.push({
+          id,
+          inputPath,
+          probe: data,
+          clipDuration,
+          startTime: trim.start,
+          endTime: data.duration - trim.end,
+          targetSize: preset.size_mb,
+          encoderName,
+          outputFps,
+          audioTrackIndices,
+          removeAudio: effectiveRemoveAudio,
+          scaleFilter: buildScaleFilter(cropWidth, cropHeight, preset.target_h, null, encoderName),
+        });
+        setBatchQueue((items) =>
+          items.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  status: "queued",
+                  progress: 0,
+                  details: formatBatchVideoDetails(data),
+                  message: "Ready",
+                }
+              : item
+          )
+        );
+      }
+
+      if (batchCancelledRef.current) return;
+      if (prepared.length === 0) {
+        addToast("error", "Batch Could Not Start", "None of the selected videos could be probed.");
+        return;
+      }
+
+      const outputPaths = await resolveBatchOutputPaths(
+        prepared.map((item) => item.inputPath),
+        outputDestination === "custom" ? customOutputDirectory : undefined,
+        outputDestination === "source",
+        outputDestination === "ask"
+      );
+      if (outputDestination === "ask") stagedOutputPaths.push(...outputPaths);
+      const vaapiDevice = prepared[0].encoderName.endsWith("_vaapi")
+        ? await getVaapiDevice().catch(() => null)
+        : null;
+      if (batchCancelledRef.current) {
+        if (outputDestination === "ask") {
+          await Promise.all(outputPaths.map((path) => discardStagedOutput(path).catch(() => {})));
+        }
+        return;
+      }
+
+      const items: BatchCompressItem[] = prepared.map((item, index) => ({
+        id: item.id,
+        opts: {
+          input_path: item.inputPath,
+          output_path: outputPaths[index],
+          encoder: item.encoderName,
+          video_bitrate_k:
+            resolveVideoBitrate(
+              item.targetSize,
+              item.clipDuration,
+              item.removeAudio,
+              item.probe.bitrate,
+              item.audioTrackIndices.length
+            ) ?? 100,
+          target_size_mb: item.targetSize,
+          start_time: item.startTime,
+          end_time: item.endTime,
+          remove_audio: item.removeAudio,
+          audio_track_indices: item.audioTrackIndices,
+          audio_normalize: audioNormalize,
+          crop_aspect_ratio: cropAspectRatio,
+          output_fps: item.outputFps,
+          scale_filter: item.scaleFilter,
+          source_width: item.probe.width,
+          source_height: item.probe.height,
+          vaapi_device: vaapiDevice,
+          gif_mode: false,
+          lossless_trim: false,
+          fallback_output_path: null,
+          fallback_target_size_mb: null,
+        },
+      }));
+
+      const done = await compressBatch(items);
+      const finalOutputById = new Map<number, string>();
+      const successfulResults = done.results.filter(
+        (result) => result.success && typeof result.output_path === "string"
+      );
+
+      if (outputDestination === "ask") {
+        if (done.cancelled) {
+          await Promise.all(
+            successfulResults.map((result) =>
+              discardStagedOutput(result.output_path!).catch(() => {})
+            )
+          );
+        } else if (successfulResults.length > 0) {
+          setFinalizingOutput(true);
+          try {
+            const selectedFolder = await openDialog({
+              title: "Choose a folder for the batch outputs",
+              directory: true,
+              multiple: false,
+            });
+            if (typeof selectedFolder !== "string" || !selectedFolder) {
+              await Promise.all(
+                successfulResults.map((result) =>
+                  discardStagedOutput(result.output_path!).catch(() => {})
+                )
+              );
+              addToast("warning", "Save Cancelled", "The staged batch outputs were discarded.");
+            } else {
+              const destinations = await resolveBatchOutputPaths(
+                successfulResults.map((result) => result.input_path),
+                selectedFolder,
+                false,
+                false
+              );
+              const publication = await publishBatchStagedOutputs(
+                successfulResults.map((result) => result.output_path!),
+                destinations
+              );
+              publication.published_paths.forEach((published, index) => {
+                finalOutputById.set(successfulResults[index].id, published);
+              });
+              if (publication.error) {
+                await Promise.all(
+                  successfulResults
+                    .slice(publication.published_paths.length)
+                    .map((result) => discardStagedOutput(result.output_path!).catch(() => {}))
+                );
+                addToast("error", "Could Not Save Batch Output", publication.error);
+              }
+            }
+          } catch (error: unknown) {
+            await Promise.all(
+              successfulResults.map((result) =>
+                discardStagedOutput(result.output_path!).catch(() => {})
+              )
+            );
+            addToast("error", "Could Not Save Batch Outputs", String(error));
+          } finally {
+            setFinalizingOutput(false);
+          }
+        }
+      } else {
+        for (const result of successfulResults) {
+          finalOutputById.set(result.id, result.output_path!);
+        }
+      }
+
+      const resultById = new Map(done.results.map((result) => [result.id, result]));
+      const outputPathsForCompletion: string[] = [];
+      const finalQueueById = new Map<number, BatchQueueItem>();
+      let successCount = 0;
+      let failedCount = 0;
+      for (const [id, inputPath] of selectedPaths.entries()) {
+        const item: BatchQueueItem = {
+          id,
+          inputPath,
+          status: "queued",
+          progress: 0,
+        };
+        const result = resultById.get(item.id);
+        const probeFailure = probeFailures.get(item.id);
+        if (probeFailure) {
+          failedCount += 1;
+          finalQueueById.set(item.id, {
+            ...item,
+            status: "failed",
+            progress: 100,
+            message: probeFailure,
+          });
+          continue;
+        }
+        if (!result) {
+          failedCount += 1;
+          finalQueueById.set(item.id, {
+            ...item,
+            status: done.cancelled ? "cancelled" : "failed",
+            progress: 100,
+            message: done.cancelled
+              ? "Skipped because batch processing was cancelled."
+              : "No result returned.",
+          });
+          continue;
+        }
+        const outputPath = finalOutputById.get(result.id);
+        if (result.success && outputPath) {
+          successCount += 1;
+          outputPathsForCompletion.push(outputPath);
+          finalQueueById.set(item.id, {
+            ...item,
+            status: "completed",
+            progress: 100,
+            message: result.message,
+            outputPath,
+          });
+          continue;
+        }
+        failedCount += 1;
+        finalQueueById.set(item.id, {
+          ...item,
+          status: result.cancelled ? "cancelled" : "failed",
+          progress: 100,
+          message: result.message,
+        });
+      }
+      setBatchQueue((queue) => queue.map((item) => finalQueueById.get(item.id) ?? item));
+
+      if (!done.cancelled && outputPathsForCompletion.length > 0) {
+        await completeBatchOutputs(outputPathsForCompletion);
+      }
+      const summary = `Batch complete: ${successCount} succeeded, ${failedCount} failed.`;
+      addToast(
+        done.cancelled ? "warning" : failedCount > 0 ? "warning" : "success",
+        "Batch Summary",
+        summary
+      );
+    } catch (error: unknown) {
+      if (stagedOutputPaths.length > 0) {
+        await Promise.all(
+          stagedOutputPaths.map((path) => discardStagedOutput(path).catch(() => {}))
+        );
+      }
+      if (isFfmpegMissingError(error)) markFfmpegMissing();
+      if (!batchCancelledRef.current) {
+        addToast("error", "Batch Failed", String(error));
+        setBatchQueue((items) =>
+          items.map((item) =>
+            item.status === "completed" || item.status === "failed"
+              ? item
+              : { ...item, status: "failed", progress: 100, message: String(error) }
+          )
+        );
+      }
+    } finally {
+      setLoadingVideo(false);
+      setCompressing(false);
+    }
+  }, [
+    addToast,
+    audioNormalize,
+    batchPaths,
+    batchTrimEndSeconds,
+    batchTrimStartSeconds,
+    completeBatchOutputs,
+    cropAspectRatio,
+    customOutputDirectory,
+    encoderIdx,
+    encoders,
+    ffmpegMissing,
+    fpsOption,
+    markFfmpegMissing,
+    outputDestination,
+    qualityIdx,
+    removeAudio,
+    resetProgress,
+    setCompressing,
+  ]);
+
+  startBatchRef.current = startBatch;
+
   const startCompress = useCallback(async () => {
+    if (isBatchMode) {
+      await startBatchRef.current();
+      return;
+    }
     resetProgress();
     setCompressing(true);
     if (ffmpegMissing) {
@@ -1815,6 +2550,7 @@ export default function App() {
     }
   }, [
     filePath,
+    isBatchMode,
     probeData,
     ffmpegMissing,
     gifMode,
@@ -1854,6 +2590,11 @@ export default function App() {
     resetProgress,
   ]);
   startCompressRef.current = startCompress;
+
+  const handleCancelCompression = useCallback(() => {
+    if (isBatchMode) batchCancelledRef.current = true;
+    void cancelCompress();
+  }, [cancelCompress, isBatchMode]);
 
   const loadListedEncoders = useCallback(async () => {
     let fallbackNames: string[] | null = null;
@@ -1997,7 +2738,7 @@ export default function App() {
   const reprobeSelectedVideo = useCallback(async () => {
     const selectedPath = selectedFilePathRef.current;
     if (!selectedPath || probeDataRef.current) return;
-    await loadVideoRef.current(selectedPath);
+    await loadSelectionRef.current([selectedPath]);
   }, []);
 
   const retryFfmpegDetection = useCallback(async () => {
@@ -2598,12 +3339,14 @@ export default function App() {
             <MemoizedSubtree
               dependencies={[
                 filePath,
+                batchPaths,
                 fileName,
                 probeData,
                 importDetails,
                 loadingVideo,
                 browseFile,
-                loadVideo,
+                loadSelection,
+                isBatchMode,
                 gifMode,
                 losslessTrim,
                 workflowMode,
@@ -2660,7 +3403,37 @@ export default function App() {
                 <>
                   {/* File import */}
                   <div className="file-section">
-                    {filePath ? (
+                    {isBatchMode ? (
+                      <button
+                        type="button"
+                        className="loaded-file-card batch-file-card"
+                        onClick={browseFile}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          const files = Array.from(event.dataTransfer.files);
+                          void loadSelection(
+                            files.map(
+                              (file) => (file as File & { path?: string }).path ?? file.name
+                            )
+                          );
+                        }}
+                        aria-label={`Change selected videos, ${batchPaths.length} videos selected`}
+                      >
+                        <span className="loaded-file-icon">{VIDEO_FILE_ICON}</span>
+                        <span className="loaded-file-copy">
+                          <span className="loaded-file-name">
+                            {batchPaths.length} videos selected
+                          </span>
+                          <span className="loaded-file-details">
+                            Batch mode · trims and encodes each video independently
+                          </span>
+                        </span>
+                        <span className="change-file-label" aria-hidden="true">
+                          Change…
+                        </span>
+                      </button>
+                    ) : filePath ? (
                       <button
                         type="button"
                         className="loaded-file-card"
@@ -2668,8 +3441,12 @@ export default function App() {
                         onDragOver={(event) => event.preventDefault()}
                         onDrop={(event) => {
                           event.preventDefault();
-                          const file = event.dataTransfer.files[0];
-                          if (file) loadVideo((file as File & { path?: string }).path ?? file.name);
+                          const files = Array.from(event.dataTransfer.files);
+                          void loadSelection(
+                            files.map(
+                              (file) => (file as File & { path?: string }).path ?? file.name
+                            )
+                          );
                         }}
                         aria-label={`Change selected video, ${fileName}`}
                       >
@@ -2695,8 +3472,12 @@ export default function App() {
                         onDragOver={(event) => event.preventDefault()}
                         onDrop={(event) => {
                           event.preventDefault();
-                          const file = event.dataTransfer.files[0];
-                          if (file) loadVideo((file as File & { path?: string }).path ?? file.name);
+                          const files = Array.from(event.dataTransfer.files);
+                          void loadSelection(
+                            files.map(
+                              (file) => (file as File & { path?: string }).path ?? file.name
+                            )
+                          );
                         }}
                       >
                         <span className="drop-label">{fileName}</span>
@@ -2707,7 +3488,11 @@ export default function App() {
                     )}
                   </div>
 
-                  <WorkflowModeSelector mode={workflowMode} onModeChange={selectWorkflowMode} />
+                  <WorkflowModeSelector
+                    mode={workflowMode}
+                    batchMode={isBatchMode}
+                    onModeChange={selectWorkflowMode}
+                  />
 
                   {/* GIF settings */}
                   {gifMode && (
@@ -3218,71 +4003,116 @@ export default function App() {
             />
           </div>
 
-          {/* Preview and trim editor */}
-          <PreviewPane
-            ref={previewRef}
-            filePath={filePath}
-            sourceGeneration={fileLoadGeneration}
-            loadingVideo={loadingVideo}
-            startTime={startTime}
-            endTime={endTime}
-            previewTime={previewFocusTime}
-            isScrubbing={previewScrubbing}
-            loopPlayback={loopPlayback}
-            probeData={probeData}
-            removeAudio={gifMode || removeAudio}
-            onTimeUpdate={handlePreviewTimeUpdate}
-            onSnapshot={handleSnapshot}
-          />
+          {isBatchMode ? (
+            <BatchQueue
+              items={batchQueue}
+              onRemoveItem={removeBatchItem}
+              removeDisabled={loadingVideo || compressing || cancelling || finalizingOutput}
+            />
+          ) : (
+            <>
+              {/* Preview and trim editor */}
+              <PreviewPane
+                ref={previewRef}
+                filePath={filePath}
+                sourceGeneration={fileLoadGeneration}
+                loadingVideo={loadingVideo}
+                startTime={startTime}
+                endTime={endTime}
+                previewTime={previewFocusTime}
+                isScrubbing={previewScrubbing}
+                loopPlayback={loopPlayback}
+                probeData={probeData}
+                removeAudio={gifMode || removeAudio}
+                onTimeUpdate={handlePreviewTimeUpdate}
+                onSnapshot={handleSnapshot}
+              />
 
-          <TrimTimeline
-            selectedDuration={selectedDuration}
-            selectedDurationPct={selectedDurationPct}
-            editableTimes={!gifMode && (advancedMode || losslessTrim)}
-            losslessTrim={losslessTrim}
-            losslessInfoLoading={losslessInfoLoading}
-            losslessInfoError={losslessInfoError}
-            trimReady={trimReady}
-            canSetInPoint={canSetInPoint}
-            canSetOutPoint={canSetOutPoint}
-            canUndoTrim={trimHistorySize.undo > 0}
-            canRedoTrim={trimHistorySize.redo > 0}
-            snapMode={snapMode}
-            timelineZoom={timelineZoom}
-            trimWrapRef={trimWrapRef}
-            startTime={startTime}
-            endTime={endTime}
-            viewStartVal={viewStartVal}
-            viewEndVal={viewEndVal}
-            startVal={startVal}
-            endVal={endVal}
-            startPct={startPct}
-            endPct={endPct}
-            trimPlayheadRef={trimPlayheadElementRef}
-            onSetInPoint={setInPoint}
-            onSetOutPoint={setOutPoint}
-            onSnapModeChange={setSnapModeFromTimeline}
-            onZoomOut={zoomTimelineOut}
-            onZoomReset={resetTimelineZoom}
-            onZoomIn={zoomTimelineIn}
-            onUndoTrim={undoTrim}
-            onRedoTrim={redoTrim}
-            loopPlayback={loopPlayback}
-            onLoopPlaybackChange={setLoopPlaybackFromTimeline}
-            onTrimWheel={handleTrimWheel}
-            onTimelineClick={handleTimelineClick}
-            onRangeDragStart={handleRangeDragStart}
-            onPlayheadDragStart={handlePlayheadDragStart}
-            onStartHandlePointerDown={handleStartHandlePointerDown}
-            onEndHandlePointerDown={handleEndHandlePointerDown}
-            onStartHandleFocus={handleStartHandleFocus}
-            onEndHandleFocus={handleEndHandleFocus}
-            onPointerUp={commitPointerTrimChange}
-            onStartChange={handleStartChange}
-            onEndChange={handleEndChange}
-            onStartTimeCommit={handleStartTimeCommit}
-            onEndTimeCommit={handleEndTimeCommit}
-          />
+              <TrimTimeline
+                selectedDuration={selectedDuration}
+                selectedDurationPct={selectedDurationPct}
+                editableTimes={!gifMode && (advancedMode || losslessTrim)}
+                losslessTrim={losslessTrim}
+                losslessInfoLoading={losslessInfoLoading}
+                losslessInfoError={losslessInfoError}
+                trimReady={trimReady}
+                canSetInPoint={canSetInPoint}
+                canSetOutPoint={canSetOutPoint}
+                canUndoTrim={trimHistorySize.undo > 0}
+                canRedoTrim={trimHistorySize.redo > 0}
+                snapMode={snapMode}
+                timelineZoom={timelineZoom}
+                trimWrapRef={trimWrapRef}
+                startTime={startTime}
+                endTime={endTime}
+                viewStartVal={viewStartVal}
+                viewEndVal={viewEndVal}
+                startVal={startVal}
+                endVal={endVal}
+                startPct={startPct}
+                endPct={endPct}
+                trimPlayheadRef={trimPlayheadElementRef}
+                onSetInPoint={setInPoint}
+                onSetOutPoint={setOutPoint}
+                onSnapModeChange={setSnapModeFromTimeline}
+                onZoomOut={zoomTimelineOut}
+                onZoomReset={resetTimelineZoom}
+                onZoomIn={zoomTimelineIn}
+                onUndoTrim={undoTrim}
+                onRedoTrim={redoTrim}
+                loopPlayback={loopPlayback}
+                onLoopPlaybackChange={setLoopPlaybackFromTimeline}
+                onTrimWheel={handleTrimWheel}
+                onTimelineClick={handleTimelineClick}
+                onRangeDragStart={handleRangeDragStart}
+                onPlayheadDragStart={handlePlayheadDragStart}
+                onStartHandlePointerDown={handleStartHandlePointerDown}
+                onEndHandlePointerDown={handleEndHandlePointerDown}
+                onStartHandleFocus={handleStartHandleFocus}
+                onEndHandleFocus={handleEndHandleFocus}
+                onPointerUp={commitPointerTrimChange}
+                onStartChange={handleStartChange}
+                onEndChange={handleEndChange}
+                onStartTimeCommit={handleStartTimeCommit}
+                onEndTimeCommit={handleEndTimeCommit}
+              />
+            </>
+          )}
+
+          {isBatchMode && (
+            <div className="batch-trim-settings">
+              <label>
+                Trim from start (s)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={batchTrimStartSeconds}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    const next = Number.isFinite(value) ? Math.max(0, value) : 0;
+                    setBatchTrimStartSeconds(next);
+                    saveSettings({ batch_trim_start_seconds: next });
+                  }}
+                />
+              </label>
+              <label>
+                Trim from end (s)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={batchTrimEndSeconds}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    const next = Number.isFinite(value) ? Math.max(0, value) : 0;
+                    setBatchTrimEndSeconds(next);
+                    saveSettings({ batch_trim_end_seconds: next });
+                  }}
+                />
+              </label>
+            </div>
+          )}
 
           <ExportSection
             outputDestination={outputDestination}
@@ -3295,17 +4125,24 @@ export default function App() {
             cancelling={cancelling}
             finalizingOutput={finalizingOutput}
             ffmpegMissing={ffmpegMissing}
+            batchMode={isBatchMode}
+            batchReady={
+              isBatchMode &&
+              !loadingVideo &&
+              batchPaths.length > 1 &&
+              batchQueue.length === batchPaths.length
+            }
             losslessTrim={losslessTrim}
             losslessInfoLoading={losslessInfoLoading}
-            filePath={filePath}
-            probeReady={probeData !== null}
+            filePath={isBatchMode ? null : filePath}
+            probeReady={isBatchMode ? false : probeData !== null}
             progress={progress}
             eta={eta}
             onOutputDestinationChange={changeOutputDestination}
             onChooseCustomOutputDirectory={chooseCustomOutputDirectory}
             onCompletionActionChange={changeCompletionAction}
             onStartCompression={startCompress}
-            onCancelCompression={cancelCompress}
+            onCancelCompression={handleCancelCompression}
           />
         </div>
 

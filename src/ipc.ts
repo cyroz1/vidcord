@@ -70,6 +70,52 @@ export type CompressOptions = {
   fallback_target_size_mb?: number | null;
 };
 
+export type BatchCompressOptions = CompressOptions;
+
+export type BatchCompressItem = {
+  id: number;
+  opts: BatchCompressOptions;
+};
+
+export type BatchProgressPayload = {
+  item_id: number;
+  item_percent: number;
+  percent: number;
+  eta: string;
+  status: string;
+  phase: "encoding" | "completed" | "failed" | "cancelled";
+  active_count: number;
+  completed_count: number;
+  total_count: number;
+  attempt?: number;
+  attempt_total?: number;
+  encoder?: string;
+  video_bitrate_k?: number;
+};
+
+export type BatchItemResult = {
+  id: number;
+  input_path: string;
+  success: boolean;
+  cancelled?: boolean;
+  message: string;
+  output_path?: string | null;
+  input_size_bytes?: number | null;
+  output_size_bytes?: number | null;
+};
+
+export type BatchDonePayload = {
+  success: boolean;
+  cancelled: boolean;
+  message: string;
+  results: BatchItemResult[];
+};
+
+export type BatchPublicationPayload = {
+  published_paths: string[];
+  error?: string | null;
+};
+
 export type UpdateCheckResult = {
   update_available: boolean;
   latest_version?: string;
@@ -187,6 +233,10 @@ export function compressVideo(opts: CompressOptions): Promise<string> {
   return invoke<string>("compress_video", { opts });
 }
 
+export function compressBatch(items: BatchCompressItem[]): Promise<BatchDonePayload> {
+  return invoke<BatchDonePayload>("compress_batch", { items });
+}
+
 export function cancelCompression(): Promise<boolean> {
   return invoke<boolean>("cancel_compression");
 }
@@ -207,8 +257,22 @@ export function copyFileToClipboard(path: string): Promise<void> {
   return invoke("copy_file_to_clipboard", { path });
 }
 
+export function copyFilesToClipboard(paths: string[]): Promise<void> {
+  return invoke("copy_files_to_clipboard", { paths });
+}
+
 export function publishStagedOutput(stagedPath: string, destinationPath: string): Promise<string> {
   return invoke<string>("publish_staged_output", { stagedPath, destinationPath });
+}
+
+export function publishBatchStagedOutputs(
+  stagedPaths: string[],
+  destinationPaths: string[]
+): Promise<BatchPublicationPayload> {
+  return invoke<BatchPublicationPayload>("publish_batch_staged_outputs", {
+    stagedPaths,
+    destinationPaths,
+  });
 }
 
 export function discardStagedOutput(stagedPath: string): Promise<void> {
@@ -238,6 +302,21 @@ export function resolveStagingOutputPath(
   outputExtension: OutputExtension = "mp4"
 ): Promise<string> {
   return invoke<string>("resolve_staging_output_path", { inputPath, outputExtension });
+}
+
+export function resolveBatchOutputPaths(
+  inputPaths: string[],
+  outputDirectory: string | undefined,
+  useInputDirectory: boolean,
+  staging: boolean
+): Promise<string[]> {
+  return invoke<string[]>("resolve_batch_output_paths", {
+    inputPaths,
+    outputDirectory,
+    useInputDirectory,
+    staging,
+    outputExtension: "mp4",
+  });
 }
 
 export function getOs(): Promise<string> {

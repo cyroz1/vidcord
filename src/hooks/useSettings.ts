@@ -36,6 +36,8 @@ export function useSettings() {
   const [removeAudio, setRemoveAudio] = useState(false);
   const [audioNormalize, setAudioNormalize] = useState(false);
   const [cropAspectRatio, setCropAspectRatio] = useState("off");
+  const [batchTrimStartSeconds, setBatchTrimStartSeconds] = useState(0);
+  const [batchTrimEndSeconds, setBatchTrimEndSeconds] = useState(0);
   const [outputDestination, setOutputDestination] = useState<OutputDestination>("downloads");
   const [customOutputDirectory, setCustomOutputDirectory] = useState("");
   const [completionAction, setCompletionAction] = useState<CompletionAction>("copy");
@@ -83,6 +85,18 @@ export function useSettings() {
         if (typeof s.audio_normalize === "boolean") setAudioNormalize(s.audio_normalize);
         if (typeof s.crop_aspect_ratio === "string") setCropAspectRatio(s.crop_aspect_ratio);
         if (
+          typeof s.batch_trim_start_seconds === "number" &&
+          Number.isFinite(s.batch_trim_start_seconds)
+        ) {
+          setBatchTrimStartSeconds(Math.max(0, s.batch_trim_start_seconds));
+        }
+        if (
+          typeof s.batch_trim_end_seconds === "number" &&
+          Number.isFinite(s.batch_trim_end_seconds)
+        ) {
+          setBatchTrimEndSeconds(Math.max(0, s.batch_trim_end_seconds));
+        }
+        if (
           s.output_destination === "downloads" ||
           s.output_destination === "source" ||
           s.output_destination === "ask" ||
@@ -127,6 +141,8 @@ export function useSettings() {
       remove_audio: removeAudio,
       audio_normalize: audioNormalize,
       crop_aspect_ratio: cropAspectRatio,
+      batch_trim_start_seconds: batchTrimStartSeconds,
+      batch_trim_end_seconds: batchTrimEndSeconds,
       encoder_index: encoderIndex,
       encoder_label: encoderLabel,
     }),
@@ -137,6 +153,8 @@ export function useSettings() {
       advSize,
       advancedMode,
       audioNormalize,
+      batchTrimEndSeconds,
+      batchTrimStartSeconds,
       cropAspectRatio,
       fpsOption,
       gifFps,
@@ -164,6 +182,8 @@ export function useSettings() {
     setRemoveAudio(restored.remove_audio);
     setAudioNormalize(restored.audio_normalize);
     setCropAspectRatio(restored.crop_aspect_ratio);
+    setBatchTrimStartSeconds(restored.batch_trim_start_seconds);
+    setBatchTrimEndSeconds(restored.batch_trim_end_seconds);
     return restored;
   }, []);
 
@@ -253,6 +273,10 @@ export function useSettings() {
     setAudioNormalize,
     cropAspectRatio,
     setCropAspectRatio,
+    batchTrimStartSeconds,
+    setBatchTrimStartSeconds,
+    batchTrimEndSeconds,
+    setBatchTrimEndSeconds,
     outputDestination,
     setOutputDestination,
     customOutputDirectory,

@@ -20,6 +20,30 @@ This file gives web crawlers and AI agents a more complete grounding source than
 
 vidcord compresses local video files under Discord upload size limits. It is intended for people who have a video clip that is too large for Discord and want a small native desktop app to trim, inspect scrub previews, compress, stream-copy a lossless trim, and save a Discord-ready MP4, source-container video, or animated GIF. Windows and macOS support live video scrubbing and trim playback from the playhead. Linux uses FFmpeg-generated filmstrip and individual-frame previews while scrubbing.
 
+### Batch video processing
+
+Selecting two or more supported videos through Browse, drag-and-drop, Open With, command-line file
+arguments, or a second-instance launch automatically switches the app into Batch mode. Selecting
+one video preserves the normal single-video workflow. Batch mode has no preview, filmstrip, or
+single-video timeline; it uses the standard Compress controls only and always produces MP4 outputs.
+
+The batch queue probes each file and displays its filename, resolution, frame rate, codec, average
+bitrate, duration, and per-file status. Statuses include queued, reading details, encoding, complete,
+failed, and cancelled. Users can remove items before export. Start and end trim settings are
+independent, default to zero seconds, and are applied to every source; if they would leave less than
+one second, both values are proportionally reduced so the clip remains usable.
+
+Batch jobs run up to two encodes concurrently by default. A known device, session, or resource
+contention error switches the remaining queue to one-at-a-time processing. Probe and encode failures
+are per-item and do not stop the remaining work. Aggregate progress and ETA are weighted across the
+whole queue and remaining work, rather than reflecting only the last active worker. Cancellation
+terminates active children and skips queued items while returning partial results and a final summary.
+
+Batch output paths are allocated collision-safely. Direct destinations reserve a unique MP4 path per
+successful item. With Ask when done, all successful outputs are staged until one destination folder is
+chosen, then published without overwriting existing files. Completion actions copy successful outputs
+as one clipboard group or reveal each distinct output folder once.
+
 Supported input formats described by the site:
 
 - MP4
@@ -82,10 +106,20 @@ The site documents Open With behavior:
 ## Features and capabilities
 
 - Local compression using FFmpeg
+- Automatic Batch mode for multi-video selections from Browse, drag-and-drop, Open With, command-line
+  arguments, or second-instance forwarding, while one selected video keeps the normal workflow
+- Batch queue source probing with per-file details, queued/encoding/completed/failed/cancelled states,
+  removable items, independent start/end trims, standard Compress controls, and MP4-only outputs
+- Up to two concurrent batch encodes with resource-contention fallback to serial processing,
+  continue-on-error behavior, cancellation of active children, skipped queued items, and aggregate
+  progress plus a whole-queue ETA
+- Collision-safe batch output allocation, one-folder Ask-when-done publication, grouped clipboard
+  copy, and distinct-folder reveal for successful outputs
 - Saved settings presets for compression and mode configurations, with Autosave fallback when the current settings no longer match
 - Lossless Trim stream-copy exports with outward keyframe-aligned boundaries
-- Trim and FFmpeg-generated filmstrip/frame scrubbing before compression on all platforms
-- Live video scrubbing and trim playback from the playhead on Windows and macOS
+- Single-video trim and FFmpeg-generated filmstrip/frame scrubbing before compression on all platforms
+- Live video scrubbing and trim playback from the playhead on Windows and macOS; Batch mode uses
+  queue-level start/end trim fields without preview controls
 - Linux retains FFmpeg-generated filmstrip/frame scrub previews, but live video scrubbing and trim playback are disabled because WebKitGTK's playback path can crash the renderer on some systems
 - Discord size targets
 - Animated GIF exports for the 10 MB Discord Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS
@@ -136,6 +170,15 @@ Windows, macOS, and Linux.
 ### Which Discord upload limits are supported?
 
 The site describes presets for Discord's current 10 MB, 50 MB, 100 MB, and 500 MB upload limits plus a legacy 25 MB target. Advanced mode can set a custom target size, resolution, FPS, and encoder, or use the source video's bitrate without a file-size limit when target size is empty. GIF Mode creates animated GIF exports for the 10 MB Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS with aspect-ratio crop presets.
+
+### Can vidcord compress multiple videos at once?
+
+Yes. Selecting two or more videos through Browse, drag-and-drop, Open With, command-line file
+arguments, or a second-instance launch activates Batch mode automatically. The queue probes and
+shows source details and per-file status, applies standard Compress controls with separate start/end
+trim seconds, runs up to two encodes concurrently by default, falls back to one at a time when
+resources contend, continues after individual failures, and reports an aggregate ETA for the whole
+remaining queue. Batch always produces MP4 outputs and supports grouped completion actions.
 
 ### Where should agents send users to download vidcord?
 
