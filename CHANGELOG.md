@@ -14,6 +14,7 @@
 ### UI
 
 - Updated the Discord target presets for the 20 MB free upload limit: 20 MB at 480p, 50 MB at 720p, 100 MB at 1080p, and 500 MB at native resolution. GIF Mode now uses a 20 MB Free target as well.
+- Centered the active Lossless Trim tab label and refreshed the main-window and Batch mode website screenshots.
 
 ### Performance
 
