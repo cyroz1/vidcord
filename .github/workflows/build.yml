@@ -154,6 +154,7 @@ jobs:
       contents: read
       id-token: write
       attestations: write
+      artifact-metadata: write
     strategy:
       fail-fast: false
       matrix:
@@ -282,8 +283,6 @@ jobs:
         uses: actions/attest@ce27ba3b4a9a139d9a20a4a07d69fabb52f1e5bc
         with:
           subject-path: artifacts/*
-          predicate-type: https://slsa.dev/provenance/v1
-          predicate: "{}"
 
       - name: Upload artifacts
         if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
