@@ -56,15 +56,14 @@ Supported input formats described by the site:
 
 Discord target size presets described by the site:
 
-- 10 MB — current free-account and base-server limit
-- 25 MB — legacy convenience target, not a current Discord tier
+- 20 MB — current free-account and base-server limit
 - 50 MB — current Nitro Basic and Boost Level 2 limit
 - 100 MB — current Boost Level 3 limit
 - 500 MB — current Nitro limit
 
 Standard mode can leave output FPS unchanged or cap it at 24, 30, or 60 FPS. It hides FPS options above the source video's frame rate. Standard, Advanced, and GIF Mode expose aspect ratio cropping presets (16:9, 1:1, 9:16, 4:3, 3:4, 4:5, 5:4) with automatic native ratio exclusion. Advanced mode can also set a custom target size, resolution, FPS value, optional fixed-gain audio peak normalization that sets the highest sample peak to 0 dB, custom encoder options, and a per-video audio track mixer. GIF Mode keeps the same crop selector while hiding unrelated video controls. Automatic audio selection starts with the first source track and switches to the largest estimated-data track only when it is at least 20% larger. Advanced's mixer lists every source track by name and estimated size, supports individual or select-all choices, encodes each selected track at 128 kbps, accounts for all selected tracks in the video bitrate budget, and is not autosaved or included in presets. A 📷 Snapshot overlay button and Cmd+Shift+S / Ctrl+Shift+S keyboard shortcut extract full-resolution PNG frames following the user's configured output destination and completion action (copy or reveal). The dedicated Lossless Trim mode beside Advanced, or accepting the size-based offer when the selected segment is estimated to fit the target, preserves source streams with a fast keyframe-aligned stream copy and no video re-encoding. Unrelated settings are hidden while audio-track removal remains available. The offer warns that keyframe trimming is less precise and switches modes so the user can choose trim points again before export. Boundaries snap outward to source keyframes so the visible timeline matches the exported range. If the source cannot be stream-copied into MP4, vidcord tries the source container before falling back to normal compression; keyframe discovery failures block the lossless export. An empty advanced FPS field shown as Off means no frame-rate change.
 
-GIF Mode replaces unrelated video settings with focused 10 MB Discord Free and 50 MB Nitro Basic targets plus a 15, 30, or Discord-safe maximum 50 FPS selector, while keeping the aspect-ratio crop selector available. GIF exports remove audio and use an FFmpeg-generated color palette. Higher selected frame rates begin with proportionally lower spatial detail, and oversized results retry with reduced dimensions and palette complexity while preserving the selected FPS.
+GIF Mode replaces unrelated video settings with focused 20 MB Discord Free and 50 MB Nitro Basic targets plus a 15, 30, or Discord-safe maximum 50 FPS selector, while keeping the aspect-ratio crop selector available. GIF exports remove audio and use an FFmpeg-generated color palette. Higher selected frame rates begin with proportionally lower spatial detail, and oversized results retry with reduced dimensions and palette complexity while preserving the selected FPS.
 
 The footer starts at Autosave and supports up to 20 named settings presets. A preset captures the
 compression and mode settings, including the selected encoder identity, and can be saved, restored,
@@ -122,7 +121,7 @@ The site documents Open With behavior:
   queue-level start/end trim fields without preview controls
 - Linux retains FFmpeg-generated filmstrip/frame scrub previews, but live video scrubbing and trim playback are disabled because WebKitGTK's playback path can crash the renderer on some systems
 - Discord size targets
-- Animated GIF exports for the 10 MB Discord Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS
+- Animated GIF exports for the 20 MB Discord Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS
 - Output FPS controls: unchanged, 24 FPS, 30 FPS, 60 FPS, or custom advanced FPS
 - Output destination controls: Downloads, the imported clip's folder, a remembered custom folder, or an ask-when-done save prompt
 - Completion action controls: copy the saved output file itself to the system clipboard by default with a reveal fallback, or always reveal the output
@@ -169,7 +168,7 @@ Windows, macOS, and Linux.
 
 ### Which Discord upload limits are supported?
 
-The site describes presets for Discord's current 10 MB, 50 MB, 100 MB, and 500 MB upload limits plus a legacy 25 MB target. Advanced mode can set a custom target size, resolution, FPS, and encoder, or use the source video's bitrate without a file-size limit when target size is empty. GIF Mode creates animated GIF exports for the 10 MB Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS with aspect-ratio crop presets.
+The site describes presets for Discord's current 20 MB, 50 MB, 100 MB, and 500 MB upload limits. Advanced mode can set a custom target size, resolution, FPS, and encoder, or use the source video's bitrate without a file-size limit when target size is empty. GIF Mode creates animated GIF exports for the 20 MB Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS with aspect-ratio crop presets.
 
 ### Can vidcord compress multiple videos at once?
 

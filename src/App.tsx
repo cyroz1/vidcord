@@ -152,15 +152,24 @@ const FOOTER_META = (
 );
 
 const QUALITY_PRESETS = [
-  { label: "10MB, 480p", size_mb: 10, target_h: 480 },
-  { label: "25MB, 480p", size_mb: 25, target_h: 480 },
-  { label: "50MB, 720p", size_mb: 50, target_h: 720 },
-  { label: "100MB, 1080p", size_mb: 100, target_h: 1080 },
-  { label: "500MB, native res", size_mb: 500, target_h: null },
-];
+  { index: 0, label: "20MB, 480p", size_mb: 20, target_h: 480 },
+  { index: 2, label: "50MB, 720p", size_mb: 50, target_h: 720 },
+  { index: 3, label: "100MB, 1080p", size_mb: 100, target_h: 1080 },
+  { index: 4, label: "500MB, native res", size_mb: 500, target_h: null },
+] as const;
+
+// Keep persisted quality indices for the unaffected targets stable. The removed
+// legacy slot (index 1) now resolves to the 20 MB target for existing settings.
+const QUALITY_PRESETS_BY_INDEX = [
+  QUALITY_PRESETS[0],
+  QUALITY_PRESETS[0],
+  QUALITY_PRESETS[1],
+  QUALITY_PRESETS[2],
+  QUALITY_PRESETS[3],
+] as const;
 
 const GIF_PRESETS = [
-  { label: "10MB", size_mb: 10, target_h: 480 },
+  { label: "20MB", size_mb: 20, target_h: 480 },
   { label: "50MB", size_mb: 50, target_h: 720 },
 ] as const;
 const GIF_FPS_OPTIONS = [15, 30, 50] as const;
@@ -708,7 +717,7 @@ export default function App() {
     () => getAvailableCropOptions(displayW, displayH),
     [displayW, displayH]
   );
-  const selectedQualityPreset = QUALITY_PRESETS[qualityIdx] ?? QUALITY_PRESETS[0];
+  const selectedQualityPreset = QUALITY_PRESETS_BY_INDEX[qualityIdx] ?? QUALITY_PRESETS_BY_INDEX[0];
   const selectedGifPreset = GIF_PRESETS[gifQualityIdx] ?? GIF_PRESETS[0];
   const advancedTargetSize = Number(advSize.trim());
   const hasAdvancedTargetSize = Number.isFinite(advancedTargetSize) && advancedTargetSize > 0;
@@ -1960,7 +1969,7 @@ export default function App() {
         return;
       }
 
-      const preset = QUALITY_PRESETS[qualityIdx] ?? QUALITY_PRESETS[0];
+      const preset = QUALITY_PRESETS_BY_INDEX[qualityIdx] ?? QUALITY_PRESETS_BY_INDEX[0];
       const encoderName = encoders[encoderIdx]?.name ?? "libx264";
       const requestedFps = FPS_OPTIONS.find((option) => option.value === fpsOption)?.fps ?? null;
 
@@ -2418,7 +2427,7 @@ export default function App() {
         encoderName = encoders[encoderIdx]?.name ?? "libx264";
       }
     } else {
-      const preset = QUALITY_PRESETS[qualityIdx] ?? QUALITY_PRESETS[0];
+      const preset = QUALITY_PRESETS_BY_INDEX[qualityIdx] ?? QUALITY_PRESETS_BY_INDEX[0];
       targetSize = preset.size_mb;
       targetH = preset.target_h;
       encoderName = encoders[encoderIdx]?.name ?? "libx264";
@@ -3638,15 +3647,15 @@ export default function App() {
                       <label className="target-label">
                         Discord target
                         <select
-                          value={qualityIdx}
+                          value={qualityIdx === 1 ? 0 : qualityIdx}
                           onChange={(e) => {
                             clearLosslessOfferMode();
                             setQualityIdx(+e.target.value);
                             saveSettings({ quality_index: +e.target.value });
                           }}
                         >
-                          {QUALITY_PRESETS.map((p, i) => (
-                            <option key={p.label} value={i}>
+                          {QUALITY_PRESETS.map((p) => (
+                            <option key={p.label} value={p.index}>
                               {p.label.replace(",", " ·")}
                             </option>
                           ))}

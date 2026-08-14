@@ -252,53 +252,69 @@ pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<
     copy_files_to_clipboard_platform(&[file.to_path_buf()])
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn macos_clipboard_filename(file: &std::path::Path) -> String {
+    file.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| file.to_string_lossy().into_owned())
+}
+
 #[cfg(target_os = "macos")]
 pub(crate) fn copy_files_to_clipboard_platform(files: &[std::path::PathBuf]) -> Result<(), String> {
     if files.is_empty() {
         return Err("No output files are available to copy.".to_string());
     }
-    let mut command = std::process::Command::new("osascript");
-    command.args(macos_clipboard_arguments(files));
-    let copied = run_desktop_command(&mut command)
-        .map_err(|e| format!("Could not access the system clipboard: {e}"))?;
-    if !copied {
-        return Err("Could not copy the file to the system clipboard.".to_string());
+
+    use objc2::rc::Retained;
+    use objc2::runtime::ProtocolObject;
+    use objc2_app_kit::{NSPasteboard, NSPasteboardItem, NSPasteboardWriting};
+    use objc2_foundation::{NSArray, NSString, NSUTF8StringEncoding, NSURL};
+
+    let pasteboard = NSPasteboard::generalPasteboard();
+    let file_url_type = NSString::from_str("public.file-url");
+    let utf8_type = NSString::from_str("public.utf8-plain-text");
+    let utf16_type = NSString::from_str("public.utf16-external-plain-text");
+    let filenames = files
+        .iter()
+        .map(|file| macos_clipboard_filename(file))
+        .collect::<Vec<_>>();
+    let combined_filenames = filenames.join("\r");
+    let mut items: Vec<Retained<ProtocolObject<dyn NSPasteboardWriting>>> =
+        Vec::with_capacity(files.len());
+
+    for (index, file) in files.iter().enumerate() {
+        let url = NSURL::from_file_path(file)
+            .ok_or_else(|| "Could not create a file URL for the clipboard.".to_string())?;
+        let file_reference_url = url.fileReferenceURL().ok_or_else(|| {
+            "Could not create a file reference URL for the clipboard.".to_string()
+        })?;
+        let file_reference = file_reference_url.absoluteString().ok_or_else(|| {
+            "Could not read the file reference URL for the clipboard.".to_string()
+        })?;
+        let file_url_data = file_reference
+            .dataUsingEncoding(NSUTF8StringEncoding)
+            .ok_or_else(|| "Could not encode the file URL for the clipboard.".to_string())?;
+        let item = NSPasteboardItem::new();
+        if !item.setData_forType(&file_url_data, &file_url_type) {
+            return Err("Could not prepare the file URL for the clipboard.".to_string());
+        }
+        if index == 0 {
+            let names = NSString::from_str(&combined_filenames);
+            if !item.setString_forType(&names, &utf8_type)
+                || !item.setString_forType(&names, &utf16_type)
+            {
+                return Err("Could not prepare the file names for the clipboard.".to_string());
+            }
+        }
+        items.push(ProtocolObject::from_retained(item));
+    }
+
+    pasteboard.clearContents();
+    let items = NSArray::from_retained_slice(&items);
+    if !pasteboard.writeObjects(&items) {
+        return Err("Could not copy the files to the system clipboard.".to_string());
     }
     Ok(())
-}
-
-#[cfg(any(target_os = "macos", test))]
-fn macos_clipboard_arguments(files: &[std::path::PathBuf]) -> Vec<std::ffi::OsString> {
-    let mut arguments = vec![
-        "-l".into(),
-        "JavaScript".into(),
-        "-e".into(),
-        r#"
-ObjC.import('AppKit');
-ObjC.import('Foundation');
-
-function run(argv) {
-  if (argv.length === 0) {
-    throw new Error('No files were provided.');
-  }
-
-  var pasteboard = $.NSPasteboard.generalPasteboard;
-  var filenames = $.NSMutableArray.array;
-  argv.forEach(function (path) {
-    filenames.addObject(path);
-  });
-
-  pasteboard.clearContents;
-  if (!ObjC.unwrap(pasteboard.setPropertyListForType(filenames, 'NSFilenamesPboardType'))) {
-    throw new Error('NSPasteboard rejected the file list.');
-  }
-}
-"#
-        .into(),
-        "--".into(),
-    ];
-    arguments.extend(files.iter().map(|file| file.as_os_str().to_os_string()));
-    arguments
 }
 
 #[cfg(target_os = "macos")]
@@ -1066,7 +1082,7 @@ pub async fn discard_staged_output(staged_path: String) -> Result<(), String> {
 mod tests {
     use super::{
         deliver_notification_if_unfocused, escape_xdg_notification_markup,
-        is_cargo_target_profile_directory, macos_clipboard_arguments, macos_notification_arguments,
+        is_cargo_target_profile_directory, macos_clipboard_filename, macos_notification_arguments,
         notification_response_requests_focus, output_path_key, publish_staged_output_blocking,
         publish_staged_output_without_replacing_blocking, publish_to_temporary,
         resolve_output_path_blocking, staging_directory, unique_output_path,
@@ -1348,26 +1364,16 @@ mod tests {
     }
 
     #[test]
-    fn macos_clipboard_arguments_use_multi_file_property_list_and_preserve_paths() {
-        let files = vec![
+    fn macos_clipboard_filenames_preserve_each_file_item_name() {
+        let files = [
             std::path::PathBuf::from("/tmp/clip one.mp4"),
             std::path::PathBuf::from("/tmp/clip-two.mp4"),
         ];
-        let args = macos_clipboard_arguments(&files);
-        let script = args
+        let names = files
             .iter()
-            .find_map(|argument| {
-                argument
-                    .to_str()
-                    .filter(|value| value.contains("NSPasteboard.generalPasteboard"))
-            })
-            .unwrap();
-
-        assert!(script.contains("NSPasteboard.generalPasteboard"));
-        assert!(script.contains("filenames.addObject(path)"));
-        assert!(script.contains("setPropertyListForType(filenames, 'NSFilenamesPboardType')"));
-        assert_eq!(args[args.len() - 2], files[0].as_os_str());
-        assert_eq!(args[args.len() - 1], files[1].as_os_str());
+            .map(|file| macos_clipboard_filename(file))
+            .collect::<Vec<_>>();
+        assert_eq!(names.join("\r"), "clip one.mp4\rclip-two.mp4");
     }
 
     #[test]

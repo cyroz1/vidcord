@@ -93,10 +93,10 @@
               "Local video compression with FFmpeg",
               "Saved named compression and mode presets with Autosave, restore, and delete controls",
               "Lossless Trim stream-copy exports with outward keyframe-aligned boundaries and optional audio-track removal",
-              "Discord upload targets: current 10 MB, 50 MB, 100 MB, and 500 MB limits plus a legacy 25 MB target",
+              "Discord upload targets: current 20 MB, 50 MB, 100 MB, and 500 MB limits",
               "Automatic Batch mode for multiple video selections with per-file source details, separate start/end trim seconds, and standard Compress controls",
               "Two-worker batch encoding with adaptive serial fallback, continue-on-error processing, aggregate progress and whole-queue ETA",
-              "Animated GIF exports for Discord's 10 MB Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS with aspect-ratio cropping",
+              "Animated GIF exports for Discord's 20 MB Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS with aspect-ratio cropping",
               "Output FPS controls with source-aware 24, 30, and 60 FPS presets plus advanced custom FPS",
               "Output destinations for Downloads, the imported clip folder, a remembered custom folder, or an after-compression save prompt",
               "Completion actions that copy the output file to the system clipboard by default or reveal it in the platform file manager",
@@ -151,7 +151,7 @@
                 "name": "Which Discord upload limits are supported?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Presets cover Discord's current 10 MB, 50 MB, 100 MB, and 500 MB limits, plus a legacy 25 MB target. Advanced mode adds custom size, resolution, FPS, and encoder controls. GIF Mode supports 10 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS."
+                  "text": "Presets cover Discord's current 20 MB, 50 MB, 100 MB, and 500 MB limits. Advanced mode adds custom size, resolution, FPS, and encoder controls. GIF Mode supports 20 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS."
                 }
               },
               {
@@ -242,10 +242,9 @@
           <h1 id="hero-title">vidcord</h1>
           <p class="hero-lede">Local video compression for Discord limits.</p>
           <p class="hero-body">
-            Compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord's 10, 50, 100, or
-            500 MB limits—or the legacy 25 MB target—using FFmpeg locally. Lossless Trim cuts on
-            keyframes without re-encoding. GIF Mode creates Discord-ready GIFs at 15, 30, or up to
-            50 FPS.
+            Compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord's 20, 50, 100, or
+            500 MB limits using FFmpeg locally. Lossless Trim cuts on keyframes without re-encoding.
+            GIF Mode creates Discord-ready GIFs at 15, 30, or up to 50 FPS.
           </p>
           <p class="hero-body">
             Select multiple videos to switch automatically to Batch mode, with per-file details,
@@ -380,10 +379,9 @@
           </svg>
           <h2>Discord targets</h2>
           <p>
-            Choose a 10, 50, 100, or 500 MB limit—or the legacy 25 MB target—and let vidcord
-            calculate the bitrate. GIF Mode supports 10 MB Free and 50 MB Nitro Basic exports at 15,
-            30, or up to 50 FPS. Select multiple videos to apply the standard Compress settings
-            through Batch mode.
+            Choose a 20, 50, 100, or 500 MB limit and let vidcord calculate the bitrate. GIF Mode
+            supports 20 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS. Select
+            multiple videos to apply the standard Compress settings through Batch mode.
           </p>
         </article>
         <article>
@@ -567,7 +565,7 @@
             locally.
           </p>
           <ul>
-            <li>Focused 10 MB Free and 50 MB Nitro Basic targets.</li>
+            <li>Focused 20 MB Free and 50 MB Nitro Basic targets.</li>
             <li>Selectable 15, 30, or Discord-safe maximum 50 FPS output.</li>
             <li>Automatic palette generation for cleaner color and motion.</li>
             <li>Adaptive size retries that preserve your selected frame rate.</li>
@@ -753,9 +751,9 @@
           <article>
             <h3>Which Discord upload limits are supported?</h3>
             <p>
-              Presets cover Discord's current 10 MB, 50 MB, 100 MB, and 500 MB limits, plus a legacy
-              25 MB target. Advanced mode adds custom size, resolution, FPS, and encoder controls.
-              GIF Mode supports 10 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS.
+              Presets cover Discord's current 20 MB, 50 MB, 100 MB, and 500 MB limits. Advanced mode
+              adds custom size, resolution, FPS, and encoder controls. GIF Mode supports 20 MB Free
+              and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS.
             </p>
           </article>
           <article>
