@@ -12,7 +12,7 @@ mod settings;
 
 use commands::compression::{
     cancel_compression, cancel_lossless_trim_probe, cancel_preview_frame_generation,
-    cancel_preview_generation, capture_snapshot, compress_video, get_filmstrip,
+    cancel_preview_generation, capture_snapshot, compress_batch, compress_video, get_filmstrip,
     get_lossless_trim_info, get_preview_clip, get_preview_frame, probe,
 };
 use commands::encoders::{
@@ -20,9 +20,10 @@ use commands::encoders::{
     list_ffmpeg_video_encoders,
 };
 use commands::files::{
-    copy_file_to_clipboard, discard_staged_output, get_os, publish_staged_output,
+    copy_file_to_clipboard, copy_files_to_clipboard, discard_staged_output, get_os,
+    publish_batch_staged_outputs, publish_staged_output, resolve_batch_output_paths,
     resolve_output_path, resolve_staging_output_path, send_system_notification,
-    show_in_file_explorer, PendingFile,
+    show_files_in_file_explorer, show_in_file_explorer, PendingFile,
 };
 use commands::updates::{check_for_updates, download_and_open_update_installer};
 use log::vidcord_log;
@@ -37,7 +38,38 @@ struct StartupTiming {
     logged_frontend_ready: AtomicBool,
 }
 
-fn emit_or_defer_open_file(app: &AppHandle, path: String) {
+#[cfg(test)]
+mod tests {
+    use super::append_pending_files;
+
+    #[test]
+    fn pending_open_files_are_merged_before_frontend_ready() {
+        let mut pending = None;
+        append_pending_files(&mut pending, vec!["one.mp4".to_string()]);
+        append_pending_files(
+            &mut pending,
+            vec!["two.mp4".to_string(), "three.mp4".to_string()],
+        );
+        assert_eq!(
+            pending,
+            Some(vec![
+                "one.mp4".to_string(),
+                "two.mp4".to_string(),
+                "three.mp4".to_string()
+            ])
+        );
+    }
+}
+
+fn append_pending_files(pending: &mut Option<Vec<String>>, paths: Vec<String>) {
+    if let Some(existing) = pending {
+        existing.extend(paths);
+    } else {
+        *pending = Some(paths);
+    }
+}
+
+fn emit_or_defer_open_files(app: &AppHandle, paths: Vec<String>) {
     // The pending-file mutex is also the readiness-transition gate. Holding it
     // through the readiness check and emit linearizes file-open delivery with a
     // page reload's Started event, when the old React listener is torn down.
@@ -45,10 +77,10 @@ fn emit_or_defer_open_file(app: &AppHandle, path: String) {
     let mut pending = pending_file.0.lock().unwrap_or_else(|e| e.into_inner());
     if app.state::<WebviewReady>().0.load(Ordering::Acquire) {
         if let Some(win) = app.get_webview_window("main") {
-            let _ = win.emit("open-file", &path);
+            let _ = win.emit("open-file", &paths);
         }
     } else {
-        *pending = Some(path);
+        append_pending_files(&mut pending, paths);
     }
 }
 
@@ -83,9 +115,9 @@ fn frontend_ready(app: AppHandle) {
     let pending_file = app.state::<PendingFile>();
     let mut pending = pending_file.0.lock().unwrap_or_else(|e| e.into_inner());
     app.state::<WebviewReady>().0.store(true, Ordering::Release);
-    if let Some(path) = pending.take() {
+    if let Some(paths) = pending.take() {
         if let Some(win) = app.get_webview_window("main") {
-            let _ = win.emit("open-file", &path);
+            let _ = win.emit("open-file", &paths);
         }
     }
 }
@@ -243,15 +275,17 @@ pub fn run() {
             }
             // If the second instance was opened with a file (e.g. right-click → Open With),
             // forward that file path to the already-running frontend.
-            let path = argv
+            let paths = argv
                 .into_iter()
                 .skip(1)
-                .find(|a| !a.starts_with('-') && std::path::Path::new(a).exists());
-            if let Some(path) = path {
+                .filter(|a| !a.starts_with('-') && std::path::Path::new(a).exists())
+                .collect::<Vec<_>>();
+            if !paths.is_empty() {
                 vidcord_log(&format!(
-                    "Single-instance: forwarding file from second instance: {path}"
+                    "Single-instance: forwarding {} file(s) from second instance",
+                    paths.len()
                 ));
-                emit_or_defer_open_file(app, path);
+                emit_or_defer_open_files(app, paths);
             }
         }))
         .plugin(tauri_plugin_dialog::init())
@@ -277,17 +311,18 @@ pub fn run() {
         })
         .setup(|app| {
             // Handle CLI file argument: `vidcord myfile.mp4`
-            // Filter out macOS -psn_* pseudo-args and flag args. Avoid collecting
-            // every argument because only the first existing file is actionable.
-            let path = std::env::args()
+            // Filter out macOS -psn_* pseudo-args and flag args while retaining
+            // every selected existing video for batch mode.
+            let paths = std::env::args()
                 .skip(1)
-                .find(|arg| !arg.starts_with('-') && std::path::Path::new(arg).exists());
-            if let Some(path) = path {
-                vidcord_log(&format!("Received open-file path: {path}"));
+                .filter(|arg| !arg.starts_with('-') && std::path::Path::new(arg).exists())
+                .collect::<Vec<_>>();
+            if !paths.is_empty() {
+                vidcord_log(&format!("Received {} open-file path(s)", paths.len()));
                 *app.state::<PendingFile>()
                     .0
                     .lock()
-                    .unwrap_or_else(|e| e.into_inner()) = Some(path);
+                    .unwrap_or_else(|e| e.into_inner()) = Some(paths);
             }
             Ok(())
         })
@@ -309,16 +344,21 @@ pub fn run() {
             install_ffmpeg_dependency,
             list_ffmpeg_video_encoders,
             compress_video,
+            compress_batch,
             cancel_compression,
             capture_snapshot,
             check_for_updates,
             download_and_open_update_installer,
+            show_files_in_file_explorer,
             show_in_file_explorer,
             copy_file_to_clipboard,
+            copy_files_to_clipboard,
             get_vaapi_device,
             resolve_output_path,
             resolve_staging_output_path,
+            resolve_batch_output_paths,
             publish_staged_output,
+            publish_batch_staged_outputs,
             discard_staged_output,
             get_os,
             send_system_notification,
@@ -329,13 +369,14 @@ pub fn run() {
             // macOS Finder "Open with" delivers files via Apple Events, not CLI args.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = event {
-                let first_path = urls
+                let paths = urls
                     .into_iter()
-                    .find_map(|u: url::Url| u.to_file_path().ok());
-                if let Some(path) = first_path {
-                    let path_str = path.to_string_lossy().to_string();
-                    vidcord_log(&format!("Received open-file path: {path_str}"));
-                    emit_or_defer_open_file(app_handle, path_str);
+                    .filter_map(|u: url::Url| u.to_file_path().ok())
+                    .map(|path| path.to_string_lossy().to_string())
+                    .collect::<Vec<_>>();
+                if !paths.is_empty() {
+                    vidcord_log(&format!("Received {} open-file path(s)", paths.len()));
+                    emit_or_defer_open_files(app_handle, paths);
                 }
             }
             #[cfg(not(target_os = "macos"))]

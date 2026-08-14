@@ -6,11 +6,17 @@
 
 **vidcord** is a free, open-source **Discord video compressor** for
 **Windows, macOS, and Linux**. Compress videos for Discord's upload size
-limits without uploading them to a website: choose a **10 MB, 25 MB, 50 MB,
+limits without uploading them to a website: choose a **20 MB, 50 MB,
 100 MB, or 500 MB** target, trim the clip, or choose **Lossless Trim** to cut
 on source keyframes without re-encoding. Export a Discord-ready video from
 your desktop. GIF Mode creates animated `.gif` exports for Discord's
-**10 MB Free** and **50 MB Nitro Basic** tiers.
+**20 MB Free** and **50 MB Nitro Basic** tiers.
+
+Select multiple videos through Browse, drag-and-drop, Open With, command-line
+file arguments, or a second app instance to enter **Batch mode** automatically.
+Batch mode probes each file, applies the same standard Compress settings to
+every video, and produces collision-safe MP4 outputs while keeping processing
+local.
 
 vidcord supports **MP4, MOV, MKV, AVI, WebM, FLV, WMV**, and other formats
 handled by your system [FFmpeg](https://ffmpeg.org) install. It wraps FFmpeg
@@ -29,12 +35,12 @@ no uploads, no telemetry.
   <img alt="License"      src="https://img.shields.io/badge/license-MIT-blue">
 </p>
 
-![vidcord main window: loaded video with preset picker and compress button](site/assets/window.png)
+![vidcord Compress mode with video preview, trim timeline, and Discord target controls](site/assets/window.png)
 
 > **At a glance** — Free Discord video compressor for Windows 10/11, macOS 11+,
 > and Linux · x86_64 + aarch64 · Platform-native installers · Compresses MP4, MOV, MKV,
 > AVI, WebM, FLV, WMV to `.mp4` · Targets Discord's current 10 / 50 / 100 /
-> 500 MB limits plus a legacy 25 MB size · Hardware-accelerated (NVENC / AMF / QSV / VAAPI /
+> 500 MB limits · Hardware-accelerated (NVENC / AMF / QSV / VAAPI /
 > VideoToolbox) · Requires system FFmpeg on `PATH` · MIT licensed ·
 > Works fully offline.
 
@@ -64,9 +70,8 @@ no uploads, no telemetry.
 
 ## Why vidcord
 
-Discord's current upload limits are 10 MB (free), 50 MB (Nitro Basic /
-Boost Level 2), 100 MB (Boost Level 3), and 500 MB (Nitro). vidcord also keeps
-a legacy 25 MB target for users who still want that size. It picks a
+Discord's current upload limits are 20 MB (free), 50 MB (Nitro Basic /
+Boost Level 2), 100 MB (Boost Level 3), and 500 MB (Nitro). It picks a
 target bitrate for the clip length you want, lets you choose from the video
 encoders exposed by your FFmpeg install, and drops the result in your
 **Downloads** folder by default. You can instead save beside the imported clip,
@@ -89,10 +94,11 @@ encoding and safer bitrates when FFmpeg's first pass lands too large.
 
 | Need                                                    | How vidcord helps                                                              |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Compress a video for Discord free upload limits         | Use the 10 MB preset, trim the clip, and remove audio if needed.               |
+| Compress a video for Discord free upload limits         | Use the 20 MB preset, trim the clip, and remove audio if needed.               |
 | Compress large MP4, MOV, MKV, AVI, or WebM files        | FFmpeg handles the input format and vidcord exports a Discord-friendly `.mp4`. |
+| Compress several videos in one pass                       | Batch mode applies shared Compress settings, runs up to two encodes in parallel, and keeps going after individual failures. |
 | Preserve original video quality while trimming          | Use Lossless Trim for keyframe-aligned stream-copy output without re-encoding. |
-| Turn a video clip into a Discord GIF                    | Enable GIF Mode and choose the 10 MB Free or 50 MB Nitro Basic target.         |
+| Turn a video clip into a Discord GIF                    | Enable GIF Mode and choose the 20 MB Free or 50 MB Nitro Basic target.         |
 | Make a video fit Discord Nitro or boosted server limits | Pick 50 MB, 100 MB, or 500 MB presets without calculating bitrates by hand.    |
 | Keep video compression private                          | Everything runs locally on your computer; no web upload step.                  |
 | Use GPU video encoding from a simple GUI                | vidcord auto-detects NVENC, AMF, QSV, VAAPI, and VideoToolbox encoders.        |
@@ -106,14 +112,23 @@ encoding and safer bitrates when FFmpeg's first pass lands too large.
   returns the selector to Autosave, while output destination and completion action remain separate
   autosaved preferences.
 
-- **Five quality presets** covering current Discord tiers plus a legacy target:
-  - 10 MB @ 480p — Discord free tier
-  - 25 MB @ 480p — legacy convenience target (not a current Discord tier)
+- **Automatic Batch mode** — selecting two or more videos switches from the single-video
+  workflows automatically. The queue probes and shows each file's resolution, frame rate, codec,
+  bitrate, and duration, with per-file queued, encoding, completed, failed, or cancelled states.
+  Batch uses standard Compress controls only, always writes MP4 output, and provides separate
+  start-trim and end-trim seconds that default to `0`. Remove queued items before export; when a
+  trim would leave less than one second, the two trim values are reduced proportionally.
+- **Parallel batch encoding** — up to two videos encode concurrently by default. If the selected
+  encoder reports a device, session, or resource-contention error, remaining work continues one
+  video at a time. Individual probe or encode failures do not stop the queue, and aggregate
+  progress and ETA cover the whole remaining batch rather than only the currently active item.
+- **Four quality presets** covering current Discord tiers:
+  - 20 MB @ 480p — Discord free tier
   - 50 MB @ 720p — Nitro Basic / Boost Level 2
   - 100 MB @ 1080p — Boost Level 3 or
     [Clips Bypass](https://github.com/riolubruh/YABDP4Nitro?tab=readme-ov-file#clips)
   - 500 MB @ native — Nitro Full
-- **GIF Mode** — export an optimized animated GIF for the 10 MB Discord Free
+- **GIF Mode** — export an optimized animated GIF for the 20 MB Discord Free
   or 50 MB Nitro Basic tier at 15, 30, or Discord-safe maximum 50 FPS. Video-only encoder, audio,
   and unrelated video controls are hidden while GIF Mode is active; the aspect-ratio crop selector
   remains available because it still applies to GIF output. Higher frame rates trade spatial detail
@@ -157,9 +172,9 @@ encoding and safer bitrates when FFmpeg's first pass lands too large.
   outward to source keyframes; vidcord prefers an MP4 stream-copy output, then
   the validated source container, and falls back to normal compression when
   neither is compatible.
-- **In-app playback preview** of the trimmed segment on Windows and macOS,
+- **In-app playback preview** of the trimmed segment in single-video mode on Windows and macOS,
   starting from the current playhead when it is inside the selected range.
-- **Responsive scrub previews** with display-sized filmstrip/frame thumbnails,
+- **Responsive single-video scrub previews** with display-sized filmstrip/frame thumbnails,
   sparse thumbnail generation for long videos, playhead-aware fallback preview clips,
   and hardware-accelerated preview clips where FFmpeg supports them.
 - **Efficient preview fallback** — exact frame requests use display-sized, bounded
@@ -174,12 +189,16 @@ encoding and safer bitrates when FFmpeg's first pass lands too large.
   - Intel Quick Sync (`h264_qsv`, `hevc_qsv`)
   - Linux VAAPI (`h264_vaapi`, `hevc_vaapi`)
   - macOS VideoToolbox (`h264_videotoolbox`, `hevc_videotoolbox`)
-- **Three ways to open a video:** drag-and-drop onto the window, "Open with
-  vidcord" from Explorer/Finder, or the in-app **Browse** button.
+- **Multiple ways to open videos:** drag-and-drop onto the window, "Open with
+  vidcord" from Explorer/Finder, command-line file arguments, a second-instance
+  launch, or the in-app **Browse** button. Selecting one video preserves the
+  normal workflow; selecting multiple videos activates Batch mode.
 - **Source details at import** — see resolution, frame rate, codec, average
-  bitrate, and duration in a compact summary.
+  bitrate, and duration in a compact summary. Batch mode shows those details
+  for every queued video.
 - **Compact fixed-size window** — stays fixed at 460×690, with standard and
-  advanced controls fitted into the app surface without scrollbars.
+  advanced controls fitted into the app surface; long Batch queues use an
+  internal scrollbar rather than expanding the window.
 - **System-matched macOS chrome** — the native title bar follows macOS Light
   and Dark appearances together with the app surface.
 - **Remove audio** — strip the audio track to reclaim space.
@@ -189,22 +208,29 @@ encoding and safer bitrates when FFmpeg's first pass lands too large.
   full attempts and CPU jobs use at most two, including measured bitrate
   correction and CPU fallback before reporting the smallest result.
 - **Real-time progress** with ETA, current attempt number, encoder, and
-  bitrate parsed from FFmpeg's stderr.
+  bitrate parsed from FFmpeg's stderr. Batch progress is aggregated across all
+  items and its ETA estimates the remaining queue.
 - **OS taskbar & dock progress integration** — reflects encoding progress directly on your OS taskbar or dock icon (macOS Dock, Windows Taskbar button, Linux Unity launcher bar) so you can track encoding while unfocused.
 - **Native system notifications** — mirrors every in-app banner and error in order as
   a matching OS notification while vidcord is unfocused on Windows, macOS, and Linux;
   clicking a notification restores and focuses the app.
 - **Race-safe cancellation** — cancelling keeps the job owned until FFmpeg
-  exits, prevents another encode from starting early, and removes partial output.
+  exits, prevents another encode from starting early, removes partial output,
+  terminates active batch children, and skips queued batch items.
 - **Collision-safe auto-named output** — direct destination modes atomically
   reserve `name-vidcord.mp4` before encoding and bump `-1`, `-2`, … if needed,
   even if another file appears at the intended path just before compression starts.
+  Batch allocation reserves one unique MP4 path per input.
 - **Flexible output location** — save to Downloads, beside the imported clip,
   to a remembered custom folder, or choose a filename after compression finishes.
+  For a batch using Ask when done, successful outputs are staged until one
+  destination folder is chosen and then published together.
 - **Verified in-app updates** — update checks run after startup settles and no
   more than once every six hours. After approval, vidcord streams the matching
-  installer to Downloads, validates its size, completeness, and GitHub-published
-  SHA-256 digest, chooses an unused filename, and opens it.
+  installer to Downloads, validates its size and completeness, compares the
+  downloaded bytes with GitHub's published SHA-256 digest, verifies the
+  independent Ed25519 release signature, chooses an unused filename, and opens
+  it.
 - **Automated FFmpeg setup assistance** — Windows installers offer `winget`,
   and first launch prompts to install through the platform package manager.
   No FFmpeg binaries are bundled with vidcord.
@@ -222,9 +248,9 @@ Mode creates an animated `.gif`.
 
 ## Screenshots
 
-| Main window                                                                                             | Advanced mode                                                                                                              | Lossless Trim                                                                                                            | GIF mode                                                                                                                |
-| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| ![vidcord main window with trim timeline, size preset picker, and progress bar](site/assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/assets/advancedmode.png) | ![vidcord Lossless Trim mode with keyframe-aligned trim controls and no video re-encoding](site/assets/losslesstrim.png) | ![vidcord GIF mode with Discord size target, FPS picker, trim timeline, and Create GIF button](site/assets/gifmode.png) |
+| Compress mode                                                                                                  | Advanced mode                                                                                                              | Lossless Trim                                                                                                            | GIF mode                                                                                                                | Batch mode                                                                                                  |
+| -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| ![vidcord Compress mode with Discord target, crop, FPS, encoder, and trim controls](site/assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/assets/advancedmode.png) | ![vidcord Lossless Trim mode with keyframe-aligned trim controls and no video re-encoding](site/assets/losslesstrim.png) | ![vidcord GIF mode with Discord size target, FPS picker, trim timeline, and Create GIF button](site/assets/gifmode.png) | ![vidcord Batch mode with a multi-video queue and aggregate compression progress](site/assets/batchmode.png) |
 
 | Output file                                                                                 | Windows context menu                                                                                            | macOS Finder                                                                                          |
 | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -289,13 +315,18 @@ For more distros, manual installs, or troubleshooting, read
 
 ## Usage
 
+Opening one video uses the normal single-video workflows. Select two or more
+supported videos to activate Batch mode automatically; Browse, drag-and-drop,
+Open With, command-line file arguments, and second-instance forwarding all
+preserve the full selection.
+
 1. **Open a video** — drop it onto the window, right-click → _Open with
    vidcord_ from Explorer/Finder, or click **Browse File**.
 2. **Choose where to save** — use Downloads, the imported clip's folder, a
    remembered custom folder, or **Ask when done**. Choose whether completion
    copies the output file or reveals it.
 3. **Pick a mode or preset** — choose **Compress**, **Advanced**, **Lossless
-   Trim**, or **GIF**, then select a 10/25/50/100/500 MB target where that mode
+   Trim**, or **GIF**, then select a 20/50/100/500 MB target where that mode
    applies. Compress, Advanced, and GIF Mode expose the aspect-ratio crop selector;
    Advanced also exposes custom target size, resolution, FPS, audio normalization,
    and encoder controls. Leaving its size empty uses the source bitrate
@@ -315,6 +346,13 @@ For more distros, manual installs, or troubleshooting, read
    bitrate, and ETA for encoding modes; when the export is done, vidcord reports
    the result and runs your selected completion action.
 
+In Batch mode, the queue shows source details and per-file status while each
+video uses the same standard Compress target, crop, FPS, encoder, audio, and
+separate start/end trim settings. Up to two encodes run in parallel by default;
+resource contention switches the remaining queue to one-at-a-time processing.
+The queue continues after individual probe or encode failures, reports an
+aggregate ETA for the remaining work, and skips queued items when cancelled.
+
 The footer preset selector starts at **Autosave**. Save the current compression
 and mode settings as a named preset, restore it later, or delete it; if you
 change one of those settings afterward, the selector returns to Autosave to
@@ -325,6 +363,13 @@ Compression goes to `~/Downloads/<original-name>-vidcord.mp4` by default, with
 `-1`, `-2`, … appended if the name is taken. Lossless Trim uses the same
 collision-safe naming and may use the source video extension when stream copying
 requires it.
+
+Batch compression always produces MP4 outputs. Direct destinations reserve a
+unique path for every successful item. With **Ask when done**, all successful
+outputs are staged until one destination folder is chosen, then published
+together without overwriting existing files. The default completion action
+copies successful outputs as one clipboard group; the reveal action opens each
+distinct output folder once and selects every successful output in it.
 
 ## Keyboard shortcuts
 
@@ -410,8 +455,8 @@ cargo test  --manifest-path src-tauri/Cargo.toml
 ```
 
 CI treats any clippy warning as an error and also runs npm/Rust audit, version,
-asset, lint, typecheck, test, and build checks. Keep new Rust code
-warning-clean.
+asset, lint, typecheck, test, build-tool integrity, artifact provenance, and
+build checks. Keep new Rust code warning-clean.
 
 ### Build profiles
 
@@ -428,8 +473,10 @@ warning-clean.
 [`.github/workflows/build.yml`](.github/workflows/build.yml) runs a shared
 frontend build, consolidated Rust formatting/audit/clippy/test checks, and a
 5-way platform matrix (Windows x86_64/aarch64, macOS universal, Linux
-x86_64/aarch64). Release tags create installers and draft a GitHub release from
-the matching `CHANGELOG.md` section.
+x86_64/aarch64). Release builds attest their installer provenance, and the
+release job verifies those attestations and creates detached Ed25519 signatures
+before drafting a GitHub release from the matching `CHANGELOG.md` section. See
+[`RELEASE_SIGNING.md`](RELEASE_SIGNING.md) for the signing-key contract.
 
 ## Project layout
 
@@ -501,14 +548,13 @@ Logs live alongside `settings.json` as `vidcord.log` (rotated at 5 MB).
 ### What is the best free Discord video compressor?
 
 vidcord is built specifically for Discord uploads. It offers one-click
-10 MB, 25 MB, 50 MB, 100 MB, and 500 MB targets, including a legacy 25 MB
-option alongside Discord's current limits, and runs
+20 MB, 50 MB, 100 MB, and 500 MB targets and runs
 locally on Windows, macOS, and Linux, and uses FFmpeg instead of uploading
 your video to a third-party compression website.
 
-### How do I compress a video for Discord under 10 MB?
+### How do I compress a video for Discord under 20 MB?
 
-Open the video in vidcord, choose the **10 MB** preset, trim to the part you
+Open the video in vidcord, choose the **20 MB** preset, trim to the part you
 want to share, optionally enable **Remove Audio**, and click **Compress**.
 vidcord calculates the target bitrate from the clip length, verifies the
 finished file size, and retries with safer settings if the output is too
@@ -536,14 +582,13 @@ When an update is available, vidcord offers the matching Windows, macOS, or
 Linux installer and keeps the GitHub release page as a fallback. After you
 approve the download, the app streams it to Downloads, enforces size and
 completeness limits, compares the bytes with the SHA-256 digest published in
-GitHub release metadata, and only then gives the installer an unused filename
-and opens it. This integrity check does not replace platform code signing.
+GitHub release metadata, verifies the pinned independent Ed25519 release
+signature, and only then gives the installer an unused filename and opens it.
+This independent release signature does not replace platform code signing.
 
 ### What are Discord's video upload size limits?
 
-- **Free accounts:** 10 MB per file. The former 25 MB value remains available
-  in vidcord as a legacy target, but Discord no longer documents it as a
-  current account tier.
+- **Free accounts:** 20 MB per file.
 - **Server Boost Level 2 / Nitro Basic uploads:** 50 MB.
 - **Server Boost Level 3 uploads:** 100 MB (also the ceiling for the
   [Clips Bypass](https://github.com/riolubruh/YABDP4Nitro?tab=readme-ov-file#clips)
@@ -566,11 +611,21 @@ Yes. MP4 is the main output format and one of the common supported input
 formats. You can open an existing `.mp4`, trim it, choose a Discord size
 limit, and export a smaller `.mp4` ready to upload.
 
+### Can vidcord compress multiple videos at once?
+
+Yes. Select two or more supported videos through Browse, drag-and-drop, Open
+With, command-line file arguments, or a second-instance launch. vidcord enters
+Batch mode automatically, probes each file, shows source details and status in
+a removable queue, and applies the standard Compress target, crop, FPS,
+encoder, audio, and separate start/end trim settings to every item. Batch
+always produces MP4 files, runs up to two encodes concurrently by default,
+falls back to one at a time after resource contention, continues after
+individual failures, and reports an aggregate ETA for the remaining queue.
+
 ### Does vidcord require Discord Nitro?
 
-No. The 10 MB preset targets free Discord accounts. The 25 MB option is a
-legacy convenience target rather than a current Discord account tier; the
-50 / 100 / 500 MB presets cover Nitro Basic, boosted servers, and Nitro.
+No. The 20 MB preset targets free Discord accounts; the 50 / 100 / 500 MB
+presets cover Nitro Basic, boosted servers, and Nitro.
 
 ### Can I change the output FPS?
 
@@ -673,8 +728,8 @@ redistribute them.
 
 <sub>
 Keywords: Discord video compressor, compress video for Discord, Discord
-10 MB limit, legacy Discord 25 MB target, Discord 50 MB upload, Discord 100 MB
-upload, Discord 500 MB Nitro, shrink MP4 for Discord, FFmpeg GUI,
+20 MB limit, Discord 50 MB upload, Discord 100 MB upload, Discord 500 MB Nitro,
+shrink MP4 for Discord, FFmpeg GUI,
 FFmpeg frontend, cross-platform video compressor, Windows video
 compressor, macOS video compressor, Linux video compressor, open-source
 video compressor, free video compressor.

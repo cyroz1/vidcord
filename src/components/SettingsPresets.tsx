@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
+import { memo, useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import {
   arePresetSettingsEqual,
   type PresetSettings,
@@ -13,7 +13,7 @@ type Props = {
   onDelete: (preset: SettingsPreset) => void;
 };
 
-export default function SettingsPresets({
+export default memo(function SettingsPresets({
   currentSettings,
   presets,
   onRestore,
@@ -138,4 +138,4 @@ export default function SettingsPresets({
       )}
     </div>
   );
-}
+});

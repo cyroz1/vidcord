@@ -458,9 +458,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   }, []);
 
   useEffect(() => {
-    if (!supportsLiveScrubPreview || !filePath) {
+    if (!supportsLiveScrubPreview || !filePath || !probeData) {
       setScrubVideoReady(false);
-      if (!filePath) {
+      if ((!filePath || !probeData) && !playingRef.current) {
         scrubVideoSrcRef.current = null;
         const vid = videoRef.current;
         if (vid && !playingRef.current) {
@@ -533,12 +533,15 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   useEffect(() => {
     if (!filePath || !probeData || probeData.duration <= 0) {
-      filmstripRequestIdRef.current += 1;
       clearFilmstrip();
       return;
     }
+    if (isScrubbing) {
+      // Keep a completed strip available for zero-IPC drag feedback. Clearing
+      // the URLs here would force every scrub update back onto exact frames.
+      return;
+    }
     if (!shouldGenerateFilmstrip(isLinux, directPreviewFailed, initialPreviewSettled)) {
-      filmstripRequestIdRef.current += 1;
       clearFilmstrip();
       return;
     }
@@ -569,8 +572,17 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       if (filmstripRequestIdRef.current === requestId) {
         filmstripRequestIdRef.current += 1;
       }
+      void cancelPreviewGeneration();
     };
-  }, [clearFilmstrip, directPreviewFailed, filePath, initialPreviewSettled, isLinux, probeData]);
+  }, [
+    clearFilmstrip,
+    directPreviewFailed,
+    filePath,
+    initialPreviewSettled,
+    isLinux,
+    isScrubbing,
+    probeData,
+  ]);
 
   // ---------------------------------------------------------------------------
   // Frame preview (static JPEG)
@@ -1156,7 +1168,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         ref={videoRef}
         muted={removeAudio}
         playsInline
-        preload="auto"
+        preload="metadata"
         style={playing || showDirectPreviewVideo ? videoVisibleStyle : videoHiddenStyle}
         onLoadedMetadata={handleVideoReady}
         onCanPlay={handleVideoReady}

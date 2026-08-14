@@ -1,10 +1,11 @@
 use crate::ffmpeg::{
     cancel_lossless_trim_probe as cancel_lossless_trim_probe_job, cancel_preview_frame_jobs,
-    cancel_preview_jobs, cancel_superseded_probe_jobs, clear_preview_caches,
+    cancel_preview_jobs, cancel_superseded_probe_jobs, clear_preview_caches_for_path,
     configure_ffmpeg_command, ffmpeg_missing_error, generate_filmstrip, generate_preview,
     generate_preview_clip, probe_lossless_trim_info, probe_video, start_probe_generation,
 };
 use crate::log::vidcord_log;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -78,14 +79,13 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Shared compression-process state (PID + output path for partial cleanup)
+// Shared compression-process state (all active PIDs + output paths for jobs)
 // ---------------------------------------------------------------------------
 
 struct CompressionState {
     next_job_id: u64,
     active_job_id: Option<u64>,
-    pid: Option<u32>,
-    output_path: Option<String>,
+    processes: HashMap<u32, String>,
     cancelled: bool,
 }
 
@@ -97,8 +97,7 @@ impl CompressionState {
         self.next_job_id = self.next_job_id.wrapping_add(1).max(1);
         let job_id = self.next_job_id;
         self.active_job_id = Some(job_id);
-        self.pid = None;
-        self.output_path = None;
+        self.processes.clear();
         self.cancelled = false;
         Some(job_id)
     }
@@ -111,36 +110,39 @@ impl CompressionState {
         if self.is_cancelled(job_id) {
             return false;
         }
-        self.pid = Some(pid);
-        self.output_path = Some(output_path);
+        self.processes.insert(pid, output_path);
         true
     }
 
-    fn clear_process(&mut self, job_id: u64) {
+    fn clear_process_pid(&mut self, job_id: u64, pid: u32) {
         if self.active_job_id == Some(job_id) {
-            self.pid = None;
-            self.output_path = None;
+            self.processes.remove(&pid);
         }
     }
 
-    fn cancel_active(&mut self) -> Option<(u64, u32)> {
-        let job_id = self.active_job_id?;
+    fn cancel_active(&mut self) -> Vec<(u64, u32)> {
+        let Some(job_id) = self.active_job_id else {
+            return Vec::new();
+        };
         if self.cancelled {
-            return None;
+            return Vec::new();
         }
         self.cancelled = true;
-        self.pid.map(|pid| (job_id, pid))
+        self.processes
+            .keys()
+            .copied()
+            .map(|pid| (job_id, pid))
+            .collect()
     }
 
     fn owns_cancelled_process(&self, job_id: u64, pid: u32) -> bool {
-        self.active_job_id == Some(job_id) && self.pid == Some(pid) && self.cancelled
+        self.active_job_id == Some(job_id) && self.processes.contains_key(&pid) && self.cancelled
     }
 
     fn finish_job(&mut self, job_id: u64) {
         if self.active_job_id == Some(job_id) {
             self.active_job_id = None;
-            self.pid = None;
-            self.output_path = None;
+            self.processes.clear();
             self.cancelled = false;
         }
     }
@@ -153,8 +155,7 @@ fn compression_state() -> &'static Arc<Mutex<CompressionState>> {
         Arc::new(Mutex::new(CompressionState {
             next_job_id: 0,
             active_job_id: None,
-            pid: None,
-            output_path: None,
+            processes: HashMap::new(),
             cancelled: false,
         }))
     })
@@ -232,8 +233,9 @@ pub async fn probe(path: String) -> Result<serde_json::Value, String> {
     let result = tokio::task::spawn_blocking(move || {
         cancel_superseded_probe_jobs(generation);
         cancel_preview_jobs();
-        // Clear both preview caches when loading a new file
-        clear_preview_caches();
+        // Clear only entries associated with this source so switching between
+        // files can reuse recently generated frames for the other sources.
+        clear_preview_caches_for_path(&path);
         probe_video(&path, generation).map_err(|e| e.to_string())
     })
     .await
@@ -379,6 +381,169 @@ pub struct CompressOptions {
     pub fallback_target_size_mb: Option<f64>,
 }
 
+#[derive(Clone, serde::Deserialize)]
+pub struct BatchCompressItem {
+    pub id: usize,
+    pub opts: CompressOptions,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct BatchItemResult {
+    id: usize,
+    input_path: String,
+    success: bool,
+    cancelled: bool,
+    message: String,
+    output_path: Option<String>,
+    input_size_bytes: Option<u64>,
+    output_size_bytes: Option<u64>,
+}
+
+#[derive(serde::Serialize)]
+pub struct BatchDonePayload {
+    success: bool,
+    cancelled: bool,
+    message: String,
+    results: Vec<BatchItemResult>,
+}
+
+struct BatchProgressState {
+    total: usize,
+    item_durations: HashMap<usize, f64>,
+    total_work_seconds: f64,
+    started_at: Instant,
+    item_percents: HashMap<usize, u32>,
+    active: HashSet<usize>,
+    completed: HashSet<usize>,
+    resource_contention: bool,
+}
+
+#[derive(Clone)]
+struct BatchProgressContext {
+    item_id: usize,
+    tracker: Arc<Mutex<BatchProgressState>>,
+}
+
+struct BatchProgressUpdate<'a> {
+    item_percent: u32,
+    phase: &'a str,
+    status: &'a str,
+    eta: &'a str,
+    attempt: Option<usize>,
+    attempt_total: Option<usize>,
+    encoder: Option<&'a str>,
+    video_bitrate_k: Option<u32>,
+}
+
+impl BatchProgressState {
+    fn new(total: usize) -> Self {
+        Self {
+            total,
+            item_durations: HashMap::new(),
+            total_work_seconds: total as f64,
+            started_at: Instant::now(),
+            item_percents: HashMap::new(),
+            active: HashSet::new(),
+            completed: HashSet::new(),
+            resource_contention: false,
+        }
+    }
+
+    fn set_item_duration(&mut self, item_id: usize, duration: f64) {
+        let duration = if duration.is_finite() && duration > 0.0 {
+            duration
+        } else {
+            1.0
+        };
+        let previous = self.item_durations.insert(item_id, duration).unwrap_or(1.0);
+        self.total_work_seconds += duration - previous;
+    }
+
+    fn completed_work_seconds(&self) -> f64 {
+        self.item_percents
+            .iter()
+            .map(|(&item_id, &percent)| {
+                let duration = self.item_durations.get(&item_id).copied().unwrap_or(1.0);
+                duration * f64::from(percent) / 100.0
+            })
+            .sum()
+    }
+
+    fn estimate_eta(&self, fallback: &str) -> String {
+        let completed_work = self.completed_work_seconds();
+        let remaining = (self.total_work_seconds - completed_work).max(0.0);
+        if remaining <= 0.0 {
+            return fallback.to_string();
+        }
+        let elapsed = self.started_at.elapsed().as_secs_f64();
+        estimate_batch_eta_seconds(self.total_work_seconds, completed_work, elapsed)
+            .map(format_eta)
+            .unwrap_or_else(|| fallback.to_string())
+    }
+
+    fn update(&mut self, item_id: usize, item_percent: u32, phase: &str) -> (u32, usize, usize) {
+        let item_percent = item_percent.min(100);
+        self.item_percents.insert(item_id, item_percent);
+        if phase == "encoding" {
+            self.active.insert(item_id);
+        } else {
+            self.active.remove(&item_id);
+            self.completed.insert(item_id);
+            self.item_percents.insert(item_id, 100);
+        }
+        let completed_work = self.completed_work_seconds();
+        let aggregate = if self.total_work_seconds <= 0.0 {
+            0
+        } else {
+            ((completed_work / self.total_work_seconds) * 100.0)
+                .floor()
+                .min(100.0) as u32
+        };
+        (aggregate.min(100), self.active.len(), self.completed.len())
+    }
+}
+
+fn emit_batch_progress(
+    app: &AppHandle,
+    context: &BatchProgressContext,
+    update: BatchProgressUpdate<'_>,
+) {
+    let (percent, active_count, completed_count, total_count, eta) = {
+        let mut tracker = context.tracker.lock().unwrap_or_else(|e| e.into_inner());
+        let (percent, active_count, completed_count) =
+            tracker.update(context.item_id, update.item_percent, update.phase);
+        let eta = tracker.estimate_eta(update.eta);
+        (percent, active_count, completed_count, tracker.total, eta)
+    };
+    let _ = app.emit(
+        "batch-progress",
+        serde_json::json!({
+            "item_id": context.item_id,
+            "item_percent": update.item_percent.min(100),
+            "percent": percent,
+            "eta": eta,
+            "status": update.status,
+            "phase": update.phase,
+            "active_count": active_count,
+            "completed_count": completed_count,
+            "total_count": total_count,
+            "attempt": update.attempt,
+            "attempt_total": update.attempt_total,
+            "encoder": update.encoder,
+            "video_bitrate_k": update.video_bitrate_k
+        }),
+    );
+    set_window_progress(app, Some(percent));
+}
+
+fn mark_batch_resource_contention(context: &BatchProgressContext) {
+    context
+        .tracker
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .resource_contention = true;
+}
+
 /// Returns encoder-specific preset arguments. Without these, software encoders
 /// (libx264/libx265) default to "medium" / "slow" and hardware encoders use
 /// conservative built-in defaults — measurably slower than "fast" / "p4" for
@@ -415,7 +580,7 @@ struct FfmpegRunResult {
     cancelled: bool,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct FfmpegRunContext {
     attempt_index: usize,
     total_attempts: usize,
@@ -423,6 +588,7 @@ struct FfmpegRunContext {
     job_id: u64,
     emit_progress: bool,
     audio_gain_db: Option<f64>,
+    batch: Option<BatchProgressContext>,
 }
 
 fn valid_encoder_name(encoder: &str) -> bool {
@@ -889,6 +1055,19 @@ fn remove_partial_output(output_path: &str) {
     }
 }
 
+fn discard_cancelled_batch_outputs(results: &mut [BatchItemResult]) {
+    for result in results.iter_mut().filter(|result| result.success) {
+        if let Some(output_path) = result.output_path.take() {
+            remove_partial_output(&output_path);
+        }
+        result.success = false;
+        result.cancelled = true;
+        result.input_size_bytes = None;
+        result.output_size_bytes = None;
+        result.message = "Discarded because batch processing was cancelled.".to_string();
+    }
+}
+
 fn was_cancelled(job_id: u64) -> bool {
     let state = compression_state()
         .lock()
@@ -1056,7 +1235,7 @@ fn measure_audio_peak_gain_db(opts: &CompressOptions, job_id: u64) -> Result<Opt
         let mut state = compression_state()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        state.clear_process(job_id);
+        state.clear_process_pid(job_id, pid);
         state.is_cancelled(job_id)
     };
     if cancelled {
@@ -1282,6 +1461,7 @@ async fn run_ffmpeg_attempt(
     let status_text = attempt.status.clone();
     let should_emit_progress = context.emit_progress;
     let clip_duration = context.clip_duration;
+    let batch_context = context.batch.clone();
 
     let run_result = tokio::task::spawn_blocking(move || -> Result<_, std::io::Error> {
         let mut child = ChildProcessGuard::new(child);
@@ -1356,21 +1536,38 @@ async fn run_ffmpeg_attempt(
             } else {
                 "Calculating...".to_string()
             };
-            let _ = app_for_progress.emit(
-                "compress-progress",
-                serde_json::json!({
-                    "percent": pct as u32,
-                    "eta": eta,
-                    "status": status_text.as_str(),
-                    "attempt": attempt_number,
-                    "attempt_total": attempt_total,
-                    "encoder": encoder_name.as_str(),
-                    "video_bitrate_k": video_bitrate_k,
-                    "gif_mode": gif_mode,
-                    "lossless_trim": lossless_trim
-                }),
-            );
-            set_window_progress(&app_for_progress, Some(pct as u32));
+            if let Some(batch_context) = batch_context.as_ref() {
+                emit_batch_progress(
+                    &app_for_progress,
+                    batch_context,
+                    BatchProgressUpdate {
+                        item_percent: pct as u32,
+                        phase: "encoding",
+                        status: status_text.as_str(),
+                        eta: &eta,
+                        attempt: Some(attempt_number),
+                        attempt_total: Some(attempt_total),
+                        encoder: Some(encoder_name.as_str()),
+                        video_bitrate_k: Some(video_bitrate_k),
+                    },
+                );
+            } else {
+                let _ = app_for_progress.emit(
+                    "compress-progress",
+                    serde_json::json!({
+                        "percent": pct as u32,
+                        "eta": eta,
+                        "status": status_text.as_str(),
+                        "attempt": attempt_number,
+                        "attempt_total": attempt_total,
+                        "encoder": encoder_name.as_str(),
+                        "video_bitrate_k": video_bitrate_k,
+                        "gif_mode": gif_mode,
+                        "lossless_trim": lossless_trim
+                    }),
+                );
+                set_window_progress(&app_for_progress, Some(pct as u32));
+            }
         })?;
 
         let status = child.wait()?;
@@ -1383,7 +1580,7 @@ async fn run_ffmpeg_attempt(
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let c = state.is_cancelled(context.job_id);
-        state.clear_process(context.job_id);
+        state.clear_process_pid(context.job_id, pid);
         c
     };
 
@@ -1502,6 +1699,7 @@ async fn try_lossless_trim(
                 job_id,
                 emit_progress: true,
                 audio_gain_db: None,
+                batch: None,
             },
         )
         .await;
@@ -1592,6 +1790,528 @@ fn format_size_mb(bytes: u64) -> String {
     } else {
         format!("{mb:.2} MB")
     }
+}
+
+fn validate_batch_options(opts: &CompressOptions) -> Result<(), String> {
+    if opts.gif_mode || opts.lossless_trim {
+        return Err("Batch mode supports standard Compress controls only.".to_string());
+    }
+    if opts.encoder.eq_ignore_ascii_case("gif")
+        || !std::path::Path::new(&opts.output_path)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"))
+        || opts.fallback_output_path.is_some()
+        || opts.fallback_target_size_mb.is_some()
+    {
+        return Err("Batch mode only supports MP4 compression outputs.".to_string());
+    }
+    if !valid_encoder_name(&opts.encoder) {
+        return Err(format!("Invalid encoder name: {}", opts.encoder));
+    }
+    if !valid_output_fps(opts.output_fps) {
+        return Err("Invalid output FPS".to_string());
+    }
+    if !valid_scale_filter(opts.scale_filter.as_deref()) {
+        return Err("Invalid scale filter".to_string());
+    }
+    if !valid_crop_aspect_ratio(opts.crop_aspect_ratio.as_deref()) {
+        return Err("Invalid crop aspect ratio".to_string());
+    }
+    if !valid_vaapi_device(opts.vaapi_device.as_deref()) {
+        return Err("Invalid VAAPI device".to_string());
+    }
+    if !valid_time_range(opts.start_time, opts.end_time) {
+        return Err("Invalid clip time range".to_string());
+    }
+    Ok(())
+}
+
+fn is_resource_contention_error(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    [
+        "device busy",
+        "resource temporarily unavailable",
+        "resource exhausted",
+        "cannot allocate memory",
+        "no free surfaces",
+        "too many sessions",
+        "session limit",
+        "out of memory",
+        "no capable devices",
+        "no device available",
+        "device creation failed",
+        "failed to create a hardware device",
+        "could not create a hardware device",
+        "surface allocation failed",
+        "encoder is busy",
+        "failed to initialize encoder",
+        "failed to init encoder",
+    ]
+    .iter()
+    .any(|needle| message.contains(needle))
+}
+
+const DEFAULT_BATCH_CONCURRENCY: usize = 2;
+
+fn batch_can_launch(serial_mode: bool, active_count: usize) -> bool {
+    if serial_mode {
+        active_count == 0
+    } else {
+        active_count < DEFAULT_BATCH_CONCURRENCY
+    }
+}
+
+struct BatchEncodedOutput {
+    output_path: String,
+    input_size_bytes: Option<u64>,
+    output_size_bytes: u64,
+    message: String,
+}
+
+async fn run_batch_item(
+    app: &AppHandle,
+    opts: CompressOptions,
+    context: BatchProgressContext,
+    job_id: u64,
+) -> Result<BatchEncodedOutput, String> {
+    let target_bytes = target_size_bytes(opts.target_size_mb)?;
+    let input_path = opts.input_path.clone();
+    let input_size_bytes = tokio::task::spawn_blocking(move || {
+        std::fs::metadata(input_path)
+            .ok()
+            .map(|metadata| metadata.len())
+    })
+    .await
+    .unwrap_or(None);
+
+    let reservation_path = opts.output_path.clone();
+    let mut output_reservation =
+        tokio::task::spawn_blocking(move || OutputReservation::create(reservation_path))
+            .await
+            .map_err(|error| error.to_string())??;
+    let clip_duration = opts.end_time - opts.start_time;
+    let total_attempts = max_adaptive_attempts(&opts, target_bytes.is_some());
+    let mut smallest_oversize_bytes: Option<u64> = None;
+    let mut attempt = initial_attempt(&opts);
+    let mut attempt_index = 0usize;
+    let mut oversize_retries_for_encoder = 0usize;
+    let mut cpu_fallback_used = opts.encoder == "libx264";
+    let mut seen_attempts: HashSet<(String, u32, bool)> = HashSet::new();
+
+    let audio_gain_db = if should_peak_normalize_audio(&opts) {
+        emit_batch_progress(
+            app,
+            &context,
+            BatchProgressUpdate {
+                item_percent: 0,
+                phase: "encoding",
+                status: "Analyzing audio peak...",
+                eta: "Calculating...",
+                attempt: Some(1),
+                attempt_total: Some(total_attempts),
+                encoder: Some(attempt.encoder.as_str()),
+                video_bitrate_k: Some(attempt.video_bitrate_k),
+            },
+        );
+        match analyze_audio_peak_gain_db(&opts, job_id).await {
+            Ok(gain_db) => gain_db,
+            Err(error) => {
+                if is_resource_contention_error(&error) {
+                    mark_batch_resource_contention(&context);
+                }
+                remove_partial_output(&opts.output_path);
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
+
+    loop {
+        if attempt_index >= total_attempts {
+            break;
+        }
+        if !seen_attempts.insert((
+            attempt.encoder.clone(),
+            attempt.video_bitrate_k,
+            attempt.try_hardware_decode,
+        )) {
+            break;
+        }
+
+        emit_batch_progress(
+            app,
+            &context,
+            BatchProgressUpdate {
+                item_percent: 0,
+                phase: "encoding",
+                status: attempt.status.as_str(),
+                eta: "Calculating...",
+                attempt: Some(attempt_index + 1),
+                attempt_total: Some(total_attempts),
+                encoder: Some(attempt.encoder.as_str()),
+                video_bitrate_k: Some(attempt.video_bitrate_k),
+            },
+        );
+
+        let run = match run_ffmpeg_attempt(
+            app,
+            &opts,
+            &attempt,
+            FfmpegRunContext {
+                attempt_index,
+                total_attempts,
+                clip_duration,
+                job_id,
+                emit_progress: true,
+                audio_gain_db,
+                batch: Some(context.clone()),
+            },
+        )
+        .await
+        {
+            Ok(run) => run,
+            Err(error) => {
+                if is_resource_contention_error(&error) {
+                    mark_batch_resource_contention(&context);
+                }
+                remove_partial_output(&opts.output_path);
+                return Err(error);
+            }
+        };
+        if run.cancelled {
+            remove_partial_output(&opts.output_path);
+            return Err("Cancelled".to_string());
+        }
+
+        if !run.exit_status.success() {
+            let diagnostics = run
+                .last_lines
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join("\n");
+            if is_resource_contention_error(&diagnostics) {
+                mark_batch_resource_contention(&context);
+            }
+            if attempt.try_hardware_decode {
+                attempt_index += 1;
+                attempt.try_hardware_decode = false;
+                attempt.status = "Retrying with software decode...".into();
+                continue;
+            }
+            if !cpu_fallback_used && attempt.encoder != "libx264" {
+                cpu_fallback_used = true;
+                oversize_retries_for_encoder = 0;
+                attempt_index += 1;
+                attempt = cpu_fallback_attempt(
+                    attempt.video_bitrate_k,
+                    "Retrying with CPU encoder...".into(),
+                );
+                continue;
+            }
+
+            let err_lines: Vec<&str> = run
+                .last_lines
+                .iter()
+                .rev()
+                .take(5)
+                .map(String::as_str)
+                .collect();
+            let message = format!(
+                "Compression failed.\n\nFFmpeg Error:\n{}",
+                err_lines.join("\n")
+            );
+            remove_partial_output(&opts.output_path);
+            return Err(message);
+        }
+
+        let output_size = match std::fs::metadata(&opts.output_path) {
+            Ok(metadata) => metadata.len(),
+            Err(error) => {
+                let message =
+                    format!("Compression finished but output file could not be read: {error}");
+                remove_partial_output(&opts.output_path);
+                return Err(message);
+            }
+        };
+        let output_is_small_enough = match target_bytes {
+            Some(limit) => output_size <= limit,
+            None => true,
+        };
+        if output_is_small_enough {
+            output_reservation.commit();
+            return Ok(BatchEncodedOutput {
+                output_path: opts.output_path,
+                input_size_bytes,
+                output_size_bytes: output_size,
+                message: format!("Compressed to {}.", format_size_mb(output_size)),
+            });
+        }
+
+        smallest_oversize_bytes = match smallest_oversize_bytes {
+            Some(current) if current <= output_size => Some(current),
+            _ => Some(output_size),
+        };
+        let Some(limit) = target_bytes else {
+            break;
+        };
+        let Some((next_attempt, next_retries, next_cpu_fallback_used)) = next_oversize_attempt(
+            &attempt,
+            limit,
+            output_size,
+            oversize_retries_for_encoder,
+            cpu_fallback_used,
+        ) else {
+            break;
+        };
+        attempt_index += 1;
+        attempt = next_attempt;
+        oversize_retries_for_encoder = next_retries;
+        cpu_fallback_used = next_cpu_fallback_used;
+    }
+
+    remove_partial_output(&opts.output_path);
+    Err(match (smallest_oversize_bytes, target_bytes) {
+        (Some(smallest), Some(limit)) => format!(
+            "Compression could not reach target size. Smallest result was {}, above target {}.",
+            format_size_mb(smallest),
+            format_size_mb(limit)
+        ),
+        _ => "Compression could not reach the requested target size after retrying lower bitrates."
+            .to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn compress_batch(
+    app: AppHandle,
+    items: Vec<BatchCompressItem>,
+) -> Result<BatchDonePayload, String> {
+    if items.is_empty() {
+        return Err("Batch mode requires at least one video.".to_string());
+    }
+    let mut ids = HashSet::new();
+    for item in &items {
+        if !ids.insert(item.id) {
+            return Err("Batch item identifiers must be unique.".to_string());
+        }
+        validate_batch_options(&item.opts)?;
+    }
+
+    let job_id = begin_compression_job()?;
+    let _job_guard = CompressionJobGuard(job_id);
+    let _progress_guard = WindowProgressGuard(&app);
+    tokio::task::spawn_blocking(cancel_preview_jobs)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let mut tracker_state = BatchProgressState::new(items.len());
+    for item in &items {
+        tracker_state.set_item_duration(item.id, item.opts.end_time - item.opts.start_time);
+    }
+    let tracker = Arc::new(Mutex::new(tracker_state));
+    let mut workers = tokio::task::JoinSet::new();
+    let mut next_index = 0usize;
+    let mut active_count = 0usize;
+    let mut serial_mode = false;
+    let mut cancellation_requested = false;
+    let mut results = Vec::with_capacity(items.len());
+
+    loop {
+        if tracker
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .resource_contention
+        {
+            serial_mode = true;
+        }
+        if was_cancelled(job_id) {
+            cancellation_requested = true;
+        }
+
+        while next_index < items.len()
+            && !cancellation_requested
+            && batch_can_launch(serial_mode, active_count)
+        {
+            let item = items[next_index].clone();
+            let context = BatchProgressContext {
+                item_id: item.id,
+                tracker: Arc::clone(&tracker),
+            };
+            emit_batch_progress(
+                &app,
+                &context,
+                BatchProgressUpdate {
+                    item_percent: 0,
+                    phase: "encoding",
+                    status: "Starting...",
+                    eta: "Calculating...",
+                    attempt: Some(1),
+                    attempt_total: None,
+                    encoder: Some(item.opts.encoder.as_str()),
+                    video_bitrate_k: Some(item.opts.video_bitrate_k),
+                },
+            );
+            let app_for_worker = app.clone();
+            workers.spawn(async move {
+                let result =
+                    run_batch_item(&app_for_worker, item.opts.clone(), context, job_id).await;
+                (item, result)
+            });
+            next_index += 1;
+            active_count += 1;
+        }
+
+        if active_count == 0 {
+            break;
+        }
+
+        let Some(joined) = workers.join_next().await else {
+            break;
+        };
+        active_count = active_count.saturating_sub(1);
+        let (item, result) = joined.map_err(|error| format!("Batch worker failed: {error}"))?;
+        match result {
+            Ok(output) => {
+                emit_batch_progress(
+                    &app,
+                    &BatchProgressContext {
+                        item_id: item.id,
+                        tracker: Arc::clone(&tracker),
+                    },
+                    BatchProgressUpdate {
+                        item_percent: 100,
+                        phase: "completed",
+                        status: output.message.as_str(),
+                        eta: "Done",
+                        attempt: None,
+                        attempt_total: None,
+                        encoder: None,
+                        video_bitrate_k: None,
+                    },
+                );
+                results.push(BatchItemResult {
+                    id: item.id,
+                    input_path: item.opts.input_path,
+                    success: true,
+                    cancelled: false,
+                    message: output.message,
+                    output_path: Some(output.output_path),
+                    input_size_bytes: output.input_size_bytes,
+                    output_size_bytes: Some(output.output_size_bytes),
+                });
+            }
+            Err(error) => {
+                let cancelled = error == "Cancelled" || was_cancelled(job_id);
+                if cancelled {
+                    cancellation_requested = true;
+                }
+                if is_resource_contention_error(&error) {
+                    serial_mode = true;
+                }
+                emit_batch_progress(
+                    &app,
+                    &BatchProgressContext {
+                        item_id: item.id,
+                        tracker: Arc::clone(&tracker),
+                    },
+                    BatchProgressUpdate {
+                        item_percent: 100,
+                        phase: if cancelled { "cancelled" } else { "failed" },
+                        status: error.as_str(),
+                        eta: if cancelled { "Cancelled" } else { "Failed" },
+                        attempt: None,
+                        attempt_total: None,
+                        encoder: None,
+                        video_bitrate_k: None,
+                    },
+                );
+                results.push(BatchItemResult {
+                    id: item.id,
+                    input_path: item.opts.input_path,
+                    success: false,
+                    cancelled,
+                    message: error,
+                    output_path: None,
+                    input_size_bytes: None,
+                    output_size_bytes: None,
+                });
+            }
+        }
+    }
+
+    while let Some(joined) = workers.join_next().await {
+        let (item, result) = joined.map_err(|error| format!("Batch worker failed: {error}"))?;
+        let message = result
+            .err()
+            .unwrap_or_else(|| "Batch worker completed after cancellation.".to_string());
+        results.push(BatchItemResult {
+            id: item.id,
+            input_path: item.opts.input_path,
+            success: false,
+            cancelled: true,
+            message,
+            output_path: None,
+            input_size_bytes: None,
+            output_size_bytes: None,
+        });
+    }
+
+    while next_index < items.len() {
+        let item = &items[next_index];
+        let message = "Skipped because batch processing was cancelled.".to_string();
+        emit_batch_progress(
+            &app,
+            &BatchProgressContext {
+                item_id: item.id,
+                tracker: Arc::clone(&tracker),
+            },
+            BatchProgressUpdate {
+                item_percent: 100,
+                phase: "cancelled",
+                status: message.as_str(),
+                eta: "Cancelled",
+                attempt: None,
+                attempt_total: None,
+                encoder: None,
+                video_bitrate_k: None,
+            },
+        );
+        results.push(BatchItemResult {
+            id: item.id,
+            input_path: item.opts.input_path.clone(),
+            success: false,
+            cancelled: true,
+            message,
+            output_path: None,
+            input_size_bytes: None,
+            output_size_bytes: None,
+        });
+        next_index += 1;
+    }
+
+    results.sort_by_key(|result| result.id);
+    let cancelled = cancellation_requested || results.iter().any(|result| result.cancelled);
+    if cancelled {
+        discard_cancelled_batch_outputs(&mut results);
+    }
+    let succeeded = results.iter().filter(|result| result.success).count();
+    let failed = results.len().saturating_sub(succeeded);
+    let message = if cancelled {
+        format!("Batch cancelled: {succeeded} succeeded, {failed} skipped or failed.")
+    } else {
+        format!("Batch complete: {succeeded} succeeded, {failed} failed.")
+    };
+    let payload = BatchDonePayload {
+        success: !cancelled && failed == 0,
+        cancelled,
+        message,
+        results,
+    };
+    let _ = app.emit("batch-done", &payload);
+    Ok(payload)
 }
 
 #[tauri::command]
@@ -1753,6 +2473,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                             job_id,
                             emit_progress: false,
                             audio_gain_db: None,
+                            batch: None,
                         },
                     )
                     .await
@@ -1860,6 +2581,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 job_id,
                 emit_progress: true,
                 audio_gain_db,
+                batch: None,
             },
         )
         .await
@@ -2048,19 +2770,19 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
 #[tauri::command]
 pub async fn cancel_compression(app: AppHandle) -> bool {
     set_window_progress(&app, None);
-    let pid = {
+    let pids = {
         let mut state = compression_state()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let had_active_job = state.active_job_id.is_some();
-        let pid = state.cancel_active();
+        let pids = state.cancel_active();
         if !had_active_job {
             return false;
         }
-        pid
+        pids
     };
 
-    if let Some((job_id, pid)) = pid {
+    for (job_id, pid) in pids {
         let _ =
             tokio::task::spawn_blocking(move || terminate_compression_process(job_id, pid)).await;
     }
@@ -2199,6 +2921,31 @@ pub fn parse_ffmpeg_time(line: &str) -> Option<f64> {
         return None;
     }
     Some(h * 3600.0 + m * 60.0 + s)
+}
+
+fn estimate_batch_eta_seconds(
+    total_work_seconds: f64,
+    completed_work_seconds: f64,
+    elapsed_seconds: f64,
+) -> Option<f64> {
+    if !total_work_seconds.is_finite()
+        || total_work_seconds <= 0.0
+        || !completed_work_seconds.is_finite()
+        || completed_work_seconds <= 0.0
+        || !elapsed_seconds.is_finite()
+        || elapsed_seconds <= 0.0
+    {
+        return None;
+    }
+    let remaining_work_seconds = (total_work_seconds - completed_work_seconds).max(0.0);
+    if remaining_work_seconds <= 0.0 {
+        return Some(0.0);
+    }
+    let rate = completed_work_seconds / elapsed_seconds;
+    if !rate.is_finite() || rate <= 0.0 {
+        return None;
+    }
+    Some(remaining_work_seconds / rate)
 }
 
 pub fn format_eta(secs: f64) -> String {
@@ -2423,6 +3170,21 @@ mod tests {
     #[test]
     fn test_format_eta_negative() {
         assert_eq!(format_eta(-1.0), "Calculating...");
+    }
+
+    #[test]
+    fn batch_eta_uses_remaining_work_and_elapsed_batch_throughput() {
+        assert_eq!(estimate_batch_eta_seconds(120.0, 60.0, 10.0), Some(10.0));
+        assert_eq!(estimate_batch_eta_seconds(120.0, 0.0, 10.0), None);
+        assert_eq!(estimate_batch_eta_seconds(120.0, 120.0, 10.0), Some(0.0));
+    }
+
+    #[test]
+    fn batch_progress_weights_aggregate_percent_by_clip_duration() {
+        let mut tracker = BatchProgressState::new(2);
+        tracker.set_item_duration(0, 60.0);
+        tracker.set_item_duration(1, 180.0);
+        assert_eq!(tracker.update(0, 50, "encoding").0, 12);
     }
 
     fn retry_test_options(encoder: &str, target_size_mb: Option<f64>) -> CompressOptions {
@@ -2768,24 +3530,60 @@ mod tests {
         let mut state = CompressionState {
             next_job_id: 0,
             active_job_id: None,
-            pid: None,
-            output_path: None,
+            processes: HashMap::new(),
             cancelled: false,
         };
 
         let first = state.try_begin_job().unwrap();
         assert!(state.try_begin_job().is_none());
         assert!(state.register_process(first, 42, "first.mp4".into()));
-        assert_eq!(state.cancel_active(), Some((first, 42)));
-        assert_eq!(state.cancel_active(), None);
+        assert!(state.register_process(first, 43, "second.mp4".into()));
+        let mut cancelled = state.cancel_active();
+        cancelled.sort_unstable();
+        assert_eq!(cancelled, vec![(first, 42), (first, 43)]);
+        assert!(state.cancel_active().is_empty());
         assert!(state.is_cancelled(first));
         assert!(state.owns_cancelled_process(first, 42));
+        assert!(state.owns_cancelled_process(first, 43));
 
         state.finish_job(first);
         let second = state.try_begin_job().unwrap();
         assert_ne!(first, second);
         state.finish_job(first);
         assert_eq!(state.active_job_id, Some(second));
+    }
+
+    #[test]
+    fn resource_contention_errors_trigger_serial_fallback_detection() {
+        assert!(is_resource_contention_error(
+            "Device busy while opening NVENC"
+        ));
+        assert!(is_resource_contention_error("No free surfaces available"));
+        assert!(is_resource_contention_error("Failed to initialize encoder"));
+        assert!(is_resource_contention_error(
+            "Failed to create a hardware device"
+        ));
+        assert!(is_resource_contention_error("Session limit reached"));
+        assert!(is_resource_contention_error("Encoder is busy"));
+        assert!(!is_resource_contention_error("Invalid input file"));
+    }
+
+    #[test]
+    fn batch_scheduler_allows_two_workers_then_drains_to_one() {
+        assert!(batch_can_launch(false, 0));
+        assert!(batch_can_launch(false, 1));
+        assert!(!batch_can_launch(false, DEFAULT_BATCH_CONCURRENCY));
+        assert!(batch_can_launch(true, 0));
+        assert!(!batch_can_launch(true, 1));
+    }
+
+    #[test]
+    fn batch_progress_tracks_active_and_completed_items() {
+        let mut tracker = BatchProgressState::new(2);
+        assert_eq!(tracker.update(0, 25, "encoding"), (12, 1, 0));
+        assert_eq!(tracker.active.len(), 1);
+        assert_eq!(tracker.update(0, 100, "completed"), (50, 0, 1));
+        assert_eq!(tracker.update(1, 100, "failed"), (100, 0, 2));
     }
 
     #[test]
@@ -2821,6 +3619,41 @@ mod tests {
         assert_eq!(std::fs::read(&completed).unwrap(), b"encoded");
 
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn cancelled_batch_outputs_are_removed_and_reclassified() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let output = std::env::temp_dir().join(format!(
+            "vidcord-cancelled-batch-output-{}-{unique}.mp4",
+            std::process::id()
+        ));
+        std::fs::write(&output, b"encoded").unwrap();
+
+        let mut results = vec![BatchItemResult {
+            id: 1,
+            input_path: "input.mp4".to_string(),
+            success: true,
+            cancelled: false,
+            message: "Compressed".to_string(),
+            output_path: Some(output.to_string_lossy().into_owned()),
+            input_size_bytes: Some(100),
+            output_size_bytes: Some(50),
+        }];
+
+        discard_cancelled_batch_outputs(&mut results);
+
+        assert!(!output.exists());
+        assert!(!results[0].success);
+        assert!(results[0].cancelled);
+        assert!(results[0].output_path.is_none());
+        assert_eq!(
+            results[0].message,
+            "Discarded because batch processing was cancelled."
+        );
     }
 
     #[test]

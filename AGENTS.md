@@ -385,7 +385,9 @@ the current process PATH. This handles PATH registry updates that cannot propaga
 running vidcord process. Keep the lookup constrained to WinGet roots and require both
 `ffmpeg.exe` and `ffprobe.exe` before using a directory.
 
-Call `clear_preview_caches()` when the frontend loads a new file (already done in `probe`).
+Call `clear_preview_caches_for_path(path)` when the frontend loads a new file
+(already done in `probe`) so preview reuse survives switching sources without
+retaining stale entries for the file being re-probed.
 FFprobe child PIDs have a separate generation token and a six-second deadline. Starting a newer
 import must terminate the older probe so stale metadata work cannot consume the full timeout.
 Preview FFmpeg child PIDs are tracked by a generation token. Call `cancel_preview_jobs()` before

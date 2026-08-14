@@ -1,6 +1,6 @@
 [package]
 name = "vidcord"
-version = "7.2.0"
+version = "7.3.0"
 description = "Compress videos for Discord"
 authors = ["cyroz1"]
 edition = "2021"
@@ -27,6 +27,7 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 semver = "1"
+ring = "0.17"
 sha2 = "0.10"
 url = "2"
 regex-lite = "0.1"
@@ -40,9 +41,21 @@ notify-rust = "4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 notify-rust = { version = "4", features = ["preview-macos-un"] }
+objc2 = { version = "0.6", default-features = false }
 objc2-app-kit = { version = "0.3", default-features = false, features = [
   "NSColor",
+  "NSPasteboard",
+  "NSPasteboardItem",
+  "NSWorkspace",
   "NSWindow",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+  "NSArray",
+  "NSData",
+  "NSObject",
+  "NSString",
+  "NSURL",
+  "std",
 ] }
 
 [target.'cfg(windows)'.dependencies]
@@ -50,10 +63,12 @@ windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Storage_FileSystem",
   "Win32_System_DataExchange",
+  "Win32_System_Com",
   "Win32_System_Memory",
   "Win32_System_Ole",
   "Win32_System_Threading",
   "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
 ] }
 
 [profile.release]

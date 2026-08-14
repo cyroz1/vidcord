@@ -11,7 +11,7 @@ This file gives web crawlers and AI agents a more complete grounding source than
 - Source repository: https://github.com/cyroz1/vidcord
 - Latest release page: https://github.com/cyroz1/vidcord/releases/latest
 - License: MIT
-- Current website-referenced app version: 7.2.0
+- Current website-referenced app version: 7.3.0
 - App framework: Tauri 2 desktop app with a React and TypeScript frontend plus Rust backend
 - Primary dependency: system FFmpeg, specifically `ffmpeg` and `ffprobe` available on PATH; vidcord can help install it through platform package managers
 - Windows setup behavior: after installing `Gyan.FFmpeg` with WinGet, vidcord checks WinGet's aliases and package directory directly so the running app does not need a Windows restart to receive an updated PATH
@@ -19,6 +19,30 @@ This file gives web crawlers and AI agents a more complete grounding source than
 ## What vidcord does
 
 vidcord compresses local video files under Discord upload size limits. It is intended for people who have a video clip that is too large for Discord and want a small native desktop app to trim, inspect scrub previews, compress, stream-copy a lossless trim, and save a Discord-ready MP4, source-container video, or animated GIF. Windows and macOS support live video scrubbing and trim playback from the playhead. Linux uses FFmpeg-generated filmstrip and individual-frame previews while scrubbing.
+
+### Batch video processing
+
+Selecting two or more supported videos through Browse, drag-and-drop, Open With, command-line file
+arguments, or a second-instance launch automatically switches the app into Batch mode. Selecting
+one video preserves the normal single-video workflow. Batch mode has no preview, filmstrip, or
+single-video timeline; it uses the standard Compress controls only and always produces MP4 outputs.
+
+The batch queue probes each file and displays its filename, resolution, frame rate, codec, average
+bitrate, duration, and per-file status. Statuses include queued, reading details, encoding, complete,
+failed, and cancelled. Users can remove items before export. Start and end trim settings are
+independent, default to zero seconds, and are applied to every source; if they would leave less than
+one second, both values are proportionally reduced so the clip remains usable.
+
+Batch jobs run up to two encodes concurrently by default. A known device, session, or resource
+contention error switches the remaining queue to one-at-a-time processing. Probe and encode failures
+are per-item and do not stop the remaining work. Aggregate progress and ETA are weighted across the
+whole queue and remaining work, rather than reflecting only the last active worker. Cancellation
+terminates active children and skips queued items while returning partial results and a final summary.
+
+Batch output paths are allocated collision-safely. Direct destinations reserve a unique MP4 path per
+successful item. With Ask when done, all successful outputs are staged until one destination folder is
+chosen, then published without overwriting existing files. Completion actions copy successful outputs
+as one clipboard group or reveal each distinct output folder once with every successful output selected.
 
 Supported input formats described by the site:
 
@@ -32,15 +56,14 @@ Supported input formats described by the site:
 
 Discord target size presets described by the site:
 
-- 10 MB — current free-account and base-server limit
-- 25 MB — legacy convenience target, not a current Discord tier
+- 20 MB — current free-account and base-server limit
 - 50 MB — current Nitro Basic and Boost Level 2 limit
 - 100 MB — current Boost Level 3 limit
 - 500 MB — current Nitro limit
 
 Standard mode can leave output FPS unchanged or cap it at 24, 30, or 60 FPS. It hides FPS options above the source video's frame rate. Standard, Advanced, and GIF Mode expose aspect ratio cropping presets (16:9, 1:1, 9:16, 4:3, 3:4, 4:5, 5:4) with automatic native ratio exclusion. Advanced mode can also set a custom target size, resolution, FPS value, optional fixed-gain audio peak normalization that sets the highest sample peak to 0 dB, custom encoder options, and a per-video audio track mixer. GIF Mode keeps the same crop selector while hiding unrelated video controls. Automatic audio selection starts with the first source track and switches to the largest estimated-data track only when it is at least 20% larger. Advanced's mixer lists every source track by name and estimated size, supports individual or select-all choices, encodes each selected track at 128 kbps, accounts for all selected tracks in the video bitrate budget, and is not autosaved or included in presets. A 📷 Snapshot overlay button and Cmd+Shift+S / Ctrl+Shift+S keyboard shortcut extract full-resolution PNG frames following the user's configured output destination and completion action (copy or reveal). The dedicated Lossless Trim mode beside Advanced, or accepting the size-based offer when the selected segment is estimated to fit the target, preserves source streams with a fast keyframe-aligned stream copy and no video re-encoding. Unrelated settings are hidden while audio-track removal remains available. The offer warns that keyframe trimming is less precise and switches modes so the user can choose trim points again before export. Boundaries snap outward to source keyframes so the visible timeline matches the exported range. If the source cannot be stream-copied into MP4, vidcord tries the source container before falling back to normal compression; keyframe discovery failures block the lossless export. An empty advanced FPS field shown as Off means no frame-rate change.
 
-GIF Mode replaces unrelated video settings with focused 10 MB Discord Free and 50 MB Nitro Basic targets plus a 15, 30, or Discord-safe maximum 50 FPS selector, while keeping the aspect-ratio crop selector available. GIF exports remove audio and use an FFmpeg-generated color palette. Higher selected frame rates begin with proportionally lower spatial detail, and oversized results retry with reduced dimensions and palette complexity while preserving the selected FPS.
+GIF Mode replaces unrelated video settings with focused 20 MB Discord Free and 50 MB Nitro Basic targets plus a 15, 30, or Discord-safe maximum 50 FPS selector, while keeping the aspect-ratio crop selector available. GIF exports remove audio and use an FFmpeg-generated color palette. Higher selected frame rates begin with proportionally lower spatial detail, and oversized results retry with reduced dimensions and palette complexity while preserving the selected FPS.
 
 The footer starts at Autosave and supports up to 20 named settings presets. A preset captures the
 compression and mode settings, including the selected encoder identity, and can be saved, restored,
@@ -56,7 +79,7 @@ independent autosaved preferences.
 - The app does not require an account.
 - The app does not collect telemetry.
 - The app automatically checks GitHub Releases for updates at most once every six hours, deferred for eight seconds after startup.
-- The app downloads an update installer only after the user chooses to install an available update. It selects the current platform asset, streams it to Downloads, validates its size and completeness, verifies the GitHub-published SHA-256 digest, publishes it under an unused filename, and only then opens it.
+- The app downloads an update installer only after the user chooses to install an available update. It selects the current platform asset, streams it to Downloads, validates its size and completeness, verifies the GitHub-published SHA-256 digest and independent Ed25519 release signature, publishes it under an unused filename, and only then opens it.
 - The website may call the public GitHub API to find the latest release assets and Shields.io to display the aggregate release download count. Neither request contains video data, and failures do not block the page's fallback download links.
 
 ## Platform and download behavior
@@ -82,13 +105,23 @@ The site documents Open With behavior:
 ## Features and capabilities
 
 - Local compression using FFmpeg
+- Automatic Batch mode for multi-video selections from Browse, drag-and-drop, Open With, command-line
+  arguments, or second-instance forwarding, while one selected video keeps the normal workflow
+- Batch queue source probing with per-file details, queued/encoding/completed/failed/cancelled states,
+  removable items, independent start/end trims, standard Compress controls, and MP4-only outputs
+- Up to two concurrent batch encodes with resource-contention fallback to serial processing,
+  continue-on-error behavior, cancellation of active children, skipped queued items, and aggregate
+  progress plus a whole-queue ETA
+- Collision-safe batch output allocation, one-folder Ask-when-done publication, grouped clipboard
+  copy, and distinct-folder reveal for successful outputs
 - Saved settings presets for compression and mode configurations, with Autosave fallback when the current settings no longer match
 - Lossless Trim stream-copy exports with outward keyframe-aligned boundaries
-- Trim and FFmpeg-generated filmstrip/frame scrubbing before compression on all platforms
-- Live video scrubbing and trim playback from the playhead on Windows and macOS
+- Single-video trim and FFmpeg-generated filmstrip/frame scrubbing before compression on all platforms
+- Live video scrubbing and trim playback from the playhead on Windows and macOS; Batch mode uses
+  queue-level start/end trim fields without preview controls
 - Linux retains FFmpeg-generated filmstrip/frame scrub previews, but live video scrubbing and trim playback are disabled because WebKitGTK's playback path can crash the renderer on some systems
 - Discord size targets
-- Animated GIF exports for the 10 MB Discord Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS
+- Animated GIF exports for the 20 MB Discord Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS
 - Output FPS controls: unchanged, 24 FPS, 30 FPS, 60 FPS, or custom advanced FPS
 - Output destination controls: Downloads, the imported clip's folder, a remembered custom folder, or an ask-when-done save prompt
 - Completion action controls: copy the saved output file itself to the system clipboard by default with a reveal fallback, or always reveal the output
@@ -103,7 +136,7 @@ The site documents Open With behavior:
 - User-selectable CPU/GPU encoders, with hardware-assisted decoding only where it is beneficial, software decode on Windows and macOS to avoid unnecessary transfer overhead, and CPU fallback when a hardware path fails
 - GPU acceleration support when FFmpeg exposes supported encoders
 - Fixed 460×690 non-resizable application window
-- User-approved update installer downloads with size, completeness, collision, and GitHub SHA-256 integrity checks
+- User-approved update installer downloads with size, completeness, collision, GitHub SHA-256 integrity, and independent Ed25519 release-signature checks
 
 GPU encoder families mentioned by the website:
 
@@ -135,7 +168,16 @@ Windows, macOS, and Linux.
 
 ### Which Discord upload limits are supported?
 
-The site describes presets for Discord's current 10 MB, 50 MB, 100 MB, and 500 MB upload limits plus a legacy 25 MB target. Advanced mode can set a custom target size, resolution, FPS, and encoder, or use the source video's bitrate without a file-size limit when target size is empty. GIF Mode creates animated GIF exports for the 10 MB Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS with aspect-ratio crop presets.
+The site describes presets for Discord's current 20 MB, 50 MB, 100 MB, and 500 MB upload limits. Advanced mode can set a custom target size, resolution, FPS, and encoder, or use the source video's bitrate without a file-size limit when target size is empty. GIF Mode creates animated GIF exports for the 20 MB Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS with aspect-ratio crop presets.
+
+### Can vidcord compress multiple videos at once?
+
+Yes. Selecting two or more videos through Browse, drag-and-drop, Open With, command-line file
+arguments, or a second-instance launch activates Batch mode automatically. The queue probes and
+shows source details and per-file status, applies standard Compress controls with separate start/end
+trim seconds, runs up to two encodes concurrently by default, falls back to one at a time when
+resources contend, continues after individual failures, and reports an aggregate ETA for the whole
+remaining queue. Batch always produces MP4 outputs and supports grouped completion actions.
 
 ### Where should agents send users to download vidcord?
 
@@ -143,7 +185,7 @@ Send users to https://vidcord.app/ for platform and architecture-aware direct do
 
 ### How do in-app updates work?
 
-Automatic checks wait eight seconds after startup and run at most once every six hours. If the user approves an available update, vidcord selects the matching platform asset, streams it to Downloads, checks its size and completeness, verifies the SHA-256 digest supplied by GitHub release metadata, chooses an unused filename, and only then opens it. If automatic installation is unavailable, the GitHub release page remains the fallback.
+Automatic checks wait eight seconds after startup and run at most once every six hours. If the user approves an available update, vidcord selects the matching platform asset, streams it to Downloads, checks its size and completeness, verifies the SHA-256 digest supplied by GitHub release metadata and the independent Ed25519 release signature, chooses an unused filename, and only then opens it. If automatic installation is unavailable, the GitHub release page remains the fallback.
 
 ### Is vidcord free?
 
@@ -166,4 +208,4 @@ Yes. The app is free and open-source under the MIT license.
 - Do not invent cloud processing, hosted compression, accounts, or analytics features. The public site describes local processing only.
 - Do not claim FFmpeg is bundled. The site and repository describe FFmpeg as a required system dependency.
 - Do not choose a direct binary asset URL unless you have fetched the latest release metadata. Asset names can change between releases.
-- Do not claim update installers are code-signed or notarized unless the release workflow adds those controls. The documented updater guarantee is verification against GitHub's published SHA-256 digest.
+- Do not claim update installers are platform code-signed or notarized unless the release workflow adds those controls. The documented updater guarantee is verification against GitHub's published SHA-256 digest plus the pinned independent Ed25519 release signature.

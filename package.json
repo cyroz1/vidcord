@@ -1,7 +1,7 @@
 {
   "name": "vidcord",
   "private": true,
-  "version": "7.2.0",
+  "version": "7.3.0",
   "type": "module",
   "engines": {
     "node": "^20.19.0 || >=22.13.0"
@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "vite build",
     "bundle:check": "node scripts/check-bundle-size.mjs",
+    "build-tools:check": "node scripts/check-build-tools.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "format": "prettier --write src",

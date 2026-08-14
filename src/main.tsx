@@ -2,12 +2,13 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import ErrorBoundary from "./ErrorBoundary";
-import { syncNativeWindowTheme } from "./ipc";
+import { isTauriRuntime, syncNativeWindowTheme } from "./ipc";
 import "./index.css";
 
 const systemDarkMode = window.matchMedia("(prefers-color-scheme: dark)");
 
 function applyNativeWindowTheme(): void {
+  if (!isTauriRuntime()) return;
   void syncNativeWindowTheme(systemDarkMode.matches).catch((error: unknown) =>
     console.warn("Unable to sync the native window theme", error)
   );

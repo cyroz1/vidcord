@@ -4,11 +4,12 @@ import zlib from "node:zlib";
 
 const assetDir = path.join("dist", "assets");
 const limits = {
-  // Advanced audio-track controls add a compact, user-gesture-only popup.
-  javascriptRaw: 250 * 1024,
-  javascriptGzip: 81 * 1024,
-  // The track popup adds its compact list, checkbox, and light-mode styles.
-  cssGzip: 7 * 1024,
+  // Advanced audio-track controls and the multi-file batch queue add compact
+  // user-gesture/event-driven export controls.
+  javascriptRaw: 275 * 1024,
+  javascriptGzip: 90 * 1024,
+  // The track popup and batch queue add compact list and status styles.
+  cssGzip: 8 * 1024,
 };
 
 if (!fs.existsSync(assetDir)) {

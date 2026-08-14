@@ -83,7 +83,7 @@
             "url": "https://vidcord.app/",
             "codeRepository": "https://github.com/cyroz1/vidcord",
             "downloadUrl": "https://github.com/cyroz1/vidcord/releases/latest",
-            "softwareVersion": "7.2.0",
+            "softwareVersion": "7.3.0",
             "applicationCategory": "MultimediaApplication",
             "operatingSystem": ["Windows", "macOS", "Linux"],
             "license": "https://github.com/cyroz1/vidcord/blob/main/LICENSE",
@@ -93,8 +93,10 @@
               "Local video compression with FFmpeg",
               "Saved named compression and mode presets with Autosave, restore, and delete controls",
               "Lossless Trim stream-copy exports with outward keyframe-aligned boundaries and optional audio-track removal",
-              "Discord upload targets: current 10 MB, 50 MB, 100 MB, and 500 MB limits plus a legacy 25 MB target",
-              "Animated GIF exports for Discord's 10 MB Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS with aspect-ratio cropping",
+              "Discord upload targets: current 20 MB, 50 MB, 100 MB, and 500 MB limits",
+              "Automatic Batch mode for multiple video selections with per-file source details, separate start/end trim seconds, and standard Compress controls",
+              "Two-worker batch encoding with adaptive serial fallback, continue-on-error processing, aggregate progress and whole-queue ETA",
+              "Animated GIF exports for Discord's 20 MB Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS with aspect-ratio cropping",
               "Output FPS controls with source-aware 24, 30, and 60 FPS presets plus advanced custom FPS",
               "Output destinations for Downloads, the imported clip folder, a remembered custom folder, or an after-compression save prompt",
               "Completion actions that copy the output file to the system clipboard by default or reveal it in the platform file manager",
@@ -109,7 +111,7 @@
               "First-run H.264 hardware encoder preference with automatic software-decode and CPU fallbacks",
               "Open With integration from Windows File Explorer and macOS Finder",
               "Race-safe compression cancellation and collision-safe output reservation",
-              "User-approved installer downloads verified with GitHub-published SHA-256 digests",
+              "User-approved installer downloads verified with GitHub-published SHA-256 digests and independent Ed25519 release signatures",
               "No uploads, accounts, or telemetry"
             ],
             "image": [
@@ -117,6 +119,7 @@
               "https://vidcord.app/assets/advancedmode.png",
               "https://vidcord.app/assets/losslesstrim.png",
               "https://vidcord.app/assets/gifmode.png",
+              "https://vidcord.app/assets/batchmode.png",
               "https://vidcord.app/assets/context.png",
               "https://vidcord.app/assets/finder.png",
               "https://vidcord.app/assets/file.png"
@@ -148,7 +151,15 @@
                 "name": "Which Discord upload limits are supported?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Presets cover Discord's current 10 MB, 50 MB, 100 MB, and 500 MB limits, plus a legacy 25 MB target. Advanced mode adds custom size, resolution, FPS, and encoder controls. GIF Mode supports 10 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS."
+                  "text": "Presets cover Discord's current 20 MB, 50 MB, 100 MB, and 500 MB limits. Advanced mode adds custom size, resolution, FPS, and encoder controls. GIF Mode supports 20 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can vidcord compress multiple videos at once?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Selecting two or more videos through Browse, drag-and-drop, Open With, command-line arguments, or a second instance automatically activates Batch mode. It uses standard Compress controls with separate start/end trim seconds, runs up to two encodes concurrently by default, falls back to one at a time when resources contend, continues after individual failures, and reports an aggregate ETA for the remaining queue."
                 }
               },
               {
@@ -188,7 +199,7 @@
                 "name": "How do in-app updates work?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Update checks wait until startup settles and run at most every six hours. After approval, vidcord streams, validates, and hashes the installer against GitHub's SHA-256 digest, saves it under an unused name, and opens it. The release page remains a fallback."
+                  "text": "Update checks wait until startup settles and run at most every six hours. After approval, vidcord streams, validates, and hashes the installer against GitHub's SHA-256 digest, verifies its independent Ed25519 release signature, saves it under an unused name, and opens it. The release page remains a fallback."
                 }
               }
             ]
@@ -231,10 +242,13 @@
           <h1 id="hero-title">vidcord</h1>
           <p class="hero-lede">Local video compression for Discord limits.</p>
           <p class="hero-body">
-            Compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord's 10, 50, 100, or
-            500 MB limits—or the legacy 25 MB target—using FFmpeg locally. Lossless Trim cuts on
-            keyframes without re-encoding. GIF Mode creates Discord-ready GIFs at 15, 30, or up to
-            50 FPS.
+            Compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord's 20, 50, 100, or
+            500 MB limits using FFmpeg locally. Lossless Trim cuts on keyframes without re-encoding.
+            GIF Mode creates Discord-ready GIFs at 15, 30, or up to 50 FPS.
+          </p>
+          <p class="hero-body">
+            Select multiple videos to switch automatically to Batch mode, with per-file details,
+            separate start/end trims, and a queue-wide progress estimate.
           </p>
 
           <div class="hero-actions">
@@ -343,7 +357,7 @@
                 width="1144"
                 height="1668"
                 decoding="async"
-                alt="vidcord desktop app with video preview, trim timeline, preset picker, and compression controls"
+                alt="vidcord Compress mode with video preview, trim timeline, and Discord target controls"
               />
             </picture>
           </div>
@@ -365,9 +379,9 @@
           </svg>
           <h2>Discord targets</h2>
           <p>
-            Choose a 10, 50, 100, or 500 MB limit—or the legacy 25 MB target—and let vidcord
-            calculate the bitrate. GIF Mode supports 10 MB Free and 50 MB Nitro Basic exports at 15,
-            30, or up to 50 FPS.
+            Choose a 20, 50, 100, or 500 MB limit and let vidcord calculate the bitrate. GIF Mode
+            supports 20 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS. Select
+            multiple videos to apply the standard Compress settings through Batch mode.
           </p>
         </article>
         <article>
@@ -397,21 +411,25 @@
       <section class="workflow-section" id="workflow" aria-labelledby="workflow-title">
         <div class="section-heading">
           <h2 id="workflow-title">How it works</h2>
-          <p>Three steps from large clip to Discord-ready upload.</p>
+          <p>Three steps from a large clip—or a batch—to Discord-ready uploads.</p>
         </div>
 
         <div class="workflow-grid">
           <article>
             <span class="step-number">1</span>
-            <h3>Add your video</h3>
-            <p>Drag and drop, browse, or use Open With from Finder or Explorer.</p>
+            <h3>Add your videos</h3>
+            <p>
+              Drag and drop, browse, or use Open With from Finder or Explorer. Multi-select to
+              activate Batch mode automatically.
+            </p>
           </article>
           <article>
             <span class="step-number">2</span>
-            <h3>Choose preset and trim</h3>
+            <h3>Choose controls and trim</h3>
             <p>
-              Select a Discord size target, cap FPS or remove audio if needed, and preview the range
-              from the playhead.
+              Select a Discord size target, cap FPS or remove audio if needed, and preview a
+              single-video range from the playhead. Batch mode uses standard Compress controls with
+              separate start and end trim seconds for every queued video.
             </p>
           </article>
           <article>
@@ -419,8 +437,9 @@
             <h3>Compress and save</h3>
             <p>
               Run FFmpeg locally, verify the size, and choose Downloads, the clip folder, a custom
-              folder, or a save prompt. Copy the output to your clipboard or reveal it in your file
-              manager.
+              folder, or a save prompt. Batch runs up to two encodes concurrently, estimates the
+              whole remaining queue, continues after individual failures, and can copy or reveal the
+              successful outputs as a group.
             </p>
           </article>
         </div>
@@ -437,6 +456,12 @@
             detection shows which installed encoders work, and saved choices remain sticky.
           </p>
           <ul>
+            <li>
+              Automatic Batch mode for multiple selections: per-file source details and status,
+              separate start/end trim seconds, removable queue items, up to two concurrent standard
+              Compress encodes, adaptive serial fallback, and an aggregate ETA for the remaining
+              queue.
+            </li>
             <li>Strict output size checks with safer retry behavior.</li>
             <li>
               Named settings presets with Autosave, restore, and delete controls for export
@@ -461,7 +486,10 @@
             <li>Atomically reserved auto-named outputs that never overwrite your files.</li>
             <li>Downloads, source-folder, remembered custom-folder, and ask-when-done options.</li>
             <li>Copy the output file itself to the clipboard or reveal it in your file manager.</li>
-            <li>User-approved update installers verified against GitHub's SHA-256 digest.</li>
+            <li>
+              User-approved update installers verified against GitHub's SHA-256 digest and an
+              independent Ed25519 release signature.
+            </li>
           </ul>
         </div>
         <div class="detail-image">
@@ -537,7 +565,7 @@
             locally.
           </p>
           <ul>
-            <li>Focused 10 MB Free and 50 MB Nitro Basic targets.</li>
+            <li>Focused 20 MB Free and 50 MB Nitro Basic targets.</li>
             <li>Selectable 15, 30, or Discord-safe maximum 50 FPS output.</li>
             <li>Automatic palette generation for cleaner color and motion.</li>
             <li>Adaptive size retries that preserve your selected frame rate.</li>
@@ -568,14 +596,57 @@
         </div>
       </section>
 
+      <section class="detail-section" aria-label="Batch mode">
+        <div class="detail-copy">
+          <h2>Compress a whole queue in Batch mode.</h2>
+          <p>
+            Select multiple videos and vidcord probes, trims, and encodes each one independently.
+            The queue keeps source details and per-file progress visible while the aggregate status
+            shows how much of the batch is complete.
+          </p>
+          <ul>
+            <li>
+              Select multiple videos through Browse, drag-and-drop, Open With, or the command line.
+            </li>
+            <li>Apply shared standard Compress settings with separate start and end trims.</li>
+            <li>Run up to two encodes at once, with a serial fallback when resources contend.</li>
+            <li>Continue after individual failures and keep collision-safe MP4 outputs.</li>
+            <li>Cancel active work while queued items are skipped cleanly.</li>
+          </ul>
+        </div>
+        <div class="detail-image">
+          <picture>
+            <source
+              type="image/webp"
+              srcset="
+                assets/batchmode-480.webp   480w,
+                assets/batchmode-720.webp   720w,
+                assets/batchmode-960.webp   960w,
+                assets/batchmode-1144.webp 1144w
+              "
+              sizes="(max-width: 760px) calc(100vw - 36px), (max-width: 1040px) 560px, 500px"
+            />
+            <img
+              src="assets/batchmode.png"
+              width="1144"
+              height="1668"
+              loading="lazy"
+              decoding="async"
+              alt="vidcord Batch mode with a multi-video queue, per-file status, and aggregate compression progress"
+            />
+          </picture>
+        </div>
+      </section>
+
       <section class="integration-section" id="integrations" aria-labelledby="integrations-title">
         <div class="section-heading">
           <div>
-            <h2 id="integrations-title">Open videos from Explorer or Finder</h2>
+            <h2 id="integrations-title">Open one or more videos from Explorer or Finder</h2>
             <p>
-              Start from your file manager and get the compressed MP4 in Downloads or another output
-              location. Native notifications mirror vidcord's banners while the app is unfocused;
-              click one to restore and focus it.
+              Start from your file manager and get compressed MP4s in Downloads or another output
+              location. Select multiple files to enter Batch mode automatically. Native
+              notifications mirror vidcord's banners while the app is unfocused; click one to
+              restore and focus it.
             </p>
           </div>
         </div>
@@ -680,9 +751,19 @@
           <article>
             <h3>Which Discord upload limits are supported?</h3>
             <p>
-              Presets cover Discord's current 10 MB, 50 MB, 100 MB, and 500 MB limits, plus a legacy
-              25 MB target. Advanced mode adds custom size, resolution, FPS, and encoder controls.
-              GIF Mode supports 10 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS.
+              Presets cover Discord's current 20 MB, 50 MB, 100 MB, and 500 MB limits. Advanced mode
+              adds custom size, resolution, FPS, and encoder controls. GIF Mode supports 20 MB Free
+              and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS.
+            </p>
+          </article>
+          <article>
+            <h3>Can vidcord compress multiple videos at once?</h3>
+            <p>
+              Yes. Select two or more videos through Browse, drag-and-drop, Open With, command-line
+              arguments, or a second instance to activate Batch mode. The queue shows source details
+              and per-file status, applies standard Compress controls with separate start/end trims,
+              runs up to two encodes concurrently by default, falls back to one at a time when
+              resources contend, continues after individual failures, and reports a whole-queue ETA.
             </p>
           </article>
           <article>
@@ -721,8 +802,8 @@
             <p>
               Update checks wait until startup settles and run at most every six hours. After
               approval, vidcord streams, validates, and hashes the installer against GitHub's
-              SHA-256 digest, saves it under an unused name, and opens it. The release page remains
-              a fallback.
+              SHA-256 digest, verifies its independent Ed25519 release signature, saves it under an
+              unused name, and opens it. The release page remains a fallback.
             </p>
           </article>
         </div>

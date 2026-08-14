@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { cancelCompression, type ProbeData } from "../ipc";
+import { cancelCompression, isTauriRuntime, type ProbeData } from "../ipc";
+import type { BatchDonePayload, BatchProgressPayload } from "../ipc";
 import { AUDIO_TRACK_BITRATE_KBPS } from "../audioTracks";
 
 export type { ProbeData };
@@ -35,15 +36,19 @@ export type CompressDonePayload = {
   output_extension?: string;
 };
 
+export type { BatchDonePayload, BatchProgressPayload };
+
 export function useCompression({ onToast: _onToast }: Props) {
   const [compressing, setCompressing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [progress, setProgress] = useState(0);
   const [eta, setEta] = useState("Ready");
+  const [batchProgress, setBatchProgress] = useState<BatchProgressPayload | null>(null);
   const cancellingRef = useRef(false);
 
   // Subscribe to backend compression events
   useEffect(() => {
+    if (!isTauriRuntime()) return;
     const unsub1 = listen<CompressProgressPayload>("compress-progress", (e) => {
       if (cancellingRef.current) return;
       setProgress(e.payload.percent);
@@ -56,9 +61,27 @@ export function useCompression({ onToast: _onToast }: Props) {
       setProgress(e.payload.success ? 100 : 0);
       setEta(formatCompressionDone(e.payload));
     });
+    const unsub3 = listen<BatchProgressPayload>("batch-progress", (e) => {
+      if (cancellingRef.current) return;
+      setBatchProgress(e.payload);
+      setProgress(e.payload.percent);
+      setEta(formatBatchProgress(e.payload));
+    });
+    const unsub4 = listen<BatchDonePayload>("batch-done", (e) => {
+      cancellingRef.current = false;
+      setCancelling(false);
+      setCompressing(false);
+      setBatchProgress(null);
+      setProgress(
+        e.payload.success ? 100 : e.payload.cancelled ? 0 : e.payload.results.length > 0 ? 100 : 0
+      );
+      setEta(e.payload.message);
+    });
     return () => {
       unsub1.then((fn) => fn());
       unsub2.then((fn) => fn());
+      unsub3.then((fn) => fn());
+      unsub4.then((fn) => fn());
     };
   }, []);
 
@@ -85,6 +108,7 @@ export function useCompression({ onToast: _onToast }: Props) {
   const resetProgress = useCallback(() => {
     setProgress(0);
     setEta("Ready");
+    setBatchProgress(null);
   }, []);
 
   return {
@@ -93,6 +117,7 @@ export function useCompression({ onToast: _onToast }: Props) {
     cancelling,
     progress,
     eta,
+    batchProgress,
     cancelCompress,
     resetProgress,
   };
@@ -155,6 +180,11 @@ export function formatCompressionDone(payload: CompressDonePayload): string {
     )}, above target ${formatSizeMb(payload.target_size_bytes)}.`;
   }
   return payload.message;
+}
+
+export function formatBatchProgress(payload: BatchProgressPayload): string {
+  const active = payload.active_count > 0 ? ` · ${payload.active_count} active` : "";
+  return `${payload.status} · ${payload.completed_count}/${payload.total_count} complete${active} · ETA: ${payload.eta}`;
 }
 
 export function calculateBitrate(

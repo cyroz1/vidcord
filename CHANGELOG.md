@@ -1,5 +1,30 @@
 # Changelog
 
+## v7.3
+
+### Batch Processing
+
+- Added automatic multi-video Batch mode for Browse, drag-and-drop, Open With, CLI, and second-instance selections, with separate start/end trims, standard Compress controls, two-worker parallel encoding, adaptive serial fallback, continue-on-error processing, and grouped completion actions.
+- Batch queues now probe and display per-file source details, expose queued/encoding/completed/failed/cancelled states, remain scrollable for long selections, and let users remove items before export. Returning to one selected video restores the previous single-file workflow.
+- Batch trim fields default to zero seconds and clamp overlapping start/end requests proportionally so every source retains at least one second. Aggregate progress and ETA now account for the whole remaining queue instead of jumping between active workers.
+- Batch output allocation stays collision-safe. Ask when done stages successful outputs for one folder selection, then publishes the full set without overwriting existing files; completion actions copy successful outputs as one clipboard group or reveal each distinct output folder once with every successful output selected.
+- Fixed macOS Batch completion clipboard copies so Discord receives each output as a separate file item.
+- Batch Reveal now selects all successful output files together in each destination folder.
+
+### UI
+
+- Updated the Discord target presets for the 20 MB free upload limit: 20 MB at 480p, 50 MB at 720p, 100 MB at 1080p, and 500 MB at native resolution. GIF Mode now uses a 20 MB Free target as well.
+- Centered the active Lossless Trim tab label and refreshed the main-window and Batch mode website screenshots.
+
+### Performance
+
+- Reduced preview-scrubbing contention with bounded background filmstrip work, shared encoder discovery, source-scoped frame caching, and memoized trim-insensitive controls.
+
+### Security
+
+- Added independent Ed25519 release-signature verification to in-app updates. Installers now require a valid signature bound to the release tag, asset name, and downloaded SHA-256 digest before they can be opened.
+- Pinned GitHub Actions and the Rust/Node toolchains, installed the Tauri CLI from the lockfile, verified build-tool integrity, and added signed artifact provenance checks before release publication.
+
 ## v7.2
 
 ### Audio

@@ -43,14 +43,14 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 1
 
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
-          node-version: 22
+          node-version: 22.23.1
           cache: npm
 
       - name: Install npm dependencies
@@ -81,7 +81,7 @@ jobs:
         run: npm run bundle:check
 
       - name: Upload dist
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: frontend-dist
           path: dist/
@@ -98,12 +98,12 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 1
 
       - name: Install system dependencies
-        uses: awalsh128/cache-apt-pkgs-action@v1
+        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9
         with:
           # Keep this identical to the Linux build package set so its gated
           # x86_64 job restores the cache populated by these compile checks.
@@ -111,24 +111,27 @@ jobs:
           version: 1.0
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
+          toolchain: 1.97.1
           components: clippy,rustfmt
 
       - name: Rustfmt check
         run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@b20dedce73af6905cdc30d6611090c9b67557c8d
         with:
-          tool: cargo-audit
+          tool: cargo-audit@0.22.2
+          checksum: true
+          fallback: none
 
       - name: Audit Rust dependencies
         run: cargo audit
         working-directory: src-tauri
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
           workspaces: src-tauri
           # rust-cache does not distinguish Ubuntu releases. Keep the shared
@@ -149,6 +152,8 @@ jobs:
     needs: [frontend, rust-compile-checks]
     permissions:
       contents: read
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -191,37 +196,44 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 1
 
       - name: Download frontend dist
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           name: frontend-dist
           path: dist/
 
       - name: Install system dependencies (Linux)
         if: startsWith(matrix.platform, 'ubuntu')
-        uses: awalsh128/cache-apt-pkgs-action@v1
+        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9
         with:
           packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
           version: 1.0
 
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
-          node-version: 22
+          node-version: 22.23.1
           cache: npm
 
+      - name: Install locked npm dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Verify locked Tauri build tool
+        run: npm run build-tools:check
+
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
+          toolchain: 1.97.1
           targets: ${{ matrix.rust-target }}
 
       - name: Cache Rust dependencies (Linux x86_64, shared with rust-compile-checks)
         if: matrix.rust-target == 'x86_64-unknown-linux-gnu'
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
           workspaces: src-tauri
           shared-key: rust-linux-ubuntu-22.04-v1
@@ -231,24 +243,24 @@ jobs:
       # contamination or two jobs racing to publish the same entry.
       - name: Cache Rust dependencies (Windows)
         if: startsWith(matrix.platform, 'windows-latest')
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
           workspaces: src-tauri
           shared-key: rust-windows-${{ matrix.rust-target }}
 
       - name: Cache Rust dependencies
         if: matrix.rust-target != 'x86_64-unknown-linux-gnu' && !startsWith(matrix.platform, 'windows-latest')
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
           workspaces: src-tauri
 
       - name: Verify platform build
         if: ${{ !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_dispatch' }}
-        run: npm exec --yes --package @tauri-apps/cli@2.10.1 -- tauri build --target ${{ matrix.tauri-target }} --no-bundle --config '{"build":{"beforeBuildCommand":""}}' -- --profile ci
+        run: npm run tauri -- build --target ${{ matrix.tauri-target }} --no-bundle --config '{"build":{"beforeBuildCommand":""}}' -- --profile ci
 
       - name: Build installer
         if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
-        run: npm exec --yes --package @tauri-apps/cli@2.10.1 -- tauri build --target ${{ matrix.tauri-target }} --bundles ${{ matrix.bundle }} --config '{"build":{"beforeBuildCommand":""}}' -- --profile ${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
+        run: npm run tauri -- build --target ${{ matrix.tauri-target }} --bundles ${{ matrix.bundle }} --config '{"build":{"beforeBuildCommand":""}}' -- --profile ${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
 
       - name: Stage artifacts (Unix)
         if: ${{ matrix.platform != 'windows-latest' && (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch') }}
@@ -265,9 +277,17 @@ jobs:
             Where-Object { $_.DirectoryName -like "*bundle\nsis*" } |
             ForEach-Object { Copy-Item $_.FullName -Destination artifacts\ }
 
+      - name: Attest built installers
+        if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
+        uses: actions/attest@ce27ba3b4a9a139d9a20a4a07d69fabb52f1e5bc
+        with:
+          subject-path: artifacts/*
+          predicate-type: https://slsa.dev/provenance/v1
+          predicate: "{}"
+
       - name: Upload artifacts
         if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: ${{ matrix.artifact-name }}
           path: artifacts/
@@ -277,16 +297,98 @@ jobs:
           compression-level: 0
           retention-days: 7
 
-  release:
+  sign-release-artifacts:
     needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 1
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          path: release-artifacts
+          merge-multiple: true
+          pattern: vidcord-*
+
+      - name: Verify build artifact provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' artifact; do
+            gh attestation verify "$artifact" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/build.yml" \
+              --source-ref "$GITHUB_REF"
+          done < <(
+            find release-artifacts -type f \( \
+              -name '*.AppImage' -o -name '*.dmg' -o -name '*.exe' \
+            \) -print0
+          )
+
+      - name: Sign verified installers
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.VIDCORD_RELEASE_SIGNING_KEY }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_SIGNING_KEY"
+          umask 077
+          printf '%s\n' "$RELEASE_SIGNING_KEY" > release-signing-key.pem
+          trap 'rm -f release-signing-key.pem' EXIT
+
+          expected_public_key="$(tr -d '[:space:]' < src-tauri/update-signing-public-key.hex)"
+          actual_public_key="$(openssl pkey -in release-signing-key.pem -pubout -outform DER | tail -c 32 | od -An -tx1 -v | tr -d ' \n')"
+          test "$actual_public_key" = "$expected_public_key"
+
+          test -n "$(find release-artifacts -type f \( \
+            -name '*.AppImage' -o -name '*.dmg' -o -name '*.exe' \
+          \) -print -quit)"
+          while IFS= read -r -d '' artifact; do
+            asset_name="$(basename "$artifact")"
+            digest="$(sha256sum "$artifact" | cut -d ' ' -f1)"
+            printf 'vidcord-update-signature-v1\n%s\n%s\n%s\n' \
+              "$RELEASE_TAG" "$asset_name" "$digest" > "$artifact.message"
+            openssl pkeyutl -sign -rawin -inkey release-signing-key.pem \
+              -in "$artifact.message" -out "$artifact.sig"
+            test "$(wc -c < "$artifact.sig")" -eq 64
+            rm -f "$artifact.message"
+          done < <(
+            find release-artifacts -type f \( \
+              -name '*.AppImage' -o -name '*.dmg' -o -name '*.exe' \
+            \) -print0
+          )
+
+      - name: Upload signed release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: signed-release-artifacts
+          path: release-artifacts/
+          if-no-files-found: error
+          retention-days: 1
+
+  publish-release:
+    needs: sign-release-artifacts
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 1
+
+      - name: Download signed release artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: signed-release-artifacts
+          path: release-artifacts
 
       - name: Extract release notes
         run: |
@@ -296,13 +398,6 @@ jobs:
             echo "CHANGELOG.md has no non-empty ## $TAG release section" >&2
             exit 1
           fi
-
-      - name: Download release artifacts
-        uses: actions/download-artifact@v7
-        with:
-          path: release-artifacts
-          merge-multiple: true
-          pattern: vidcord-*
 
       - name: Create release
         # v3.0.0, pinned because this job has contents:write.
