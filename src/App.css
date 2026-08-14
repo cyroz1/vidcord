@@ -382,6 +382,9 @@
 }
 
 .workflow-mode-selector button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-height: 28px;
   border: 1px solid transparent;
   border-radius: var(--radius-xs);
@@ -389,6 +392,7 @@
   background: transparent;
   font-size: 11px;
   font-weight: 600;
+  padding: 0;
   white-space: nowrap;
   transition:
     color 0.15s,
