@@ -23,7 +23,7 @@ use commands::files::{
     copy_file_to_clipboard, copy_files_to_clipboard, discard_staged_output, get_os,
     publish_batch_staged_outputs, publish_staged_output, resolve_batch_output_paths,
     resolve_output_path, resolve_staging_output_path, send_system_notification,
-    show_in_file_explorer, PendingFile,
+    show_files_in_file_explorer, show_in_file_explorer, PendingFile,
 };
 use commands::updates::{check_for_updates, download_and_open_update_installer};
 use log::vidcord_log;
@@ -349,6 +349,7 @@ pub fn run() {
             capture_snapshot,
             check_for_updates,
             download_and_open_update_installer,
+            show_files_in_file_explorer,
             show_in_file_explorer,
             copy_file_to_clipboard,
             copy_files_to_clipboard,

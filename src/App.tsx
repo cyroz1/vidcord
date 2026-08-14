@@ -56,6 +56,7 @@ import {
   resolveOutputPath,
   resolveBatchOutputPaths,
   resolveStagingOutputPath,
+  showFilesInFileExplorer,
   showInFileExplorer,
   type OutputExtension,
   type FfmpegInstallResult,
@@ -1646,9 +1647,9 @@ export default function App() {
           return;
         } catch (clipboardError) {
           const revealErrors: string[] = [];
-          for (const outputPath of groupOutputPathsByFolder(outputPaths)) {
+          for (const pathsInFolder of groupOutputPathsByFolder(outputPaths)) {
             try {
-              await showInFileExplorer(outputPath);
+              await showFilesInFileExplorer(pathsInFolder);
             } catch (error) {
               revealErrors.push(String(error));
             }
@@ -1657,7 +1658,7 @@ export default function App() {
             addToast(
               "warning",
               "Clipboard Unavailable",
-              "The batch outputs were saved and their folders were revealed instead."
+              "The batch outputs were saved and revealed instead."
             );
           } else {
             addToast("success", "Batch Complete", "The batch outputs were saved.");
@@ -1672,15 +1673,15 @@ export default function App() {
       }
 
       const errors: string[] = [];
-      for (const outputPath of groupOutputPathsByFolder(outputPaths)) {
+      for (const pathsInFolder of groupOutputPathsByFolder(outputPaths)) {
         try {
-          await showInFileExplorer(outputPath);
+          await showFilesInFileExplorer(pathsInFolder);
         } catch (error) {
           errors.push(String(error));
         }
       }
       if (errors.length === 0) {
-        addToast("success", "Batch Complete", "The output folders were revealed.");
+        addToast("success", "Batch Complete", "All output files were revealed and selected.");
       } else {
         addToast("success", "Batch Complete", "The batch outputs were saved.");
         addToast("error", "Complete Action Failed", errors.join("; "));

@@ -369,7 +369,7 @@ unique path for every successful item. With **Ask when done**, all successful
 outputs are staged until one destination folder is chosen, then published
 together without overwriting existing files. The default completion action
 copies successful outputs as one clipboard group; the reveal action opens each
-distinct output folder once.
+distinct output folder once and selects every successful output in it.
 
 ## Keyboard shortcuts
 

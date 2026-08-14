@@ -163,11 +163,13 @@ export function batchProgressFromItems(items: readonly BatchQueueItem[]): number
   );
 }
 
-export function groupOutputPathsByFolder(paths: readonly string[]): string[] {
-  const folders = new Map<string, string>();
+export function groupOutputPathsByFolder(paths: readonly string[]): string[][] {
+  const folders = new Map<string, string[]>();
   for (const outputPath of paths) {
     const folder = outputPath.replace(/[\\/][^\\/]*$/, "");
-    if (!folders.has(folder)) folders.set(folder, outputPath);
+    const grouped = folders.get(folder);
+    if (grouped) grouped.push(outputPath);
+    else folders.set(folder, [outputPath]);
   }
   return [...folders.values()];
 }

@@ -257,6 +257,10 @@ export function showInFileExplorer(path: string): Promise<void> {
   return invoke("show_in_file_explorer", { path });
 }
 
+export function showFilesInFileExplorer(paths: string[]): Promise<void> {
+  return invoke("show_files_in_file_explorer", { paths });
+}
+
 export function copyFileToClipboard(path: string): Promise<void> {
   return invoke("copy_file_to_clipboard", { path });
 }

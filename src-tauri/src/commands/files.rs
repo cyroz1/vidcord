@@ -78,69 +78,205 @@ pub struct PendingFile(pub std::sync::Mutex<Option<Vec<String>>>);
 
 #[tauri::command]
 pub async fn show_in_file_explorer(path: String) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || show_in_file_explorer_blocking(path))
+    show_files_in_file_explorer(vec![path]).await
+}
+
+#[tauri::command]
+pub async fn show_files_in_file_explorer(paths: Vec<String>) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || show_files_in_file_explorer_blocking(paths))
         .await
         .map_err(|e| e.to_string())?
 }
 
-fn show_in_file_explorer_blocking(path: String) -> Result<(), String> {
-    let abs = std::fs::canonicalize(&path).unwrap_or_else(|_| std::path::PathBuf::from(&path));
+fn show_files_in_file_explorer_blocking(paths: Vec<String>) -> Result<(), String> {
+    if paths.is_empty() {
+        return Err("No output files are available to reveal.".to_string());
+    }
+
+    let files = paths
+        .into_iter()
+        .map(|path| std::fs::canonicalize(&path).unwrap_or_else(|_| std::path::PathBuf::from(path)))
+        .collect::<Vec<_>>();
 
     #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        // canonicalize() returns \\?\ extended-length paths on Windows, which
-        // explorer.exe /select does not understand — strip the prefix.
-        let path_str = abs.to_string_lossy().into_owned();
-        let path_str = path_str
-            .strip_prefix(r"\\?\")
-            .unwrap_or(&path_str)
-            .to_string();
-        // Use raw_arg so Rust doesn't re-quote the combined /select,path token;
-        // wrap the path in quotes ourselves to handle spaces in the path.
-        std::process::Command::new("explorer")
-            .raw_arg(format!("/select,\"{}\"", path_str))
-            .creation_flags(0x08000000)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .args(["-R", &abs.to_string_lossy()])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        // Use the org.freedesktop.FileManager1 DBus interface to reveal and select
-        // the specific file. This works with Nautilus, Dolphin, Thunar, Nemo, etc.
-        let file_uri = url::Url::from_file_path(&abs)
-            .map(|u| u.to_string())
-            .unwrap_or_else(|_| format!("file://{}", abs.display()));
-        let mut dbus_command = Command::new("dbus-send");
-        dbus_command.args([
-            "--session",
-            "--print-reply",
-            "--dest=org.freedesktop.FileManager1",
-            "/org/freedesktop/FileManager1",
-            "org.freedesktop.FileManager1.ShowItems",
-            &format!("array:string:{file_uri}"),
-            "string:",
-        ]);
-        configure_desktop_command(&mut dbus_command);
-        let dbus_ok = run_desktop_command(&mut dbus_command).unwrap_or(false);
+    return show_files_in_file_explorer_windows(&files);
 
-        if !dbus_ok {
-            let parent = abs
-                .parent()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_else(|| abs.to_string_lossy().into_owned());
-            let mut open_command = Command::new("xdg-open");
-            open_command.arg(&parent);
-            configure_desktop_command(&mut open_command);
-            open_command.spawn().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "macos")]
+    return show_files_in_file_explorer_macos(&files);
+
+    #[cfg(target_os = "linux")]
+    return show_files_in_file_explorer_linux(&files);
+
+    #[allow(unreachable_code)]
+    Err("Revealing files is not supported on this platform.".to_string())
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsItemIdList(*mut windows_sys::Win32::UI::Shell::Common::ITEMIDLIST);
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsItemIdList {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe {
+                windows_sys::Win32::UI::Shell::ILFree(self.0);
+            }
         }
+    }
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsComGuard {
+    initialized: bool,
+}
+
+#[cfg(target_os = "windows")]
+impl WindowsComGuard {
+    fn initialize() -> Self {
+        let initialized =
+            unsafe { windows_sys::Win32::System::Com::CoInitialize(std::ptr::null()) >= 0 };
+        Self { initialized }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsComGuard {
+    fn drop(&mut self) {
+        if self.initialized {
+            unsafe {
+                windows_sys::Win32::System::Com::CoUninitialize();
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn show_files_in_file_explorer_windows(files: &[std::path::PathBuf]) -> Result<(), String> {
+    use std::collections::HashMap;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::Common::ITEMIDLIST;
+    use windows_sys::Win32::UI::Shell::{ILCreateFromPathW, SHOpenFolderAndSelectItems};
+
+    let _com = WindowsComGuard::initialize();
+    let mut grouped = HashMap::<std::path::PathBuf, Vec<&std::path::Path>>::new();
+    for file in files {
+        let parent = file.parent().ok_or_else(|| {
+            format!(
+                "Could not determine the output folder for {}.",
+                file.display()
+            )
+        })?;
+        grouped.entry(parent.to_path_buf()).or_default().push(file);
+    }
+
+    for (parent, files) in grouped {
+        let parent_wide = parent
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let parent_item = unsafe { ILCreateFromPathW(parent_wide.as_ptr()) };
+        if parent_item.is_null() {
+            return Err(format!(
+                "Could not open the output folder {}.",
+                parent.display()
+            ));
+        }
+        let _parent_item = WindowsItemIdList(parent_item);
+
+        let mut item_lists = Vec::with_capacity(files.len());
+        for file in files {
+            let file_wide = file
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect::<Vec<_>>();
+            let item = unsafe { ILCreateFromPathW(file_wide.as_ptr()) };
+            if item.is_null() {
+                return Err(format!(
+                    "Could not select the output file {}.",
+                    file.display()
+                ));
+            }
+            item_lists.push(WindowsItemIdList(item));
+        }
+        let item_pointers = item_lists
+            .iter()
+            .map(|item| item.0 as *const ITEMIDLIST)
+            .collect::<Vec<_>>();
+        let result = unsafe {
+            SHOpenFolderAndSelectItems(
+                parent_item as *const ITEMIDLIST,
+                item_pointers.len() as u32,
+                item_pointers.as_ptr(),
+                0,
+            )
+        };
+        if result != 0 {
+            return Err(format!(
+                "Could not reveal the output files in {} (HRESULT 0x{:08X}).",
+                parent.display(),
+                result as u32
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn show_files_in_file_explorer_macos(files: &[std::path::PathBuf]) -> Result<(), String> {
+    use objc2_app_kit::NSWorkspace;
+    use objc2_foundation::{NSArray, NSString, NSURL};
+
+    let urls = files
+        .iter()
+        .map(|file| {
+            let path = NSString::from_str(&file.to_string_lossy());
+            NSURL::fileURLWithPath(&path)
+        })
+        .collect::<Vec<_>>();
+    let urls = NSArray::from_retained_slice(&urls);
+    NSWorkspace::sharedWorkspace().activateFileViewerSelectingURLs(&urls);
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn show_files_in_file_explorer_linux(files: &[std::path::PathBuf]) -> Result<(), String> {
+    let uris = files
+        .iter()
+        .map(|file| {
+            url::Url::from_file_path(file)
+                .map(|url| url.to_string())
+                .map_err(|_| format!("Could not create a file URL for {}.", file.display()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let uri_array = format!("array:string:{}", uris.join(","));
+
+    // Use the org.freedesktop.FileManager1 DBus interface to reveal and select
+    // every requested file. This works with Nautilus, Dolphin, Thunar, Nemo, etc.
+    let mut dbus_command = Command::new("dbus-send");
+    dbus_command.args([
+        "--session",
+        "--print-reply",
+        "--dest=org.freedesktop.FileManager1",
+        "/org/freedesktop/FileManager1",
+        "org.freedesktop.FileManager1.ShowItems",
+        &uri_array,
+        "string:",
+    ]);
+    configure_desktop_command(&mut dbus_command);
+    let dbus_ok = run_desktop_command(&mut dbus_command).unwrap_or(false);
+
+    if !dbus_ok {
+        let parent = files
+            .first()
+            .and_then(|file| file.parent())
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|| files[0].to_string_lossy().into_owned());
+        let mut open_command = Command::new("xdg-open");
+        open_command.arg(&parent);
+        configure_desktop_command(&mut open_command);
+        open_command.spawn().map_err(|e| e.to_string())?;
     }
     Ok(())
 }

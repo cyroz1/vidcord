@@ -42,7 +42,7 @@ terminates active children and skips queued items while returning partial result
 Batch output paths are allocated collision-safely. Direct destinations reserve a unique MP4 path per
 successful item. With Ask when done, all successful outputs are staged until one destination folder is
 chosen, then published without overwriting existing files. Completion actions copy successful outputs
-as one clipboard group or reveal each distinct output folder once.
+as one clipboard group or reveal each distinct output folder once with every successful output selected.
 
 Supported input formats described by the site:
 

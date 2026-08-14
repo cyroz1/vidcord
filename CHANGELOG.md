@@ -7,8 +7,9 @@
 - Added automatic multi-video Batch mode for Browse, drag-and-drop, Open With, CLI, and second-instance selections, with separate start/end trims, standard Compress controls, two-worker parallel encoding, adaptive serial fallback, continue-on-error processing, and grouped completion actions.
 - Batch queues now probe and display per-file source details, expose queued/encoding/completed/failed/cancelled states, remain scrollable for long selections, and let users remove items before export. Returning to one selected video restores the previous single-file workflow.
 - Batch trim fields default to zero seconds and clamp overlapping start/end requests proportionally so every source retains at least one second. Aggregate progress and ETA now account for the whole remaining queue instead of jumping between active workers.
-- Batch output allocation stays collision-safe. Ask when done stages successful outputs for one folder selection, then publishes the full set without overwriting existing files; completion actions copy successful outputs as one clipboard group or reveal each distinct output folder once.
+- Batch output allocation stays collision-safe. Ask when done stages successful outputs for one folder selection, then publishes the full set without overwriting existing files; completion actions copy successful outputs as one clipboard group or reveal each distinct output folder once with every successful output selected.
 - Fixed macOS Batch completion clipboard copies so Discord receives each output as a separate file item.
+- Batch Reveal now selects all successful output files together in each destination folder.
 
 ### UI
 

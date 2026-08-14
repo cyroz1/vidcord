@@ -94,10 +94,10 @@ describe("batch processing helpers", () => {
     });
   });
 
-  it("groups completion reveals by distinct output folder", () => {
+  it("groups completion reveals by folder while preserving every output", () => {
     expect(
       groupOutputPathsByFolder(["C:/out/one.mp4", "C:/out/two.mp4", "C:/other/three.mp4"])
-    ).toEqual(["C:/out/one.mp4", "C:/other/three.mp4"]);
+    ).toEqual([["C:/out/one.mp4", "C:/out/two.mp4"], ["C:/other/three.mp4"]]);
   });
 
   it("distinguishes saved, failed, and publication-cancelled results", () => {
