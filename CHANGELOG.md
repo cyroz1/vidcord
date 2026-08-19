@@ -1,5 +1,8 @@
 # Changelog
 
+Release dates are taken from the corresponding repository release tags. The duplicate
+numeric and `v5.1` tags are consolidated into one `v5.1` entry.
+
 ## v7.3
 
 ### Batch Processing
@@ -26,6 +29,8 @@
 - Pinned GitHub Actions and the Rust/Node toolchains, installed the Tauri CLI from the lockfile, verified build-tool integrity, and added signed artifact provenance checks before release publication.
 
 ## v7.2
+
+**Released:** 2026-08-10
 
 ### Audio
 
@@ -56,6 +61,8 @@
 
 ## v7.1
 
+**Released:** 2026-07-31
+
 ### Compression
 
 - Added a dedicated **Lossless Trim** mode beside Advanced that preserves source streams with a fast, keyframe-aligned stream copy, hides unrelated settings, can remove all audio tracks without re-encoding the video, and falls back to normal compression when stream copying is incompatible. Trim boundaries snap outward to source keyframes, and exports prefer MP4 before using a validated source container.
@@ -73,6 +80,8 @@
 - Stabilized the loaded-video layout, hid idle progress chrome, improved light-mode contrast, reduced the frame-snapshot overlay to a hover control, and constrained expanded keyboard shortcuts within the app window.
 
 ## v7.0
+
+**Released:** 2026-07-28
 
 ### Features & Audio
 
@@ -125,6 +134,8 @@
 
 ## v6.9
 
+**Released:** 2026-07-23
+
 ### Setup
 
 - **Reliable Windows FFmpeg detection**: vidcord now recognizes WinGet's FFmpeg aliases and package directory immediately after installation, even before the running app receives an updated PATH, and no longer reports a successful setup when either `ffmpeg` or `ffprobe` is still unavailable.
@@ -145,6 +156,8 @@
 
 ## v6.8
 
+**Released:** 2026-07-16
+
 ### UI
 
 - **Less intrusive playback controls**: Stop now appears only while hovering the preview during playback instead of remaining visible after Play retains focus.
@@ -157,6 +170,8 @@
 - **Reliable folder selection**: custom output folders now open through the already-loaded native dialog API instead of failing when a deferred module cannot be fetched.
 
 ## v6.7
+
+**Released:** 2026-07-15
 
 ### Updates
 
@@ -227,6 +242,8 @@
 
 ## v6.6
 
+**Released:** 2026-07-04
+
 ### Preview
 
 - **Reimplemented video preview**: the preview system has been rebuilt around source-shaped playback, live scrub updates, display-sized thumbnails and filmstrips, and a more accurate trim playback loop.
@@ -255,6 +272,8 @@
 
 ## v6.5
 
+**Released:** 2026-07-01
+
 ### Compression
 
 - **Output FPS controls**: standard mode can leave frame rate unchanged or cap output at 24, 30, or 60 FPS, with options above the source frame rate hidden. Advanced mode accepts a custom FPS value or an empty field shown as Off for no change.
@@ -271,6 +290,8 @@
 ---
 
 ## v6.4
+
+**Released:** 2026-06-23
 
 ### Compression
 
@@ -295,6 +316,8 @@
 ---
 
 ## v6.3
+
+**Released:** 2026-04-25
 
 ### Encoders
 
@@ -322,6 +345,8 @@
 
 ## v6.2
 
+**Released:** 2026-04-23
+
 ### Trim UX improvements
 
 - **Draggable playhead**: the playhead can now be grabbed and dragged directly on the timeline in addition to click-to-seek.
@@ -337,6 +362,8 @@
 ---
 
 ## v6.1
+
+**Released:** 2026-04-20
 
 ### macOS Tahoe Liquid Glass UI
 
@@ -392,6 +419,8 @@
 
 ## v6.0
 
+**Released:** 2026-04-12
+
 vidcord has been fully rewritten from Python + PyQt6 to **Tauri (Rust + React)**. This is a ground-up rebuild — not an incremental update.
 
 ### Core changes
@@ -433,3 +462,331 @@ vidcord has been fully rewritten from Python + PyQt6 to **Tauri (Rust + React)**
 - Python source (`vidcord.py`), `requirements.txt`, PyInstaller specs, and all legacy build scripts.
 - Old Linux platform scripts (`build_appimage.sh`, Debian/Fedora/Arch packaging).
 - `verify_bitrate.py`, `benchmark_startup.py`, `debug_encoders.py`, and other `tools/` debug scripts.
+
+## v5.6
+
+**Released:** 2026-02-10
+
+### Highlights
+
+- Added Advanced Mode for custom target size, resolution, and encoder settings.
+- Added in-app playback preview for the selected trim region with audio and play/stop controls.
+- Improved preview documentation, advanced-settings layout, and release/update fixes.
+
+## v5.5
+
+**Released:** 2026-01-21
+
+### Highlights
+
+- Added Windows ARM64 build support and hardened installer filename and release-build handling.
+- Improved Linux VAAPI discovery, device selection, AMD memory handling, AMF support, logging, and FFmpeg path detection.
+- Optimized startup and fixed preview reliability issues.
+
+## v5.4
+
+**Released:** 2026-01-13
+
+### Highlights
+
+- Improved Linux hardware-encoder detection and release reliability.
+
+## v5.3
+
+**Released:** 2026-01-13
+
+### Highlights
+
+- Added Linux hardware acceleration and improved Linux build support.
+- Added macOS Finder "Open With" integration and fixed macOS encoder/context-menu behavior.
+- Refreshed the cross-platform build and documentation workflow.
+
+## v5.2
+
+**Released:** 2025-12-20
+
+### Highlights
+
+- Added Linux x86_64 and ARM64 build outputs.
+- Fixed GPU detection and continued the cross-platform packaging and release workflow.
+
+## v5.1
+
+**Released:** 2025-12-18
+
+### Highlights
+
+- Migrated the desktop UI from PyQt5 to PyQt6 and expanded native builds to Windows, macOS, and Linux.
+- Added lazy startup, background hardware detection, GPU-aware encoder selection, and platform-specific packaging.
+- Improved output naming, macOS encoder handling, Linux build support, and release automation.
+
+## v5.0
+
+**Released:** 2025-12-02
+
+### Highlights
+
+- Added macOS support and a Fluent Design interface across the desktop app.
+- Added asynchronous preview generation to keep the UI responsive.
+- Improved settings persistence, packaging, and the five Discord-oriented size presets.
+
+## v4.9
+
+**Released:** 2025-11-21
+
+### Highlights
+
+- Added the modern Fluent Design interface.
+- Added audio removal, trimming, hardware encoder support, progress/ETA reporting, and Windows Explorer integration.
+
+## v4.8
+
+**Released:** 2025-05-21
+
+### Highlights
+
+- Refined the Discord target presets, including the 10 MB free tier, legacy 25 MB option, 50 MB, 100 MB, and 500 MB targets.
+- Improved context-menu integration, packaging, screenshots, and documentation.
+
+## v4.7
+
+**Released:** 2025-05-06
+
+### Highlights
+
+- Tightened bitrate limiting for target-size exports.
+- Updated release packaging and product documentation.
+
+## v4.6
+
+**Released:** 2025-04-20
+
+### Highlights
+
+- Added the 10 MB target and support for the 100 MB Clips Bypass preset.
+- Improved bitrate calculation, target-size handling, and preview suggestions.
+
+## v4.5
+
+**Released:** 2025-02-28
+
+### Highlights
+
+- Fixed platform compatibility issues and improved output-location handling.
+- Updated the Windows packaging and release workflow.
+
+## v4.4
+
+**Released:** 2025-01-23
+
+### Highlights
+
+- Improved startup and post-import window focus behavior.
+- Refined target-size encoding and Windows release metadata.
+
+## v4.3
+
+**Released:** 2025-01-10
+
+### Highlights
+
+- Refreshed screenshots and documentation.
+- Updated release metadata and packaging.
+
+## v4.2
+
+**Released:** 2024-12-07
+
+### Highlights
+
+- Added automatic hardware-encoder selection with CPU fallback.
+- Reworked preview-frame extraction around FFmpeg and improved encoder labels and output controls.
+- Added PyInstaller packaging metadata and cleaned up runtime dependencies.
+
+## v4.1
+
+**Released:** 2024-09-03
+
+### Highlights
+
+- Fixed process-launch flags across platforms to prevent console flashes.
+- Improved the release packaging workflow.
+
+## v4.0
+
+**Released:** 2024-08-15
+
+### Highlights
+
+- Added slider-based trimming with a live preview of the selected segment.
+- Added stronger duration/error handling and FFmpeg setup guidance.
+- Improved the Windows installer and context-menu packaging.
+
+## v3.9
+
+**Released:** 2024-08-14
+
+### Highlights
+
+- Fixed Windows context-menu registration and installer packaging.
+
+## v3.8
+
+**Released:** 2024-08-13
+
+### Highlights
+
+- Refined Windows context-menu assets and release packaging.
+- Updated documentation and added the context-menu screenshot.
+
+## v3.7
+
+**Released:** 2024-08-13
+
+### Highlights
+
+- Added an icon to the Windows context-menu entry.
+- Refreshed screenshots and installer metadata.
+
+## v3.6
+
+**Released:** 2024-08-13
+
+### Highlights
+
+- Fixed application behavior and updated the Windows installer configuration.
+
+## v3.5
+
+**Released:** 2024-08-13
+
+### Highlights
+
+- Refined the Windows installer script and release packaging.
+
+## v3.4
+
+**Released:** 2024-08-13
+
+### Highlights
+
+- Added visible encoding progress and ETA reporting.
+- Added the first Windows installer script and refreshed the application icon/documentation.
+
+## v3.3
+
+**Released:** 2024-08-12
+
+### Highlights
+
+- Added ETA reporting during compression.
+
+## v3.2
+
+**Released:** 2024-08-12
+
+### Highlights
+
+- Added an encoding progress bar.
+- Improved the Windows context-menu import workflow and documentation.
+
+## v3.1
+
+**Released:** 2024-08-12
+
+### Highlights
+
+- Fixed application behavior and added Windows context-menu registration.
+- Refreshed screenshots and release assets.
+
+## v3.0
+
+**Released:** 2024-08-12
+
+### Highlights
+
+- Expanded the app to four Discord-oriented quality presets, including 100 MB/1080p and 500 MB/native output.
+- Added improved context-menu support, hardware/software encoder choices, trimming, and packaging updates.
+
+## v2.0
+
+**Released:** 2024-08-09
+
+### Highlights
+
+- Refined the encoder-selection workflow and hardware/software encoder support.
+
+## v1.9
+
+**Released:** 2024-08-09
+
+### Highlights
+
+- Expanded encoder support and stabilized overwrite behavior for output files.
+
+## v1.8
+
+**Released:** 2024-08-09
+
+### Highlights
+
+- Added encoder selection and safer output overwrite handling.
+
+## v1.7
+
+**Released:** 2024-08-09
+
+### Highlights
+
+- Added bitrate improvements and refined hardware/software encoder choices.
+
+## v1.6
+
+**Released:** 2024-08-07
+
+### Highlights
+
+- Added Windows Explorer "Compress with vidcord" integration.
+- Refined file-import behavior so the app regains focus after opening a video.
+
+## v1.5
+
+**Released:** 2024-08-07
+
+### Highlights
+
+- Added system-argument handling for opening files through the operating system.
+
+## v1.3
+
+**Released:** 2024-08-07
+
+### Highlights
+
+- Added the application window icon.
+
+## v1.2
+
+**Released:** 2024-08-07
+
+### Highlights
+
+- Added editable trim start and end times.
+- Added an encoder dropdown and updated the application documentation.
+
+## v1.1
+
+**Released:** 2024-08-07
+
+### Highlights
+
+- Added duration editing for the output clip.
+
+## v1.0
+
+**Released:** 2024-08-06
+
+### Highlights
+
+- Initial public release: a Python/PyQt5 desktop app for compressing videos under Discord's size limits with FFmpeg.
+- Added drag-and-drop and file-dialog imports, 25 MB/480p and 50 MB/720p presets, and output-file reveal in File Explorer.
