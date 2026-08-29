@@ -14,6 +14,16 @@ function directWasmSource(): WasmSource {
   return { url: wasmURL, cleanup: () => undefined };
 }
 
+function isWasmBytes(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= 4 &&
+    bytes[0] === 0x00 &&
+    bytes[1] === 0x61 &&
+    bytes[2] === 0x73 &&
+    bytes[3] === 0x6d
+  );
+}
+
 async function resolveWasmSource(): Promise<WasmSource> {
   let response: Response;
 
@@ -29,6 +39,7 @@ async function resolveWasmSource(): Promise<WasmSource> {
 
   const compressedBytes = new Uint8Array(await response.arrayBuffer());
   const isGzip = compressedBytes[0] === 0x1f && compressedBytes[1] === 0x8b;
+  if (!isGzip && !isWasmBytes(compressedBytes)) return directWasmSource();
   const wasmBytes = isGzip
     ? await (async () => {
         if (typeof DecompressionStream === "undefined") {

@@ -14,8 +14,8 @@ import {
   formatFrameRate,
   formatVideoDuration,
 } from "../videoMetadata";
+import { snapLosslessTrimRange } from "../losslessTrim";
 import WebTrimTimeline from "./WebTrimTimeline";
-import { playheadForTrimHandleChange } from "./trimPlayhead";
 import {
   GIF_PRESETS,
   getAvailableFpsOptions,
@@ -25,6 +25,7 @@ import {
   type ExportPlan,
 } from "./exportPlan";
 import { BrowserFfmpegEngine } from "./ffmpegEngine";
+import { buildKeyframeProbeArgs, parseKeyframeTimes } from "./keyframes";
 import DesktopUpgrade from "./DesktopUpgrade";
 import { exportBrowserFile } from "./webExporter";
 import {
@@ -56,15 +57,7 @@ import "./WebApp.css";
 type Notice = { type: "success" | "error" | "warning" | "info"; message: string };
 
 type IconName =
-  | "video"
-  | "upload"
-  | "sliders"
-  | "snapshot"
-  | "download"
-  | "check"
-  | "spark"
-  | "play"
-  | "stop";
+  "video" | "upload" | "sliders" | "snapshot" | "download" | "check" | "spark" | "play" | "stop";
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const common = {
@@ -152,6 +145,118 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   );
 }
 
+type AudioIconType = "mute" | "normalize";
+
+function AudioIcon({ type, active }: { type: AudioIconType; active: boolean }) {
+  if (type === "mute") {
+    return (
+      <svg
+        className="web-audio-icon"
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        {active ? (
+          <>
+            <line x1="1" y1="1" x2="23" y2="23" />
+            <path d="M9 9L6 12H2v4h4l5 4v-5.58" />
+          </>
+        ) : (
+          <>
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+          </>
+        )}
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      className="web-audio-icon"
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={active ? "2.5" : "2"}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {active ? (
+        <>
+          <line x1="3" y1="6" x2="3" y2="18" />
+          <line x1="7.5" y1="3" x2="7.5" y2="21" />
+          <line x1="12" y1="2" x2="12" y2="22" />
+          <line x1="16.5" y1="3" x2="16.5" y2="21" />
+          <line x1="21" y1="6" x2="21" y2="18" />
+        </>
+      ) : (
+        <>
+          <line x1="4" y1="10" x2="4" y2="14" />
+          <line x1="9" y1="7" x2="9" y2="17" />
+          <line x1="14" y1="5" x2="14" y2="19" />
+          <line x1="19" y1="9" x2="19" y2="15" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+type WebAudioActionsProps = {
+  removeAudio: boolean;
+  audioNormalize: boolean;
+  disabled?: boolean;
+  onRemoveAudioChange: (value: boolean) => void;
+  onAudioNormalizeChange: (value: boolean) => void;
+};
+
+function WebAudioActions({
+  removeAudio,
+  audioNormalize,
+  disabled = false,
+  onRemoveAudioChange,
+  onAudioNormalizeChange,
+}: WebAudioActionsProps) {
+  return (
+    <div className="web-audio-actions" role="group" aria-label="Audio controls">
+      <button
+        type="button"
+        className={`web-audio-button web-mute-button${removeAudio ? " active" : ""}`}
+        title={removeAudio ? "Unmute audio" : "Mute audio"}
+        aria-label={removeAudio ? "Unmute audio" : "Mute audio"}
+        aria-pressed={removeAudio}
+        disabled={disabled}
+        onClick={() => onRemoveAudioChange(!removeAudio)}
+      >
+        <AudioIcon type="mute" active={removeAudio} />
+      </button>
+      <button
+        type="button"
+        className={`web-audio-button web-normalize-button${audioNormalize && !removeAudio ? " active" : ""}`}
+        title={
+          removeAudio
+            ? "Audio is muted"
+            : "Peak-normalize audio so its highest sample peak reaches 0 dB"
+        }
+        aria-label="Peak-normalize audio to 0 dB"
+        aria-pressed={audioNormalize && !removeAudio}
+        disabled={disabled || removeAudio}
+        onClick={() => onAudioNormalizeChange(!audioNormalize)}
+      >
+        <AudioIcon type="normalize" active={audioNormalize && !removeAudio} />
+      </button>
+    </div>
+  );
+}
+
 function Logo() {
   return (
     <div className="web-logo" aria-label="vidcord">
@@ -167,7 +272,7 @@ function formatMetadata(metadata: BrowserVideoMetadata): string {
     Number.isFinite(metadata.frameRate) &&
     metadata.frameRate > 0
       ? formatFrameRate(metadata.frameRate)
-      : "FPS unavailable";
+      : null;
   const codecValue = metadata.codec.trim();
   const codec = codecValue && codecValue.toLowerCase() !== "unknown" ? codecValue : "Browser media";
   const bitrate =
@@ -178,7 +283,9 @@ function formatMetadata(metadata: BrowserVideoMetadata): string {
     Number.isFinite(metadata.duration) && metadata.duration > 0
       ? formatVideoDuration(metadata.duration)
       : "Duration unavailable";
-  return `${metadata.width}×${metadata.height} · ${frameRate} · ${codec} · ${bitrate} · ${duration}`;
+  return [`${metadata.width}×${metadata.height}`, frameRate, codec, bitrate, duration]
+    .filter((value): value is string => value !== null)
+    .join(" · ");
 }
 
 function browserModeLabel(mode: BrowserMode): string {
@@ -202,6 +309,9 @@ function WebApp() {
   const [startTime, setStartTime] = useState(0);
   const [endTime, setEndTime] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  const [losslessKeyframes, setLosslessKeyframes] = useState<number[]>([]);
+  const [losslessKeyframesLoading, setLosslessKeyframesLoading] = useState(false);
+  const [losslessKeyframeError, setLosslessKeyframeError] = useState<string | null>(null);
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -214,6 +324,8 @@ function WebApp() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const loadGenerationRef = useRef(0);
+  const keyframeProbeGenerationRef = useRef(0);
+  const keyframeCacheRef = useRef<Map<string, number[]>>(new Map());
   const exportCancelledRef = useRef(false);
   const engineRef = useRef<BrowserFfmpegEngine | null>(null);
 
@@ -222,6 +334,9 @@ function WebApp() {
   const activeMode: BrowserMode | "batch" = batchMode ? "batch" : settings.mode;
   const exportMode: BrowserMode = activeMode === "batch" ? "compress" : activeMode;
   const duration = metadata?.duration ?? 0;
+  const losslessKeyframeCacheKey = activeFile
+    ? `${activeFile.name}\0${activeFile.size}\0${activeFile.lastModified}\0${duration}`
+    : "";
   const cropOptions = useMemo(
     () => getAvailableCropOptions(metadata?.width, metadata?.height),
     [metadata?.height, metadata?.width]
@@ -308,6 +423,88 @@ function WebApp() {
     setSettings(next);
     setSelectedPresetId("autosave");
   }, []);
+
+  const setBrowserRemoveAudio = useCallback(
+    (removeAudio: boolean) => {
+      patchSettings({
+        removeAudio,
+        audioNormalize: removeAudio ? false : settingsRef.current.audioNormalize,
+      });
+    },
+    [patchSettings]
+  );
+
+  const setBrowserAudioNormalize = useCallback(
+    (audioNormalize: boolean) => {
+      patchSettings({ audioNormalize });
+    },
+    [patchSettings]
+  );
+
+  useEffect(() => {
+    const generation = ++keyframeProbeGenerationRef.current;
+    const canProbe = settings.mode === "lossless" && !batchMode && activeFile && duration > 0;
+
+    if (!canProbe) {
+      setLosslessKeyframes([]);
+      setLosslessKeyframesLoading(false);
+      setLosslessKeyframeError(null);
+      setWasmLoading(false);
+      return;
+    }
+
+    const cached = keyframeCacheRef.current.get(losslessKeyframeCacheKey);
+    if (cached) {
+      setLosslessKeyframes(cached);
+      setLosslessKeyframesLoading(false);
+      setLosslessKeyframeError(null);
+      setWasmLoading(false);
+      return;
+    }
+
+    const file = activeFile;
+    const engine = engineRef.current ?? new BrowserFfmpegEngine();
+    engineRef.current = engine;
+    let probeRunning = true;
+    setLosslessKeyframes([]);
+    setLosslessKeyframesLoading(true);
+    setLosslessKeyframeError(null);
+    setWasmLoading(true);
+
+    void engine
+      .run(file, buildKeyframeProbeArgs)
+      .then((log) => {
+        if (generation !== keyframeProbeGenerationRef.current) return;
+        const keyframes = parseKeyframeTimes(log, duration);
+        if (keyframes.length === 0) {
+          throw new Error("The browser could not find any source keyframes.");
+        }
+        keyframeCacheRef.current.set(losslessKeyframeCacheKey, keyframes);
+        setLosslessKeyframes(keyframes);
+        setLosslessKeyframesLoading(false);
+        setLosslessKeyframeError(null);
+        setWasmReady(true);
+      })
+      .catch((error: unknown) => {
+        if (generation !== keyframeProbeGenerationRef.current) return;
+        const message = String(error);
+        setLosslessKeyframes([]);
+        setLosslessKeyframesLoading(false);
+        setLosslessKeyframeError(message);
+        showNotice("error", `Lossless Trim unavailable: ${message}`);
+      })
+      .finally(() => {
+        probeRunning = false;
+        if (generation === keyframeProbeGenerationRef.current) setWasmLoading(false);
+      });
+
+    return () => {
+      if (generation === keyframeProbeGenerationRef.current) {
+        keyframeProbeGenerationRef.current += 1;
+        if (probeRunning) engine.cancel();
+      }
+    };
+  }, [activeFile, batchMode, duration, losslessKeyframeCacheKey, settings.mode, showNotice]);
 
   const selectMode = useCallback(
     (mode: BrowserMode) => {
@@ -423,6 +620,38 @@ function WebApp() {
     [duration]
   );
 
+  const snapTrimRange = useCallback(
+    (requestedStart: number, requestedEnd: number) => {
+      if (settings.mode !== "lossless" || losslessKeyframes.length === 0) {
+        return { start: requestedStart, end: requestedEnd };
+      }
+      return (
+        snapLosslessTrimRange(requestedStart, requestedEnd, duration, losslessKeyframes) ?? {
+          start: requestedStart,
+          end: requestedEnd,
+        }
+      );
+    },
+    [duration, losslessKeyframes, settings.mode]
+  );
+
+  useEffect(() => {
+    if (settings.mode !== "lossless" || losslessKeyframes.length === 0 || duration <= 0) return;
+
+    const requestedEnd = endTime || duration;
+    const snapped = snapLosslessTrimRange(startTime, requestedEnd, duration, losslessKeyframes);
+    if (!snapped) return;
+    if (
+      Math.abs(snapped.start - startTime) <= 0.0005 &&
+      Math.abs(snapped.end - requestedEnd) <= 0.0005
+    ) {
+      return;
+    }
+    setStartTime(snapped.start);
+    setEndTime(snapped.end);
+    seekTo(snapped.start);
+  }, [duration, endTime, losslessKeyframes, seekTo, settings.mode, startTime]);
+
   const handleSnapshot = useCallback(async () => {
     const video = videoRef.current;
     if (!video || !activeFile) return;
@@ -464,6 +693,19 @@ function WebApp() {
     if (!batchMode && !metadata) {
       showNotice("warning", "Wait for the video details to finish loading.");
       return;
+    }
+    if (exportMode === "lossless") {
+      if (losslessKeyframesLoading) {
+        showNotice("info", "Preparing Lossless Trim. Finding keyframes for this video.");
+        return;
+      }
+      if (losslessKeyframes.length === 0) {
+        showNotice(
+          "error",
+          losslessKeyframeError ?? "Lossless Trim is unavailable because keyframe discovery failed."
+        );
+        return;
+      }
     }
 
     const engine = engineRef.current ?? new BrowserFfmpegEngine();
@@ -558,6 +800,9 @@ function WebApp() {
     exportMode,
     files,
     isExporting,
+    losslessKeyframeError,
+    losslessKeyframes,
+    losslessKeyframesLoading,
     metadata,
     settings,
     showNotice,
@@ -814,8 +1059,8 @@ function WebApp() {
                 </div>
 
                 {(activeMode === "compress" || activeMode === "batch") && (
-                  <div className="web-settings-grid">
-                    <label className="web-field web-field-wide">
+                  <div className="web-settings-grid web-standard-grid">
+                    <label className="web-field">
                       <span>Discord target</span>
                       <select
                         value={settings.qualityIndex}
@@ -859,44 +1104,27 @@ function WebApp() {
                         ))}
                       </select>
                     </label>
-                    <label className="web-toggle">
-                      <input
-                        type="checkbox"
-                        checked={settings.removeAudio}
-                        disabled={isExporting}
-                        onChange={(event) =>
-                          patchSettings({
-                            removeAudio: event.target.checked,
-                            audioNormalize: event.target.checked ? false : settings.audioNormalize,
-                          })
-                        }
-                      />
-                      <span>Remove audio</span>
-                    </label>
-                    <label className="web-toggle">
-                      <input
-                        type="checkbox"
-                        checked={settings.audioNormalize}
-                        disabled={isExporting || settings.removeAudio}
-                        onChange={(event) =>
-                          patchSettings({ audioNormalize: event.target.checked })
-                        }
-                      />
-                      <span>Normalize audio</span>
-                    </label>
+                    <WebAudioActions
+                      removeAudio={settings.removeAudio}
+                      audioNormalize={settings.audioNormalize}
+                      disabled={isExporting}
+                      onRemoveAudioChange={setBrowserRemoveAudio}
+                      onAudioNormalizeChange={setBrowserAudioNormalize}
+                    />
                   </div>
                 )}
 
                 {activeMode === "advanced" && (
                   <div className="web-settings-grid web-advanced-grid">
                     <label className="web-field">
-                      <span>
-                        Target size <small>(optional)</small>
-                      </span>
+                      <span>Size (MB)</span>
                       <input
+                        type="number"
+                        min="0.1"
+                        step="0.1"
                         inputMode="decimal"
                         value={settings.advancedTargetSize}
-                        placeholder="No limit"
+                        placeholder="Source"
                         disabled={isExporting}
                         onChange={(event) =>
                           patchSettings({ advancedTargetSize: event.target.value })
@@ -918,54 +1146,6 @@ function WebApp() {
                       </select>
                     </label>
                     <label className="web-field">
-                      <span>
-                        FPS <small>(optional)</small>
-                      </span>
-                      <input
-                        type="number"
-                        min="1"
-                        max="240"
-                        step="0.01"
-                        inputMode="decimal"
-                        value={settings.fps === "off" ? "" : settings.fps}
-                        placeholder="Source"
-                        disabled={isExporting}
-                        onChange={(event) => patchSettings({ fps: event.target.value })}
-                        onBlur={() =>
-                          patchSettings({ fps: normalizeBrowserFps(settingsRef.current.fps) })
-                        }
-                        aria-describedby="web-advanced-fps-note"
-                      />
-                      <small id="web-advanced-fps-note" className="web-field-hint">
-                        Leave blank to keep the source rate.
-                      </small>
-                    </label>
-                    <label className="web-toggle">
-                      <input
-                        type="checkbox"
-                        checked={settings.removeAudio}
-                        disabled={isExporting}
-                        onChange={(event) =>
-                          patchSettings({
-                            removeAudio: event.target.checked,
-                            audioNormalize: event.target.checked ? false : settings.audioNormalize,
-                          })
-                        }
-                      />
-                      <span>Remove audio</span>
-                    </label>
-                    <label className="web-toggle">
-                      <input
-                        type="checkbox"
-                        checked={settings.audioNormalize}
-                        disabled={isExporting || settings.removeAudio}
-                        onChange={(event) =>
-                          patchSettings({ audioNormalize: event.target.checked })
-                        }
-                      />
-                      <span>Normalize audio</span>
-                    </label>
-                    <label className="web-field web-field-wide">
                       <span>Crop</span>
                       <select
                         value={settings.crop}
@@ -979,11 +1159,35 @@ function WebApp() {
                         ))}
                       </select>
                     </label>
+                    <label className="web-field">
+                      <span>FPS</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="240"
+                        step="0.01"
+                        inputMode="decimal"
+                        value={settings.fps === "off" ? "" : settings.fps}
+                        placeholder="Source"
+                        disabled={isExporting}
+                        onChange={(event) => patchSettings({ fps: event.target.value })}
+                        onBlur={() =>
+                          patchSettings({ fps: normalizeBrowserFps(settingsRef.current.fps) })
+                        }
+                      />
+                    </label>
+                    <WebAudioActions
+                      removeAudio={settings.removeAudio}
+                      audioNormalize={settings.audioNormalize}
+                      disabled={isExporting}
+                      onRemoveAudioChange={setBrowserRemoveAudio}
+                      onAudioNormalizeChange={setBrowserAudioNormalize}
+                    />
                   </div>
                 )}
 
                 {activeMode === "gif" && (
-                  <div className="web-settings-grid">
+                  <div className="web-settings-grid web-gif-grid">
                     <label className="web-field">
                       <span>Target size</span>
                       <select
@@ -1014,7 +1218,7 @@ function WebApp() {
                         ))}
                       </select>
                     </label>
-                    <label className="web-field web-field-wide">
+                    <label className="web-field">
                       <span>Crop</span>
                       <select
                         value={settings.crop}
@@ -1036,22 +1240,38 @@ function WebApp() {
                     <span className="web-note-icon">
                       <Icon name="spark" size={18} />
                     </span>
-                    <div>
-                      <strong>Stream copy</strong>
+                    <div className="web-lossless-note-copy">
+                      <div className="web-lossless-title-row">
+                        <strong>Stream copy</strong>
+                        <span
+                          className="web-lossless-status"
+                          role={losslessKeyframeError ? "alert" : "status"}
+                        >
+                          {losslessKeyframesLoading
+                            ? "Finding keyframes…"
+                            : losslessKeyframeError
+                              ? "Unavailable"
+                              : losslessKeyframes.length > 0
+                                ? "Keyframe aligned"
+                                : "Waiting for video…"}
+                        </span>
+                      </div>
                       <span>
-                        Trims without re-encoding. The cut snaps to the nearest playable source
-                        boundary where the browser FFmpeg build allows it.
+                        Trims without re-encoding. Boundaries snap outward to source keyframes.
                       </span>
                     </div>
-                    <label className="web-toggle">
-                      <input
-                        type="checkbox"
-                        checked={settings.removeAudio}
-                        disabled={isExporting}
-                        onChange={(event) => patchSettings({ removeAudio: event.target.checked })}
-                      />
-                      <span>Remove audio</span>
-                    </label>
+                    <button
+                      type="button"
+                      className={`web-lossless-audio-toggle${settings.removeAudio ? " active" : ""}`}
+                      title={settings.removeAudio ? "Keep audio" : "Mute audio"}
+                      aria-label={settings.removeAudio ? "Keep audio" : "Mute audio"}
+                      aria-pressed={settings.removeAudio}
+                      disabled={isExporting}
+                      onClick={() => setBrowserRemoveAudio(!settings.removeAudio)}
+                    >
+                      <AudioIcon type="mute" active={settings.removeAudio} />
+                      <span>{settings.removeAudio ? "Audio removed" : "Keep audio"}</span>
+                    </button>
                   </div>
                 )}
 
@@ -1173,24 +1393,16 @@ function WebApp() {
                     currentTime={currentTime}
                     disabled={!metadata || isExporting}
                     onStartChange={(value) => {
-                      const nextPlayhead = playheadForTrimHandleChange(
-                        currentTime,
-                        startTime,
-                        value,
-                        "start"
-                      );
-                      setStartTime(value);
-                      if (nextPlayhead !== null) seekTo(nextPlayhead);
+                      const nextRange = snapTrimRange(value, endTime || duration);
+                      setStartTime(nextRange.start);
+                      setEndTime(nextRange.end);
+                      seekTo(nextRange.start);
                     }}
                     onEndChange={(value) => {
-                      const nextPlayhead = playheadForTrimHandleChange(
-                        currentTime,
-                        endTime || duration,
-                        value,
-                        "end"
-                      );
-                      setEndTime(value);
-                      if (nextPlayhead !== null) seekTo(nextPlayhead);
+                      const nextRange = snapTrimRange(startTime, value);
+                      setStartTime(nextRange.start);
+                      setEndTime(nextRange.end);
+                      seekTo(nextRange.end);
                     }}
                     onSeek={seekTo}
                   />
@@ -1203,7 +1415,15 @@ function WebApp() {
                 <button
                   className={`web-export-button${isExporting ? " cancel" : ""}`}
                   type="button"
-                  disabled={(!batchMode && !metadata) || metadataLoading || wasmLoading}
+                  disabled={
+                    (!batchMode && !metadata) ||
+                    metadataLoading ||
+                    wasmLoading ||
+                    (activeMode === "lossless" &&
+                      (losslessKeyframesLoading ||
+                        losslessKeyframes.length === 0 ||
+                        Boolean(losslessKeyframeError)))
+                  }
                   onClick={isExporting ? cancelExport : () => void startExport()}
                 >
                   {isExporting ? (

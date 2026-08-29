@@ -82,6 +82,7 @@ function WebTrimTimeline({
           value={startTime}
           disabled={disabled}
           aria-label="Trim start"
+          onPointerDown={() => onSeek(startTime)}
           onChange={(event) => {
             const next = Number(event.target.value);
             onStartChange(clamp(next, 0, Math.max(0, endTime - MIN_TRIM_GAP)));
@@ -96,6 +97,7 @@ function WebTrimTimeline({
           value={endTime}
           disabled={disabled}
           aria-label="Trim end"
+          onPointerDown={() => onSeek(endTime)}
           onChange={(event) => {
             const next = Number(event.target.value);
             onEndChange(
