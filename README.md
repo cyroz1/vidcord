@@ -276,7 +276,9 @@ npm run web:build
 
 This writes the deployable bundle to the root of `site/`. The first export loads the
 local WebAssembly encoder in the browser; no selected video is sent to a
-server.
+server. The build stores the WebAssembly binary as a gzip-compressed asset so
+the static deployment remains within Cloudflare's per-file size limit, then
+decompresses it in the browser before starting FFmpeg.
 
 ## Screenshots
 

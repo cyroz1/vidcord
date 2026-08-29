@@ -163,6 +163,11 @@ app: browser input support and performance depend on the user's browser, encodin
 or Dock progress, and desktop updater flows remain desktop-only. Keep the generated root entries in
 sync with the source browser code when publishing a browser change.
 
+The WebAssembly binary is larger than Cloudflare's 25 MiB per-file static-asset limit. `web:build`
+therefore publishes the generated `.wasm` as `.wasm.gz`, and `src/web/ffmpegEngine.ts` decompresses
+it in the browser before loading FFmpeg. Desktop builds keep the uncompressed asset and use it as a
+fallback. `npm run site:check` enforces the same per-file limit for future generated output.
+
 - **Production domain**: `https://vidcord.app/`
 - **Workers.dev URL**: `https://vidcord-site.cyrz.workers.dev/`
 - **Cloudflare Worker name**: `vidcord-site`

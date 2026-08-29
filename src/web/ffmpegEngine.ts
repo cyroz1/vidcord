@@ -5,6 +5,50 @@ import wasmURL from "@ffmpeg/core/wasm?url";
 
 export type FfmpegProgressHandler = (progress: number) => void;
 
+type WasmSource = {
+  url: string;
+  cleanup: () => void;
+};
+
+function directWasmSource(): WasmSource {
+  return { url: wasmURL, cleanup: () => undefined };
+}
+
+async function resolveWasmSource(): Promise<WasmSource> {
+  let response: Response;
+
+  try {
+    response = await fetch(`${wasmURL}.gz`, { cache: "force-cache" });
+  } catch {
+    // Desktop builds keep the uncompressed asset, so a missing compressed
+    // sibling is expected outside the hosted browser bundle.
+    return directWasmSource();
+  }
+
+  if (!response.ok) return directWasmSource();
+
+  const compressedBytes = new Uint8Array(await response.arrayBuffer());
+  const isGzip = compressedBytes[0] === 0x1f && compressedBytes[1] === 0x8b;
+  const wasmBytes = isGzip
+    ? await (async () => {
+        if (typeof DecompressionStream === "undefined") {
+          throw new Error("This browser cannot decompress the WebAssembly encoder bundle.");
+        }
+
+        const decompressedStream = new Blob([compressedBytes])
+          .stream()
+          .pipeThrough(new DecompressionStream("gzip"));
+        return new Response(decompressedStream).arrayBuffer();
+      })()
+    : compressedBytes;
+  const blobURL = URL.createObjectURL(new Blob([wasmBytes], { type: "application/wasm" }));
+
+  return {
+    url: blobURL,
+    cleanup: () => URL.revokeObjectURL(blobURL),
+  };
+}
+
 function readBytes(data: Uint8Array | string): Uint8Array<ArrayBuffer> {
   const source = typeof data === "string" ? new TextEncoder().encode(data) : data;
   const copy = new Uint8Array(source.byteLength);
@@ -21,6 +65,8 @@ export class BrowserFfmpegEngine {
   private ffmpeg: FFmpeg | null = null;
 
   private loading: Promise<void> | null = null;
+
+  private loadGeneration = 0;
 
   private sequence = 0;
 
@@ -52,16 +98,26 @@ export class BrowserFfmpegEngine {
     ffmpeg.on("progress", this.handleProgress);
     ffmpeg.on("log", this.handleLog);
     this.ffmpeg = ffmpeg;
-    this.loading = ffmpeg
-      .load({ coreURL, wasmURL })
-      .then(() => undefined)
-      .catch((error: unknown) => {
-        this.ffmpeg = null;
+    const loadGeneration = this.loadGeneration;
+    this.loading = (async () => {
+      let wasmSource: WasmSource | null = null;
+
+      try {
+        wasmSource = await resolveWasmSource();
+        if (this.loadGeneration !== loadGeneration || this.ffmpeg !== ffmpeg) {
+          ffmpeg.terminate();
+          throw new Error("The browser encoder load was cancelled.");
+        }
+        await ffmpeg.load({ coreURL, wasmURL: wasmSource.url });
+      } catch (error: unknown) {
+        if (this.ffmpeg === ffmpeg) this.ffmpeg = null;
+        ffmpeg.terminate();
         throw new Error(`The browser encoder could not start: ${String(error)}`);
-      })
-      .finally(() => {
-        this.loading = null;
-      });
+      } finally {
+        wasmSource?.cleanup();
+        if (this.loadGeneration === loadGeneration) this.loading = null;
+      }
+    })();
     return this.loading;
   }
 
@@ -94,6 +150,7 @@ export class BrowserFfmpegEngine {
   }
 
   cancel(): void {
+    this.loadGeneration += 1;
     if (!this.ffmpeg) return;
     this.ffmpeg.off("progress", this.handleProgress);
     this.ffmpeg.off("log", this.handleLog);

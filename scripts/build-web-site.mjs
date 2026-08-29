@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { gzipSync } from "node:zlib";
 
 const siteDirectory = path.resolve("site");
 const stagingDirectory = path.join(siteDirectory, ".browser-build");
@@ -25,6 +26,26 @@ function normalizeGeneratedText(directory) {
   }
 }
 
+function compressWasmAssets(directory) {
+  let compressedCount = 0;
+
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+
+    if (entry.isDirectory()) {
+      compressedCount += compressWasmAssets(entryPath);
+    } else if (entry.name.endsWith(".wasm")) {
+      const compressedPath = `${entryPath}.gz`;
+      const compressed = gzipSync(fs.readFileSync(entryPath), { level: 9, mtime: 0 });
+      fs.writeFileSync(compressedPath, compressed);
+      fs.rmSync(entryPath);
+      compressedCount += 1;
+    }
+  }
+
+  return compressedCount;
+}
+
 fs.rmSync(stagingDirectory, { recursive: true, force: true });
 
 try {
@@ -34,6 +55,9 @@ try {
     { stdio: "inherit" }
   );
   normalizeGeneratedText(stagingDirectory);
+  if (compressWasmAssets(stagingDirectory) === 0) {
+    throw new Error("Browser build did not produce a WebAssembly encoder asset");
+  }
 
   for (const entry of publishedEntries) {
     const source = path.join(stagingDirectory, entry);
