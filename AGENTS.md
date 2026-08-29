@@ -154,7 +154,9 @@ The public website lives in `site/` and deploys from GitHub when changes are pus
 Do not run Wrangler for normal site deploys.
 
 The hosted browser edition is built with `npm run web:build` and published at `/` from the generated
-site root. The original marketing/download website remains available at `/legacy/` from
+site root. The home page is browser-first: the local editor is the first experience, followed by an
+integrated desktop-app upgrade story with the native-only feature tour, setup notes, and download
+links. The original marketing/download website remains available at `/legacy/` from
 `site/legacy/`. The build stages the browser output separately so it preserves the legacy site and
 the root crawler files. The browser edition uses FFmpeg WebAssembly, keeps selected videos local,
 and downloads exports through the browser. It is intentionally a lighter alternative to the desktop

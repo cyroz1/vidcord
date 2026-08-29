@@ -25,6 +25,9 @@ const MAX_PRESETS = 20;
 const RESOLUTION_VALUES = new Set(["Native", "1080p", "720p", "480p"]);
 const FPS_VALUES = new Set(["off", "24", "30", "60"]);
 const CROP_VALUES = new Set(["off", "16:9", "1:1", "9:16", "4:3", "3:4", "4:5", "5:4"]);
+export const MAX_BROWSER_FPS = 240;
+
+const FPS_PATTERN = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
 
 export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   mode: "compress",
@@ -63,6 +66,18 @@ function normalizeMode(value: unknown): BrowserMode {
   return value === "advanced" || value === "lossless" || value === "gif" ? value : "compress";
 }
 
+export function normalizeBrowserFps(value: unknown): string {
+  if (typeof value !== "string") return DEFAULT_BROWSER_SETTINGS.fps;
+  const fps = value.trim();
+  if (fps === "" || fps === "off") return DEFAULT_BROWSER_SETTINGS.fps;
+  if (!FPS_PATTERN.test(fps)) return DEFAULT_BROWSER_SETTINGS.fps;
+
+  const numeric = Number(fps);
+  return Number.isFinite(numeric) && numeric > 0 && numeric <= MAX_BROWSER_FPS
+    ? fps
+    : DEFAULT_BROWSER_SETTINGS.fps;
+}
+
 export function normalizeBrowserSettings(value: unknown): BrowserSettings {
   const record = isRecord(value) ? value : {};
   const qualityIndex =
@@ -79,8 +94,9 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
       ? record.resolution
       : DEFAULT_BROWSER_SETTINGS.resolution;
   const fps =
-    typeof record.fps === "string" && FPS_VALUES.has(record.fps)
-      ? record.fps
+    typeof record.fps === "string" &&
+    (FPS_VALUES.has(record.fps) || FPS_PATTERN.test(record.fps.trim()))
+      ? normalizeBrowserFps(record.fps)
       : DEFAULT_BROWSER_SETTINGS.fps;
   const crop =
     typeof record.crop === "string" && CROP_VALUES.has(record.crop)

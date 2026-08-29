@@ -1,6 +1,6 @@
 # vidcord full agent context
 
-> vidcord is a free, open-source desktop video compressor and browser editor for Discord upload limits. Both editions process locally and avoid uploads, accounts, and telemetry.
+> vidcord is a free, open-source browser-first video compressor for Discord upload limits with an optional native desktop app for faster encoding and OS integrations. Both editions process locally and avoid uploads, accounts, and telemetry.
 
 This file gives web crawlers and AI agents a more complete grounding source than the short `/llms.txt` summary. It is public and contains no secrets or private user data.
 
@@ -11,6 +11,7 @@ This file gives web crawlers and AI agents a more complete grounding source than
 - Source repository: https://github.com/cyroz1/vidcord
 - Latest release page: https://github.com/cyroz1/vidcord/releases/latest
 - Browser editor and product home: https://vidcord.app/
+- Native desktop upgrade and downloads: https://vidcord.app/#download
 - Legacy marketing/download page: https://vidcord.app/legacy/
 - License: MIT
 - Current website-referenced app version: 7.3.0
@@ -75,7 +76,7 @@ independent autosaved preferences.
 
 ### Browser edition
 
-The browser editor is available at https://vidcord.app/. It is a lighter client-side build: the
+The browser editor is the web-first product home at https://vidcord.app/. It is a lighter client-side build:
 selected files remain in the browser, FFmpeg WebAssembly performs the work locally, and the browser
 downloads each finished video or PNG snapshot. It includes Compress, Advanced, Lossless Trim, GIF,
 single-video trim, crop, FPS, browser-local presets, snapshots, and same-profile multi-file batches.
@@ -83,7 +84,7 @@ Browser exports always use browser downloads, and the encoder list is intentiona
 `libx264` in WebAssembly. Browser input support depends on the browser's media decoder and the
 WebAssembly FFmpeg build. The browser edition does not expose the desktop app's GPU encoder
 discovery, native output folders, Open With routing, OS notifications, taskbar or Dock progress,
-or in-app installer updates; the desktop app remains the full native workflow.
+or in-app installer updates; the desktop app remains the optional full native workflow highlighted below the editor.
 
 ## Privacy and processing
 
@@ -107,7 +108,7 @@ Installer formats:
 - macOS: universal `.dmg` asset from GitHub Releases
 - Linux: `.AppImage` assets from GitHub Releases
 
-The home page download button fetches latest GitHub release metadata and links directly to the matching binary asset when the browser can identify the platform and architecture with enough certainty. macOS uses the universal DMG. Windows and Linux builds are architecture-specific; if the browser cannot report x64 vs ARM64 with enough certainty, the site asks the user to choose and the architecture options link directly to the matching latest-release binary. If automatic release lookup fails, links fall back to the latest GitHub release page. The page also requests and displays the aggregate GitHub release download count through Shields.io, falling back to an unavailable marker if that request fails.
+The `/legacy/` download page fetches latest GitHub release metadata and links directly to the matching binary asset when the browser can identify the platform and architecture with enough certainty. macOS uses the universal DMG. Windows and Linux builds are architecture-specific; if the browser cannot report x64 vs ARM64 with enough certainty, the site asks the user to choose and the architecture options link directly to the matching latest-release binary. If automatic release lookup fails, links fall back to the latest GitHub release page. The legacy page also requests and displays the aggregate GitHub release download count through Shields.io, falling back to an unavailable marker if that request fails. The browser-first home page repeats the desktop upgrade with platform cards that link to the latest release page.
 
 The browser editor is the no-install product home at https://vidcord.app/. It runs the React
 browser UI and FFmpeg WebAssembly in the page, keeps video inputs local, and uses browser downloads

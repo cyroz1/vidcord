@@ -1,6 +1,6 @@
 import { getCroppedDimensions } from "../videoMetadata";
 import type { BrowserVideoMetadata } from "./webMedia";
-import type { BrowserMode, BrowserSettings } from "./webSettings";
+import { normalizeBrowserFps, type BrowserMode, type BrowserSettings } from "./webSettings";
 
 export const QUALITY_PRESETS = [
   { label: "20 MB · 480p", sizeMb: 20, targetHeight: 480 },
@@ -173,7 +173,8 @@ export function buildVideoFilter(
     cropFilter(settings.crop),
     scaleFilter(metadata, settings.crop, targetHeight),
   ].filter((value): value is string => Boolean(value));
-  const fps = settings.fps !== "off" ? Number(settings.fps) : 0;
+  const normalizedFps = normalizeBrowserFps(settings.fps);
+  const fps = normalizedFps !== "off" ? Number(normalizedFps) : 0;
   if (Number.isFinite(fps) && fps > 0) filters.push(`fps=${fps}`);
   return filters.length > 0 ? filters.join(",") : null;
 }

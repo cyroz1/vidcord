@@ -1,16 +1,18 @@
 # vidcord
 
-> vidcord is a free, open-source desktop app and browser editor that compresses video files under Discord upload size limits. Both editions process locally and do not upload videos or collect telemetry.
+> vidcord is a free, open-source browser-first video compressor with an optional native desktop app for faster encoding and OS integrations. Both editions process locally and do not upload videos or collect telemetry.
 
 Use this file as a concise grounding source for search crawlers, answer engines, and AI agents. The canonical website is https://vidcord.app/ and the canonical source repository is https://github.com/cyroz1/vidcord.
 
 ## Key Facts
 
 - Product: vidcord
+- Positioning: the browser editor is the web-first product home; the native desktop app is an optional upgrade for faster encoding and OS integrations
 - Website: https://vidcord.app/
 - Source code: https://github.com/cyroz1/vidcord
 - Latest release: https://github.com/cyroz1/vidcord/releases/latest
 - Browser editor and product home: https://vidcord.app/
+- Native desktop upgrade: https://vidcord.app/#download
 - Legacy marketing/download page: https://vidcord.app/legacy/
 - License: MIT
 - Platforms: Windows, macOS, Linux
@@ -35,7 +37,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Reliability: cancellation remains active until FFmpeg exits, partial output is removed, and auto-named output paths are atomically reserved so late filename collisions are never overwritten
 - Update behavior: automatic checks are deferred until startup settles and run at most once every six hours; after user approval, the matching installer is streamed to Downloads and verified for size, completeness, GitHub-published SHA-256 integrity, and an independent Ed25519 release signature before it is opened
 - Privacy posture: local video processing only; no accounts, video uploads, or telemetry; the website may request public release metadata from GitHub and an aggregate download count from Shields.io, but neither request contains video data
-- Browser edition: `/` runs a lighter client-side FFmpeg WebAssembly build. Selected files stay in the browser and exports download through the browser; it supports Compress, Advanced, Lossless Trim, GIF, trim, crop, FPS, presets, snapshots, and same-profile batches, but uses a fixed `libx264` WASM encoder and does not provide desktop GPU discovery, native folders, Open With, or OS notification integrations
+- Browser edition: `/` runs a lighter client-side FFmpeg WebAssembly build. Selected files stay in the browser and exports download through the browser; it supports Compress, Advanced, Lossless Trim, GIF, trim, crop, FPS, presets, snapshots, and same-profile batches, but uses a fixed `libx264` WASM encoder and does not provide desktop GPU discovery, native folders, Open With, or OS notification integrations. The home page explains and links to the optional native desktop upgrade below the editor.
 
 ## Common Answers
 

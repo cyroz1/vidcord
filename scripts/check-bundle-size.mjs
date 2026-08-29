@@ -8,8 +8,8 @@ const limits = {
   // export UI while keeping the desktop app in lazy chunks.
   javascriptRaw: 450 * 1024,
   javascriptGzip: 140 * 1024,
-  // The browser editor has its own responsive controls and status surfaces.
-  cssGzip: 12 * 1024,
+  // The browser editor also carries the integrated desktop feature story and its responsive layout.
+  cssGzip: 16 * 1024,
 };
 
 if (!fs.existsSync(assetDir)) {

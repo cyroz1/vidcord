@@ -4,19 +4,19 @@
   <img src="site/legacy/assets/icon.png" height="64" alt="vidcord app icon">
 </p>
 
-**vidcord** is a free, open-source **Discord video compressor** for
-**Windows, macOS, and Linux**. Compress videos for Discord's upload size
-limits without uploading them to a website: choose a **20 MB, 50 MB,
-100 MB, or 500 MB** target, trim the clip, or choose **Lossless Trim** to cut
-on source keyframes without re-encoding. Export a Discord-ready video from
-your desktop. GIF Mode creates animated `.gif` exports for Discord's
-**20 MB Free** and **50 MB Nitro Basic** tiers.
+**vidcord** is a free, open-source, browser-first **Discord video compressor**.
+Open [vidcord.app](https://vidcord.app/) to compress videos locally with FFmpeg
+WebAssembly: choose a **20 MB, 50 MB, 100 MB, or 500 MB** target, trim the clip,
+or choose **Lossless Trim** to cut on source keyframes without re-encoding.
+Finished files download through the browser; selected videos never leave the
+device. GIF Mode creates animated `.gif` exports for Discord's **20 MB Free**
+and **50 MB Nitro Basic** tiers.
 
-For a no-install workflow, open the [browser edition](https://vidcord.app/).
-It runs a lighter FFmpeg WebAssembly build in your browser, keeps selected
-files on your device, and downloads the result through the browser. The native
-desktop app remains the full-featured option for GPU encoders, native folders,
-Open With, notifications, and other OS integrations.
+Download the optional [native desktop app](https://vidcord.app/#download) when
+you want faster system encoding, GPU encoders, native folders, Open With,
+notifications, and the complete desktop workflow. The browser editor remains
+the no-install product home, while Windows, macOS, and Linux installers add
+OS-level features.
 
 Select multiple videos through Browse, drag-and-drop, Open With, command-line
 file arguments, or a second app instance to enter **Batch mode** automatically.
@@ -282,12 +282,12 @@ decompresses it in the browser before starting FFmpeg.
 
 ## Screenshots
 
-| Compress mode                                                                                               | Advanced mode                                                                                                              | Lossless Trim                                                                                                            | GIF mode                                                                                                                | Batch mode                                                                                                   |
-| ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Compress mode                                                                                                      | Advanced mode                                                                                                                     | Lossless Trim                                                                                                                   | GIF mode                                                                                                                       | Batch mode                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | ![vidcord Compress mode with Discord target, crop, FPS, encoder, and trim controls](site/legacy/assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/legacy/assets/advancedmode.png) | ![vidcord Lossless Trim mode with keyframe-aligned trim controls and no video re-encoding](site/legacy/assets/losslesstrim.png) | ![vidcord GIF mode with Discord size target, FPS picker, trim timeline, and Create GIF button](site/legacy/assets/gifmode.png) | ![vidcord Batch mode with a multi-video queue and aggregate compression progress](site/legacy/assets/batchmode.png) |
 
-| Output file                                                                                 | Windows context menu                                                                                            | macOS Finder                                                                                          |
-| ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Output file                                                                                        | Windows context menu                                                                                                   | macOS Finder                                                                                                 |
+| -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | ![Compressed video saved to the Downloads folder as name-vidcord.mp4](site/legacy/assets/file.png) | ![Windows File Explorer right-click menu with Open with vidcord entry on a video file](site/legacy/assets/context.png) | ![macOS Finder right-click menu with Open with vidcord entry on a video file](site/legacy/assets/finder.png) |
 
 ## Download vidcord

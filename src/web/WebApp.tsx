@@ -25,12 +25,14 @@ import {
   type ExportPlan,
 } from "./exportPlan";
 import { BrowserFfmpegEngine } from "./ffmpegEngine";
+import DesktopUpgrade from "./DesktopUpgrade";
 import { exportBrowserFile } from "./webExporter";
 import {
   areBrowserSettingsEqual,
   createBrowserPresetId,
   loadBrowserPresets,
   loadBrowserSettings,
+  normalizeBrowserFps,
   saveBrowserPresets,
   saveBrowserSettings,
   type BrowserMode,
@@ -266,7 +268,12 @@ function WebApp() {
   const selectMode = useCallback(
     (mode: BrowserMode) => {
       if (batchMode) return;
-      patchSettings({ mode });
+      patchSettings(
+        mode === "compress" &&
+          !FPS_OPTIONS.some((option) => option.value === settingsRef.current.fps)
+          ? { mode, fps: "off" }
+          : { mode }
+      );
     },
     [batchMode, patchSettings]
   );
@@ -400,6 +407,10 @@ function WebApp() {
     setProgress(0);
     setExportStatus("Loading the local browser encoder…");
     setLastExport(null);
+    const exportSettings =
+      batchMode && !FPS_OPTIONS.some((option) => option.value === settings.fps)
+        ? { ...settings, fps: "off" }
+        : settings;
 
     engine.setProgressHandler((value) => {
       setProgress((current) => Math.max(current, value * 100));
@@ -427,7 +438,7 @@ function WebApp() {
           engine,
           file,
           metadata: fileMetadata,
-          settings,
+          settings: exportSettings,
           mode: exportMode,
           startTime: fileStart,
           endTime: fileEnd,
@@ -498,6 +509,9 @@ function WebApp() {
   }, []);
 
   const selectedQuality = QUALITY_PRESETS[settings.qualityIndex] ?? QUALITY_PRESETS[0];
+  const standardFps = FPS_OPTIONS.some((option) => option.value === settings.fps)
+    ? settings.fps
+    : "off";
   const actionLabel = batchMode
     ? `Export ${files.length} videos`
     : activeMode === "gif"
@@ -508,16 +522,22 @@ function WebApp() {
           ? `${activeMode === "advanced" ? "Compress" : "Compress"} to ${plan.targetSizeMb} MB`
           : "Export video";
   const outputSummary = batchMode
-    ? `${files.length} videos · ${selectedQuality.label} · Browser downloads`
+    ? `${files.length} videos · ${selectedQuality.label}`
     : plan
-      ? `${plan.summary} · Browser downloads`
+      ? plan.summary
       : "Choose a video to preview the export";
 
   return (
     <div className="web-app" onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       <header className="web-header">
         <Logo />
-        <span className="web-header-note">Private browser editor</span>
+        <span className="web-header-note">Web-first video compression</span>
+        <nav className="web-header-nav" aria-label="Page navigation">
+          <a href="#features">Features</a>
+          <a href="#workflow">How it works</a>
+          <a href="#desktop-app">Desktop app</a>
+          <a href="#faq">FAQ</a>
+        </nav>
         <div className="web-header-actions">
           <span className={`web-runtime-status${wasmReady ? " ready" : ""}`}>
             <span className="web-status-dot" aria-hidden="true" />
@@ -573,492 +593,543 @@ function WebApp() {
       )}
 
       <main className="web-main">
-        <section
-          className={`web-import-bar${dragging ? " dragging" : ""}${activeFile ? " has-file" : ""}`}
-          onDragEnter={(event) => {
-            event.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={(event) => {
-            if (event.currentTarget === event.target) setDragging(false);
-          }}
-          onDrop={handleDrop}
-        >
-          <input
-            ref={fileInputRef}
-            className="web-hidden-input"
-            type="file"
-            accept="video/*,.mkv,.avi,.mov,.webm,.flv,.wmv"
-            multiple
-            disabled={isExporting}
-            onChange={handleFileInput}
-          />
-          {activeFile ? (
-            <div className="web-file-row">
-              <span className="web-file-icon">
-                <Icon name="video" size={23} />
-              </span>
-              <div className="web-file-copy">
-                <strong title={activeFile.name}>
-                  {batchMode ? `${files.length} videos selected` : activeFile.name}
-                </strong>
-                <span>
-                  {batchMode
-                    ? "Each file will use the same export profile"
-                    : metadata
-                      ? formatMetadata(metadata)
-                      : metadataLoading
-                        ? "Reading video details…"
-                        : "Video details unavailable"}
-                </span>
-              </div>
-              <button
-                type="button"
-                className="web-link-button"
-                disabled={isExporting}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                Change…
-              </button>
+        <section className="web-hero" aria-labelledby="web-hero-title">
+          <div className="web-hero-copy">
+            <span className="web-eyebrow">Browser-first · private by default</span>
+            <h1 id="web-hero-title">Compress video for Discord, right in your browser.</h1>
+            <p className="web-hero-lede">
+              Drop in a clip, choose a target, and export a smaller video without sending it to a
+              server.
+            </p>
+            <div className="web-hero-actions">
+              <a className="web-marketing-button primary" href="#web-editor">
+                Start with a video
+              </a>
+              <a className="web-marketing-text-link" href="#desktop-app">
+                Need more power? See the desktop app
+              </a>
             </div>
-          ) : (
-            <button
-              type="button"
-              className="web-drop-button"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <span className="web-drop-icon">
-                <Icon name="upload" size={25} />
-              </span>
-              <span>
-                <strong>Choose a video</strong>
-                <small>or drag and drop files here</small>
-              </span>
-            </button>
-          )}
-        </section>
+            <ul className="web-hero-points">
+              <li>
+                <Icon name="check" size={16} />
+                <span>
+                  <strong>No uploads.</strong> FFmpeg WebAssembly runs on this device.
+                </span>
+              </li>
+              <li>
+                <Icon name="check" size={16} />
+                <span>
+                  <strong>Discord-ready targets.</strong> Choose 20, 50, 100, or 500 MB.
+                </span>
+              </li>
+              <li>
+                <Icon name="check" size={16} />
+                <span>
+                  <strong>Nothing to install.</strong> Finished files download through your browser.
+                </span>
+              </li>
+            </ul>
+          </div>
 
-        <div className="web-workspace">
-          <div className="web-left-column">
-            <section className="web-preview-panel">
-              <div className="web-panel-topline">
-                <span>Preview</span>
-                {activeFile && (
-                  <span>{metadata ? `${metadata.width} × ${metadata.height}` : "Loading…"}</span>
-                )}
+          <div className="web-editor-column" id="web-editor">
+            <div className="web-editor-heading">
+              <div>
+                <span className="web-editor-kicker">Local browser encoder</span>
+                <strong>Choose a video to get started</strong>
               </div>
-              <div className="web-preview-frame">
-                {previewUrl ? (
-                  <>
-                    <video
-                      ref={videoRef}
-                      src={previewUrl}
-                      controls
-                      playsInline
-                      preload="metadata"
-                      onTimeUpdate={handleVideoTimeUpdate}
-                      onLoadedMetadata={(event) => {
-                        if (!metadata && Number.isFinite(event.currentTarget.duration)) {
-                          setEndTime(event.currentTarget.duration);
-                        }
-                      }}
-                    />
-                    <button
-                      className="web-snapshot-button"
-                      type="button"
-                      aria-label="Download a PNG snapshot of the current frame"
-                      title="Download frame snapshot"
-                      onClick={() => void handleSnapshot()}
-                    >
-                      <Icon name="snapshot" size={18} />
-                    </button>
-                  </>
-                ) : (
-                  <div className="web-preview-empty">
-                    <span className="web-empty-icon">
-                      <Icon name="video" size={28} />
+              <span className="web-editor-secure">
+                <span className="web-status-dot" aria-hidden="true" />
+                Files stay local
+              </span>
+            </div>
+            <section
+              className={`web-import-bar${dragging ? " dragging" : ""}${activeFile ? " has-file" : ""}`}
+              onDragEnter={(event) => {
+                event.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={(event) => {
+                if (event.currentTarget === event.target) setDragging(false);
+              }}
+              onDrop={handleDrop}
+            >
+              <input
+                ref={fileInputRef}
+                className="web-hidden-input"
+                type="file"
+                accept="video/*,.mkv,.avi,.mov,.webm,.flv,.wmv"
+                multiple
+                disabled={isExporting}
+                onChange={handleFileInput}
+              />
+              {activeFile ? (
+                <div className="web-file-row">
+                  <span className="web-file-icon">
+                    <Icon name="video" size={23} />
+                  </span>
+                  <div className="web-file-copy">
+                    <strong title={activeFile.name}>
+                      {batchMode ? `${files.length} videos selected` : activeFile.name}
+                    </strong>
+                    <span>
+                      {batchMode
+                        ? "Each file will use the same export profile"
+                        : metadata
+                          ? formatMetadata(metadata)
+                          : metadataLoading
+                            ? "Reading video details…"
+                            : "Video details unavailable"}
                     </span>
-                    <strong>Your video preview appears here</strong>
-                    <span>Everything is processed locally in this browser.</span>
                   </div>
-                )}
-              </div>
-              {activeFile && (
-                <div className="web-preview-footer">
-                  <span>
-                    {formatClock(currentTime)} / {formatClock(duration)}
-                  </span>
-                  <span className="web-preview-caption">
-                    Preview uses your browser’s media decoder
-                  </span>
+                  <button
+                    type="button"
+                    className="web-link-button"
+                    disabled={isExporting}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Change…
+                  </button>
                 </div>
+              ) : (
+                <button
+                  type="button"
+                  className="web-drop-button"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <span className="web-drop-icon">
+                    <Icon name="upload" size={25} />
+                  </span>
+                  <span>
+                    <strong>Choose a video</strong>
+                    <small>or drag and drop files here</small>
+                  </span>
+                </button>
               )}
             </section>
 
-            {batchMode && (
-              <section className="web-queue-panel" aria-labelledby="web-queue-title">
-                <div className="web-section-heading">
-                  <div>
-                    <span className="web-section-label">Batch queue</span>
-                    <strong id="web-queue-title">{files.length} videos</strong>
+            <div className="web-workspace">
+              <div className="web-left-column">
+                <section className="web-preview-panel">
+                  <div className="web-panel-topline">
+                    <span>Preview</span>
+                    {activeFile && (
+                      <span>
+                        {metadata ? `${metadata.width} × ${metadata.height}` : "Loading…"}
+                      </span>
+                    )}
                   </div>
-                  <span className="web-queue-note">Same profile · full duration</span>
-                </div>
-                <ol className="web-queue-list">
-                  {files.map((file, index) => (
-                    <li
-                      key={`${file.name}-${file.lastModified}-${index}`}
-                      className={index === activeFileIndex ? "active" : ""}
-                    >
-                      <button type="button" onClick={() => setActiveFileIndex(index)}>
-                        <span className="web-queue-index">{index + 1}</span>
-                        <span className="web-queue-name" title={file.name}>
-                          {file.name}
+                  <div className="web-preview-frame">
+                    {previewUrl ? (
+                      <>
+                        <video
+                          ref={videoRef}
+                          src={previewUrl}
+                          controls
+                          playsInline
+                          preload="metadata"
+                          onTimeUpdate={handleVideoTimeUpdate}
+                          onLoadedMetadata={(event) => {
+                            if (!metadata && Number.isFinite(event.currentTarget.duration)) {
+                              setEndTime(event.currentTarget.duration);
+                            }
+                          }}
+                        />
+                        <button
+                          className="web-snapshot-button"
+                          type="button"
+                          aria-label="Download a PNG snapshot of the current frame"
+                          title="Download frame snapshot"
+                          onClick={() => void handleSnapshot()}
+                        >
+                          <Icon name="snapshot" size={18} />
+                        </button>
+                      </>
+                    ) : (
+                      <div className="web-preview-empty">
+                        <span className="web-empty-icon">
+                          <Icon name="video" size={28} />
                         </span>
-                        <span className="web-queue-size">{formatFileSize(file.size)}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ol>
-              </section>
-            )}
-          </div>
+                        <strong>Your video preview appears here</strong>
+                        <span>Everything is processed locally in this browser.</span>
+                      </div>
+                    )}
+                  </div>
+                  {activeFile && (
+                    <div className="web-preview-footer">
+                      <span>
+                        {formatClock(currentTime)} / {formatClock(duration)}
+                      </span>
+                      <span className="web-preview-caption">
+                        Preview uses your browser’s media decoder
+                      </span>
+                    </div>
+                  )}
+                </section>
 
-          <section className="web-controls-panel" aria-label="Export controls">
-            <div className="web-mode-tabs" role="tablist" aria-label="Export mode">
-              {(["compress", "advanced", "lossless", "gif"] as BrowserMode[]).map((mode) => (
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeMode === mode}
-                  className={activeMode === mode ? "active" : ""}
-                  disabled={batchMode || isExporting}
-                  key={mode}
-                  onClick={() => selectMode(mode)}
-                >
-                  {browserModeLabel(mode)}
-                </button>
-              ))}
-              {batchMode && (
-                <button type="button" role="tab" className="active batch-tab" aria-selected="true">
-                  Batch
-                </button>
-              )}
-            </div>
-
-            {(activeMode === "compress" || activeMode === "batch") && (
-              <div className="web-settings-grid">
-                <label className="web-field web-field-wide">
-                  <span>Discord target</span>
-                  <select
-                    value={settings.qualityIndex}
-                    disabled={isExporting}
-                    onChange={(event) =>
-                      patchSettings({ qualityIndex: Number(event.target.value) })
-                    }
-                  >
-                    {QUALITY_PRESETS.map((preset, index) => (
-                      <option value={index} key={preset.label}>
-                        {preset.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="web-field">
-                  <span>Crop</span>
-                  <select
-                    value={settings.crop}
-                    disabled={isExporting}
-                    onChange={(event) => patchSettings({ crop: event.target.value })}
-                  >
-                    {cropOptions.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="web-field">
-                  <span>FPS</span>
-                  <select
-                    value={settings.fps}
-                    disabled={isExporting}
-                    onChange={(event) => patchSettings({ fps: event.target.value })}
-                  >
-                    {FPS_OPTIONS.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="web-field">
-                  <span>Encoder</span>
-                  <select value="libx264" disabled aria-label="Browser encoder">
-                    <option value="libx264">libx264 · WASM</option>
-                  </select>
-                </label>
-                <label className="web-toggle web-toggle-wide">
-                  <input
-                    type="checkbox"
-                    checked={settings.removeAudio}
-                    disabled={isExporting}
-                    onChange={(event) =>
-                      patchSettings({
-                        removeAudio: event.target.checked,
-                        audioNormalize: event.target.checked ? false : settings.audioNormalize,
-                      })
-                    }
-                  />
-                  <span>Remove audio</span>
-                </label>
-              </div>
-            )}
-
-            {activeMode === "advanced" && (
-              <div className="web-settings-grid web-advanced-grid">
-                <label className="web-field">
-                  <span>
-                    Target size <small>(optional)</small>
-                  </span>
-                  <input
-                    inputMode="decimal"
-                    value={settings.advancedTargetSize}
-                    placeholder="No limit"
-                    disabled={isExporting}
-                    onChange={(event) => patchSettings({ advancedTargetSize: event.target.value })}
-                  />
-                </label>
-                <label className="web-field">
-                  <span>Resolution</span>
-                  <select
-                    value={settings.resolution}
-                    disabled={isExporting}
-                    onChange={(event) => patchSettings({ resolution: event.target.value })}
-                  >
-                    {RESOLUTION_OPTIONS.map((option) => (
-                      <option value={option} key={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="web-field">
-                  <span>FPS</span>
-                  <select
-                    value={settings.fps}
-                    disabled={isExporting}
-                    onChange={(event) => patchSettings({ fps: event.target.value })}
-                  >
-                    {FPS_OPTIONS.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="web-field">
-                  <span>Encoder</span>
-                  <select value="libx264" disabled aria-label="Browser encoder">
-                    <option value="libx264">libx264 · WASM</option>
-                  </select>
-                </label>
-                <label className="web-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.removeAudio}
-                    disabled={isExporting}
-                    onChange={(event) =>
-                      patchSettings({
-                        removeAudio: event.target.checked,
-                        audioNormalize: event.target.checked ? false : settings.audioNormalize,
-                      })
-                    }
-                  />
-                  <span>Remove audio</span>
-                </label>
-                <label className="web-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.audioNormalize}
-                    disabled={isExporting || settings.removeAudio}
-                    onChange={(event) => patchSettings({ audioNormalize: event.target.checked })}
-                  />
-                  <span>Normalize audio</span>
-                </label>
-                <label className="web-field web-field-wide">
-                  <span>Crop</span>
-                  <select
-                    value={settings.crop}
-                    disabled={isExporting}
-                    onChange={(event) => patchSettings({ crop: event.target.value })}
-                  >
-                    {cropOptions.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            )}
-
-            {activeMode === "gif" && (
-              <div className="web-settings-grid">
-                <label className="web-field">
-                  <span>Target size</span>
-                  <select
-                    value={settings.gifQualityIndex}
-                    disabled={isExporting}
-                    onChange={(event) =>
-                      patchSettings({ gifQualityIndex: Number(event.target.value) })
-                    }
-                  >
-                    {GIF_PRESETS.map((preset, index) => (
-                      <option value={index} key={preset.label}>
-                        {preset.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="web-field">
-                  <span>FPS</span>
-                  <select
-                    value={settings.gifFps}
-                    disabled={isExporting}
-                    onChange={(event) => patchSettings({ gifFps: Number(event.target.value) })}
-                  >
-                    {[15, 30, 50].map((fps) => (
-                      <option value={fps} key={fps}>
-                        {fps}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="web-field web-field-wide">
-                  <span>Crop</span>
-                  <select
-                    value={settings.crop}
-                    disabled={isExporting}
-                    onChange={(event) => patchSettings({ crop: event.target.value })}
-                  >
-                    {cropOptions.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            )}
-
-            {activeMode === "lossless" && (
-              <div className="web-lossless-note">
-                <span className="web-note-icon">
-                  <Icon name="spark" size={18} />
-                </span>
-                <div>
-                  <strong>Stream copy</strong>
-                  <span>
-                    Trims without re-encoding. The cut snaps to the nearest playable source boundary
-                    where the browser FFmpeg build allows it.
-                  </span>
-                </div>
-                <label className="web-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.removeAudio}
-                    disabled={isExporting}
-                    onChange={(event) => patchSettings({ removeAudio: event.target.checked })}
-                  />
-                  <span>Remove audio</span>
-                </label>
-              </div>
-            )}
-
-            {batchMode ? (
-              <div className="web-batch-note">
-                <strong>Batch export</strong>
-                <span>
-                  Each selected file uses the same target, crop, frame-rate, and audio settings.
-                  Trimming is disabled for batch exports.
-                </span>
-              </div>
-            ) : (
-              <WebTrimTimeline
-                duration={duration}
-                startTime={startTime}
-                endTime={endTime || duration}
-                currentTime={currentTime}
-                disabled={!metadata || isExporting}
-                onStartChange={(value) => {
-                  setStartTime(value);
-                  if (currentTime < value) seekTo(value);
-                }}
-                onEndChange={(value) => {
-                  setEndTime(value);
-                  if (currentTime > value) seekTo(value);
-                }}
-                onSeek={seekTo}
-              />
-            )}
-
-            <div className="web-output-panel">
-              <div className="web-output-option">
-                <span>Save to</span>
-                <strong>Browser downloads</strong>
-              </div>
-              <div className="web-output-option">
-                <span>After export</span>
-                <strong>Download file</strong>
-              </div>
-            </div>
-
-            <div className="web-export-summary" aria-live="polite">
-              {outputSummary}
-            </div>
-
-            <button
-              className={`web-export-button${isExporting ? " cancel" : ""}`}
-              type="button"
-              disabled={(!batchMode && !metadata) || metadataLoading || wasmLoading}
-              onClick={isExporting ? cancelExport : () => void startExport()}
-            >
-              {isExporting ? (
-                "Cancel export"
-              ) : (
-                <>
-                  <Icon name="download" size={19} />
-                  {actionLabel}
-                </>
-              )}
-            </button>
-
-            {(isExporting || progress > 0 || lastExport) && (
-              <div className="web-progress-panel" aria-live="polite">
-                <div className="web-progress-line">
-                  <span>{exportStatus}</span>
-                  <strong>{Math.round(progress)}%</strong>
-                </div>
-                <div className="web-progress-track">
-                  <span style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />
-                </div>
-                {lastExport && !isExporting && (
-                  <span className="web-last-export">
-                    <Icon name="check" size={15} />
-                    {lastExport.name} · {formatFileSize(lastExport.bytes)}
-                  </span>
+                {batchMode && (
+                  <section className="web-queue-panel" aria-labelledby="web-queue-title">
+                    <div className="web-section-heading">
+                      <div>
+                        <span className="web-section-label">Batch queue</span>
+                        <strong id="web-queue-title">{files.length} videos</strong>
+                      </div>
+                      <span className="web-queue-note">Same profile · full duration</span>
+                    </div>
+                    <ol className="web-queue-list">
+                      {files.map((file, index) => (
+                        <li
+                          key={`${file.name}-${file.lastModified}-${index}`}
+                          className={index === activeFileIndex ? "active" : ""}
+                        >
+                          <button type="button" onClick={() => setActiveFileIndex(index)}>
+                            <span className="web-queue-index">{index + 1}</span>
+                            <span className="web-queue-name" title={file.name}>
+                              {file.name}
+                            </span>
+                            <span className="web-queue-size">{formatFileSize(file.size)}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
                 )}
               </div>
-            )}
-          </section>
-        </div>
+
+              <section className="web-controls-panel" aria-label="Export controls">
+                <div className="web-mode-tabs" role="tablist" aria-label="Export mode">
+                  {(["compress", "advanced", "lossless", "gif"] as BrowserMode[]).map((mode) => (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={activeMode === mode}
+                      className={activeMode === mode ? "active" : ""}
+                      disabled={batchMode || isExporting}
+                      key={mode}
+                      onClick={() => selectMode(mode)}
+                    >
+                      {browserModeLabel(mode)}
+                    </button>
+                  ))}
+                  {batchMode && (
+                    <button
+                      type="button"
+                      role="tab"
+                      className="active batch-tab"
+                      aria-selected="true"
+                    >
+                      Batch
+                    </button>
+                  )}
+                </div>
+
+                {(activeMode === "compress" || activeMode === "batch") && (
+                  <div className="web-settings-grid">
+                    <label className="web-field web-field-wide">
+                      <span>Discord target</span>
+                      <select
+                        value={settings.qualityIndex}
+                        disabled={isExporting}
+                        onChange={(event) =>
+                          patchSettings({ qualityIndex: Number(event.target.value) })
+                        }
+                      >
+                        {QUALITY_PRESETS.map((preset, index) => (
+                          <option value={index} key={preset.label}>
+                            {preset.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="web-field">
+                      <span>Crop</span>
+                      <select
+                        value={settings.crop}
+                        disabled={isExporting}
+                        onChange={(event) => patchSettings({ crop: event.target.value })}
+                      >
+                        {cropOptions.map((option) => (
+                          <option value={option.value} key={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="web-field">
+                      <span>FPS</span>
+                      <select
+                        value={standardFps}
+                        disabled={isExporting}
+                        onChange={(event) => patchSettings({ fps: event.target.value })}
+                      >
+                        {FPS_OPTIONS.map((option) => (
+                          <option value={option.value} key={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="web-toggle web-toggle-wide">
+                      <input
+                        type="checkbox"
+                        checked={settings.removeAudio}
+                        disabled={isExporting}
+                        onChange={(event) =>
+                          patchSettings({
+                            removeAudio: event.target.checked,
+                            audioNormalize: event.target.checked ? false : settings.audioNormalize,
+                          })
+                        }
+                      />
+                      <span>Remove audio</span>
+                    </label>
+                  </div>
+                )}
+
+                {activeMode === "advanced" && (
+                  <div className="web-settings-grid web-advanced-grid">
+                    <label className="web-field">
+                      <span>
+                        Target size <small>(optional)</small>
+                      </span>
+                      <input
+                        inputMode="decimal"
+                        value={settings.advancedTargetSize}
+                        placeholder="No limit"
+                        disabled={isExporting}
+                        onChange={(event) =>
+                          patchSettings({ advancedTargetSize: event.target.value })
+                        }
+                      />
+                    </label>
+                    <label className="web-field">
+                      <span>Resolution</span>
+                      <select
+                        value={settings.resolution}
+                        disabled={isExporting}
+                        onChange={(event) => patchSettings({ resolution: event.target.value })}
+                      >
+                        {RESOLUTION_OPTIONS.map((option) => (
+                          <option value={option} key={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="web-field">
+                      <span>
+                        FPS <small>(optional)</small>
+                      </span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="240"
+                        step="0.01"
+                        inputMode="decimal"
+                        value={settings.fps === "off" ? "" : settings.fps}
+                        placeholder="Source"
+                        disabled={isExporting}
+                        onChange={(event) => patchSettings({ fps: event.target.value })}
+                        onBlur={() =>
+                          patchSettings({ fps: normalizeBrowserFps(settingsRef.current.fps) })
+                        }
+                        aria-describedby="web-advanced-fps-note"
+                      />
+                      <small id="web-advanced-fps-note" className="web-field-hint">
+                        Leave blank to keep the source rate.
+                      </small>
+                    </label>
+                    <label className="web-toggle">
+                      <input
+                        type="checkbox"
+                        checked={settings.removeAudio}
+                        disabled={isExporting}
+                        onChange={(event) =>
+                          patchSettings({
+                            removeAudio: event.target.checked,
+                            audioNormalize: event.target.checked ? false : settings.audioNormalize,
+                          })
+                        }
+                      />
+                      <span>Remove audio</span>
+                    </label>
+                    <label className="web-toggle">
+                      <input
+                        type="checkbox"
+                        checked={settings.audioNormalize}
+                        disabled={isExporting || settings.removeAudio}
+                        onChange={(event) =>
+                          patchSettings({ audioNormalize: event.target.checked })
+                        }
+                      />
+                      <span>Normalize audio</span>
+                    </label>
+                    <label className="web-field web-field-wide">
+                      <span>Crop</span>
+                      <select
+                        value={settings.crop}
+                        disabled={isExporting}
+                        onChange={(event) => patchSettings({ crop: event.target.value })}
+                      >
+                        {cropOptions.map((option) => (
+                          <option value={option.value} key={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                )}
+
+                {activeMode === "gif" && (
+                  <div className="web-settings-grid">
+                    <label className="web-field">
+                      <span>Target size</span>
+                      <select
+                        value={settings.gifQualityIndex}
+                        disabled={isExporting}
+                        onChange={(event) =>
+                          patchSettings({ gifQualityIndex: Number(event.target.value) })
+                        }
+                      >
+                        {GIF_PRESETS.map((preset, index) => (
+                          <option value={index} key={preset.label}>
+                            {preset.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="web-field">
+                      <span>FPS</span>
+                      <select
+                        value={settings.gifFps}
+                        disabled={isExporting}
+                        onChange={(event) => patchSettings({ gifFps: Number(event.target.value) })}
+                      >
+                        {[15, 30, 50].map((fps) => (
+                          <option value={fps} key={fps}>
+                            {fps}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="web-field web-field-wide">
+                      <span>Crop</span>
+                      <select
+                        value={settings.crop}
+                        disabled={isExporting}
+                        onChange={(event) => patchSettings({ crop: event.target.value })}
+                      >
+                        {cropOptions.map((option) => (
+                          <option value={option.value} key={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                )}
+
+                {activeMode === "lossless" && (
+                  <div className="web-lossless-note">
+                    <span className="web-note-icon">
+                      <Icon name="spark" size={18} />
+                    </span>
+                    <div>
+                      <strong>Stream copy</strong>
+                      <span>
+                        Trims without re-encoding. The cut snaps to the nearest playable source
+                        boundary where the browser FFmpeg build allows it.
+                      </span>
+                    </div>
+                    <label className="web-toggle">
+                      <input
+                        type="checkbox"
+                        checked={settings.removeAudio}
+                        disabled={isExporting}
+                        onChange={(event) => patchSettings({ removeAudio: event.target.checked })}
+                      />
+                      <span>Remove audio</span>
+                    </label>
+                  </div>
+                )}
+
+                {batchMode ? (
+                  <div className="web-batch-note">
+                    <strong>Batch export</strong>
+                    <span>
+                      Each selected file uses the same target, crop, frame-rate, and audio settings.
+                      Trimming is disabled for batch exports.
+                    </span>
+                  </div>
+                ) : (
+                  <WebTrimTimeline
+                    duration={duration}
+                    startTime={startTime}
+                    endTime={endTime || duration}
+                    currentTime={currentTime}
+                    disabled={!metadata || isExporting}
+                    onStartChange={(value) => {
+                      setStartTime(value);
+                      if (currentTime < value) seekTo(value);
+                    }}
+                    onEndChange={(value) => {
+                      setEndTime(value);
+                      if (currentTime > value) seekTo(value);
+                    }}
+                    onSeek={seekTo}
+                  />
+                )}
+
+                <div className="web-export-summary" aria-live="polite">
+                  {outputSummary}
+                </div>
+
+                <button
+                  className={`web-export-button${isExporting ? " cancel" : ""}`}
+                  type="button"
+                  disabled={(!batchMode && !metadata) || metadataLoading || wasmLoading}
+                  onClick={isExporting ? cancelExport : () => void startExport()}
+                >
+                  {isExporting ? (
+                    "Cancel export"
+                  ) : (
+                    <>
+                      <Icon name="download" size={19} />
+                      {actionLabel}
+                    </>
+                  )}
+                </button>
+
+                {(isExporting || progress > 0 || lastExport) && (
+                  <div className="web-progress-panel" aria-live="polite">
+                    <div className="web-progress-line">
+                      <span>{exportStatus}</span>
+                      <strong>{Math.round(progress)}%</strong>
+                    </div>
+                    <div className="web-progress-track">
+                      <span style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />
+                    </div>
+                    {lastExport && !isExporting && (
+                      <span className="web-last-export">
+                        <Icon name="check" size={15} />
+                        {lastExport.name} · {formatFileSize(lastExport.bytes)}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <DesktopUpgrade />
       </main>
 
       <footer className="web-footer">
-        <span>vidcord web · v7.3</span>
+        <span>vidcord · browser-first video compression</span>
         <span>Local-only processing · FFmpeg WebAssembly</span>
-        <a href="/legacy/">Legacy site</a>
+        <a href="#desktop-app">Desktop app</a>
+        <a href="/legacy/">Original site</a>
         <a href="https://github.com/cyroz1/vidcord" target="_blank" rel="noreferrer">
           GitHub
         </a>

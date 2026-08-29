@@ -73,17 +73,20 @@ describe("browser export planning", () => {
     expect(outputFileName("capture.mp4", "mp4", 2)).toBe("capture-vidcord-3.mp4");
   });
 
-  it("falls back to allowlisted browser settings", () => {
+  it("accepts bounded custom advanced FPS values and rejects unsafe settings", () => {
     const normalized = normalizeBrowserSettings({
       resolution: "4k",
-      fps: "120",
+      fps: "120.5",
       crop: "javascript:",
       gifFps: 12,
     });
 
     expect(normalized.resolution).toBe("Native");
-    expect(normalized.fps).toBe("off");
+    expect(normalized.fps).toBe("120.5");
     expect(normalized.crop).toBe("off");
     expect(normalized.gifFps).toBe(15);
+
+    expect(normalizeBrowserSettings({ fps: "240.01" }).fps).toBe("off");
+    expect(normalizeBrowserSettings({ fps: "javascript:" }).fps).toBe("off");
   });
 });
