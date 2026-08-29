@@ -11,14 +11,14 @@ import {
 import {
   getAvailableCropOptions,
   formatAverageBitrate,
-  formatCodec,
   formatFrameRate,
   formatVideoDuration,
 } from "../videoMetadata";
 import WebTrimTimeline from "./WebTrimTimeline";
+import { playheadForTrimHandleChange } from "./trimPlayhead";
 import {
-  FPS_OPTIONS,
   GIF_PRESETS,
+  getAvailableFpsOptions,
   QUALITY_PRESETS,
   RESOLUTION_OPTIONS,
   createExportPlan,
@@ -132,16 +132,30 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
 function Logo() {
   return (
     <div className="web-logo" aria-label="vidcord">
-      <span className="web-logo-mark">
-        <Icon name="video" size={21} />
-      </span>
+      <img className="web-logo-mark" src="/icon.png" alt="" width={34} height={34} />
       <span>vidcord</span>
     </div>
   );
 }
 
 function formatMetadata(metadata: BrowserVideoMetadata): string {
-  return `${metadata.width}×${metadata.height} · ${formatFrameRate(metadata.frameRate ?? undefined)} · ${formatCodec(metadata.codec)} · ${formatAverageBitrate(metadata.bitrateKbps)} · ${formatVideoDuration(metadata.duration)}`;
+  const frameRate =
+    typeof metadata.frameRate === "number" &&
+    Number.isFinite(metadata.frameRate) &&
+    metadata.frameRate > 0
+      ? formatFrameRate(metadata.frameRate)
+      : "FPS unavailable";
+  const codecValue = metadata.codec.trim();
+  const codec = codecValue && codecValue.toLowerCase() !== "unknown" ? codecValue : "Browser media";
+  const bitrate =
+    Number.isFinite(metadata.bitrateKbps) && metadata.bitrateKbps > 0
+      ? `~${formatAverageBitrate(metadata.bitrateKbps)} average`
+      : "Bitrate unavailable";
+  const duration =
+    Number.isFinite(metadata.duration) && metadata.duration > 0
+      ? formatVideoDuration(metadata.duration)
+      : "Duration unavailable";
+  return `${metadata.width}×${metadata.height} · ${frameRate} · ${codec} · ${bitrate} · ${duration}`;
 }
 
 function browserModeLabel(mode: BrowserMode): string {
@@ -187,6 +201,10 @@ function WebApp() {
   const cropOptions = useMemo(
     () => getAvailableCropOptions(metadata?.width, metadata?.height),
     [metadata?.height, metadata?.width]
+  );
+  const standardFpsOptions = useMemo(
+    () => getAvailableFpsOptions(metadata?.frameRate),
+    [metadata?.frameRate]
   );
   const plan = useMemo<ExportPlan | null>(
     () =>
@@ -270,12 +288,12 @@ function WebApp() {
       if (batchMode) return;
       patchSettings(
         mode === "compress" &&
-          !FPS_OPTIONS.some((option) => option.value === settingsRef.current.fps)
+          !standardFpsOptions.some((option) => option.value === settingsRef.current.fps)
           ? { mode, fps: "off" }
           : { mode }
       );
     },
-    [batchMode, patchSettings]
+    [batchMode, patchSettings, standardFpsOptions]
   );
 
   const selectPreset = useCallback(
@@ -408,7 +426,7 @@ function WebApp() {
     setExportStatus("Loading the local browser encoder…");
     setLastExport(null);
     const exportSettings =
-      batchMode && !FPS_OPTIONS.some((option) => option.value === settings.fps)
+      batchMode && !standardFpsOptions.some((option) => option.value === settings.fps)
         ? { ...settings, fps: "off" }
         : settings;
 
@@ -494,6 +512,7 @@ function WebApp() {
     metadata,
     settings,
     showNotice,
+    standardFpsOptions,
     startTime,
   ]);
 
@@ -509,7 +528,7 @@ function WebApp() {
   }, []);
 
   const selectedQuality = QUALITY_PRESETS[settings.qualityIndex] ?? QUALITY_PRESETS[0];
-  const standardFps = FPS_OPTIONS.some((option) => option.value === settings.fps)
+  const standardFps = standardFpsOptions.some((option) => option.value === settings.fps)
     ? settings.fps
     : "off";
   const actionLabel = batchMode
@@ -531,7 +550,6 @@ function WebApp() {
     <div className="web-app" onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       <header className="web-header">
         <Logo />
-        <span className="web-header-note">Web-first video compression</span>
         <nav className="web-header-nav" aria-label="Page navigation">
           <a href="#features">Features</a>
           <a href="#workflow">How it works</a>
@@ -595,7 +613,6 @@ function WebApp() {
       <main className="web-main">
         <section className="web-hero" aria-labelledby="web-hero-title">
           <div className="web-hero-copy">
-            <span className="web-eyebrow">Browser-first · private by default</span>
             <h1 id="web-hero-title">Compress video for Discord, right in your browser.</h1>
             <p className="web-hero-lede">
               Drop in a clip, choose a target, and export a smaller video without sending it to a
@@ -861,14 +878,14 @@ function WebApp() {
                         disabled={isExporting}
                         onChange={(event) => patchSettings({ fps: event.target.value })}
                       >
-                        {FPS_OPTIONS.map((option) => (
+                        {standardFpsOptions.map((option) => (
                           <option value={option.value} key={option.value}>
                             {option.label}
                           </option>
                         ))}
                       </select>
                     </label>
-                    <label className="web-toggle web-toggle-wide">
+                    <label className="web-toggle">
                       <input
                         type="checkbox"
                         checked={settings.removeAudio}
@@ -881,6 +898,17 @@ function WebApp() {
                         }
                       />
                       <span>Remove audio</span>
+                    </label>
+                    <label className="web-toggle">
+                      <input
+                        type="checkbox"
+                        checked={settings.audioNormalize}
+                        disabled={isExporting || settings.removeAudio}
+                        onChange={(event) =>
+                          patchSettings({ audioNormalize: event.target.checked })
+                        }
+                      />
+                      <span>Normalize audio</span>
                     </label>
                   </div>
                 )}
@@ -1069,12 +1097,24 @@ function WebApp() {
                     currentTime={currentTime}
                     disabled={!metadata || isExporting}
                     onStartChange={(value) => {
+                      const nextPlayhead = playheadForTrimHandleChange(
+                        currentTime,
+                        startTime,
+                        value,
+                        "start"
+                      );
                       setStartTime(value);
-                      if (currentTime < value) seekTo(value);
+                      if (nextPlayhead !== null) seekTo(nextPlayhead);
                     }}
                     onEndChange={(value) => {
+                      const nextPlayhead = playheadForTrimHandleChange(
+                        currentTime,
+                        endTime || duration,
+                        value,
+                        "end"
+                      );
                       setEndTime(value);
-                      if (currentTime > value) seekTo(value);
+                      if (nextPlayhead !== null) seekTo(nextPlayhead);
                     }}
                     onSeek={seekTo}
                   />

@@ -74,12 +74,15 @@ export class BrowserFfmpegEngine {
 
   private lastLog = "";
 
+  private logBuffer = "";
+
   private readonly handleProgress = ({ progress }: { progress: number }) => {
     this.progressHandler?.(Math.max(0, Math.min(1, progress)));
   };
 
   private readonly handleLog = ({ message }: { message: string }) => {
     this.lastLog = message.trim().slice(-500);
+    this.logBuffer = `${this.logBuffer}\n${message}`.slice(-32_000);
   };
 
   get isLoaded(): boolean {
@@ -134,6 +137,7 @@ export class BrowserFfmpegEngine {
     const inputName = inputFileName(file, sequence);
     const inputData = await fetchFile(file);
     this.lastLog = "";
+    this.logBuffer = "";
     await ffmpeg.writeFile(inputName, inputData);
 
     try {
@@ -146,6 +150,37 @@ export class BrowserFfmpegEngine {
     } finally {
       await ffmpeg.deleteFile(inputName).catch(() => false);
       await ffmpeg.deleteFile(outputName).catch(() => false);
+    }
+  }
+
+  async run(file: File, argsForInput: (inputName: string) => string[]): Promise<string> {
+    await this.load();
+    const ffmpeg = this.ffmpeg;
+    if (!ffmpeg) throw new Error("The browser encoder is not available.");
+
+    const sequence = ++this.sequence;
+    const inputName = inputFileName(file, sequence);
+    const inputData = await fetchFile(file);
+    this.lastLog = "";
+    this.logBuffer = "";
+    const operationGeneration = this.loadGeneration;
+    await ffmpeg.writeFile(inputName, inputData);
+
+    try {
+      const exitCode = await ffmpeg.exec(argsForInput(inputName));
+      if (this.loadGeneration !== operationGeneration) {
+        throw new Error("Export cancelled.");
+      }
+      if (exitCode !== 0) {
+        const detail = this.lastLog ? ` ${this.lastLog}` : "";
+        throw new Error(`FFmpeg stopped with exit code ${exitCode}.${detail}`);
+      }
+      return this.logBuffer;
+    } catch (error: unknown) {
+      if (this.loadGeneration !== operationGeneration) throw new Error("Export cancelled.");
+      throw error;
+    } finally {
+      await ffmpeg.deleteFile(inputName).catch(() => false);
     }
   }
 

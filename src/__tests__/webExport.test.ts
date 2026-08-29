@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAudioPeakAnalysisArgs,
   buildCompressionArgs,
   buildGifArgs,
   buildLosslessArgs,
   createExportPlan,
+  getAvailableFpsOptions,
   getRetryBitrate,
   outputFileName,
+  parsePeakNormalizationGain,
   targetBitrateKbps,
 } from "../web/exportPlan";
 import { normalizeBrowserSettings } from "../web/webSettings";
@@ -19,6 +22,7 @@ const metadata: BrowserVideoMetadata = {
   height: 1080,
   frameRate: 60,
   bitrateKbps: 0,
+  sourceBitrateKbps: 4_000,
   codec: "H264",
   hasAudio: true,
 };
@@ -32,8 +36,9 @@ const settings = normalizeBrowserSettings({
 
 describe("browser export planning", () => {
   it("calculates a target-aware bitrate with an audio allowance", () => {
-    expect(targetBitrateKbps(20, 30, false)).toBe(4693);
+    expect(targetBitrateKbps(20, 30, false)).toBe(4800);
     expect(targetBitrateKbps(20, 30, true)).toBeGreaterThan(targetBitrateKbps(20, 30, false));
+    expect(targetBitrateKbps(20, 30, false, 1, 3_200)).toBe(3_200);
   });
 
   it("builds the standard, GIF, and lossless command shapes", () => {
@@ -57,12 +62,52 @@ describe("browser export planning", () => {
     const lossless = buildLosslessArgs("input.mp4", "output.mp4", 2, 20);
 
     expect(standard).toContain("libx264");
+    expect(standard).toContain("2.000");
+    expect(standard).toContain("-maxrate");
+    expect(standard).toContain("3000k");
     expect(standard.some((argument) => argument.includes("crop="))).toBe(true);
     expect(standard.some((argument) => argument.includes("fps=30"))).toBe(true);
     expect(gif.some((argument) => argument.includes("palettegen"))).toBe(true);
+    expect(gif).toContain("-filter_complex");
+    expect(gif).toContain("[gif]");
     expect(gif).toContain("-an");
     expect(lossless).toContain("copy");
     expect(lossless).not.toContain("-vf");
+  });
+
+  it("keeps source-quality advanced exports at the source bitrate", () => {
+    const advanced = normalizeBrowserSettings({ mode: "advanced", advancedTargetSize: "" });
+    expect(createExportPlan(metadata, advanced, "advanced", 0, 20).bitrateKbps).toBe(4_000);
+  });
+
+  it("matches desktop FPS filtering and peak-normalization analysis", () => {
+    expect(getAvailableFpsOptions(30).map((option) => option.value)).toEqual(["off", "24"]);
+    expect(
+      parsePeakNormalizationGain(
+        "[volumedetect] max_volume: -12.5 dB\n[volumedetect] max_volume: -2.0 dB"
+      )
+    ).toBe(2);
+    expect(parsePeakNormalizationGain("[volumedetect] max_volume: -inf dB")).toBe(0);
+
+    const plan = createExportPlan(
+      metadata,
+      { ...settings, audioNormalize: true },
+      "compress",
+      2,
+      20
+    );
+    const analysis = buildAudioPeakAnalysisArgs("input.mp4", plan);
+    const normalized = buildCompressionArgs(
+      "input.mp4",
+      "output.mp4",
+      metadata,
+      { ...settings, audioNormalize: true },
+      plan,
+      3_000,
+      2
+    );
+    expect(analysis).toContain("volumedetect");
+    expect(normalized).toContain("volume=2.000000dB");
   });
 
   it("corrects oversized target encodes and sanitizes browser downloads", () => {

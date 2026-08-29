@@ -1,11 +1,13 @@
 import { BrowserFfmpegEngine } from "./ffmpegEngine";
 import {
   buildCompressionArgs,
+  buildAudioPeakAnalysisArgs,
   buildGifArgs,
   buildLosslessArgs,
   createExportPlan,
   getRetryBitrate,
   outputFileName,
+  parsePeakNormalizationGain,
 } from "./exportPlan";
 import type { BrowserVideoMetadata } from "./webMedia";
 import type { BrowserMode, BrowserSettings } from "./webSettings";
@@ -59,7 +61,7 @@ export async function exportBrowserFile({
     onProgress?.(0, "Preparing stream copy…");
     const bytes = await engine.transcode(
       file,
-      (inputName) => buildLosslessArgs(inputName, baseName, startTime, endTime),
+      (inputName) => buildLosslessArgs(inputName, baseName, plan.startTime, plan.endTime),
       baseName
     );
     return {
@@ -72,8 +74,24 @@ export async function exportBrowserFile({
 
   const maximumAttempts = mode === "gif" ? 3 : plan.targetSizeMb === null ? 1 : 3;
   let bitrate = plan.bitrateKbps;
+  let audioGainDb: number | null = null;
   let lastBytes: Uint8Array<ArrayBuffer> = new Uint8Array();
   let lastHeight = plan.targetHeight ?? 480;
+
+  if (settings.audioNormalize && !settings.removeAudio && mode !== "gif") {
+    onProgress?.(0, "Analyzing audio peak…");
+    try {
+      const analysisLog = await engine.run(file, (inputName) =>
+        buildAudioPeakAnalysisArgs(inputName, plan)
+      );
+      audioGainDb = parsePeakNormalizationGain(analysisLog);
+    } catch {
+      // Keep the export usable when a browser FFmpeg build cannot expose an
+      // audio stream for analysis. buildCompressionArgs uses loudnorm as the
+      // compatibility fallback in that case.
+      audioGainDb = null;
+    }
+  }
 
   for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
     const attemptLabel = maximumAttempts > 1 ? ` · pass ${attempt + 1}/${maximumAttempts}` : "";
@@ -87,7 +105,15 @@ export async function exportBrowserFile({
       (inputName) =>
         mode === "gif"
           ? buildGifArgs(inputName, outputName, metadata, settings, plan, lastHeight)
-          : buildCompressionArgs(inputName, outputName, metadata, settings, plan, bitrate),
+          : buildCompressionArgs(
+              inputName,
+              outputName,
+              metadata,
+              settings,
+              plan,
+              bitrate,
+              audioGainDb
+            ),
       outputName
     );
     lastBytes = bytes;

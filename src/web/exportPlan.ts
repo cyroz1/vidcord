@@ -23,6 +23,7 @@ export const FPS_OPTIONS = [
 ] as const;
 
 const LOSSLESS_EXTENSIONS = new Set(["mp4", "mov", "mkv", "webm"]);
+const VIDEO_METADATA_COMMENT = "Compressed with vidcord - vidcord.app";
 
 export type ExportPlan = {
   mode: BrowserMode;
@@ -30,25 +31,55 @@ export type ExportPlan = {
   targetSizeMb: number | null;
   targetHeight: number | null;
   bitrateKbps: number | null;
+  startTime: number;
+  endTime: number;
   selectedDuration: number;
   summary: string;
 };
 
+function clampTime(value: number, duration: number): number {
+  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
+  return Number.isFinite(value) ? Math.max(0, Math.min(value, safeDuration)) : 0;
+}
+
+function selectedRange(
+  startTime: number,
+  endTime: number,
+  duration: number
+): { startTime: number; endTime: number } {
+  const start = clampTime(startTime, duration);
+  const end = Math.max(start, clampTime(endTime, duration));
+  return { startTime: start, endTime: end };
+}
+
 export function selectedDuration(startTime: number, endTime: number, duration: number): number {
-  const start = Math.max(0, Math.min(startTime, duration));
-  const end = Math.max(start, Math.min(endTime, duration));
-  return Math.max(0.1, end - start);
+  const range = selectedRange(startTime, endTime, duration);
+  return Math.max(0.1, range.endTime - range.startTime);
 }
 
 export function targetBitrateKbps(
   sizeMb: number,
   duration: number,
   removeAudio: boolean,
-  audioTracks = 1
+  audioTracks = 1,
+  sourceBitrateKbps = 0
 ): number {
   const totalKbits = sizeMb * 1024 * 8;
   const audioKbits = removeAudio ? 0 : 128 * audioTracks * duration;
-  return Math.max(100, Math.floor(((totalKbits - audioKbits) / Math.max(duration, 0.1)) * 0.88));
+  const targetBitrate = Math.max(
+    100,
+    Math.floor(((totalKbits - audioKbits) / Math.max(duration, 0.1)) * 0.9)
+  );
+  if (!Number.isFinite(sourceBitrateKbps) || sourceBitrateKbps <= 0) return targetBitrate;
+  return Math.min(targetBitrate, Math.max(100, Math.floor(sourceBitrateKbps)));
+}
+
+export function getAvailableFpsOptions(sourceFrameRate: number | null | undefined) {
+  const hasSourceFrameRate =
+    typeof sourceFrameRate === "number" && Number.isFinite(sourceFrameRate) && sourceFrameRate > 0;
+  return FPS_OPTIONS.filter(
+    (option) => option.fps === null || !hasSourceFrameRate || option.fps < sourceFrameRate
+  );
 }
 
 export function resolutionToHeight(value: string): number | null {
@@ -77,7 +108,14 @@ export function createExportPlan(
   startTime: number,
   endTime: number
 ): ExportPlan {
-  const duration = selectedDuration(startTime, endTime, metadata.duration);
+  const range = selectedRange(startTime, endTime, metadata.duration);
+  const duration = Math.max(0.1, range.endTime - range.startTime);
+  const sourceBitrateKbps =
+    typeof metadata.sourceBitrateKbps === "number" &&
+    Number.isFinite(metadata.sourceBitrateKbps) &&
+    metadata.sourceBitrateKbps > 0
+      ? metadata.sourceBitrateKbps
+      : metadata.bitrateKbps;
 
   if (mode === "lossless") {
     const sourceExtension = metadata.name.split(".").pop()?.toLowerCase() ?? "";
@@ -90,6 +128,8 @@ export function createExportPlan(
       targetSizeMb: null,
       targetHeight: null,
       bitrateKbps: null,
+      startTime: range.startTime,
+      endTime: range.endTime,
       selectedDuration: duration,
       summary: `Stream copy · ${formatCrop("off")} · No re-encode`,
     };
@@ -103,6 +143,8 @@ export function createExportPlan(
       targetSizeMb: preset.sizeMb,
       targetHeight: preset.targetHeight,
       bitrateKbps: null,
+      startTime: range.startTime,
+      endTime: range.endTime,
       selectedDuration: duration,
       summary: `GIF · ${formatTargetSize(preset.sizeMb)} · ${formatCrop(settings.crop)} · ${settings.gifFps} fps`,
     };
@@ -118,8 +160,13 @@ export function createExportPlan(
   const targetHeight = isAdvanced
     ? resolutionToHeight(settings.resolution)
     : (QUALITY_PRESETS[settings.qualityIndex] ?? QUALITY_PRESETS[0]).targetHeight;
+  const exportFps = getExportFps(metadata, settings, mode);
   const bitrateKbps =
-    targetSizeMb === null ? null : targetBitrateKbps(targetSizeMb, duration, settings.removeAudio);
+    targetSizeMb === null
+      ? Number.isFinite(sourceBitrateKbps) && sourceBitrateKbps > 0
+        ? Math.max(100, Math.floor(sourceBitrateKbps))
+        : null
+      : targetBitrateKbps(targetSizeMb, duration, settings.removeAudio, 1, sourceBitrateKbps);
 
   return {
     mode,
@@ -127,9 +174,33 @@ export function createExportPlan(
     targetSizeMb,
     targetHeight,
     bitrateKbps,
+    startTime: range.startTime,
+    endTime: range.endTime,
     selectedDuration: duration,
-    summary: `${formatTargetSize(targetSizeMb)} · ${targetHeight ? `${targetHeight}p` : "Native"} · ${formatCrop(settings.crop)} · ${formatFps(settings.fps)}`,
+    summary: `${formatTargetSize(targetSizeMb)} · ${targetHeight ? `${targetHeight}p` : "Native"} · ${formatCrop(settings.crop)} · ${formatFps(exportFps)}`,
   };
+}
+
+function getExportFps(
+  metadata: BrowserVideoMetadata,
+  settings: BrowserSettings,
+  mode: BrowserMode
+): string {
+  const normalized = normalizeBrowserFps(settings.fps);
+  if (mode !== "compress") return normalized;
+
+  const option = FPS_OPTIONS.find((candidate) => candidate.value === normalized);
+  if (!option) return "off";
+  if (
+    option.fps !== null &&
+    typeof metadata.frameRate === "number" &&
+    Number.isFinite(metadata.frameRate) &&
+    metadata.frameRate > 0 &&
+    option.fps >= metadata.frameRate
+  ) {
+    return "off";
+  }
+  return normalized;
 }
 
 function cropFilter(crop: string): string | null {
@@ -167,16 +238,66 @@ function scaleFilter(
 export function buildVideoFilter(
   metadata: BrowserVideoMetadata,
   settings: BrowserSettings,
-  targetHeight: number | null
+  targetHeight: number | null,
+  mode: BrowserMode = "advanced"
 ): string | null {
-  const filters = [
-    cropFilter(settings.crop),
-    scaleFilter(metadata, settings.crop, targetHeight),
-  ].filter((value): value is string => Boolean(value));
-  const normalizedFps = normalizeBrowserFps(settings.fps);
+  const crop = cropFilter(settings.crop);
+  const scale = scaleFilter(metadata, settings.crop, targetHeight);
+  const filters = [crop].filter((value): value is string => Boolean(value));
+  const normalizedFps = getExportFps(metadata, settings, mode);
   const fps = normalizedFps !== "off" ? Number(normalizedFps) : 0;
   if (Number.isFinite(fps) && fps > 0) filters.push(`fps=${fps}`);
+  if (scale) filters.push(scale);
+  if (!crop && !scale && (metadata.width % 2 !== 0 || metadata.height % 2 !== 0)) {
+    filters.push("scale=trunc(iw/2)*2:trunc(ih/2)*2");
+  }
   return filters.length > 0 ? filters.join(",") : null;
+}
+
+function peakNormalizationFilter(gainDb: number): string {
+  const safeGain = Number.isFinite(gainDb) ? Math.max(-1000, Math.min(1000, gainDb)) : 0;
+  return `volume=${safeGain.toFixed(6)}dB`;
+}
+
+export function parsePeakNormalizationGain(log: string): number | null {
+  const pattern = /max_volume:\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)|-inf)\s*dB/gi;
+  let sawReport = false;
+  let maxVolumeDb: number | null = null;
+
+  for (const match of log.matchAll(pattern)) {
+    const value = match[1];
+    sawReport = true;
+    if (!value || value.toLowerCase() === "-inf") continue;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) continue;
+    maxVolumeDb = maxVolumeDb === null ? parsed : Math.max(maxVolumeDb, parsed);
+  }
+
+  if (!sawReport) return null;
+  if (maxVolumeDb === null) return 0;
+  const gainDb = -maxVolumeDb;
+  return Math.abs(gainDb) < 0.000001 ? 0 : gainDb;
+}
+
+export function buildAudioPeakAnalysisArgs(inputName: string, plan: ExportPlan): string[] {
+  return [
+    "-ss",
+    plan.startTime.toFixed(3),
+    "-i",
+    inputName,
+    "-t",
+    plan.selectedDuration.toFixed(3),
+    "-vn",
+    "-sn",
+    "-dn",
+    "-map",
+    "0:a:0?",
+    "-af",
+    "volumedetect",
+    "-f",
+    "null",
+    "-",
+  ];
 }
 
 export function buildCompressionArgs(
@@ -185,19 +306,21 @@ export function buildCompressionArgs(
   metadata: BrowserVideoMetadata,
   settings: BrowserSettings,
   plan: ExportPlan,
-  bitrateKbps: number | null
+  bitrateKbps: number | null,
+  audioGainDb: number | null = null
 ): string[] {
   const args = [
     "-ss",
-    "0",
+    plan.startTime.toFixed(3),
     "-i",
     inputName,
     "-t",
     plan.selectedDuration.toFixed(3),
+    "-sn",
     "-map",
     "0:v:0",
   ];
-  const filter = buildVideoFilter(metadata, settings, plan.targetHeight);
+  const filter = buildVideoFilter(metadata, settings, plan.targetHeight, plan.mode);
   if (filter) args.push("-vf", filter);
   args.push("-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p");
   if (bitrateKbps !== null) {
@@ -205,7 +328,7 @@ export function buildCompressionArgs(
       "-b:v",
       `${bitrateKbps}k`,
       "-maxrate",
-      `${Math.round(bitrateKbps * 1.08)}k`,
+      `${bitrateKbps}k`,
       "-bufsize",
       `${Math.round(bitrateKbps * 2)}k`
     );
@@ -216,9 +339,20 @@ export function buildCompressionArgs(
     args.push("-an");
   } else {
     args.push("-map", "0:a:0?", "-c:a", "aac", "-b:a", "128k");
-    if (settings.audioNormalize) args.push("-af", "loudnorm=I=-14:TP=0.0:LRA=11");
+    if (settings.audioNormalize) {
+      args.push(
+        "-af",
+        audioGainDb === null ? "loudnorm=I=-14:TP=0.0:LRA=11" : peakNormalizationFilter(audioGainDb)
+      );
+    }
   }
-  args.push("-movflags", "+faststart", outputName);
+  args.push(
+    "-movflags",
+    "+faststart",
+    "-metadata",
+    `comment=${VIDEO_METADATA_COMMENT}`,
+    outputName
+  );
   return args;
 }
 
@@ -232,22 +366,26 @@ export function buildGifArgs(
 ): string[] {
   const visualFilters = [
     cropFilter(settings.crop),
-    scaleFilter(metadata, settings.crop, targetHeight),
     `fps=${settings.gifFps}`,
+    scaleFilter(metadata, settings.crop, targetHeight),
   ].filter((value): value is string => Boolean(value));
-  const filter = `${visualFilters.join(",")},split[s0][s1];[s0]palettegen=max_colors=256:stats_mode=diff[p];[s1][p]paletteuse=dither=sierra2_4a`;
+  const filter = `${visualFilters.join(",")},split[gif_source][palette_source];[palette_source]palettegen=max_colors=256:stats_mode=diff[palette];[gif_source][palette]paletteuse=dither=sierra2_4a:diff_mode=rectangle[gif]`;
   return [
     "-ss",
-    "0",
+    plan.startTime.toFixed(3),
     "-i",
     inputName,
     "-t",
     plan.selectedDuration.toFixed(3),
-    "-vf",
+    "-filter_complex",
     filter,
+    "-map",
+    "[gif]",
     "-an",
     "-loop",
     "0",
+    "-metadata",
+    `comment=${VIDEO_METADATA_COMMENT}`,
     outputName,
   ];
 }

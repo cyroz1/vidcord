@@ -6,11 +6,38 @@ export type BrowserVideoMetadata = {
   height: number;
   frameRate: number | null;
   bitrateKbps: number;
+  sourceBitrateKbps?: number;
   codec: string;
   hasAudio: boolean;
 };
 
 const VIDEO_EXTENSION = /\.(mp4|avi|mov|mkv|flv|wmv|webm|m4v|mpeg|mpg|ogv)$/i;
+
+const CONTAINER_LABELS: Record<string, string> = {
+  avi: "AVI container",
+  flv: "FLV container",
+  m4v: "M4V container",
+  mkv: "Matroska container",
+  mov: "QuickTime container",
+  mp4: "MP4 container",
+  mpeg: "MPEG container",
+  mpg: "MPEG container",
+  ogv: "Ogg container",
+  webm: "WebM container",
+  wmv: "WMV container",
+};
+
+const MIME_CONTAINER_LABELS: Record<string, string> = {
+  "video/avi": "AVI container",
+  "video/mp4": "MP4 container",
+  "video/mpeg": "MPEG container",
+  "video/ogg": "Ogg container",
+  "video/quicktime": "QuickTime container",
+  "video/webm": "WebM container",
+  "video/x-flv": "FLV container",
+  "video/x-matroska": "Matroska container",
+  "video/x-ms-wmv": "WMV container",
+};
 
 export function isVideoFile(file: File): boolean {
   return file.type.startsWith("video/") || VIDEO_EXTENSION.test(file.name);
@@ -47,6 +74,38 @@ export function fileStem(name: string): string {
 export function fileExtension(name: string): string {
   const match = name.match(/\.([a-z0-9]+)$/i);
   return match?.[1]?.toLowerCase() ?? "mp4";
+}
+
+export function browserContainerLabel(file: Pick<File, "name" | "type">): string {
+  const mime = file.type.trim().toLowerCase();
+  if (MIME_CONTAINER_LABELS[mime]) return MIME_CONTAINER_LABELS[mime];
+
+  const extension = fileExtension(file.name);
+  return (
+    CONTAINER_LABELS[extension] ??
+    (mime.startsWith("video/") ? `${mime.slice(6)} media` : "Video media")
+  );
+}
+
+export function estimateAverageBitrateKbps(sizeBytes: number, duration: number): number {
+  if (
+    !Number.isFinite(sizeBytes) ||
+    sizeBytes <= 0 ||
+    !Number.isFinite(duration) ||
+    duration <= 0
+  ) {
+    return 0;
+  }
+  return (sizeBytes * 8) / duration / 1000;
+}
+
+export function estimateVideoBitrateKbps(sizeBytes: number, duration: number): number {
+  const averageBitrateKbps = estimateAverageBitrateKbps(sizeBytes, duration);
+  if (averageBitrateKbps <= 0) return 0;
+  // The browser cannot enumerate source tracks reliably. Reserve the same
+  // 128 kbps AAC allowance used by the desktop app while deriving a safe
+  // source-video bitrate for target-size planning.
+  return Math.max(100, Math.floor(averageBitrateKbps - 128));
 }
 
 export function getPreviewUrl(file: File): string {
@@ -105,8 +164,9 @@ export async function readVideoMetadata(file: File): Promise<BrowserVideoMetadat
       width: metadata.width,
       height: metadata.height,
       frameRate: null,
-      bitrateKbps: 0,
-      codec: file.type ? file.type.replace("video/", "").toUpperCase() : "Browser media",
+      bitrateKbps: estimateAverageBitrateKbps(file.size, metadata.duration),
+      sourceBitrateKbps: estimateVideoBitrateKbps(file.size, metadata.duration),
+      codec: browserContainerLabel(file),
       // Browsers do not expose a reliable source-track list. FFmpeg still keeps
       // the first audio stream unless the user explicitly removes audio.
       hasAudio: true,

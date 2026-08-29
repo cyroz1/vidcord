@@ -244,7 +244,7 @@ function DesktopUpgrade() {
       <DetailSection
         label="Desktop controls"
         title="Simple when you want it. Precise when you need it."
-        copy="Compress includes aspect-ratio crop presets, while Advanced mode adds custom size, resolution, FPS, audio normalization, and encoder controls. The desktop app also exposes the source audio-track mixer and saved output preferences."
+        copy="Compress includes aspect-ratio crop presets, while Advanced mode adds custom size, resolution, FPS, and audio normalization. The desktop app also adds encoder selection, source audio-track mixing, and saved output preferences."
         items={[
           "Automatic Batch mode for multiple selections with per-file details, separate trims, and an aggregate ETA.",
           "Strict output size checks with safer adaptive retry behavior.",
