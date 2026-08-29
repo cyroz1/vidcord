@@ -55,7 +55,16 @@ import "./WebApp.css";
 
 type Notice = { type: "success" | "error" | "warning" | "info"; message: string };
 
-type IconName = "video" | "upload" | "sliders" | "snapshot" | "download" | "check" | "spark";
+type IconName =
+  | "video"
+  | "upload"
+  | "sliders"
+  | "snapshot"
+  | "download"
+  | "check"
+  | "spark"
+  | "play"
+  | "stop";
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const common = {
@@ -121,6 +130,20 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
       </svg>
     );
   }
+  if (name === "play") {
+    return (
+      <svg {...common}>
+        <path d="m9 6 7 6-7 6V6Z" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+  if (name === "stop") {
+    return (
+      <svg {...common}>
+        <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
   return (
     <svg {...common}>
       <rect x="3" y="5" width="18" height="14" rx="3" />
@@ -179,6 +202,7 @@ function WebApp() {
   const [startTime, setStartTime] = useState(0);
   const [endTime, setEndTime] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -248,6 +272,7 @@ function WebApp() {
       setStartTime(0);
       setEndTime(0);
       setCurrentTime(0);
+      setPreviewPlaying(false);
       return;
     }
 
@@ -256,6 +281,7 @@ function WebApp() {
     setMetadata(null);
     setMetadataLoading(true);
     setCurrentTime(0);
+    setPreviewPlaying(false);
     void readVideoMetadata(file)
       .then((nextMetadata) => {
         if (generation !== loadGenerationRef.current) return;
@@ -410,6 +436,29 @@ function WebApp() {
     }
   }, [activeFile, showNotice]);
 
+  const togglePreviewPlayback = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !metadata) return;
+
+    const selectedEnd = endTime || duration;
+    if (selectedEnd <= startTime) return;
+
+    if (!video.paused) {
+      video.pause();
+      setPreviewPlaying(false);
+      return;
+    }
+
+    if (video.currentTime < startTime || video.currentTime >= selectedEnd - 0.05) {
+      video.currentTime = startTime;
+      setCurrentTime(startTime);
+    }
+    void video
+      .play()
+      .then(() => setPreviewPlaying(true))
+      .catch(() => setPreviewPlaying(false));
+  }, [duration, endTime, metadata, startTime]);
+
   const startExport = useCallback(async () => {
     if (files.length === 0 || isExporting) return;
     if (!batchMode && !metadata) {
@@ -523,9 +572,21 @@ function WebApp() {
     engineRef.current?.cancel();
   }, [isExporting]);
 
-  const handleVideoTimeUpdate = useCallback((event: SyntheticEvent<HTMLVideoElement>) => {
-    setCurrentTime(event.currentTarget.currentTime);
-  }, []);
+  const handleVideoTimeUpdate = useCallback(
+    (event: SyntheticEvent<HTMLVideoElement>) => {
+      const video = event.currentTarget;
+      const selectedEnd = endTime || duration;
+      if (!video.paused && selectedEnd > startTime && video.currentTime >= selectedEnd - 0.05) {
+        video.pause();
+        video.currentTime = startTime;
+        setCurrentTime(startTime);
+        setPreviewPlaying(false);
+        return;
+      }
+      setCurrentTime(video.currentTime);
+    },
+    [duration, endTime, startTime]
+  );
 
   const selectedQuality = QUALITY_PRESETS[settings.qualityIndex] ?? QUALITY_PRESETS[0];
   const standardFps = standardFpsOptions.some((option) => option.value === settings.fps)
@@ -725,93 +786,6 @@ function WebApp() {
             </section>
 
             <div className="web-workspace">
-              <div className="web-left-column">
-                <section className="web-preview-panel">
-                  <div className="web-panel-topline">
-                    <span>Preview</span>
-                    {activeFile && (
-                      <span>
-                        {metadata ? `${metadata.width} × ${metadata.height}` : "Loading…"}
-                      </span>
-                    )}
-                  </div>
-                  <div className="web-preview-frame">
-                    {previewUrl ? (
-                      <>
-                        <video
-                          ref={videoRef}
-                          src={previewUrl}
-                          controls
-                          playsInline
-                          preload="metadata"
-                          onTimeUpdate={handleVideoTimeUpdate}
-                          onLoadedMetadata={(event) => {
-                            if (!metadata && Number.isFinite(event.currentTarget.duration)) {
-                              setEndTime(event.currentTarget.duration);
-                            }
-                          }}
-                        />
-                        <button
-                          className="web-snapshot-button"
-                          type="button"
-                          aria-label="Download a PNG snapshot of the current frame"
-                          title="Download frame snapshot"
-                          onClick={() => void handleSnapshot()}
-                        >
-                          <Icon name="snapshot" size={18} />
-                        </button>
-                      </>
-                    ) : (
-                      <div className="web-preview-empty">
-                        <span className="web-empty-icon">
-                          <Icon name="video" size={28} />
-                        </span>
-                        <strong>Your video preview appears here</strong>
-                        <span>Everything is processed locally in this browser.</span>
-                      </div>
-                    )}
-                  </div>
-                  {activeFile && (
-                    <div className="web-preview-footer">
-                      <span>
-                        {formatClock(currentTime)} / {formatClock(duration)}
-                      </span>
-                      <span className="web-preview-caption">
-                        Preview uses your browser’s media decoder
-                      </span>
-                    </div>
-                  )}
-                </section>
-
-                {batchMode && (
-                  <section className="web-queue-panel" aria-labelledby="web-queue-title">
-                    <div className="web-section-heading">
-                      <div>
-                        <span className="web-section-label">Batch queue</span>
-                        <strong id="web-queue-title">{files.length} videos</strong>
-                      </div>
-                      <span className="web-queue-note">Same profile · full duration</span>
-                    </div>
-                    <ol className="web-queue-list">
-                      {files.map((file, index) => (
-                        <li
-                          key={`${file.name}-${file.lastModified}-${index}`}
-                          className={index === activeFileIndex ? "active" : ""}
-                        >
-                          <button type="button" onClick={() => setActiveFileIndex(index)}>
-                            <span className="web-queue-index">{index + 1}</span>
-                            <span className="web-queue-name" title={file.name}>
-                              {file.name}
-                            </span>
-                            <span className="web-queue-size">{formatFileSize(file.size)}</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ol>
-                  </section>
-                )}
-              </div>
-
               <section className="web-controls-panel" aria-label="Export controls">
                 <div className="web-mode-tabs" role="tablist" aria-label="Export mode">
                   {(["compress", "advanced", "lossless", "gif"] as BrowserMode[]).map((mode) => (
@@ -1079,6 +1053,108 @@ function WebApp() {
                       <span>Remove audio</span>
                     </label>
                   </div>
+                )}
+
+                {batchMode ? (
+                  <section className="web-queue-panel" aria-labelledby="web-queue-title">
+                    <div className="web-section-heading">
+                      <div>
+                        <span className="web-section-label">Batch queue</span>
+                        <strong id="web-queue-title">{files.length} videos</strong>
+                      </div>
+                      <span className="web-queue-note">Same profile · full duration</span>
+                    </div>
+                    <ol className="web-queue-list">
+                      {files.map((file, index) => (
+                        <li
+                          key={`${file.name}-${file.lastModified}-${index}`}
+                          className={index === activeFileIndex ? "active" : ""}
+                        >
+                          <button type="button" onClick={() => setActiveFileIndex(index)}>
+                            <span className="web-queue-index">{index + 1}</span>
+                            <span className="web-queue-name" title={file.name}>
+                              {file.name}
+                            </span>
+                            <span className="web-queue-size">{formatFileSize(file.size)}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                ) : (
+                  <section className="web-preview-panel">
+                    <div className="web-panel-topline">
+                      <span>Preview</span>
+                      {activeFile && (
+                        <span>
+                          {metadata ? `${metadata.width} × ${metadata.height}` : "Loading…"}
+                        </span>
+                      )}
+                    </div>
+                    <div className="web-preview-frame">
+                      {previewUrl ? (
+                        <>
+                          <video
+                            ref={videoRef}
+                            src={previewUrl}
+                            playsInline
+                            preload="metadata"
+                            onTimeUpdate={handleVideoTimeUpdate}
+                            onPlay={() => setPreviewPlaying(true)}
+                            onPause={() => setPreviewPlaying(false)}
+                            onEnded={() => {
+                              setPreviewPlaying(false);
+                              setCurrentTime(startTime);
+                            }}
+                            onLoadedMetadata={(event) => {
+                              if (!metadata && Number.isFinite(event.currentTarget.duration)) {
+                                setEndTime(event.currentTarget.duration);
+                              }
+                            }}
+                          />
+                          {metadata && (
+                            <button
+                              className="web-preview-play-button"
+                              type="button"
+                              aria-label={previewPlaying ? "Stop preview" : "Play trim segment"}
+                              title={previewPlaying ? "Stop preview" : "Play trim segment"}
+                              onClick={togglePreviewPlayback}
+                              disabled={isExporting}
+                            >
+                              <Icon name={previewPlaying ? "stop" : "play"} size={20} />
+                            </button>
+                          )}
+                          <button
+                            className="web-snapshot-button"
+                            type="button"
+                            aria-label="Download a PNG snapshot of the current frame"
+                            title="Download frame snapshot"
+                            onClick={() => void handleSnapshot()}
+                          >
+                            <Icon name="snapshot" size={18} />
+                          </button>
+                        </>
+                      ) : (
+                        <div className="web-preview-empty">
+                          <span className="web-empty-icon">
+                            <Icon name="video" size={28} />
+                          </span>
+                          <strong>Your video preview appears here</strong>
+                          <span>Everything is processed locally in this browser.</span>
+                        </div>
+                      )}
+                    </div>
+                    {activeFile && (
+                      <div className="web-preview-footer">
+                        <span>
+                          {formatClock(currentTime)} / {formatClock(duration)}
+                        </span>
+                        <span className="web-preview-caption">
+                          Preview uses your browser’s media decoder
+                        </span>
+                      </div>
+                    )}
+                  </section>
                 )}
 
                 {batchMode ? (
