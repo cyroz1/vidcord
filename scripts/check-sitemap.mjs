@@ -24,6 +24,7 @@ if (body.replace(entryPattern, "").trim()) {
 
 const expectedLocations = [
   "https://vidcord.app/",
+  "https://vidcord.app/legacy/",
   "https://vidcord.app/llms.txt",
   "https://vidcord.app/llms-full.txt",
 ];

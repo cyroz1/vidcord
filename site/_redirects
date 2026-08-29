@@ -1,3 +1,8 @@
-# Keep the legacy static entry point out of Google's index and on the canonical homepage.
+# Keep legacy entry-point aliases on their canonical routes.
 /index.html / 301
 /index / 301
+/app / 301
+/app/ / 301
+/legacy /legacy/ 301
+/legacy/index.html /legacy/ 301
+/site.webmanifest /legacy/site.webmanifest 301

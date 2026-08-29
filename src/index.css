@@ -109,6 +109,15 @@ body,
   background: var(--bg);
 }
 
+.app-boot-screen {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-family: inherit;
+}
+
 button {
   cursor: pointer;
   font-family: inherit;

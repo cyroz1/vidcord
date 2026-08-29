@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "web:build": "node scripts/build-web-site.mjs",
     "bundle:check": "node scripts/check-bundle-size.mjs",
     "build-tools:check": "node scripts/check-build-tools.mjs",
     "typecheck": "tsc --noEmit",
@@ -16,12 +17,15 @@
     "format": "prettier --write src",
     "version:check": "node scripts/check-version.mjs",
     "assets:check": "node scripts/check-assets.mjs",
-    "site:check": "prettier --check site/index.html site/styles.css site/script.js site/site.webmanifest wrangler.jsonc && prettier --check --parser markdown site/llms.txt site/llms-full.txt && node --check site/script.js && node scripts/check-site-structured-data.mjs && node scripts/check-sitemap.mjs && node scripts/check-assets.mjs && node scripts/check-version.mjs",
+    "site:check": "prettier --check site/legacy/index.html site/legacy/styles.css site/legacy/script.js site/legacy/site.webmanifest wrangler.jsonc && prettier --check --parser markdown site/llms.txt site/llms-full.txt && node --check site/legacy/script.js && node scripts/check-site-structured-data.mjs && node scripts/check-sitemap.mjs && node scripts/check-assets.mjs && node scripts/check-version.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "tauri": "tauri"
   },
   "dependencies": {
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2",
     "@tauri-apps/plugin-opener": "^2",

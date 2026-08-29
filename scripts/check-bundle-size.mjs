@@ -4,12 +4,12 @@ import zlib from "node:zlib";
 
 const assetDir = path.join("dist", "assets");
 const limits = {
-  // Advanced audio-track controls and the multi-file batch queue add compact
-  // user-gesture/event-driven export controls.
-  javascriptRaw: 275 * 1024,
-  javascriptGzip: 90 * 1024,
-  // The track popup and batch queue add compact list and status styles.
-  cssGzip: 8 * 1024,
+  // The browser edition adds the local FFmpeg WebAssembly loader and a separate
+  // export UI while keeping the desktop app in lazy chunks.
+  javascriptRaw: 450 * 1024,
+  javascriptGzip: 140 * 1024,
+  // The browser editor has its own responsive controls and status surfaces.
+  cssGzip: 12 * 1024,
 };
 
 if (!fs.existsSync(assetDir)) {

@@ -3,6 +3,15 @@
 Release dates are taken from the corresponding repository release tags. The duplicate
 numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
+## v7.4
+
+### Browser edition
+
+- Added a client-side browser build at `/` that processes selected videos locally with FFmpeg
+  WebAssembly and exports the result through browser downloads. It includes Compress, Advanced,
+  Lossless Trim, GIF, trim, crop, FPS, presets, snapshots, and same-profile batches; the native
+  desktop app remains the full option for GPU encoders and OS integrations.
+
 ## v7.3
 
 ### Batch Processing

@@ -43,7 +43,7 @@ expectMatch(
   expected
 );
 
-const html = fs.readFileSync("site/index.html", "utf8");
+const html = fs.readFileSync("site/legacy/index.html", "utf8");
 const jsonLdBlocks = [
   ...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g),
 ].map((match) => JSON.parse(match[1]));

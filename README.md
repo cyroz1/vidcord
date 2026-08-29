@@ -1,7 +1,7 @@
 # vidcord - Free Discord Video Compressor for Windows, macOS, and Linux
 
 <p>
-  <img src="site/assets/icon.png" height="64" alt="vidcord app icon">
+  <img src="site/legacy/assets/icon.png" height="64" alt="vidcord app icon">
 </p>
 
 **vidcord** is a free, open-source **Discord video compressor** for
@@ -11,6 +11,12 @@ limits without uploading them to a website: choose a **20 MB, 50 MB,
 on source keyframes without re-encoding. Export a Discord-ready video from
 your desktop. GIF Mode creates animated `.gif` exports for Discord's
 **20 MB Free** and **50 MB Nitro Basic** tiers.
+
+For a no-install workflow, open the [browser edition](https://vidcord.app/).
+It runs a lighter FFmpeg WebAssembly build in your browser, keeps selected
+files on your device, and downloads the result through the browser. The native
+desktop app remains the full-featured option for GPU encoders, native folders,
+Open With, notifications, and other OS integrations.
 
 Select multiple videos through Browse, drag-and-drop, Open With, command-line
 file arguments, or a second app instance to enter **Batch mode** automatically.
@@ -35,7 +41,7 @@ no uploads, no telemetry.
   <img alt="License"      src="https://img.shields.io/badge/license-MIT-blue">
 </p>
 
-![vidcord Compress mode with video preview, trim timeline, and Discord target controls](site/assets/window.png)
+![vidcord Compress mode with video preview, trim timeline, and Discord target controls](site/legacy/assets/window.png)
 
 > **At a glance** — Free Discord video compressor for Windows 10/11, macOS 11+,
 > and Linux · x86_64 + aarch64 · Platform-native installers · Compresses MP4, MOV, MKV,
@@ -53,6 +59,7 @@ no uploads, no telemetry.
 - [Features](#features)
 - [Screenshots](#screenshots)
 - [Download vidcord](#download-vidcord)
+- [Browser edition](#browser-edition)
 - [FFmpeg setup](#ffmpeg-setup)
 - [Usage](#usage)
 - [Keyboard shortcuts](#keyboard-shortcuts)
@@ -92,17 +99,18 @@ encoding and safer bitrates when FFmpeg's first pass lands too large.
 
 ## Best for
 
-| Need                                                    | How vidcord helps                                                              |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Compress a video for Discord free upload limits         | Use the 20 MB preset, trim the clip, and remove audio if needed.               |
-| Compress large MP4, MOV, MKV, AVI, or WebM files        | FFmpeg handles the input format and vidcord exports a Discord-friendly `.mp4`. |
-| Compress several videos in one pass                       | Batch mode applies shared Compress settings, runs up to two encodes in parallel, and keeps going after individual failures. |
-| Preserve original video quality while trimming          | Use Lossless Trim for keyframe-aligned stream-copy output without re-encoding. |
-| Turn a video clip into a Discord GIF                    | Enable GIF Mode and choose the 20 MB Free or 50 MB Nitro Basic target.         |
-| Make a video fit Discord Nitro or boosted server limits | Pick 50 MB, 100 MB, or 500 MB presets without calculating bitrates by hand.    |
-| Keep video compression private                          | Everything runs locally on your computer; no web upload step.                  |
-| Use GPU video encoding from a simple GUI                | vidcord auto-detects NVENC, AMF, QSV, VAAPI, and VideoToolbox encoders.        |
-| Cap output frame rate for smaller files                 | Leave FPS unchanged, or choose a lower output FPS when Discord size is tight.  |
+| Need                                                    | How vidcord helps                                                                                                           |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Compress a video for Discord free upload limits         | Use the 20 MB preset, trim the clip, and remove audio if needed.                                                            |
+| Compress large MP4, MOV, MKV, AVI, or WebM files        | FFmpeg handles the input format and vidcord exports a Discord-friendly `.mp4`.                                              |
+| Compress several videos in one pass                     | Batch mode applies shared Compress settings, runs up to two encodes in parallel, and keeps going after individual failures. |
+| Preserve original video quality while trimming          | Use Lossless Trim for keyframe-aligned stream-copy output without re-encoding.                                              |
+| Turn a video clip into a Discord GIF                    | Enable GIF Mode and choose the 20 MB Free or 50 MB Nitro Basic target.                                                      |
+| Make a video fit Discord Nitro or boosted server limits | Pick 50 MB, 100 MB, or 500 MB presets without calculating bitrates by hand.                                                 |
+| Keep video compression private                          | Everything runs locally on your computer; no web upload step.                                                               |
+| Compress without installing the desktop app             | Use the browser edition for local WebAssembly processing and browser downloads.                                             |
+| Use GPU video encoding from a simple GUI                | vidcord auto-detects NVENC, AMF, QSV, VAAPI, and VideoToolbox encoders.                                                     |
+| Cap output frame rate for smaller files                 | Leave FPS unchanged, or choose a lower output FPS when Discord size is tight.                                               |
 
 ## Features
 
@@ -246,15 +254,39 @@ encoder. Lossless Trim prefers `.mp4` and can use the validated source video
 extension when the source container is the compatible stream-copy choice. GIF
 Mode creates an animated `.gif`.
 
+## Browser edition
+
+Use the hosted [browser editor](https://vidcord.app/) when you want to
+compress a video without installing the desktop app. It runs FFmpeg compiled
+to WebAssembly in the page, keeps selected files in the browser, and triggers
+normal browser downloads for videos and PNG frame snapshots.
+
+The browser edition includes Compress, Advanced, Lossless Trim, GIF, single-file
+trim, crop, FPS controls, browser-local presets, snapshots, and same-profile
+multi-file batches. It intentionally uses a fixed `libx264` WASM encoder and
+browser-dependent input support. It does not provide the desktop app's system
+FFmpeg, GPU encoder discovery, native output folders, Open With routing, OS
+notifications, taskbar/Dock progress, or in-app installer updates.
+
+To build the static browser bundle locally:
+
+```sh
+npm run web:build
+```
+
+This writes the deployable bundle to the root of `site/`. The first export loads the
+local WebAssembly encoder in the browser; no selected video is sent to a
+server.
+
 ## Screenshots
 
-| Compress mode                                                                                                  | Advanced mode                                                                                                              | Lossless Trim                                                                                                            | GIF mode                                                                                                                | Batch mode                                                                                                  |
-| -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| ![vidcord Compress mode with Discord target, crop, FPS, encoder, and trim controls](site/assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/assets/advancedmode.png) | ![vidcord Lossless Trim mode with keyframe-aligned trim controls and no video re-encoding](site/assets/losslesstrim.png) | ![vidcord GIF mode with Discord size target, FPS picker, trim timeline, and Create GIF button](site/assets/gifmode.png) | ![vidcord Batch mode with a multi-video queue and aggregate compression progress](site/assets/batchmode.png) |
+| Compress mode                                                                                               | Advanced mode                                                                                                              | Lossless Trim                                                                                                            | GIF mode                                                                                                                | Batch mode                                                                                                   |
+| ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| ![vidcord Compress mode with Discord target, crop, FPS, encoder, and trim controls](site/legacy/assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/legacy/assets/advancedmode.png) | ![vidcord Lossless Trim mode with keyframe-aligned trim controls and no video re-encoding](site/legacy/assets/losslesstrim.png) | ![vidcord GIF mode with Discord size target, FPS picker, trim timeline, and Create GIF button](site/legacy/assets/gifmode.png) | ![vidcord Batch mode with a multi-video queue and aggregate compression progress](site/legacy/assets/batchmode.png) |
 
 | Output file                                                                                 | Windows context menu                                                                                            | macOS Finder                                                                                          |
 | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| ![Compressed video saved to the Downloads folder as name-vidcord.mp4](site/assets/file.png) | ![Windows File Explorer right-click menu with Open with vidcord entry on a video file](site/assets/context.png) | ![macOS Finder right-click menu with Open with vidcord entry on a video file](site/assets/finder.png) |
+| ![Compressed video saved to the Downloads folder as name-vidcord.mp4](site/legacy/assets/file.png) | ![Windows File Explorer right-click menu with Open with vidcord entry on a video file](site/legacy/assets/context.png) | ![macOS Finder right-click menu with Open with vidcord entry on a video file](site/legacy/assets/finder.png) |
 
 ## Download vidcord
 
@@ -272,6 +304,10 @@ Grab the latest installer for your platform from the releases page:
 
 > **You still need FFmpeg.** vidcord does not bundle FFmpeg. See the next
 > section. The installer or first launch can offer to install it for you.
+
+The [browser edition](https://vidcord.app/) does not require a system
+FFmpeg install, but it is a lighter workflow with browser downloads and a
+fixed WebAssembly encoder.
 
 ## FFmpeg setup
 
@@ -433,6 +469,11 @@ npm run tauri dev
 Vite serves the frontend on `:5173` and Tauri launches the window with
 hot-reload.
 
+To preview the browser edition through Vite, run `npm run dev` and open
+`http://localhost:5173/`; the entry point selects the browser UI outside the
+Tauri runtime. Use `npm run web:build` to produce the static root bundle; the previous marketing
+site remains available at [`/legacy/`](https://vidcord.app/legacy/).
+
 ### Produce a release binary
 
 ```sh
@@ -447,6 +488,7 @@ Installers / bundles land in `src-tauri/target/release/bundle/`.
 npm run lint                                            # eslint src
 npm run typecheck                                       # tsc --noEmit
 npm test                                                # vitest
+npm run web:build                                       # build the static browser edition into site/
 npm run format                                          # prettier --write src
 cargo fmt   --check --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings
@@ -483,6 +525,7 @@ before drafting a GitHub release from the matching `CHANGELOG.md` section. See
 ```
 src/                       React + TypeScript frontend
   App.tsx                  Root component — trim UI, preset wiring, compress flow
+  web/                     Browser UI, local FFmpeg WebAssembly engine, export helpers
   ipc.ts                   Typed wrappers around Tauri invoke() commands
   losslessTrim.ts          Pure fit and keyframe-snap helpers for Lossless Trim
   settingsPresets.ts       Preset schema, normalization, equality, and parsing helpers
@@ -501,6 +544,7 @@ src-tauri/                 Rust backend
 
 .github/workflows/         App build/release workflow plus site validation workflow
 scripts/                   Version, asset, and site structured-data checks
+site/                      Generated browser bundle at the domain root; legacy marketing site at site/legacy/
 ```
 
 A deeper architectural tour — IPC boundary, file-open race conditions,
@@ -575,6 +619,15 @@ install an available update. The website also requests public release metadata
 from GitHub and an aggregate download count from Shields.io; no video data is
 included in either request. Compression itself works without an internet
 connection.
+
+### Can I use vidcord in a browser?
+
+Yes. Open the [browser edition](https://vidcord.app/) for a no-install
+workflow. It runs FFmpeg WebAssembly locally, keeps selected files in the
+browser, and downloads finished exports. It is a lighter alternative with a
+fixed `libx264` WASM encoder and browser-dependent input support; use the
+desktop app for native folders, Open With, GPU encoder discovery, OS
+notifications, and other desktop integrations.
 
 ### How do in-app updates work?
 
@@ -714,7 +767,9 @@ KDE / LXQt / Sway / Hyprland, cache invalidation rules).
 vidcord is released under the [MIT License](LICENSE). FFmpeg is a separate
 dependency and is licensed under the LGPL/GPL by its own authors — vidcord
 invokes the `ffmpeg` and `ffprobe` binaries on your system but does not
-redistribute them.
+redistribute them. The hosted browser bundle includes the separately licensed
+`@ffmpeg/core` WebAssembly package; see its package license and source
+distribution for the corresponding notices.
 
 ## Acknowledgements
 
