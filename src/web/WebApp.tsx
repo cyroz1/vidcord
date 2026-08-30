@@ -27,6 +27,7 @@ import {
 import { BrowserFfmpegEngine } from "./ffmpegEngine";
 import { buildKeyframeProbeArgs, parseKeyframeTimes } from "./keyframes";
 import DesktopUpgrade from "./DesktopUpgrade";
+import { formatBrowserEta } from "./browserProgress";
 import { exportBrowserFile } from "./webExporter";
 import {
   loadBrowserSettings,
@@ -280,8 +281,8 @@ function WebApp() {
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [exportStatus, setExportStatus] = useState("Ready");
-  const [wasmReady, setWasmReady] = useState(false);
   const [wasmLoading, setWasmLoading] = useState(false);
+  const [eta, setEta] = useState("Ready");
   const [lastExport, setLastExport] = useState<{ name: string; bytes: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -289,6 +290,8 @@ function WebApp() {
   const keyframeProbeGenerationRef = useRef(0);
   const keyframeCacheRef = useRef<Map<string, number[]>>(new Map());
   const exportCancelledRef = useRef(false);
+  const exportProgressRef = useRef(0);
+  const exportStartedAtRef = useRef<number | null>(null);
   const engineRef = useRef<BrowserFfmpegEngine | null>(null);
 
   const activeFile = files[activeFileIndex] ?? null;
@@ -329,6 +332,20 @@ function WebApp() {
     const timeout = window.setTimeout(() => setNotice(null), 7000);
     return () => window.clearTimeout(timeout);
   }, [notice]);
+
+  useEffect(() => {
+    if (!isExporting) return;
+
+    const updateEta = () => {
+      const startedAt = exportStartedAtRef.current;
+      if (startedAt === null) return;
+      setEta(formatBrowserEta(exportProgressRef.current, Date.now() - startedAt));
+    };
+
+    updateEta();
+    const interval = window.setInterval(updateEta, 500);
+    return () => window.clearInterval(interval);
+  }, [isExporting]);
 
   useEffect(() => {
     return () => engineRef.current?.dispose();
@@ -439,7 +456,6 @@ function WebApp() {
         setLosslessKeyframes(keyframes);
         setLosslessKeyframesLoading(false);
         setLosslessKeyframeError(null);
-        setWasmReady(true);
       })
       .catch((error: unknown) => {
         if (generation !== keyframeProbeGenerationRef.current) return;
@@ -488,8 +504,11 @@ function WebApp() {
       setFiles(nextFiles);
       setActiveFileIndex(0);
       setLastExport(null);
+      exportProgressRef.current = 0;
+      exportStartedAtRef.current = null;
       setProgress(0);
       setExportStatus("Ready");
+      setEta("Ready");
     },
     [showNotice]
   );
@@ -524,8 +543,11 @@ function WebApp() {
         return currentIndex;
       });
       setLastExport(null);
+      exportProgressRef.current = 0;
+      exportStartedAtRef.current = null;
       setProgress(0);
       setExportStatus("Ready");
+      setEta("Ready");
     },
     [files, isExporting]
   );
@@ -671,22 +693,21 @@ function WebApp() {
     exportCancelledRef.current = false;
     setIsExporting(true);
     setWasmLoading(true);
+    exportProgressRef.current = 0;
+    exportStartedAtRef.current = Date.now();
     setProgress(0);
     setExportStatus("Loading the local browser encoder…");
+    setEta("ETA: estimating…");
     setLastExport(null);
     const exportSettings =
       batchMode && !standardFpsOptions.some((option) => option.value === settings.fps)
         ? { ...settings, fps: "off" }
         : settings;
 
-    engine.setProgressHandler((value) => {
-      setProgress((current) => Math.max(current, value * 100));
-    });
-
     try {
       await engine.load();
-      setWasmReady(true);
       setWasmLoading(false);
+      exportStartedAtRef.current = Date.now();
       let completed = 0;
       let oversized = false;
       for (let index = 0; index < files.length; index += 1) {
@@ -711,7 +732,15 @@ function WebApp() {
           endTime: fileEnd,
           fileIndex: index,
           onProgress: (value, status) => {
-            setProgress(((completed + value) / files.length) * 100);
+            const fileProgress = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+            const nextProgress = Math.max(
+              exportProgressRef.current,
+              ((completed + fileProgress) / files.length) * 100
+            );
+            exportProgressRef.current = nextProgress;
+            setProgress(nextProgress);
+            const startedAt = exportStartedAtRef.current;
+            if (startedAt !== null) setEta(formatBrowserEta(nextProgress, Date.now() - startedAt));
             setExportStatus(files.length > 1 ? `${status} · ${index + 1}/${files.length}` : status);
           },
         });
@@ -727,8 +756,18 @@ function WebApp() {
         setLastExport({ name: result.fileName, bytes: result.bytes });
         oversized = oversized || result.wasOversized;
         completed += 1;
-        setProgress((completed / files.length) * 100);
+        exportProgressRef.current = Math.max(
+          exportProgressRef.current,
+          (completed / files.length) * 100
+        );
+        setProgress(exportProgressRef.current);
+        const startedAt = exportStartedAtRef.current;
+        if (startedAt !== null)
+          setEta(formatBrowserEta(exportProgressRef.current, Date.now() - startedAt));
       }
+      exportProgressRef.current = 100;
+      setProgress(100);
+      setEta("Complete");
       setExportStatus(
         oversized ? "Downloaded · target could not be reached" : "Downloaded successfully"
       );
@@ -741,15 +780,16 @@ function WebApp() {
     } catch (error: unknown) {
       if (exportCancelledRef.current) {
         setExportStatus("Cancelled");
+        setEta("Cancelled");
         showNotice("info", "Export cancelled. No upload was made.");
       } else {
         setExportStatus("Export failed");
+        setEta("Unavailable");
         showNotice("error", String(error));
       }
     } finally {
       setIsExporting(false);
       setWasmLoading(false);
-      engine.setProgressHandler(null);
     }
   }, [
     activeFileIndex,
@@ -817,11 +857,11 @@ function WebApp() {
       <header className="web-header">
         <Logo />
         <nav className="web-header-nav" aria-label="Main navigation">
-          <a href="#features">Features</a>
-          <a href="#workflow">How it works</a>
-          <a href="#web-editor">Try in browser</a>
+          <a href="#web-editor">Web Demo</a>
+          <a href="#desktop-app">Desktop App</a>
+          <a href="#workflow">How It Works</a>
           <a href="#integrations">Open With</a>
-          <a href="#download">Download</a>
+          <a href="#faq">FAQ</a>
           <a href="https://github.com/cyroz1/vidcord" rel="noreferrer" target="_blank">
             GitHub
             <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -829,12 +869,6 @@ function WebApp() {
             </svg>
           </a>
         </nav>
-        <div className="web-header-actions">
-          <span className={`web-runtime-status${wasmReady ? " ready" : ""}`}>
-            <span className="web-status-dot" aria-hidden="true" />
-            {wasmLoading ? "Loading encoder" : wasmReady ? "WASM ready" : "Local processing"}
-          </span>
-        </div>
       </header>
 
       <main className="web-main">
@@ -846,9 +880,6 @@ function WebApp() {
               server.
             </p>
             <div className="web-hero-actions">
-              <a className="web-marketing-button primary" href="#web-editor">
-                Start with a video
-              </a>
               <a className="web-marketing-text-link" href="#desktop-app">
                 Need more power? See the desktop app
               </a>
@@ -1346,9 +1377,18 @@ function WebApp() {
                       <span>{exportStatus}</span>
                       <strong>{Math.round(progress)}%</strong>
                     </div>
-                    <div className="web-progress-track">
+                    <div
+                      className="web-progress-track"
+                      role="progressbar"
+                      aria-label="Export progress"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.round(Math.max(0, Math.min(100, progress)))}
+                      aria-valuetext={`${Math.round(progress)}% complete, ${eta}`}
+                    >
                       <span style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />
                     </div>
+                    <span className="web-progress-eta">{eta}</span>
                     {lastExport && !isExporting && (
                       <span className="web-last-export">
                         <Icon name="check" size={15} />

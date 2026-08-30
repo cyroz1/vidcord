@@ -11,6 +11,9 @@ import {
   parsePeakNormalizationGain,
   targetBitrateKbps,
 } from "../web/exportPlan";
+import { formatBrowserEta } from "../web/browserProgress";
+import { exportBrowserFile } from "../web/webExporter";
+import type { BrowserFfmpegEngine } from "../web/ffmpegEngine";
 import { normalizeBrowserSettings } from "../web/webSettings";
 import type { BrowserVideoMetadata } from "../web/webMedia";
 
@@ -35,6 +38,12 @@ const settings = normalizeBrowserSettings({
 });
 
 describe("browser export planning", () => {
+  it("formats an ETA from observed browser export progress", () => {
+    expect(formatBrowserEta(0, 2_000)).toBe("ETA: estimating…");
+    expect(formatBrowserEta(50, 10_000)).toBe("ETA: 0:10");
+    expect(formatBrowserEta(100, 10_000)).toBe("Complete");
+  });
+
   it("calculates a target-aware bitrate with an audio allowance", () => {
     expect(targetBitrateKbps(20, 30, false)).toBe(4800);
     expect(targetBitrateKbps(20, 30, true)).toBeGreaterThan(targetBitrateKbps(20, 30, false));
@@ -116,6 +125,43 @@ describe("browser export planning", () => {
       "my capture - final-vidcord.mp4"
     );
     expect(outputFileName("capture.mp4", "mp4", 2)).toBe("capture-vidcord-3.mp4");
+  });
+
+  it("maps FFmpeg progress across every adaptive browser encode pass", async () => {
+    const progress: number[] = [];
+    let transcodeCount = 0;
+    const engine = {
+      transcode: async (
+        _file: File,
+        _argsForInput: (inputName: string) => string[],
+        _outputName: string,
+        onProgress?: (event: { progress: number; time: number }) => void
+      ) => {
+        transcodeCount += 1;
+        onProgress?.({ progress: 0.5, time: 15_000_000 });
+        return new Uint8Array(200_000);
+      },
+    } as unknown as BrowserFfmpegEngine;
+
+    const advanced = normalizeBrowserSettings({
+      mode: "advanced",
+      advancedTargetSize: "0.1",
+    });
+    const result = await exportBrowserFile({
+      engine,
+      file: { name: "capture.mp4" } as File,
+      metadata,
+      settings: advanced,
+      mode: "advanced",
+      startTime: 0,
+      endTime: 30,
+      onProgress: (value) => progress.push(value),
+    });
+
+    expect(transcodeCount).toBe(3);
+    expect(progress.some((value) => value > 0 && value < 1)).toBe(true);
+    expect(progress[progress.length - 1]).toBe(1);
+    expect(result.wasOversized).toBe(true);
   });
 
   it("accepts bounded custom advanced FPS values and rejects unsafe settings", () => {

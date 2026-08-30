@@ -1,4 +1,4 @@
-import { BrowserFfmpegEngine } from "./ffmpegEngine";
+import { BrowserFfmpegEngine, type FfmpegProgressHandler } from "./ffmpegEngine";
 import {
   buildCompressionArgs,
   buildAudioPeakAnalysisArgs,
@@ -33,6 +33,18 @@ function isTargetMet(bytes: number, targetSizeMb: number | null): boolean {
   return targetSizeMb === null || bytes <= targetSizeMb * 1024 * 1024;
 }
 
+function operationProgressHandler(
+  onProgress: ExportProgressHandler | undefined,
+  start: number,
+  end: number,
+  status: string
+): FfmpegProgressHandler {
+  return ({ progress }) => {
+    const safeProgress = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+    onProgress?.(start + (end - start) * safeProgress, status);
+  };
+}
+
 export async function exportBrowserFile({
   engine,
   file,
@@ -58,12 +70,14 @@ export async function exportBrowserFile({
   const baseName = outputFileName(file.name, plan.outputExtension, fileIndex);
 
   if (mode === "lossless") {
-    onProgress?.(0, "Preparing stream copy…");
+    onProgress?.(0, "Encoding lossless trim…");
     const bytes = await engine.transcode(
       file,
       (inputName) => buildLosslessArgs(inputName, baseName, plan.startTime, plan.endTime),
-      baseName
+      baseName,
+      operationProgressHandler(onProgress, 0, 1, "Encoding lossless trim…")
     );
+    onProgress?.(1, "Finishing export…");
     return {
       blob: new Blob([bytes], { type: extensionMimeType(plan.outputExtension) }),
       fileName: baseName,
@@ -78,11 +92,17 @@ export async function exportBrowserFile({
   let lastBytes: Uint8Array<ArrayBuffer> = new Uint8Array();
   let lastHeight = plan.targetHeight ?? 480;
 
-  if (settings.audioNormalize && !settings.removeAudio && mode !== "gif") {
+  const shouldAnalyzeAudio = settings.audioNormalize && !settings.removeAudio && mode !== "gif";
+  const analysisEnd = shouldAnalyzeAudio ? 0.12 : 0;
+  const encodingSpan = 1 - analysisEnd;
+
+  if (shouldAnalyzeAudio) {
     onProgress?.(0, "Analyzing audio peak…");
     try {
-      const analysisLog = await engine.run(file, (inputName) =>
-        buildAudioPeakAnalysisArgs(inputName, plan)
+      const analysisLog = await engine.run(
+        file,
+        (inputName) => buildAudioPeakAnalysisArgs(inputName, plan),
+        operationProgressHandler(onProgress, 0, analysisEnd, "Analyzing audio peak…")
       );
       audioGainDb = parsePeakNormalizationGain(analysisLog);
     } catch {
@@ -91,14 +111,16 @@ export async function exportBrowserFile({
       // compatibility fallback in that case.
       audioGainDb = null;
     }
+    onProgress?.(analysisEnd, "Preparing encoder…");
   }
 
   for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
     const attemptLabel = maximumAttempts > 1 ? ` · pass ${attempt + 1}/${maximumAttempts}` : "";
-    onProgress?.(
-      attempt / maximumAttempts,
-      mode === "gif" ? `Rendering GIF${attemptLabel}` : `Encoding${attemptLabel}`
-    );
+    const attemptStart = analysisEnd + (encodingSpan * attempt) / maximumAttempts;
+    const attemptEnd = analysisEnd + (encodingSpan * (attempt + 1)) / maximumAttempts;
+    const encodingStatus =
+      mode === "gif" ? `Rendering GIF${attemptLabel}` : `Encoding${attemptLabel}`;
+    onProgress?.(attemptStart, encodingStatus);
     const outputName = `${attempt}-${baseName}`;
     const bytes = await engine.transcode(
       file,
@@ -114,12 +136,14 @@ export async function exportBrowserFile({
               bitrate,
               audioGainDb
             ),
-      outputName
+      outputName,
+      operationProgressHandler(onProgress, attemptStart, attemptEnd, encodingStatus)
     );
     lastBytes = bytes;
-    onProgress?.((attempt + 1) / maximumAttempts, "Checking output size…");
+    onProgress?.(attemptEnd, "Checking output size…");
 
     if (isTargetMet(bytes.byteLength, plan.targetSizeMb)) {
+      onProgress?.(1, "Finishing export…");
       return {
         blob: new Blob([bytes], { type: extensionMimeType(plan.outputExtension) }),
         fileName: baseName,
@@ -135,6 +159,7 @@ export async function exportBrowserFile({
     }
   }
 
+  onProgress?.(1, "Finishing export…");
   return {
     blob: new Blob([lastBytes], { type: extensionMimeType(plan.outputExtension) }),
     fileName: baseName,

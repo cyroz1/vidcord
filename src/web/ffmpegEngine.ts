@@ -3,7 +3,12 @@ import { fetchFile } from "@ffmpeg/util";
 import coreURL from "@ffmpeg/core?url";
 import wasmURL from "@ffmpeg/core/wasm?url";
 
-export type FfmpegProgressHandler = (progress: number) => void;
+export type FfmpegProgressEvent = {
+  progress: number;
+  time: number;
+};
+
+export type FfmpegProgressHandler = (event: FfmpegProgressEvent) => void;
 
 type WasmSource = {
   url: string;
@@ -81,14 +86,18 @@ export class BrowserFfmpegEngine {
 
   private sequence = 0;
 
-  private progressHandler: FfmpegProgressHandler | null = null;
+  private operationProgressHandler: FfmpegProgressHandler | null = null;
 
   private lastLog = "";
 
   private logBuffer = "";
 
-  private readonly handleProgress = ({ progress }: { progress: number }) => {
-    this.progressHandler?.(Math.max(0, Math.min(1, progress)));
+  private readonly handleProgress = ({ progress, time }: FfmpegProgressEvent) => {
+    const event = {
+      progress: Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0,
+      time: Number.isFinite(time) ? Math.max(0, time) : 0,
+    };
+    this.operationProgressHandler?.(event);
   };
 
   private readonly handleLog = ({ message }: { message: string }) => {
@@ -98,10 +107,6 @@ export class BrowserFfmpegEngine {
 
   get isLoaded(): boolean {
     return this.ffmpeg?.loaded === true;
-  }
-
-  setProgressHandler(handler: FfmpegProgressHandler | null): void {
-    this.progressHandler = handler;
   }
 
   async load(): Promise<void> {
@@ -138,7 +143,8 @@ export class BrowserFfmpegEngine {
   async transcode(
     file: File,
     argsForInput: (inputName: string) => string[],
-    outputName: string
+    outputName: string,
+    onProgress?: FfmpegProgressHandler
   ): Promise<Uint8Array<ArrayBuffer>> {
     await this.load();
     const ffmpeg = this.ffmpeg;
@@ -152,6 +158,7 @@ export class BrowserFfmpegEngine {
     await ffmpeg.writeFile(inputName, inputData);
 
     try {
+      this.operationProgressHandler = onProgress ?? null;
       const exitCode = await ffmpeg.exec(argsForInput(inputName));
       if (exitCode !== 0) {
         const detail = this.lastLog ? ` ${this.lastLog}` : "";
@@ -159,12 +166,17 @@ export class BrowserFfmpegEngine {
       }
       return readBytes(await ffmpeg.readFile(outputName));
     } finally {
+      this.operationProgressHandler = null;
       await ffmpeg.deleteFile(inputName).catch(() => false);
       await ffmpeg.deleteFile(outputName).catch(() => false);
     }
   }
 
-  async run(file: File, argsForInput: (inputName: string) => string[]): Promise<string> {
+  async run(
+    file: File,
+    argsForInput: (inputName: string) => string[],
+    onProgress?: FfmpegProgressHandler
+  ): Promise<string> {
     await this.load();
     const ffmpeg = this.ffmpeg;
     if (!ffmpeg) throw new Error("The browser encoder is not available.");
@@ -178,6 +190,7 @@ export class BrowserFfmpegEngine {
     await ffmpeg.writeFile(inputName, inputData);
 
     try {
+      this.operationProgressHandler = onProgress ?? null;
       const exitCode = await ffmpeg.exec(argsForInput(inputName));
       if (this.loadGeneration !== operationGeneration) {
         throw new Error("Export cancelled.");
@@ -191,12 +204,14 @@ export class BrowserFfmpegEngine {
       if (this.loadGeneration !== operationGeneration) throw new Error("Export cancelled.");
       throw error;
     } finally {
+      this.operationProgressHandler = null;
       await ffmpeg.deleteFile(inputName).catch(() => false);
     }
   }
 
   cancel(): void {
     this.loadGeneration += 1;
+    this.operationProgressHandler = null;
     if (!this.ffmpeg) return;
     this.ffmpeg.off("progress", this.handleProgress);
     this.ffmpeg.off("log", this.handleLog);
@@ -207,6 +222,5 @@ export class BrowserFfmpegEngine {
 
   dispose(): void {
     this.cancel();
-    this.progressHandler = null;
   }
 }
