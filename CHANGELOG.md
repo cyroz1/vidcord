@@ -7,10 +7,26 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ### Browser edition
 
-- Added a client-side browser build at `/` that processes selected videos locally with FFmpeg
-  WebAssembly and exports the result through browser downloads. It includes Compress, Advanced,
-  Lossless Trim, GIF, trim, crop, FPS, presets, snapshots, and same-profile batches; the native
-  desktop app remains the full option for GPU encoders and OS integrations.
+- Added a client-side browser build at `/` as the web-first product home. It processes selected
+  videos locally with FFmpeg WebAssembly and exports the result through browser downloads, with
+  Compress, Advanced, Lossless Trim, GIF, trim, crop, audio normalization, audio removal for
+  re-encoded exports, standard FPS controls, typed Advanced FPS, snapshots, and same-profile
+  batches.
+- Browser Batch mode applies one standard Compress profile to each full-duration file, reports
+  per-file progress and aggregate ETA, and allows queued files to be removed before export. It
+  does not include per-file batch trims, saved settings presets, native output destinations, or
+  desktop file-manager integrations.
+- Removed desktop-only encoder selection, save-location controls, after-export actions, and saved
+  settings presets from the browser UI. Browser re-encodes use a fixed `libx264` WebAssembly
+  encoder; the native desktop app remains the optional upgrade for system FFmpeg, GPU encoders,
+  faster native encoding, native folders, Open With, notifications, taskbar/Dock progress, and
+  installer updates.
+- Rebuilt the root page around the browser editor and moved the original marketing/download page
+  to `/legacy/`. The root page keeps the original site's branding, desktop screenshots, feature
+  tour, FFmpeg setup, FAQ, and platform-aware download section below the web editor.
+- Updated the README, FFmpeg setup guide, legacy metadata/structured data, public crawler files,
+  and deployment notes to document the browser/desktop capability boundary and local-only
+  processing model.
 
 ## v7.3
 

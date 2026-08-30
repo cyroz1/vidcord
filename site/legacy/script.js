@@ -494,28 +494,29 @@
     if (platform === "windows") {
       return {
         instruction:
-          "vidcord can run this during install or first launch. If needed, run it manually, then restart or sign out:",
+          "The desktop app can run this during install or first launch. If needed, run it manually, then restart or sign out:",
         command: "winget install Gyan.FFmpeg",
       };
     }
 
     if (platform === "macos") {
       return {
-        instruction: "In Terminal, install Homebrew if needed, then run:",
+        instruction: "For the desktop app, install Homebrew in Terminal if needed, then run:",
         command: "brew install ffmpeg",
       };
     }
 
     if (platform === "linux") {
       return {
-        instruction: "On Debian or Ubuntu, run this. Fedora and Arch commands are in the guide:",
+        instruction:
+          "For the desktop app, run this on Debian or Ubuntu. Fedora and Arch commands are in the guide:",
         command: "sudo apt install ffmpeg",
       };
     }
 
     return {
       instruction:
-        "Install ffmpeg and ffprobe before compressing videos. Use the guide for your OS:",
+        "Install ffmpeg and ffprobe before using the desktop app. The browser editor uses WebAssembly instead:",
       command: "",
     };
   }

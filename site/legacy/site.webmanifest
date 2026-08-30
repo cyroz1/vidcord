@@ -1,7 +1,7 @@
 {
   "name": "vidcord",
   "short_name": "vidcord",
-  "description": "Free, open-source desktop video compressor for Discord upload limits.",
+  "description": "Free, open-source vidcord marketing and desktop download page. The browser editor is available at the domain root.",
   "start_url": "/legacy/",
   "scope": "/legacy/",
   "display": "standalone",

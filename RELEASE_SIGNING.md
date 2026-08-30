@@ -1,5 +1,9 @@
 # Release signing
 
+These checks apply to native desktop update installers only. The browser editor
+at [vidcord.app](https://vidcord.app/) is delivered as a static client-side
+application, uses FFmpeg WebAssembly, and has no installer or in-app updater.
+
 vidcord update installers use two independent checks before they are opened:
 
 - the SHA-256 digest published by the GitHub Releases API, and

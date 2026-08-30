@@ -4,11 +4,11 @@ Guidance for AI assistants working in this repository. Read this before making c
 
 ## Project overview
 
-**vidcord** is a cross-platform desktop app that compresses video files under Discord's size limits. It is built with **Tauri 2** (Rust backend + React/TypeScript frontend) and shells out to the system **FFmpeg** binary for all video work. It does **not** bundle FFmpeg — the system `ffmpeg`/`ffprobe` must be on `PATH`.
+**vidcord** is a browser-first video compressor with an optional cross-platform desktop app for faster encoding and OS integrations. The desktop app is built with **Tauri 2** (Rust backend + React/TypeScript frontend) and shells out to the system **FFmpeg** binary for all native video work. It does **not** bundle system FFmpeg — the desktop app requires `ffmpeg`/`ffprobe` on `PATH`; the hosted browser edition uses its separate FFmpeg WebAssembly build instead.
 
 - **App version**: kept in sync across `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and any `vX.Y` references in source/docs (see "Bumping the version" below)
-- **Window**: fixed 460×690, user non-resizable/non-maximizable, opaque window background with macOS Tahoe "liquid glass" styling inside the app surface
-- **Supported OS/arch**: Windows (x86_64 + aarch64), macOS (universal), Linux (x86_64 + aarch64)
+- **Native window**: fixed 460×690, user non-resizable/non-maximizable, opaque window background with macOS Tahoe "liquid glass" styling inside the app surface
+- **Supported runtimes**: native desktop builds target Windows (x86_64 + aarch64), macOS (universal), and Linux (x86_64 + aarch64); the browser edition targets modern WebAssembly-capable browsers
 - **Node**: `^20.19.0 || >=22.13.0` (see `package.json` engines)
 - **Rust**: stable toolchain, edition 2021
 
@@ -109,7 +109,7 @@ npm install
 npm run tauri dev          # starts Vite on :5173, launches the Tauri window
 ```
 
-FFmpeg must be on `PATH` for the app to probe videos or compress.
+System FFmpeg must be on `PATH` for the desktop app to probe videos or compress. The browser edition runs its fixed WebAssembly encoder in the page and does not use the host's FFmpeg installation.
 
 ### Quality gates
 
@@ -161,9 +161,10 @@ links. The original marketing/download website remains available at `/legacy/` f
 the root crawler files. The browser edition uses FFmpeg WebAssembly, keeps selected videos local,
 and downloads exports through the browser. It is intentionally a lighter alternative to the desktop
 app: browser input support and performance depend on the user's browser, encoding is fixed to
-`libx264` in WASM, and native folders, GPU encoder discovery, Open With, OS notifications, taskbar
-or Dock progress, and desktop updater flows remain desktop-only. Keep the generated root entries in
-sync with the source browser code when publishing a browser change.
+`libx264` in WASM, browser Batch uses one shared full-duration Compress profile, and native folders,
+GPU encoder discovery, Open With, saved settings presets, native completion actions, OS
+notifications, taskbar or Dock progress, and desktop updater flows remain desktop-only. Keep the
+generated root entries in sync with the source browser code when publishing a browser change.
 
 The WebAssembly binary is larger than Cloudflare's 25 MiB per-file static-asset limit. `web:build`
 therefore publishes the generated `.wasm` as `.wasm.gz`, and `src/web/ffmpegEngine.ts` decompresses
@@ -193,7 +194,9 @@ Site behavior and content:
 - The legacy social/link embed image intentionally uses the logo: `https://vidcord.app/legacy/assets/icon.png` via `og:image` and `twitter:image`.
 - Discord and other chat clients may cache old embeds. Use a temporary query string such as `https://vidcord.app/?v=2` when checking a changed preview image.
 - Product screenshots should not be cropped in CSS. Keep `width: 100%` and `height: auto` for screenshot images unless the user explicitly asks for a cropped composition.
-- The website documents local processing, FFmpeg as a required system dependency, Discord target sizes, Open With integration, and selectable output destinations (Downloads by default).
+- The root site documents browser-local WebAssembly processing and browser downloads. The legacy
+  page documents the desktop app's system FFmpeg dependency, Discord target sizes, Open With
+  integration, and selectable native output destinations (Downloads by default).
 
 SEO and crawler/agent files:
 
@@ -254,8 +257,10 @@ For browser QA, use the in-app browser when available and check:
 - screenshot aspect ratios remain uncropped
 
 For browser-edition QA, also open `/`, select a local video, switch through each mode, and
-confirm the first export loads the local WebAssembly encoder and triggers a browser download. Do not
-describe the browser route as hosted/cloud compression: selected video files must not be uploaded.
+confirm the first export loads the local WebAssembly encoder, reports progress/ETA, and triggers a
+browser download. Confirm that the browser UI does not expose desktop-only encoder, native output,
+completion-action, or saved-preset controls. Do not describe the browser route as hosted/cloud
+compression: selected video files must not be uploaded.
 
 Site-only changes should not trigger the multi-platform app CI: `.github/workflows/build.yml` ignores `site/**`, `wrangler.jsonc`, the Site Checks workflow, and site-only validator scripts for `push` and `pull_request`.
 
@@ -446,7 +451,9 @@ ignores malformed or duplicate records on load. Presets capture compression and 
 including the selected encoder identity, but intentionally do not capture output destination,
 custom output folder, or completion action. The footer shows Autosave whenever the current captured
 settings no longer equal the selected preset; keep that comparison behavior when adding a new
-preset-backed setting.
+preset-backed setting. This is desktop-only: `src/web/webSettings.ts` persists the browser editor's
+current lightweight compression settings in browser storage but intentionally has no named preset
+controls or preset records.
 
 ### Native window theme
 

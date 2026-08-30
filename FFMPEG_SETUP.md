@@ -1,9 +1,16 @@
-# FFmpeg Setup
+# FFmpeg Setup for the Native Desktop App
 
-vidcord requires FFmpeg to be installed and available on your system PATH. Follow the steps for your platform below.
+This guide is for the native desktop app. The browser editor at
+[vidcord.app](https://vidcord.app/) does not require a system FFmpeg install: it
+loads a fixed FFmpeg WebAssembly encoder in the page, keeps selected files in
+the browser, and downloads finished exports through the browser. Browser input
+support depends on the browser's media decoder.
 
-If FFmpeg is missing, vidcord can help install it without bundling FFmpeg
-binaries:
+The desktop app requires FFmpeg to be installed and available on your system
+`PATH`. Follow the steps for your platform below.
+
+If FFmpeg is missing, the desktop app can help install it without bundling
+FFmpeg binaries:
 
 - Windows: the installer and first launch can run `winget install Gyan.FFmpeg`
 - macOS: runs `brew install ffmpeg`
@@ -40,7 +47,7 @@ download the community build manually:
 3. Copy `ffmpeg.exe` and `ffprobe.exe` to a permanent folder, e.g. `C:\ffmpeg\`
 4. Add that folder to your PATH:
    - Open **Start** → search **"Edit the system environment variables"**
-   - Click **Environment Variables** → under *System variables*, select **Path** → **Edit**
+   - Click **Environment Variables** → under _System variables_, select **Path** → **Edit**
    - Click **New** and enter `C:\ffmpeg`
    - Click **OK** on all dialogs, then restart your PC
 
@@ -88,8 +95,12 @@ ffmpeg -version
 ffprobe -version
 ```
 
-vidcord requires both commands. If either one is missing, restart your shell or
-computer after the package manager updates PATH, then try again. On Windows,
-vidcord can also detect a standard `Gyan.FFmpeg` WinGet installation before that
-PATH update reaches other running programs. Once both commands work, launch
-vidcord normally and it will detect FFmpeg automatically.
+The desktop app requires both commands. If either one is missing, restart your
+shell or computer after the package manager updates `PATH`, then try again. On
+Windows, vidcord can also detect a standard `Gyan.FFmpeg` WinGet installation
+before that PATH update reaches other running programs. Once both commands
+work, launch the desktop app normally and it will detect FFmpeg automatically.
+
+If you only want the browser editor, return to
+[vidcord.app](https://vidcord.app/); do not install system FFmpeg just for the
+web workflow.

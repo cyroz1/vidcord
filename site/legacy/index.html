@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>vidcord - Free Discord Video Compressor for Windows, macOS, and Linux</title>
+    <title>vidcord - Native Discord Video Compressor for Windows, macOS, and Linux</title>
     <meta
       name="description"
-      content="vidcord is a free, open-source local video compressor for Discord limits. Use the desktop app or try the browser edition, which processes files locally with WebAssembly."
+      content="vidcord's native desktop app page for local Discord video compression, with a no-install browser editor available at the domain root."
     />
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta
@@ -32,11 +32,11 @@
     <link rel="manifest" href="/legacy/site.webmanifest" />
     <meta
       property="og:title"
-      content="vidcord - Free Discord Video Compressor for Windows, macOS, and Linux"
+      content="vidcord - Native Discord Video Compressor for Windows, macOS, and Linux"
     />
     <meta
       property="og:description"
-      content="Compress videos locally for Discord with the desktop app or browser edition. No uploads, no accounts, no telemetry."
+      content="Download vidcord's native desktop app for local FFmpeg compression, or use the no-install browser editor at the domain root. No uploads, accounts, or telemetry."
     />
     <meta property="og:site_name" content="vidcord" />
     <meta property="og:locale" content="en_US" />
@@ -49,11 +49,11 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta
       name="twitter:title"
-      content="vidcord - Free Discord Video Compressor for Windows, macOS, and Linux"
+      content="vidcord - Native Discord Video Compressor for Windows, macOS, and Linux"
     />
     <meta
       name="twitter:description"
-      content="Compress videos for Discord locally with the desktop app or browser edition. Free, open-source, no uploads, no telemetry."
+      content="Native desktop Discord video compression with system FFmpeg, plus a no-install browser editor. Free, open-source, no uploads, no telemetry."
     />
     <meta name="twitter:image" content="https://vidcord.app/legacy/assets/icon.png" />
     <meta name="twitter:image:alt" content="vidcord app logo" />
@@ -72,7 +72,7 @@
             "url": "https://vidcord.app/legacy/",
             "name": "vidcord",
             "alternateName": "vidcord video compressor",
-            "description": "Free, open-source local video compressor for Discord upload limits, available as a desktop app and browser edition.",
+            "description": "Original native desktop marketing and download page for vidcord; the browser editor is available at the domain root.",
             "inLanguage": "en-US"
           },
           {
@@ -88,32 +88,32 @@
             "operatingSystem": ["Windows", "macOS", "Linux"],
             "license": "https://github.com/cyroz1/vidcord/blob/main/LICENSE",
             "softwareRequirements": "The desktop edition requires FFmpeg and ffprobe on PATH; the browser edition requires a modern browser with WebAssembly and browser-readable input.",
-            "description": "vidcord compresses MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord upload size limits locally on Windows, macOS, and Linux, with a lighter browser edition available.",
+            "description": "vidcord provides a browser-first local video compressor at https://vidcord.app/ and an optional native desktop app for faster encoding, GPU support, and OS integrations.",
             "featureList": [
-              "Local video compression with FFmpeg",
-              "Saved named compression and mode presets with Autosave, restore, and delete controls",
-              "Lossless Trim stream-copy exports with outward keyframe-aligned boundaries and optional audio-track removal",
-              "Discord upload targets: current 20 MB, 50 MB, 100 MB, and 500 MB limits",
-              "Automatic Batch mode for multiple video selections with per-file source details, separate start/end trim seconds, and standard Compress controls",
-              "Two-worker batch encoding with adaptive serial fallback, continue-on-error processing, aggregate progress and whole-queue ETA",
+              "Local video compression in the browser with FFmpeg WebAssembly or in the desktop app with system FFmpeg",
+              "Desktop app named compression and mode presets with Autosave, restore, and delete controls",
+              "Lossless Trim stream-copy exports with outward keyframe-aligned boundaries; desktop also supports lossless audio-track removal",
+              "Discord upload targets: current 20 MB, 50 MB, 100 MB, and 500 MB limits in both editions",
+              "Browser Batch mode for shared full-duration Compress exports and desktop Batch mode with separate start/end trim fields",
+              "Desktop two-worker batch encoding with adaptive serial fallback, continue-on-error processing, aggregate progress and whole-queue ETA",
               "Animated GIF exports for Discord's 20 MB Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS with aspect-ratio cropping",
-              "Output FPS controls with source-aware 24, 30, and 60 FPS presets plus advanced custom FPS",
-              "Output destinations for Downloads, the imported clip folder, a remembered custom folder, or an after-compression save prompt",
-              "Completion actions that copy the output file to the system clipboard by default or reveal it in the platform file manager",
-              "Peak audio normalization that sets the highest sample peak to 0 dB",
-              "Per-video Advanced audio track mixer with names, estimated sizes, individual or select-all checkboxes, and a 128 kbps budget per selected track",
+              "Output FPS controls with source-aware 24, 30, and 60 FPS choices plus typed Advanced FPS",
+              "Desktop output destinations for Downloads, the imported clip folder, a remembered custom folder, or an after-compression save prompt; browser exports use browser downloads",
+              "Desktop completion actions that copy the output file to the system clipboard by default or reveal it in the platform file manager",
+              "Peak audio normalization that sets the highest sample peak to 0 dB in re-encoded modes",
+              "Desktop Advanced audio track mixer with names, estimated sizes, individual or select-all checkboxes, and a 128 kbps budget per selected track",
               "Aspect ratio cropping presets (16:9, 1:1, 9:16, 4:3, 3:4, 4:5, 5:4) with automatic native ratio exclusion",
-              "Full-resolution PNG frame snapshots with instant clipboard copy or file explorer reveal",
-              "Real-time taskbar and Dock progress bar for unfocused monitoring",
+              "Full-resolution PNG frame snapshots with desktop copy/reveal actions or browser downloads",
+              "Real-time desktop taskbar and Dock progress bar for unfocused monitoring plus in-page browser progress and ETA",
               "Clickable native OS desktop notifications when unfocused that restore and focus vidcord",
-              "Live video scrubbing and trim playback on Windows and macOS, with FFmpeg-generated frame and filmstrip scrub previews on Linux",
-              "GPU encoder detection for NVENC, AMF, QSV, VAAPI, and VideoToolbox",
-              "First-run H.264 hardware encoder preference with automatic software-decode and CPU fallbacks",
-              "Open With integration from Windows File Explorer and macOS Finder",
-              "Race-safe compression cancellation and collision-safe output reservation",
-              "User-approved installer downloads verified with GitHub-published SHA-256 digests and independent Ed25519 release signatures",
+              "Live desktop video scrubbing and trim playback on Windows and macOS, with FFmpeg-generated frame and filmstrip scrub previews on Linux",
+              "Desktop GPU encoder detection for NVENC, AMF, QSV, VAAPI, and VideoToolbox",
+              "Desktop first-run H.264 hardware encoder preference with automatic software-decode and CPU fallbacks",
+              "Desktop Open With integration from Windows File Explorer and macOS Finder",
+              "Race-safe compression cancellation and collision-safe desktop output reservation",
+              "Desktop user-approved installer downloads verified with GitHub-published SHA-256 digests and independent Ed25519 release signatures",
               "No uploads, accounts, or telemetry",
-              "Client-side browser edition with local WebAssembly processing and browser downloads"
+              "Client-side browser edition with fixed libx264 WebAssembly encoding, browser downloads, crop, audio normalization, audio removal for re-encoded exports, snapshots, and same-profile batches"
             ],
             "image": [
               "https://vidcord.app/legacy/assets/window.png",
@@ -144,7 +144,7 @@
                 "name": "Does vidcord upload videos?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "No. FFmpeg runs on your computer, so videos stay local. vidcord requires no account or telemetry. The app checks GitHub for updates, while the website requests only public release data and aggregate download counts; neither request includes video data."
+                  "text": "No. The browser edition keeps selected files in the page while FFmpeg WebAssembly runs locally, and the desktop edition runs system FFmpeg locally. Neither edition uploads video, requires an account, or uses telemetry. The website requests only public release data and aggregate download counts; neither request includes video data."
                 }
               },
               {
@@ -160,7 +160,7 @@
                 "name": "Which Discord upload limits are supported?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Presets cover Discord's current 20 MB, 50 MB, 100 MB, and 500 MB limits. Advanced mode adds custom size, resolution, FPS, and encoder controls. GIF Mode supports 20 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS."
+                  "text": "Both editions provide 20 MB, 50 MB, 100 MB, and 500 MB video targets. Advanced mode adds custom size, resolution, and typed FPS in both editions; encoder selection and named settings presets are desktop-only. GIF Mode supports 20 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS."
                 }
               },
               {
@@ -168,7 +168,7 @@
                 "name": "Can vidcord compress multiple videos at once?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Yes. Selecting two or more videos through Browse, drag-and-drop, Open With, command-line arguments, or a second instance automatically activates Batch mode. It uses standard Compress controls with separate start/end trim seconds, runs up to two encodes concurrently by default, falls back to one at a time when resources contend, continues after individual failures, and reports an aggregate ETA for the remaining queue."
+                  "text": "Yes. In the browser, selecting two or more files through Browse or drag-and-drop activates Batch mode with one shared full-duration Compress profile, removable queued items, per-file progress, and an aggregate ETA. On desktop, Open With, command-line arguments, and second-instance selections also activate Batch mode with separate start/end trim seconds, up to two native workers, and native output handling."
                 }
               },
               {
@@ -176,7 +176,7 @@
                 "name": "Can vidcord change output FPS?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Yes. Standard mode can leave FPS unchanged or cap it at 24, 30, or 60 FPS. Advanced mode accepts a custom value or Off."
+                  "text": "Yes. Standard mode can leave FPS unchanged or cap it at 24, 30, or 60 FPS. Advanced mode accepts a custom typed value or Off in both editions."
                 }
               },
               {
@@ -200,7 +200,7 @@
                 "name": "Does vidcord include FFmpeg?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "No. Install ffmpeg and ffprobe and make them available on PATH. vidcord can help with the platform package-manager steps."
+                  "text": "The desktop edition does not bundle system FFmpeg: install ffmpeg and ffprobe and make them available on PATH. The browser edition loads a fixed FFmpeg WebAssembly build and does not require a system FFmpeg install."
                 }
               },
               {
@@ -250,15 +250,16 @@
       <section class="hero" aria-labelledby="hero-title">
         <div class="hero-copy">
           <h1 id="hero-title">vidcord</h1>
-          <p class="hero-lede">Local video compression for Discord limits.</p>
+          <p class="hero-lede">Native desktop video compression for Discord limits.</p>
           <p class="hero-body">
             Compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord's 20, 50, 100, or
-            500 MB limits using FFmpeg locally. Lossless Trim cuts on keyframes without re-encoding.
-            GIF Mode creates Discord-ready GIFs at 15, 30, or up to 50 FPS.
+            500 MB limits using the desktop app's system FFmpeg locally. Lossless Trim cuts on
+            keyframes without re-encoding. GIF Mode creates Discord-ready GIFs at 15, 30, or up to
+            50 FPS.
           </p>
           <p class="hero-body">
-            Select multiple videos to switch automatically to Batch mode, with per-file details,
-            separate start/end trims, and a queue-wide progress estimate.
+            Select multiple videos in the desktop app to switch automatically to Batch mode, with
+            per-file details, separate start/end trims, and a queue-wide progress estimate.
           </p>
           <p class="hero-body">
             Need no installation? The <a class="hero-inline-link" href="/">browser edition</a>
@@ -313,10 +314,10 @@
               />
             </svg>
             <div>
-              <strong id="ffmpeg-prereq-title">FFmpeg required</strong>
+              <strong id="ffmpeg-prereq-title">FFmpeg required for the desktop app</strong>
               <span id="ffmpegInstruction">
-                vidcord can help install <code>ffmpeg</code> and <code>ffprobe</code> before
-                compressing videos.
+                The desktop app can help install <code>ffmpeg</code> and <code>ffprobe</code> before
+                compressing videos; the browser editor uses WebAssembly instead.
               </span>
               <div class="command-block ffmpeg-prereq-command" id="ffmpegCommandBlock" hidden>
                 <code id="ffmpegCommand"></code>
@@ -350,8 +351,8 @@
               <dd>No uploads or telemetry</dd>
             </div>
             <div>
-              <dt>FFmpeg</dt>
-              <dd>Install it before compressing</dd>
+              <dt>Desktop FFmpeg</dt>
+              <dd>Install it before native encoding</dd>
             </div>
           </dl>
         </div>
@@ -403,7 +404,8 @@
           <p>
             Choose a 20, 50, 100, or 500 MB limit and let vidcord calculate the bitrate. GIF Mode
             supports 20 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS. Select
-            multiple videos to apply the standard Compress settings through Batch mode.
+            multiple videos for browser Batch's full-duration profile or desktop Batch's per-file
+            trims.
           </p>
         </article>
         <article>
@@ -413,16 +415,17 @@
           <h2>Trim and preview</h2>
           <p>
             Scrub, preview, and compress only the range you need. Lossless Trim preserves source
-            streams with keyframe-aligned boundaries. If a segment already fits the target, vidcord
-            offers that option with a clear keyframe warning. Linux uses FFmpeg frame and filmstrip
-            previews for stable scrubbing.
+            streams with keyframe-aligned boundaries. The desktop app offers Lossless Trim when a
+            segment already fits the target, with a clear keyframe warning. Desktop Linux uses
+            FFmpeg frame and filmstrip previews for stable scrubbing; the browser uses its local
+            video preview.
           </p>
         </article>
         <article>
           <svg aria-hidden="true" viewBox="0 0 24 24">
             <path d="M13 2 4 14h7l-1 8 10-13h-7z" />
           </svg>
-          <h2>GPU acceleration</h2>
+          <h2>Desktop GPU acceleration</h2>
           <p>
             Detects NVENC, AMF, QSV, VAAPI, and VideoToolbox, prefers H.264 hardware on first run,
             and keeps CPU fallback ready.
@@ -448,15 +451,16 @@
           <div>
             <strong>Included</strong>
             <span
-              >Compress, Advanced, Lossless Trim, GIF, trim, crop, FPS, presets, snapshots, and
-              same-profile batches.</span
+              >Compress, Advanced, Lossless Trim, GIF, trim, crop, audio normalization, audio
+              removal for re-encoded exports, FPS, snapshots, and same-profile batches.</span
             >
           </div>
           <div>
             <strong>Browser constraints</strong>
             <span
-              >Browser-readable inputs, a fixed libx264 WASM encoder, and browser downloads; native
-              folders, GPU encoder discovery, and Open With stay in the desktop app.</span
+              >Browser-readable inputs, a fixed libx264 WASM encoder, and browser downloads; encoder
+              selection, audio-track mixing, saved presets, native folders, GPU encoder discovery,
+              and Open With stay in the desktop app.</span
             >
           </div>
         </div>
@@ -473,8 +477,8 @@
             <span class="step-number">1</span>
             <h3>Add your videos</h3>
             <p>
-              Drag and drop, browse, or use Open With from Finder or Explorer. Multi-select to
-              activate Batch mode automatically.
+              Drag and drop or browse in the browser editor; use Open With from Finder or Explorer
+              in the desktop app. Multi-select to activate Batch mode automatically.
             </p>
           </article>
           <article>
@@ -482,17 +486,19 @@
             <h3>Choose controls and trim</h3>
             <p>
               Select a Discord size target, cap FPS or remove audio if needed, and preview a
-              single-video range from the playhead. Batch mode uses standard Compress controls with
-              separate start and end trim seconds for every queued video.
+              single-video range from the playhead. Browser Batch uses one full-duration Compress
+              profile; desktop Batch adds separate start and end trim seconds for every queued
+              video.
             </p>
           </article>
           <article>
             <span class="step-number">3</span>
             <h3>Compress and save</h3>
             <p>
-              Run FFmpeg locally, verify the size, and choose Downloads, the clip folder, a custom
-              folder, or a save prompt. Batch runs up to two encodes concurrently, estimates the
-              whole remaining queue, continues after individual failures, and can copy or reveal the
+              Run the local encoder and verify the size. Browser exports download through the
+              browser; desktop exports can use Downloads, the clip folder, a custom folder, or a
+              save prompt. Desktop Batch runs up to two encodes concurrently, estimates the whole
+              remaining queue, continues after individual failures, and can copy or reveal
               successful outputs as a group.
             </p>
           </article>
@@ -503,43 +509,48 @@
         <div class="detail-copy">
           <h2>Simple when you want it. Precise when you need it.</h2>
           <p>
-            Compress includes aspect-ratio crop presets, while Advanced mode adds custom size,
-            resolution, FPS, audio normalization, and encoder controls. GIF Mode keeps crop presets,
-            while Lossless Trim preserves video streams and can remove audio without re-encoding.
-            Size-based exports offer Lossless Trim when a selected segment fits the target. Encoder
-            detection shows which installed encoders work, and saved choices remain sticky.
+            Both editions include aspect-ratio crop presets, custom size, resolution, FPS, and audio
+            normalization. The desktop app adds encoder selection, source audio-track mixing, saved
+            settings presets, native output preferences, and the size-based Lossless Trim offer. The
+            browser editor uses a fixed libx264 WebAssembly encoder, browser downloads, and browser
+            readable inputs.
           </p>
           <ul>
             <li>
-              Automatic Batch mode for multiple selections: per-file source details and status,
-              separate start/end trim seconds, removable queue items, up to two concurrent standard
-              Compress encodes, adaptive serial fallback, and an aggregate ETA for the remaining
-              queue.
+              Browser Batch uses a shared full-duration Compress profile with removable queue items,
+              per-file progress, and an aggregate ETA; desktop Batch adds source details, separate
+              start/end trim seconds, up to two concurrent encodes, and adaptive serial fallback.
             </li>
             <li>Strict output size checks with safer retry behavior.</li>
             <li>
-              Named settings presets with Autosave, restore, and delete controls for export
-              settings.
+              Desktop-only named settings presets with Autosave, restore, and delete controls for
+              export settings.
             </li>
             <li>Output FPS controls for 24, 30, 60, or a custom advanced value.</li>
             <li>Crop to 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, or 5:4 before scaling.</li>
             <li>
               Peak-normalize audio so its highest sample peak reaches 0 dB, or remove it for more
-              video bitrate.
+              video bitrate in re-encoded modes.
             </li>
             <li>
-              Advanced mode's mixer lists every source audio track by name and estimated size, then
-              lets you select one, several, or all tracks for that video. With no custom choice,
-              Advanced and standard compression keep the first track unless another is at least 20%
-              larger by estimated data; each selected track reserves 128 kbps.
+              Desktop Advanced mode's mixer lists every source audio track by name and estimated
+              size, then lets you select one, several, or all tracks for that video. With no custom
+              choice, Advanced and standard compression keep the first track unless another is at
+              least 20% larger by estimated data; each selected track reserves 128 kbps.
             </li>
             <li>
-              Save full-resolution PNG snapshots using the preview button or Cmd/Ctrl+Shift+S.
+              Save full-resolution PNG snapshots using the preview button; desktop also supports
+              Cmd/Ctrl+Shift+S.
             </li>
-            <li>Race-safe cancellation that waits for FFmpeg to exit and cleans partial output.</li>
-            <li>Atomically reserved auto-named outputs that never overwrite your files.</li>
-            <li>Downloads, source-folder, remembered custom-folder, and ask-when-done options.</li>
-            <li>Copy the output file itself to the clipboard or reveal it in your file manager.</li>
+            <li>
+              Race-safe cancellation that waits for the active encoder to exit and cleans partial
+              output.
+            </li>
+            <li>Desktop atomically reserved auto-named outputs that never overwrite your files.</li>
+            <li>
+              Desktop Downloads, source-folder, remembered custom-folder, and ask-when-done options.
+            </li>
+            <li>Desktop copy-to-clipboard or file-manager reveal completion actions.</li>
             <li>
               User-approved update installers verified against GitHub's SHA-256 digest and an
               independent Ed25519 release signature.
@@ -574,16 +585,21 @@
         <div class="detail-copy">
           <h2>Keep the original quality with Lossless Trim.</h2>
           <p>
-            Lossless Trim cuts on source keyframes without re-encoding the video. Choose the section
-            you need, keep or remove audio, and export an original-quality clip quickly with
-            stream-copy processing.
+            Lossless Trim cuts on source keyframes without re-encoding the video. The browser editor
+            copies source streams through WebAssembly; the desktop app can also remove audio without
+            re-encoding and handle native output containers.
           </p>
           <ul>
             <li>No video re-encoding for fast, original-quality exports.</li>
             <li>Trim boundaries snap outward to source keyframes.</li>
-            <li>Keep audio or remove every audio track without re-encoding video.</li>
-            <li>Size-based exports offer it when the selected segment is estimated to fit.</li>
-            <li>Falls back to normal compression when stream copying is incompatible.</li>
+            <li>
+              Desktop Lossless Trim can keep audio or remove every audio track without re-encoding
+              video.
+            </li>
+            <li>
+              Desktop size-based exports offer it when the selected segment is estimated to fit.
+            </li>
+            <li>Desktop falls back to normal compression when stream copying is incompatible.</li>
           </ul>
         </div>
         <div class="detail-image">
@@ -654,18 +670,27 @@
         <div class="detail-copy">
           <h2>Compress a whole queue in Batch mode.</h2>
           <p>
-            Select multiple videos and vidcord probes, trims, and encodes each one independently.
-            The queue keeps source details and per-file progress visible while the aggregate status
-            shows how much of the batch is complete.
+            Select multiple videos and vidcord probes and encodes each one independently. Browser
+            Batch applies one shared full-duration Compress profile and shows per-file progress plus
+            an aggregate ETA; desktop Batch also supports separate trims, native workers, and native
+            output handling.
           </p>
           <ul>
             <li>
-              Select multiple videos through Browse, drag-and-drop, Open With, or the command line.
+              Select multiple videos through Browse or drag-and-drop in the browser, or through
+              Browse, Open With, or the command line in the desktop app.
             </li>
-            <li>Apply shared standard Compress settings with separate start and end trims.</li>
-            <li>Run up to two encodes at once, with a serial fallback when resources contend.</li>
-            <li>Continue after individual failures and keep collision-safe MP4 outputs.</li>
-            <li>Cancel active work while queued items are skipped cleanly.</li>
+            <li>
+              Browser files use full duration; desktop files can use separate start and end trims.
+            </li>
+            <li>
+              Desktop Batch runs up to two encodes at once, with a serial fallback when resources
+              contend.
+            </li>
+            <li>
+              Desktop outputs use collision-safe MP4 paths; browser outputs use browser downloads.
+            </li>
+            <li>Both queues show progress and allow queued items to be removed before export.</li>
           </ul>
         </div>
         <div class="detail-image">
@@ -695,12 +720,14 @@
       <section class="integration-section" id="integrations" aria-labelledby="integrations-title">
         <div class="section-heading">
           <div>
-            <h2 id="integrations-title">Open one or more videos from Explorer or Finder</h2>
+            <h2 id="integrations-title">
+              Desktop: open one or more videos from Explorer or Finder
+            </h2>
             <p>
-              Start from your file manager and get compressed MP4s in Downloads or another output
-              location. Select multiple files to enter Batch mode automatically. Native
-              notifications mirror vidcord's banners while the app is unfocused; click one to
-              restore and focus it.
+              These integrations belong to the native desktop app. Start from your file manager and
+              get compressed MP4s in Downloads or another output location. Select multiple files to
+              enter desktop Batch mode automatically. Native notifications mirror vidcord's banners
+              while the app is unfocused; click one to restore and focus it.
             </p>
           </div>
         </div>
@@ -797,8 +824,9 @@
           <article>
             <h3>Does vidcord upload videos?</h3>
             <p>
-              No. FFmpeg runs on your computer, so videos stay local. vidcord requires no account or
-              telemetry. The app checks GitHub for updates, while the website requests only public
+              No. The browser edition keeps selected files in the page while FFmpeg WebAssembly runs
+              locally, and the desktop edition runs system FFmpeg locally. Neither edition uploads
+              video, requires an account, or uses telemetry. The app and website request only public
               release data and aggregate download counts; neither request includes video data.
             </p>
           </article>
@@ -815,42 +843,45 @@
           <article>
             <h3>Which Discord upload limits are supported?</h3>
             <p>
-              Presets cover Discord's current 20 MB, 50 MB, 100 MB, and 500 MB limits. Advanced mode
-              adds custom size, resolution, FPS, and encoder controls. GIF Mode supports 20 MB Free
+              Both editions cover Discord's current 20 MB, 50 MB, 100 MB, and 500 MB targets.
+              Advanced mode adds custom size, resolution, and typed FPS in both editions; encoder
+              selection and named settings presets are desktop-only. GIF Mode supports 20 MB Free
               and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS.
             </p>
           </article>
           <article>
             <h3>Can vidcord compress multiple videos at once?</h3>
             <p>
-              Yes. Select two or more videos through Browse, drag-and-drop, Open With, command-line
-              arguments, or a second instance to activate Batch mode. The queue shows source details
-              and per-file status, applies standard Compress controls with separate start/end trims,
-              runs up to two encodes concurrently by default, falls back to one at a time when
-              resources contend, continues after individual failures, and reports a whole-queue ETA.
+              Yes. In the browser, select two or more files through Browse or drag-and-drop to use
+              one shared full-duration Compress profile with removable queued items, per-file
+              progress, and an aggregate ETA. On desktop, Open With, command-line arguments, and
+              second-instance selections also activate Batch mode with separate start/end trims, up
+              to two native workers, and native output handling.
             </p>
           </article>
           <article>
             <h3>Can vidcord change output FPS?</h3>
             <p>
               Yes. Standard mode can leave FPS unchanged or cap it at 24, 30, or 60 FPS. Advanced
-              mode accepts a custom value or Off.
+              mode accepts a custom typed value or Off in both editions.
             </p>
           </article>
           <article>
             <h3>Are scrubbing and playback previews available on Linux?</h3>
             <p>
-              Linux uses FFmpeg to generate filmstrip and frame previews while scrubbing. Live video
-              scrubbing and trim playback are disabled because WebKitGTK can crash the renderer on
-              some systems.
+              The desktop Linux edition uses FFmpeg to generate filmstrip and frame previews while
+              scrubbing. Live video scrubbing and trim playback are disabled there because WebKitGTK
+              can crash the renderer on some systems; the browser edition uses its local video
+              preview.
             </p>
           </article>
           <article>
             <h3>Does vidcord include FFmpeg?</h3>
             <p>
-              No. Install <code>ffmpeg</code> and <code>ffprobe</code> and make them available on
-              PATH. vidcord can help with the
-              <a href="#ffmpeg-install">platform package-manager steps</a>.
+              The desktop edition does not bundle system FFmpeg: install <code>ffmpeg</code> and
+              <code>ffprobe</code> and make them available on PATH. The browser edition loads a
+              fixed FFmpeg WebAssembly build and does not require a system FFmpeg install. See the
+              <a href="#ffmpeg-install">desktop package-manager steps</a> if needed.
             </p>
           </article>
           <article>
@@ -876,11 +907,12 @@
       <section class="ffmpeg-section" id="ffmpeg-install" aria-labelledby="ffmpeg-title">
         <div class="section-heading">
           <div>
-            <h2 id="ffmpeg-title">Set up FFmpeg</h2>
+            <h2 id="ffmpeg-title">Set up FFmpeg for the desktop app</h2>
             <p>
-              vidcord does not bundle FFmpeg. The installer or first launch can help install it
-              through your platform package manager, then detect <code>ffmpeg</code> and
-              <code>ffprobe</code> automatically.
+              The desktop app does not bundle system FFmpeg. Its installer or first launch can help
+              install <code>ffmpeg</code> and <code>ffprobe</code> through your platform package
+              manager, then detect them automatically. The browser editor uses WebAssembly and does
+              not need this setup.
             </p>
           </div>
           <a
@@ -961,10 +993,11 @@ sudo pacman -S ffmpeg</code></pre>
             <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
           </svg>
           <div>
-            <strong>FFmpeg required</strong>
+            <strong>FFmpeg required for the desktop app</strong>
             <span
-              >vidcord can help install FFmpeg through your package manager. The app shells out to
-              your system <code>ffmpeg</code> and <code>ffprobe</code>.</span
+              >The desktop app can help install FFmpeg through your package manager and shells out
+              to your system <code>ffmpeg</code> and <code>ffprobe</code>; the browser editor uses
+              local WebAssembly instead.</span
             >
           </div>
           <div class="ffmpeg-callout-actions">

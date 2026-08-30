@@ -754,15 +754,16 @@ function DesktopUpgrade() {
           <div>
             <strong>Included</strong>
             <span>
-              Compress, Advanced, Lossless Trim, GIF, trim, crop, FPS, snapshots, and same-profile
-              batches.
+              Compress, Advanced, Lossless Trim, GIF, trim, crop, audio normalization, audio removal
+              for re-encoded exports, FPS, snapshots, and same-profile batches.
             </span>
           </div>
           <div>
             <strong>Browser constraints</strong>
             <span>
-              Browser-readable inputs, a fixed libx264 WASM encoder, and browser downloads; native
-              folders, GPU encoder discovery, and Open With stay in the desktop app.
+              Browser-readable inputs, a fixed libx264 WASM encoder, and browser downloads; encoder
+              selection, audio-track mixing, saved presets, native folders, GPU encoder discovery,
+              and Open With stay in the desktop app.
             </span>
           </div>
         </div>
@@ -803,15 +804,15 @@ function DesktopUpgrade() {
 
       <DetailSection
         title="Simple when you want it. Precise when you need it."
-        copy="Both editions include aspect-ratio crop presets, custom size, resolution, FPS, and audio normalization. The desktop app adds encoder selection, source audio-track mixing, saved settings presets, and native output preferences."
+        copy="Both editions include aspect-ratio crop presets, custom size, resolution, FPS, and audio normalization. The desktop app adds encoder selection, source audio-track mixing, saved settings presets, native output preferences, and native completion actions."
         items={[
-          "Browser Batch mode for multiple selections with per-file details and an aggregate ETA; desktop Batch adds separate trims and native parallel encoding.",
+          "Browser Batch mode applies one shared full-duration Compress profile with per-file details and an aggregate ETA; desktop Batch adds separate trims and native parallel encoding.",
           "Strict output size checks with safer adaptive retry behavior.",
           "Named settings presets with Autosave, restore, and delete controls in the desktop app.",
           "Output FPS controls for 24, 30, 60, or a custom advanced value.",
           "Crop to 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, or 5:4 before scaling.",
-          "Peak-normalize audio or remove it for more video bitrate in the browser; desktop Advanced can also mix source tracks.",
-          "Race-safe cancellation in both editions; native exports use atomically reserved outputs that never overwrite your files.",
+          "Peak-normalize audio or remove it for more video bitrate in browser re-encoded modes; desktop Advanced can also mix source tracks.",
+          "Race-safe cancellation in both editions; native exports use atomically reserved outputs that never overwrite your files, while browser exports use browser downloads.",
           "User-approved desktop update installers verified against GitHub’s published integrity data.",
         ]}
         image={{
@@ -830,13 +831,13 @@ function DesktopUpgrade() {
 
       <DetailSection
         title="Keep the original quality when you only need a shorter clip."
-        copy="Lossless Trim cuts on source keyframes without re-encoding the video in both editions. Choose the section you need, keep or remove audio, and export an original-quality clip quickly with stream-copy processing."
+        copy="Lossless Trim cuts on source keyframes without re-encoding the video in both editions. The browser editor copies source streams through WebAssembly; the desktop app also supports removing audio without re-encoding and native container/output handling."
         items={[
           "No video re-encoding for fast, original-quality exports.",
           "Trim boundaries snap outward to source keyframes.",
-          "Keep audio or remove every audio track without re-encoding video.",
-          "Size-based exports offer it when the selected segment is estimated to fit.",
-          "Falls back to normal compression when stream copying is incompatible.",
+          "Desktop Lossless Trim can keep audio or remove every audio track without re-encoding video.",
+          "Desktop size-based exports offer it when the selected segment is estimated to fit.",
+          "Desktop falls back to normal compression when stream copying is incompatible.",
         ]}
         image={{
           fallback: "losslesstrim.png",
