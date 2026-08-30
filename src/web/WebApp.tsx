@@ -710,6 +710,7 @@ function WebApp() {
       exportStartedAtRef.current = Date.now();
       let completed = 0;
       let oversized = false;
+      let normalizationSkipped = false;
       for (let index = 0; index < files.length; index += 1) {
         if (exportCancelledRef.current) throw new Error("Export cancelled.");
         const file = files[index];
@@ -755,6 +756,7 @@ function WebApp() {
         }
         setLastExport({ name: result.fileName, bytes: result.bytes });
         oversized = oversized || result.wasOversized;
+        normalizationSkipped = normalizationSkipped || result.normalizationSkipped;
         completed += 1;
         exportProgressRef.current = Math.max(
           exportProgressRef.current,
@@ -769,13 +771,19 @@ function WebApp() {
       setProgress(100);
       setEta("Complete");
       setExportStatus(
-        oversized ? "Downloaded · target could not be reached" : "Downloaded successfully"
+        oversized
+          ? "Downloaded · target could not be reached"
+          : normalizationSkipped
+            ? "Downloaded · audio normalization skipped"
+            : "Downloaded successfully"
       );
       showNotice(
-        oversized ? "warning" : "success",
+        oversized || normalizationSkipped ? "warning" : "success",
         oversized
           ? "The result was downloaded, but it is still above the selected size target."
-          : `${completed} ${completed === 1 ? "file" : "files"} downloaded. Processing stayed on this device.`
+          : normalizationSkipped
+            ? `${completed} ${completed === 1 ? "file" : "files"} downloaded. Audio normalization was skipped because this file's audio filter was unavailable.`
+            : `${completed} ${completed === 1 ? "file" : "files"} downloaded. Processing stayed on this device.`
       );
     } catch (error: unknown) {
       if (exportCancelledRef.current) {

@@ -19,6 +19,7 @@ export type BrowserExportResult = {
   fileName: string;
   bytes: number;
   wasOversized: boolean;
+  normalizationSkipped: boolean;
 };
 
 function extensionMimeType(extension: string): string {
@@ -83,12 +84,14 @@ export async function exportBrowserFile({
       fileName: baseName,
       bytes: bytes.byteLength,
       wasOversized: false,
+      normalizationSkipped: false,
     };
   }
 
   const maximumAttempts = mode === "gif" ? 3 : plan.targetSizeMb === null ? 1 : 3;
   let bitrate = plan.bitrateKbps;
   let audioGainDb: number | null = null;
+  let normalizationSkipped = false;
   let lastBytes: Uint8Array<ArrayBuffer> = new Uint8Array();
   let lastHeight = plan.targetHeight ?? 480;
 
@@ -105,10 +108,11 @@ export async function exportBrowserFile({
         operationProgressHandler(onProgress, 0, analysisEnd, "Analyzing audio peak…")
       );
       audioGainDb = parsePeakNormalizationGain(analysisLog);
-    } catch {
+    } catch (error: unknown) {
+      if (String(error).toLowerCase().includes("cancel")) throw error;
       // Keep the export usable when a browser FFmpeg build cannot expose an
-      // audio stream for analysis. buildCompressionArgs uses loudnorm as the
-      // compatibility fallback in that case.
+      // audio stream for analysis. The encode below will try loudnorm first,
+      // then retry without an audio filter if that fallback is unavailable.
       audioGainDb = null;
     }
     onProgress?.(analysisEnd, "Preparing encoder…");
@@ -122,23 +126,40 @@ export async function exportBrowserFile({
       mode === "gif" ? `Rendering GIF${attemptLabel}` : `Encoding${attemptLabel}`;
     onProgress?.(attemptStart, encodingStatus);
     const outputName = `${attempt}-${baseName}`;
-    const bytes = await engine.transcode(
-      file,
-      (inputName) =>
-        mode === "gif"
-          ? buildGifArgs(inputName, outputName, metadata, settings, plan, lastHeight)
-          : buildCompressionArgs(
-              inputName,
-              outputName,
-              metadata,
-              settings,
-              plan,
-              bitrate,
-              audioGainDb
-            ),
-      outputName,
-      operationProgressHandler(onProgress, attemptStart, attemptEnd, encodingStatus)
-    );
+    const transcode = (encodeSettings: BrowserSettings, gainDb: number | null) =>
+      engine.transcode(
+        file,
+        (inputName) =>
+          mode === "gif"
+            ? buildGifArgs(inputName, outputName, metadata, encodeSettings, plan, lastHeight)
+            : buildCompressionArgs(
+                inputName,
+                outputName,
+                metadata,
+                encodeSettings,
+                plan,
+                bitrate,
+                gainDb
+              ),
+        outputName,
+        operationProgressHandler(onProgress, attemptStart, attemptEnd, encodingStatus)
+      );
+    let bytes: Uint8Array<ArrayBuffer>;
+    try {
+      bytes = await transcode(
+        normalizationSkipped ? { ...settings, audioNormalize: false } : settings,
+        normalizationSkipped ? null : audioGainDb
+      );
+    } catch (error: unknown) {
+      const errorMessage = String(error).toLowerCase();
+      if (!shouldAnalyzeAudio || normalizationSkipped || errorMessage.includes("cancel")) {
+        throw error;
+      }
+
+      normalizationSkipped = true;
+      onProgress?.(attemptStart, "Audio normalization unavailable; retrying export…");
+      bytes = await transcode({ ...settings, audioNormalize: false }, null);
+    }
     lastBytes = bytes;
     onProgress?.(attemptEnd, "Checking output size…");
 
@@ -149,6 +170,7 @@ export async function exportBrowserFile({
         fileName: baseName,
         bytes: bytes.byteLength,
         wasOversized: false,
+        normalizationSkipped,
       };
     }
 
@@ -165,5 +187,6 @@ export async function exportBrowserFile({
     fileName: baseName,
     bytes: lastBytes.byteLength,
     wasOversized: true,
+    normalizationSkipped,
   };
 }
