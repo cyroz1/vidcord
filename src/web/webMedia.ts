@@ -39,6 +39,9 @@ const MIME_CONTAINER_LABELS: Record<string, string> = {
   "video/x-ms-wmv": "WMV container",
 };
 
+const MAX_CLIPBOARD_BLOB_BYTES = 8 * 1024 * 1024;
+const CLIPBOARD_WRITE_TIMEOUT_MS = 2_000;
+
 export function isVideoFile(file: File): boolean {
   return file.type.startsWith("video/") || VIDEO_EXTENSION.test(file.name);
 }
@@ -207,11 +210,28 @@ export function downloadBlob(blob: Blob, name: string): void {
 
 export async function tryCopyBlobToClipboard(blob: Blob): Promise<boolean> {
   if (!navigator.clipboard || typeof ClipboardItem === "undefined") return false;
+  // Clipboard implementations are not a reliable transport for large video
+  // blobs. A large write can stay pending after the browser download already
+  // succeeded, which would leave the export UI stuck in its finishing state.
+  if (blob.size > MAX_CLIPBOARD_BLOB_BYTES) return false;
   try {
-    await navigator.clipboard.write([
+    const write = navigator.clipboard.write([
       new ClipboardItem({ [blob.type || "application/octet-stream"]: blob }),
     ]);
-    return true;
+    return await new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (success: boolean) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        resolve(success);
+      };
+      const timeout = window.setTimeout(() => finish(false), CLIPBOARD_WRITE_TIMEOUT_MS);
+      write.then(
+        () => finish(true),
+        () => finish(false)
+      );
+    });
   } catch {
     return false;
   }

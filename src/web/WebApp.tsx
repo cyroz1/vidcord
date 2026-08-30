@@ -711,6 +711,7 @@ function WebApp() {
       let completed = 0;
       let oversized = false;
       let normalizationSkipped = false;
+      let audioRemovedForCompatibility = false;
       for (let index = 0; index < files.length; index += 1) {
         if (exportCancelledRef.current) throw new Error("Export cancelled.");
         const file = files[index];
@@ -757,6 +758,8 @@ function WebApp() {
         setLastExport({ name: result.fileName, bytes: result.bytes });
         oversized = oversized || result.wasOversized;
         normalizationSkipped = normalizationSkipped || result.normalizationSkipped;
+        audioRemovedForCompatibility =
+          audioRemovedForCompatibility || result.audioRemovedForCompatibility;
         completed += 1;
         exportProgressRef.current = Math.max(
           exportProgressRef.current,
@@ -773,17 +776,21 @@ function WebApp() {
       setExportStatus(
         oversized
           ? "Downloaded · target could not be reached"
-          : normalizationSkipped
-            ? "Downloaded · audio normalization skipped"
-            : "Downloaded successfully"
+          : audioRemovedForCompatibility
+            ? "Downloaded · audio removed for compatibility"
+            : normalizationSkipped
+              ? "Downloaded · audio normalization skipped"
+              : "Downloaded successfully"
       );
       showNotice(
-        oversized || normalizationSkipped ? "warning" : "success",
+        oversized || normalizationSkipped || audioRemovedForCompatibility ? "warning" : "success",
         oversized
           ? "The result was downloaded, but it is still above the selected size target."
-          : normalizationSkipped
-            ? `${completed} ${completed === 1 ? "file" : "files"} downloaded. Audio normalization was skipped because this file's audio filter was unavailable.`
-            : `${completed} ${completed === 1 ? "file" : "files"} downloaded. Processing stayed on this device.`
+          : audioRemovedForCompatibility
+            ? `${completed} ${completed === 1 ? "file" : "files"} downloaded. The source audio could not be encoded in the browser, so the export contains video only.`
+            : normalizationSkipped
+              ? `${completed} ${completed === 1 ? "file" : "files"} downloaded. Audio normalization was skipped because this file's audio filter was unavailable.`
+              : `${completed} ${completed === 1 ? "file" : "files"} downloaded. Processing stayed on this device.`
       );
     } catch (error: unknown) {
       if (exportCancelledRef.current) {

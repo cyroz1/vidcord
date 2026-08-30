@@ -20,6 +20,7 @@ export type BrowserExportResult = {
   bytes: number;
   wasOversized: boolean;
   normalizationSkipped: boolean;
+  audioRemovedForCompatibility: boolean;
 };
 
 function extensionMimeType(extension: string): string {
@@ -85,6 +86,7 @@ export async function exportBrowserFile({
       bytes: bytes.byteLength,
       wasOversized: false,
       normalizationSkipped: false,
+      audioRemovedForCompatibility: false,
     };
   }
 
@@ -92,10 +94,12 @@ export async function exportBrowserFile({
   let bitrate = plan.bitrateKbps;
   let audioGainDb: number | null = null;
   let normalizationSkipped = false;
+  let audioRemovedForCompatibility = false;
   let lastBytes: Uint8Array<ArrayBuffer> = new Uint8Array();
   let lastHeight = plan.targetHeight ?? 480;
 
   const shouldAnalyzeAudio = settings.audioNormalize && !settings.removeAudio && mode !== "gif";
+  const canDropAudio = mode !== "gif" && !settings.removeAudio;
   const analysisEnd = shouldAnalyzeAudio ? 0.12 : 0;
   const encodingSpan = 1 - analysisEnd;
 
@@ -145,20 +149,36 @@ export async function exportBrowserFile({
         operationProgressHandler(onProgress, attemptStart, attemptEnd, encodingStatus)
       );
     let bytes: Uint8Array<ArrayBuffer>;
-    try {
-      bytes = await transcode(
-        normalizationSkipped ? { ...settings, audioNormalize: false } : settings,
-        normalizationSkipped ? null : audioGainDb
-      );
-    } catch (error: unknown) {
-      const errorMessage = String(error).toLowerCase();
-      if (!shouldAnalyzeAudio || normalizationSkipped || errorMessage.includes("cancel")) {
+    while (true) {
+      const encodeSettings = {
+        ...settings,
+        audioNormalize: normalizationSkipped ? false : settings.audioNormalize,
+        removeAudio: audioRemovedForCompatibility || settings.removeAudio,
+      };
+      try {
+        bytes = await transcode(
+          encodeSettings,
+          normalizationSkipped || audioRemovedForCompatibility ? null : audioGainDb
+        );
+        break;
+      } catch (error: unknown) {
+        const errorMessage = String(error).toLowerCase();
+        if (errorMessage.includes("cancel")) throw error;
+
+        if (shouldAnalyzeAudio && !normalizationSkipped) {
+          normalizationSkipped = true;
+          onProgress?.(attemptStart, "Audio normalization unavailable; retrying export…");
+          continue;
+        }
+
+        if (canDropAudio && !audioRemovedForCompatibility) {
+          audioRemovedForCompatibility = true;
+          onProgress?.(attemptStart, "Audio track unavailable; retrying video-only export…");
+          continue;
+        }
+
         throw error;
       }
-
-      normalizationSkipped = true;
-      onProgress?.(attemptStart, "Audio normalization unavailable; retrying export…");
-      bytes = await transcode({ ...settings, audioNormalize: false }, null);
     }
     lastBytes = bytes;
     onProgress?.(attemptEnd, "Checking output size…");
@@ -171,6 +191,7 @@ export async function exportBrowserFile({
         bytes: bytes.byteLength,
         wasOversized: false,
         normalizationSkipped,
+        audioRemovedForCompatibility,
       };
     }
 
@@ -188,5 +209,6 @@ export async function exportBrowserFile({
     bytes: lastBytes.byteLength,
     wasOversized: true,
     normalizationSkipped,
+    audioRemovedForCompatibility,
   };
 }

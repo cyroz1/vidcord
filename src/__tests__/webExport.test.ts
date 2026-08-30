@@ -157,6 +157,44 @@ describe("browser export planning", () => {
     expect(encodedArgs[0]).toContain("volume=6.000000dB");
     expect(encodedArgs[1]).not.toContain("-af");
     expect(result.normalizationSkipped).toBe(true);
+    expect(result.audioRemovedForCompatibility).toBe(false);
+  });
+
+  it("falls back to a video-only export when the source audio path fails", async () => {
+    const encodedArgs: string[][] = [];
+    let transcodeCount = 0;
+    const engine = {
+      run: async () => "[volumedetect] max_volume: -6.0 dB",
+      transcode: async (
+        _file: File,
+        argsForInput: (inputName: string) => string[],
+        _outputName: string
+      ) => {
+        encodedArgs.push(argsForInput("input.mp4"));
+        transcodeCount += 1;
+        if (transcodeCount < 3) throw new Error("audio stream failed");
+        return new Uint8Array(16_000);
+      },
+    } as unknown as BrowserFfmpegEngine;
+
+    const result = await exportBrowserFile({
+      engine,
+      file: { name: "capture.mp4" } as File,
+      metadata,
+      settings: normalizeBrowserSettings({
+        mode: "advanced",
+        advancedTargetSize: "",
+        audioNormalize: true,
+      }),
+      mode: "advanced",
+      startTime: 2,
+      endTime: 20,
+    });
+
+    expect(transcodeCount).toBe(3);
+    expect(encodedArgs[2]).toContain("-an");
+    expect(encodedArgs[2]).not.toContain("0:a:0?");
+    expect(result.audioRemovedForCompatibility).toBe(true);
   });
 
   it("corrects oversized target encodes and sanitizes browser downloads", () => {
