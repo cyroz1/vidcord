@@ -216,10 +216,17 @@ function WebAudioActions({
 
 function Logo() {
   return (
-    <div className="web-logo" aria-label="vidcord">
-      <img className="web-logo-mark" src="/icon.png" alt="" width={34} height={34} />
+    <a className="web-logo" href="/" aria-label="vidcord home">
+      <picture>
+        <source
+          type="image/webp"
+          srcSet="/legacy/assets/icon-64.webp 64w, /legacy/assets/icon-128.webp 128w"
+          sizes="34px"
+        />
+        <img className="web-logo-mark" src="/icon.png" alt="" width={34} height={34} />
+      </picture>
       <span>vidcord</span>
-    </div>
+    </a>
   );
 }
 
@@ -809,11 +816,18 @@ function WebApp() {
     <div className="web-app" onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       <header className="web-header">
         <Logo />
-        <nav className="web-header-nav" aria-label="Page navigation">
+        <nav className="web-header-nav" aria-label="Main navigation">
           <a href="#features">Features</a>
           <a href="#workflow">How it works</a>
-          <a href="#desktop-app">Desktop app</a>
-          <a href="#faq">FAQ</a>
+          <a href="#web-editor">Try in browser</a>
+          <a href="#integrations">Open With</a>
+          <a href="#download">Download</a>
+          <a href="https://github.com/cyroz1/vidcord" rel="noreferrer" target="_blank">
+            GitHub
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M7 17 17 7m0 0H9m8 0v8" />
+            </svg>
+          </a>
         </nav>
         <div className="web-header-actions">
           <span className={`web-runtime-status${wasmReady ? " ready" : ""}`}>

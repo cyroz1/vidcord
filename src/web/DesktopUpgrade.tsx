@@ -1,7 +1,58 @@
-import { useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
+import {
+  DEFAULT_ENVIRONMENT,
+  LATEST_RELEASE_URL,
+  archDisplayName,
+  detectDownloadEnvironment,
+  downloadLabel,
+  fetchLatestRelease,
+  needsArchitectureChoice,
+  platformDisplayName,
+  selectBestDownloadAsset,
+  type DownloadArch,
+  type DownloadEnvironment,
+  type DownloadPlatform,
+  type LatestRelease,
+} from "./desktopDownloads";
 
-const RELEASE_URL = "https://github.com/cyroz1/vidcord/releases/latest";
 const ASSET_BASE = "/legacy/assets";
+
+const DOWNLOAD_PLATFORMS = [
+  {
+    id: "windows",
+    name: "Windows",
+    description: "Windows 10 or later, x86_64 and ARM64 builds.",
+  },
+  {
+    id: "macos",
+    name: "macOS",
+    description: "macOS 11 or later with one universal Apple Silicon and Intel DMG.",
+  },
+  {
+    id: "linux",
+    name: "Linux",
+    description: "AppImage builds for modern glibc distros on x86_64 and aarch64.",
+  },
+] as const satisfies ReadonlyArray<{
+  id: Exclude<DownloadPlatform, "unknown">;
+  name: string;
+  description: string;
+}>;
+
+type DownloadAction = {
+  href: string;
+  label: string;
+  direct: boolean;
+  pending: boolean;
+  needsArchChoice: boolean;
+  assetName?: string;
+};
+
+type ArchitectureOption = {
+  arch: Exclude<DownloadArch, "unknown">;
+  label: string;
+  detail: string;
+};
 
 type ImageVariant = { file: string; width: number };
 
@@ -16,6 +67,141 @@ type ScreenshotProps = {
 
 function asset(file: string): string {
   return `${ASSET_BASE}/${file}`;
+}
+
+function platformArch(
+  platform: Exclude<DownloadPlatform, "unknown">,
+  environment: DownloadEnvironment
+) {
+  return platform === "macos"
+    ? ("unknown" as const)
+    : platform === environment.platform && environment.archCertain
+      ? environment.arch
+      : ("unknown" as const);
+}
+
+function createDownloadAction(
+  platform: Exclude<DownloadPlatform, "unknown">,
+  environment: DownloadEnvironment,
+  release: LatestRelease | null,
+  releaseError: boolean
+): DownloadAction {
+  const arch = platformArch(platform, environment);
+  const label = downloadLabel(platform, arch);
+
+  if (needsArchitectureChoice(platform, arch)) {
+    return {
+      href: "#arch-choice",
+      label: `Choose ${platformDisplayName(platform)} architecture`,
+      direct: false,
+      pending: false,
+      needsArchChoice: true,
+    };
+  }
+
+  const selectedAsset = release ? selectBestDownloadAsset(platform, arch, release.assets) : null;
+
+  if (selectedAsset) {
+    return {
+      href: selectedAsset.browser_download_url,
+      label,
+      direct: true,
+      pending: false,
+      needsArchChoice: false,
+      assetName: selectedAsset.name,
+    };
+  }
+
+  return {
+    href: releaseError ? LATEST_RELEASE_URL : "#download",
+    label,
+    direct: false,
+    pending: !release && !releaseError,
+    needsArchChoice: false,
+  };
+}
+
+function architectureOptions(platform: Exclude<DownloadPlatform, "unknown">): ArchitectureOption[] {
+  if (platform === "windows") {
+    return [
+      {
+        arch: "x64",
+        label: "Windows x86_64 installer",
+        detail: "Most Intel and AMD Windows PCs",
+      },
+      {
+        arch: "arm64",
+        label: "Windows ARM64 installer",
+        detail: "Snapdragon and Surface Pro X-style PCs",
+      },
+    ];
+  }
+
+  return [
+    {
+      arch: "x64",
+      label: "Linux x86_64 AppImage",
+      detail: "Most Intel and AMD Linux systems",
+    },
+    {
+      arch: "arm64",
+      label: "Linux aarch64 AppImage",
+      detail: "ARM64 Linux systems",
+    },
+  ];
+}
+
+function createArchitectureAction(
+  platform: Exclude<DownloadPlatform, "unknown">,
+  arch: Exclude<DownloadArch, "unknown">,
+  release: LatestRelease | null,
+  releaseError: boolean
+): DownloadAction {
+  const selectedAsset = release ? selectBestDownloadAsset(platform, arch, release.assets) : null;
+
+  if (selectedAsset) {
+    return {
+      href: selectedAsset.browser_download_url,
+      label: `${platformDisplayName(platform)} ${archDisplayName(arch)}`,
+      direct: true,
+      pending: false,
+      needsArchChoice: false,
+      assetName: selectedAsset.name,
+    };
+  }
+
+  return {
+    href: releaseError ? LATEST_RELEASE_URL : "#download",
+    label: `${platformDisplayName(platform)} ${archDisplayName(arch)}`,
+    direct: false,
+    pending: !release && !releaseError,
+    needsArchChoice: false,
+  };
+}
+
+function PlatformIcon({ platform }: { platform: Exclude<DownloadPlatform, "unknown"> }) {
+  return (
+    <svg className="web-platform-icon" aria-hidden="true" viewBox="0 0 24 24">
+      {platform === "windows" ? (
+        <path d="M3 5.1 10.8 4v7.4H3zm9-1.3L21 2.5v8.9h-9zM3 12.6h7.8V20L3 18.9zm9 .1h9v8.8l-9-1.3z" />
+      ) : platform === "macos" ? (
+        <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83ZM13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11Z" />
+      ) : (
+        <>
+          <path d="M12 2.8c-2 0-3.6 1.6-3.6 3.8v3.8L5.7 15c-1.4 2.4.3 5.4 3.1 5.4h6.4c2.8 0 4.5-3 3.1-5.4l-2.7-4.6V6.6c0-2.2-1.6-3.8-3.6-3.8Z" />
+          <path d="M9.1 17.5h5.8M10 7.1h.01M14 7.1h.01" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v3h14v-3" />
+    </svg>
+  );
 }
 
 function Screenshot({ fallback, variants, width, height, alt, sizes }: ScreenshotProps) {
@@ -103,6 +289,96 @@ function DetailSection({ label, title, copy, items, image, reverse = false }: De
 }
 
 function DesktopUpgrade() {
+  const [environment, setEnvironment] = useState<DownloadEnvironment>(DEFAULT_ENVIRONMENT);
+  const [release, setRelease] = useState<LatestRelease | null>(null);
+  const [releaseError, setReleaseError] = useState(false);
+  const [architectureChoice, setArchitectureChoice] = useState<Exclude<
+    DownloadPlatform,
+    "unknown"
+  > | null>(null);
+  const architectureDialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const releaseTimeout = window.setTimeout(() => controller.abort(), 8000);
+    let active = true;
+
+    const environmentRequest = detectDownloadEnvironment();
+    const releaseRequest = fetchLatestRelease(controller.signal);
+
+    void environmentRequest.then((nextEnvironment) => {
+      if (active) {
+        setEnvironment(nextEnvironment);
+      }
+    });
+
+    void releaseRequest
+      .then((nextRelease) => {
+        if (active) {
+          setRelease(nextRelease);
+        }
+      })
+      .catch(() => {
+        if (active && !controller.signal.aborted) {
+          setReleaseError(true);
+        }
+      })
+      .finally(() => window.clearTimeout(releaseTimeout));
+
+    return () => {
+      active = false;
+      controller.abort();
+      window.clearTimeout(releaseTimeout);
+    };
+  }, []);
+
+  useEffect(() => {
+    const dialog = architectureDialogRef.current;
+
+    if (!dialog || !architectureChoice) {
+      return;
+    }
+
+    if (!dialog.open) {
+      try {
+        dialog.showModal();
+      } catch {
+        dialog.setAttribute("open", "");
+      }
+    }
+
+    return () => {
+      if (dialog.open) {
+        dialog.close();
+      } else {
+        dialog.removeAttribute("open");
+      }
+    };
+  }, [architectureChoice]);
+
+  const selectedPlatform = environment.platform;
+  const desktopAction =
+    selectedPlatform === "unknown"
+      ? {
+          href: "#download",
+          label: "Choose your platform",
+          direct: false,
+          pending: false,
+          needsArchChoice: false,
+        }
+      : createDownloadAction(selectedPlatform, environment, release, releaseError);
+
+  const handleDownloadClick = (
+    event: MouseEvent<HTMLAnchorElement>,
+    platform: Exclude<DownloadPlatform, "unknown">,
+    action: DownloadAction
+  ) => {
+    if (action.needsArchChoice) {
+      event.preventDefault();
+      setArchitectureChoice(platform);
+    }
+  };
+
   return (
     <div className="web-marketing">
       <section className="web-desktop-bridge" id="desktop-app" aria-labelledby="desktop-app-title">
@@ -117,11 +393,16 @@ function DesktopUpgrade() {
           <div className="web-marketing-actions">
             <a
               className="web-marketing-button primary"
-              href={RELEASE_URL}
-              target="_blank"
-              rel="noreferrer"
+              href={desktopAction.href}
+              aria-label={desktopAction.label}
+              aria-disabled={desktopAction.pending ? "true" : undefined}
+              onClick={(event) => {
+                if (selectedPlatform !== "unknown") {
+                  handleDownloadClick(event, selectedPlatform, desktopAction);
+                }
+              }}
             >
-              Download the desktop app
+              {desktopAction.needsArchChoice ? desktopAction.label : "Download the desktop app"}
             </a>
             <a className="web-marketing-button secondary" href="#features">
               See what’s included
@@ -534,47 +815,144 @@ function DesktopUpgrade() {
       <section className="web-downloads" id="download" aria-labelledby="download-title">
         <div className="web-download-heading">
           <div>
-            <span className="web-eyebrow">Optional upgrade</span>
-            <h2 id="download-title">Download vidcord for your desktop.</h2>
+            <h2 id="download-title">Download vidcord</h2>
             <p>Free, open-source, MIT licensed. Built for Windows, macOS, and Linux.</p>
           </div>
-          <span className="web-download-note">
-            Native speed · GPU support · file-manager integrations
-          </span>
+          <div className="web-release-state" data-release-state>
+            {release
+              ? `Latest release: ${release.tag_name}`
+              : releaseError
+                ? "Latest release page available"
+                : "Checking latest release..."}
+          </div>
         </div>
-        <div className="web-download-grid">
-          {[
-            ["Windows", "Windows 10 or later, x86_64 and ARM64 builds."],
-            ["macOS", "macOS 11 or later with one universal Apple Silicon and Intel DMG."],
-            ["Linux", "AppImage builds for modern glibc distros on x86_64 and aarch64."],
-          ].map(([platform, description]) => (
-            <article key={platform}>
-              <span className="web-download-mark" aria-hidden="true">
-                ↓
-              </span>
-              <h3>{platform}</h3>
-              <p>{description}</p>
-              <a
-                className="web-marketing-button secondary"
-                href={RELEASE_URL}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Download for {platform}
-              </a>
-            </article>
-          ))}
-        </div>
+
         <div className="web-download-callout">
-          <strong>FFmpeg required for the desktop edition.</strong>
-          <span>
-            vidcord can help install the system <code>ffmpeg</code> and <code>ffprobe</code>{" "}
-            binaries.
-          </span>
-          <a className="web-marketing-text-link" href="#ffmpeg-install">
-            Setup steps →
-          </a>
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M12 17v-6M12 7.5h.01" />
+            <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+          </svg>
+          <div>
+            <strong>FFmpeg required</strong>
+            <span>
+              vidcord can help install FFmpeg through your package manager. The app shells out to
+              your system <code>ffmpeg</code> and <code>ffprobe</code>.
+            </span>
+          </div>
+          <div className="web-download-callout-actions">
+            <a href="#ffmpeg-install">Setup steps</a>
+            <a
+              href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Full guide
+            </a>
+          </div>
         </div>
+
+        <div className="web-download-grid" aria-label="Platform downloads">
+          {DOWNLOAD_PLATFORMS.map(({ id, name, description }) => {
+            const action = createDownloadAction(id, environment, release, releaseError);
+            const isActive = selectedPlatform === id;
+
+            return (
+              <article
+                className={`web-download-card${isActive ? " active" : ""}`}
+                data-platform-card={id}
+                key={id}
+              >
+                <PlatformIcon platform={id} />
+                <h3>{name}</h3>
+                <p>{description}</p>
+                <a
+                  className="web-marketing-button secondary web-download-button"
+                  href={action.href}
+                  aria-label={
+                    action.assetName ? `${action.label}: ${action.assetName}` : action.label
+                  }
+                  aria-disabled={action.pending ? "true" : undefined}
+                  data-download-for={id}
+                  data-direct-download={String(action.direct)}
+                  data-asset-name={action.assetName}
+                  data-needs-arch-choice={action.needsArchChoice ? id : undefined}
+                  onClick={(event) => handleDownloadClick(event, id, action)}
+                >
+                  <DownloadIcon />
+                  <span>{action.label}</span>
+                </a>
+              </article>
+            );
+          })}
+        </div>
+
+        {architectureChoice ? (
+          <dialog
+            ref={architectureDialogRef}
+            className="web-arch-dialog"
+            aria-labelledby="web-arch-choice-title"
+            onCancel={(event) => {
+              event.preventDefault();
+              setArchitectureChoice(null);
+            }}
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setArchitectureChoice(null);
+              }
+            }}
+          >
+            <div className="web-arch-dialog-panel">
+              <button
+                className="web-arch-dialog-close"
+                type="button"
+                aria-label="Close"
+                onClick={() => setArchitectureChoice(null)}
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </button>
+              <h3 id="web-arch-choice-title">
+                Choose {platformDisplayName(architectureChoice)} download
+              </h3>
+              <p>
+                Your browser did not report this device architecture with enough certainty. Choose
+                the build that matches your computer.
+              </p>
+              <div className="web-arch-options">
+                {architectureOptions(architectureChoice).map(({ arch, label, detail }) => {
+                  const action = createArchitectureAction(
+                    architectureChoice,
+                    arch,
+                    release,
+                    releaseError
+                  );
+
+                  return (
+                    <a
+                      className="web-arch-option"
+                      href={action.href}
+                      aria-label={action.assetName ? `${label}: ${action.assetName}` : label}
+                      aria-disabled={action.pending ? "true" : undefined}
+                      data-arch-download={arch}
+                      data-direct-download={String(action.direct)}
+                      data-asset-name={action.assetName}
+                      onClick={(event) => {
+                        if (action.pending) {
+                          event.preventDefault();
+                        }
+                      }}
+                      key={arch}
+                    >
+                      <span>{label}</span>
+                      <small>{detail}</small>
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+          </dialog>
+        ) : null}
       </section>
     </div>
   );

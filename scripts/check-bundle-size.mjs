@@ -10,8 +10,9 @@ const limits = {
   // history, loop playback, and the lossless-trim status affordance.
   javascriptRaw: 465 * 1024,
   javascriptGzip: 145 * 1024,
-  // The browser editor also carries the integrated desktop feature story and its responsive layout.
-  cssGzip: 18 * 1024,
+  // The browser editor also carries the integrated desktop feature story, responsive layout,
+  // and the legacy-matched platform download/architecture-choice surfaces.
+  cssGzip: 18.5 * 1024,
 };
 
 if (!fs.existsSync(assetDir)) {
