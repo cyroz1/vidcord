@@ -38,7 +38,6 @@
 
 .web-header,
 .web-main,
-.web-preset-panel,
 .web-footer {
   width: min(1400px, 100%);
   margin: 0 auto;
@@ -107,33 +106,6 @@
   box-shadow: 0 0 0 3px rgba(22, 138, 75, 0.12);
 }
 
-.web-icon-button,
-.web-secondary-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--web-border);
-  background: rgba(255, 255, 255, 0.68);
-  color: var(--web-muted);
-  cursor: pointer;
-  transition: 0.16s ease;
-}
-
-.web-icon-button {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-}
-
-.web-icon-button:hover,
-.web-icon-button.active,
-.web-secondary-button:hover {
-  border-color: var(--web-accent-line);
-  background: var(--web-accent-soft);
-  color: var(--web-accent);
-}
-
-.web-preset-select,
 .web-field select,
 .web-field input,
 .web-output-option strong {
@@ -142,57 +114,6 @@
   border-radius: 9px;
   background: var(--web-surface-solid);
   color: var(--web-text);
-}
-
-.web-preset-select {
-  width: 160px;
-  padding: 0 12px;
-}
-
-.web-preset-panel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  margin: -8px auto 16px;
-  padding: 13px 16px;
-  border: 1px solid var(--web-border);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 10px 30px rgba(54, 67, 88, 0.06);
-}
-
-.web-preset-panel > div:first-child {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.web-preset-panel strong {
-  font-size: 13px;
-}
-
-.web-preset-panel span {
-  color: var(--web-muted);
-  font-size: 12px;
-}
-
-.web-preset-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.web-secondary-button {
-  min-height: 32px;
-  padding: 0 12px;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.web-secondary-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.46;
 }
 
 .web-import-bar {
@@ -521,8 +442,7 @@
 }
 
 .web-field select:focus,
-.web-field input:focus,
-.web-preset-select:focus {
+.web-field input:focus {
   border-color: var(--web-accent-line);
   box-shadow: 0 0 0 3px rgba(8, 121, 237, 0.12);
 }
@@ -1140,16 +1060,6 @@
     margin-right: auto;
   }
 
-  .web-preset-select {
-    flex: 1;
-    width: auto;
-  }
-
-  .web-preset-panel {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
   .web-left-column {
     display: flex;
     flex-direction: column;
@@ -1252,7 +1162,6 @@
 
 .web-header,
 .web-main,
-.web-preset-panel,
 .web-footer {
   width: min(1240px, calc(100% - 40px));
   margin-right: auto;
@@ -1339,40 +1248,11 @@
   box-shadow: 0 0 0 3px rgba(102, 223, 155, 0.12);
 }
 
-.web-icon-button,
-.web-secondary-button,
-.web-preset-select,
 .web-field select,
 .web-field input {
   border-color: var(--web-border);
   background: rgba(9, 27, 51, 0.86);
   color: var(--web-text);
-}
-
-.web-icon-button:hover,
-.web-icon-button.active,
-.web-secondary-button:hover {
-  border-color: var(--web-accent-line);
-  background: var(--web-accent-soft);
-  color: var(--web-accent-line);
-}
-
-.web-preset-select {
-  width: 152px;
-}
-
-.web-preset-panel {
-  position: relative;
-  z-index: 2;
-  margin-top: 14px;
-  margin-bottom: 0;
-  border-color: var(--web-border);
-  background: rgba(8, 27, 51, 0.9);
-  box-shadow: 0 16px 34px rgba(0, 8, 20, 0.22);
-}
-
-.web-preset-panel span {
-  color: var(--web-muted);
 }
 
 .web-main {
@@ -1634,15 +1514,13 @@
 }
 
 .web-field select,
-.web-field input,
-.web-preset-select {
+.web-field input {
   min-height: 38px;
   outline: none;
 }
 
 .web-field select:focus,
-.web-field input:focus,
-.web-preset-select:focus {
+.web-field input:focus {
   border-color: var(--web-accent-line);
   box-shadow: 0 0 0 3px rgba(46, 140, 255, 0.15);
 }
@@ -2827,7 +2705,6 @@
 @media (max-width: 560px) {
   .web-header,
   .web-main,
-  .web-preset-panel,
   .web-footer {
     width: calc(100% - 28px);
   }
@@ -2845,12 +2722,6 @@
 
   .web-runtime-status {
     display: none;
-  }
-
-  .web-preset-select {
-    width: 104px;
-    max-width: 104px;
-    flex: 0 1 104px;
   }
 
   .web-hero {
@@ -3090,7 +2961,11 @@
 }
 
 .web-editor-column .web-standard-grid {
-  grid-template-columns: 120px 64px 68px minmax(0, 1fr);
+  grid-template-columns:
+    minmax(112px, 1.4fr)
+    minmax(74px, 0.85fr)
+    minmax(78px, 1fr)
+    auto;
 }
 
 .web-editor-column .web-standard-grid .web-field:nth-child(2) select,
@@ -3101,7 +2976,12 @@
 }
 
 .web-editor-column .web-advanced-grid {
-  grid-template-columns: 52px 82px 58px 46px minmax(0, 1fr);
+  grid-template-columns:
+    minmax(70px, 0.9fr)
+    minmax(96px, 1.25fr)
+    minmax(74px, 0.95fr)
+    minmax(70px, 0.9fr)
+    auto;
 }
 
 .web-editor-column .web-advanced-grid .web-field select {
@@ -3729,6 +3609,28 @@
   box-shadow:
     0 6px 22px rgba(10, 132, 255, 0.32),
     inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+/* Keep Chromium's native option popup on the same dark surface as the
+   hosted editor. The Tauri surface has this in index/App.css, but the web
+   entry point owns its own theme variables and needs the equivalent rule. */
+.web-app select {
+  color-scheme: dark;
+}
+
+.web-app select option {
+  background-color: rgb(28, 28, 32);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.web-app select optgroup {
+  background-color: rgb(28, 28, 32);
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.web-app select option:checked {
+  background-color: #0a84ff;
+  color: #fff;
 }
 
 @media (max-width: 560px) {

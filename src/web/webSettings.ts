@@ -13,15 +13,7 @@ export type BrowserSettings = {
   crop: string;
 };
 
-export type BrowserPreset = {
-  id: string;
-  name: string;
-  settings: BrowserSettings;
-};
-
 const SETTINGS_KEY = "vidcord.browser.settings.v1";
-const PRESETS_KEY = "vidcord.browser.presets.v1";
-const MAX_PRESETS = 20;
 const RESOLUTION_VALUES = new Set(["Native", "1080p", "720p", "480p"]);
 const FPS_VALUES = new Set(["off", "24", "30", "60"]);
 const CROP_VALUES = new Set(["off", "16:9", "1:1", "9:16", "4:3", "3:4", "4:5", "5:4"]);
@@ -131,59 +123,3 @@ export function loadBrowserSettings(): BrowserSettings {
 export function saveBrowserSettings(settings: BrowserSettings): void {
   safeStorageSet(SETTINGS_KEY, JSON.stringify(settings));
 }
-
-export function loadBrowserPresets(): BrowserPreset[] {
-  const raw = safeStorageGet(PRESETS_KEY);
-  if (!raw) return [];
-
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    const seen = new Set<string>();
-    const presets: BrowserPreset[] = [];
-    for (const value of parsed) {
-      if (presets.length >= MAX_PRESETS || !isRecord(value)) break;
-      if (
-        typeof value.id !== "string" ||
-        !value.id ||
-        typeof value.name !== "string" ||
-        !value.name.trim() ||
-        seen.has(value.id)
-      ) {
-        continue;
-      }
-      const name = value.name.trim().replace(/\s+/g, " ").slice(0, 40);
-      if (!name) continue;
-      seen.add(value.id);
-      presets.push({ id: value.id, name, settings: normalizeBrowserSettings(value.settings) });
-    }
-    return presets;
-  } catch {
-    return [];
-  }
-}
-
-export function saveBrowserPresets(presets: readonly BrowserPreset[]): void {
-  safeStorageSet(PRESETS_KEY, JSON.stringify(presets.slice(0, MAX_PRESETS)));
-}
-
-export function createBrowserPresetId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `web-preset-${Date.now()}`;
-}
-
-export function areBrowserSettingsEqual(left: BrowserSettings, right: BrowserSettings): boolean {
-  return (
-    left.mode === right.mode &&
-    left.qualityIndex === right.qualityIndex &&
-    left.gifQualityIndex === right.gifQualityIndex &&
-    left.gifFps === right.gifFps &&
-    left.advancedTargetSize === right.advancedTargetSize &&
-    left.resolution === right.resolution &&
-    left.fps === right.fps &&
-    left.removeAudio === right.removeAudio &&
-    left.audioNormalize === right.audioNormalize &&
-    left.crop === right.crop
-  );
-}
-
-export { MAX_PRESETS };

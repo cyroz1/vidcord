@@ -29,15 +29,10 @@ import { buildKeyframeProbeArgs, parseKeyframeTimes } from "./keyframes";
 import DesktopUpgrade from "./DesktopUpgrade";
 import { exportBrowserFile } from "./webExporter";
 import {
-  areBrowserSettingsEqual,
-  createBrowserPresetId,
-  loadBrowserPresets,
   loadBrowserSettings,
   normalizeBrowserFps,
-  saveBrowserPresets,
   saveBrowserSettings,
   type BrowserMode,
-  type BrowserPreset,
   type BrowserSettings,
 } from "./webSettings";
 import {
@@ -55,13 +50,7 @@ import "./WebApp.css";
 
 type Notice = { type: "success" | "error" | "warning" | "info"; message: string };
 
-type IconName =
-  | "video"
-  | "sliders"
-  | "snapshot"
-  | "check"
-  | "play"
-  | "stop";
+type IconName = "video" | "snapshot" | "check" | "play" | "stop";
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const common = {
@@ -76,16 +65,6 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     "aria-hidden": true,
   };
 
-  if (name === "sliders") {
-    return (
-      <svg {...common}>
-        <path d="M4 6h16M4 12h16M4 18h16" />
-        <circle cx="9" cy="6" r="2" fill="currentColor" stroke="none" />
-        <circle cx="15" cy="12" r="2" fill="currentColor" stroke="none" />
-        <circle cx="11" cy="18" r="2" fill="currentColor" stroke="none" />
-      </svg>
-    );
-  }
   if (name === "snapshot") {
     return (
       <svg {...common}>
@@ -276,9 +255,6 @@ function browserModeLabel(mode: BrowserMode): string {
 function WebApp() {
   const [settings, setSettings] = useState<BrowserSettings>(() => loadBrowserSettings());
   const settingsRef = useRef(settings);
-  const [presets, setPresets] = useState<BrowserPreset[]>(() => loadBrowserPresets());
-  const [selectedPresetId, setSelectedPresetId] = useState("autosave");
-  const [presetsOpen, setPresetsOpen] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [activeFileIndex, setActiveFileIndex] = useState(0);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -331,11 +307,6 @@ function WebApp() {
         : null,
     [endTime, exportMode, metadata, settings, startTime]
   );
-  const currentPreset = presets.find((preset) => preset.id === selectedPresetId) ?? null;
-  const presetIsCurrent = currentPreset
-    ? areBrowserSettingsEqual(settings, currentPreset.settings)
-    : false;
-
   const showNotice = useCallback((type: Notice["type"], message: string) => {
     setNotice({ type, message });
   }, []);
@@ -400,7 +371,6 @@ function WebApp() {
     const next = { ...settingsRef.current, ...patch };
     settingsRef.current = next;
     setSettings(next);
-    setSelectedPresetId("autosave");
   }, []);
 
   const setBrowserRemoveAudio = useCallback(
@@ -497,55 +467,6 @@ function WebApp() {
     },
     [batchMode, patchSettings, standardFpsOptions]
   );
-
-  const selectPreset = useCallback(
-    (id: string) => {
-      if (id === "autosave") {
-        setSelectedPresetId("autosave");
-        return;
-      }
-      const preset = presets.find((item) => item.id === id);
-      if (!preset) return;
-      settingsRef.current = preset.settings;
-      setSettings(preset.settings);
-      setSelectedPresetId(preset.id);
-    },
-    [presets]
-  );
-
-  const savePreset = useCallback(() => {
-    const suggested = currentPreset?.name ?? "My export";
-    const entered = window.prompt("Name this browser preset", suggested);
-    const name = entered?.trim().replace(/\s+/g, " ").slice(0, 40) ?? "";
-    if (!name) return;
-
-    const existing = presets.findIndex(
-      (preset) => preset.name.toLocaleLowerCase() === name.toLocaleLowerCase()
-    );
-    if (existing < 0 && presets.length >= 20) {
-      showNotice("warning", "You can save up to 20 presets.");
-      return;
-    }
-    const id = existing >= 0 ? presets[existing].id : createBrowserPresetId();
-    const nextPreset = { id, name, settings: settingsRef.current };
-    const next =
-      existing >= 0
-        ? presets.map((preset, index) => (index === existing ? nextPreset : preset))
-        : [...presets, nextPreset];
-    setPresets(next);
-    saveBrowserPresets(next);
-    setSelectedPresetId(id);
-    showNotice("success", `Preset “${name}” saved.`);
-  }, [currentPreset?.name, presets, showNotice]);
-
-  const deletePreset = useCallback(() => {
-    if (!currentPreset) return;
-    const next = presets.filter((preset) => preset.id !== currentPreset.id);
-    setPresets(next);
-    saveBrowserPresets(next);
-    setSelectedPresetId("autosave");
-    showNotice("success", `Preset “${currentPreset.name}” deleted.`);
-  }, [currentPreset, presets, showNotice]);
 
   const acceptFiles = useCallback(
     (candidateFiles: readonly File[]) => {
@@ -881,54 +802,8 @@ function WebApp() {
             <span className="web-status-dot" aria-hidden="true" />
             {wasmLoading ? "Loading encoder" : wasmReady ? "WASM ready" : "Local processing"}
           </span>
-          <button
-            className={`web-icon-button${presetsOpen ? " active" : ""}`}
-            type="button"
-            aria-label="Open preset settings"
-            aria-expanded={presetsOpen}
-            onClick={() => setPresetsOpen((open) => !open)}
-          >
-            <Icon name="sliders" size={19} />
-          </button>
-          <select
-            className="web-preset-select"
-            aria-label="Settings preset"
-            value={selectedPresetId}
-            onChange={(event) => selectPreset(event.target.value)}
-          >
-            <option value="autosave">
-              Autosave{currentPreset && !presetIsCurrent ? " · changed" : ""}
-            </option>
-            {presets.map((preset) => (
-              <option value={preset.id} key={preset.id}>
-                {preset.name}
-              </option>
-            ))}
-          </select>
         </div>
       </header>
-
-      {presetsOpen && (
-        <section className="web-preset-panel" aria-label="Preset settings">
-          <div>
-            <strong>Saved browser presets</strong>
-            <span>Settings stay in this browser only.</span>
-          </div>
-          <div className="web-preset-actions">
-            <button type="button" className="web-secondary-button" onClick={savePreset}>
-              Save current
-            </button>
-            <button
-              type="button"
-              className="web-secondary-button"
-              onClick={deletePreset}
-              disabled={!currentPreset}
-            >
-              Delete
-            </button>
-          </div>
-        </section>
-      )}
 
       <main className="web-main">
         <section className="web-hero" aria-labelledby="web-hero-title">
