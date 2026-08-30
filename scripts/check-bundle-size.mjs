@@ -6,10 +6,12 @@ const assetDir = path.join("dist", "assets");
 const limits = {
   // The browser edition adds the local FFmpeg WebAssembly loader and a separate
   // export UI while keeping the desktop app in lazy chunks.
-  javascriptRaw: 450 * 1024,
-  javascriptGzip: 140 * 1024,
+  // The hosted editor mirrors the native trim controls, including editable time labels,
+  // history, loop playback, and the lossless-trim status affordance.
+  javascriptRaw: 465 * 1024,
+  javascriptGzip: 145 * 1024,
   // The browser editor also carries the integrated desktop feature story and its responsive layout.
-  cssGzip: 16 * 1024,
+  cssGzip: 18 * 1024,
 };
 
 if (!fs.existsSync(assetDir)) {

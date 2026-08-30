@@ -44,7 +44,6 @@ import {
   blobFromCanvas,
   downloadBlob,
   fileStem,
-  formatClock,
   formatFileSize,
   getPreviewUrl,
   isVideoFile,
@@ -57,7 +56,12 @@ import "./WebApp.css";
 type Notice = { type: "success" | "error" | "warning" | "info"; message: string };
 
 type IconName =
-  "video" | "upload" | "sliders" | "snapshot" | "download" | "check" | "spark" | "play" | "stop";
+  | "video"
+  | "sliders"
+  | "snapshot"
+  | "check"
+  | "play"
+  | "stop";
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const common = {
@@ -72,15 +76,6 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     "aria-hidden": true,
   };
 
-  if (name === "upload") {
-    return (
-      <svg {...common}>
-        <path d="M12 16V4" />
-        <path d="m7 9 5-5 5 5" />
-        <path d="M5 20h14" />
-      </svg>
-    );
-  }
   if (name === "sliders") {
     return (
       <svg {...common}>
@@ -99,27 +94,10 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
       </svg>
     );
   }
-  if (name === "download") {
-    return (
-      <svg {...common}>
-        <path d="M12 4v11" />
-        <path d="m7 11 5 5 5-5" />
-        <path d="M5 20h14" />
-      </svg>
-    );
-  }
   if (name === "check") {
     return (
       <svg {...common}>
         <path d="m5 12 4 4L19 6" />
-      </svg>
-    );
-  }
-  if (name === "spark") {
-    return (
-      <svg {...common}>
-        <path d="m12 3 1.35 5.65L19 10l-5.65 1.35L12 17l-1.35-5.65L5 10l5.65-1.35Z" />
-        <path d="m19 16 .55 2.45L22 19l-2.45.55L19 22l-.55-2.45L16 19l2.45-.55Z" />
       </svg>
     );
   }
@@ -313,6 +291,7 @@ function WebApp() {
   const [losslessKeyframesLoading, setLosslessKeyframesLoading] = useState(false);
   const [losslessKeyframeError, setLosslessKeyframeError] = useState<string | null>(null);
   const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [loopPlayback, setLoopPlayback] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -635,6 +614,27 @@ function WebApp() {
     [duration, losslessKeyframes, settings.mode]
   );
 
+  const applyTrimRange = useCallback(
+    (requestedStart: number, requestedEnd: number, playheadTime?: number) => {
+      const safeDuration = Math.max(duration, 0);
+      const safeStart = Math.max(0, Math.min(requestedStart, safeDuration));
+      const safeEnd = Math.max(safeStart, Math.min(requestedEnd, safeDuration));
+      const nextRange = snapTrimRange(safeStart, safeEnd);
+      setStartTime(nextRange.start);
+      setEndTime(nextRange.end);
+
+      if (typeof playheadTime === "number") {
+        const requestedPlayhead = Math.max(0, Math.min(playheadTime, safeDuration));
+        const playheadAtStart = Math.abs(requestedPlayhead - safeStart) <= 0.001;
+        const playheadAtEnd = Math.abs(requestedPlayhead - safeEnd) <= 0.001;
+        seekTo(
+          playheadAtStart ? nextRange.start : playheadAtEnd ? nextRange.end : requestedPlayhead
+        );
+      }
+    },
+    [duration, seekTo, snapTrimRange]
+  );
+
   useEffect(() => {
     if (settings.mode !== "lossless" || losslessKeyframes.length === 0 || duration <= 0) return;
 
@@ -687,6 +687,18 @@ function WebApp() {
       .then(() => setPreviewPlaying(true))
       .catch(() => setPreviewPlaying(false));
   }, [duration, endTime, metadata, startTime]);
+
+  const handleVideoEnded = useCallback(() => {
+    const video = videoRef.current;
+    if (loopPlayback && video && metadata && endTime > startTime) {
+      video.currentTime = startTime;
+      setCurrentTime(startTime);
+      void video.play().catch(() => setPreviewPlaying(false));
+      return;
+    }
+    setPreviewPlaying(false);
+    setCurrentTime(startTime);
+  }, [endTime, loopPlayback, metadata, startTime]);
 
   const startExport = useCallback(async () => {
     if (files.length === 0 || isExporting) return;
@@ -822,15 +834,17 @@ function WebApp() {
       const video = event.currentTarget;
       const selectedEnd = endTime || duration;
       if (!video.paused && selectedEnd > startTime && video.currentTime >= selectedEnd - 0.05) {
-        video.pause();
         video.currentTime = startTime;
         setCurrentTime(startTime);
-        setPreviewPlaying(false);
+        if (!loopPlayback) {
+          video.pause();
+          setPreviewPlaying(false);
+        }
         return;
       }
       setCurrentTime(video.currentTime);
     },
-    [duration, endTime, startTime]
+    [duration, endTime, loopPlayback, startTime]
   );
 
   const selectedQuality = QUALITY_PRESETS[settings.qualityIndex] ?? QUALITY_PRESETS[0];
@@ -955,16 +969,6 @@ function WebApp() {
           </div>
 
           <div className="web-editor-column" id="web-editor">
-            <div className="web-editor-heading">
-              <div>
-                <span className="web-editor-kicker">Local browser encoder</span>
-                <strong>Choose a video to get started</strong>
-              </div>
-              <span className="web-editor-secure">
-                <span className="web-status-dot" aria-hidden="true" />
-                Files stay local
-              </span>
-            </div>
             <section
               className={`web-import-bar${dragging ? " dragging" : ""}${activeFile ? " has-file" : ""}`}
               onDragEnter={(event) => {
@@ -986,9 +990,15 @@ function WebApp() {
                 onChange={handleFileInput}
               />
               {activeFile ? (
-                <div className="web-file-row">
+                <button
+                  type="button"
+                  className="web-file-row"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isExporting}
+                  aria-label={`Change selected video, ${activeFile.name}`}
+                >
                   <span className="web-file-icon">
-                    <Icon name="video" size={23} />
+                    <Icon name="video" size={20} />
                   </span>
                   <div className="web-file-copy">
                     <strong title={activeFile.name}>
@@ -996,35 +1006,27 @@ function WebApp() {
                     </strong>
                     <span>
                       {batchMode
-                        ? "Each file will use the same export profile"
+                        ? "Batch mode · trims and encodes each video independently"
                         : metadata
                           ? formatMetadata(metadata)
                           : metadataLoading
-                            ? "Reading video details…"
+                            ? "Reading video…"
                             : "Video details unavailable"}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    className="web-link-button"
-                    disabled={isExporting}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
+                  <span className="web-link-button" aria-hidden="true">
                     Change…
-                  </button>
-                </div>
+                  </span>
+                </button>
               ) : (
                 <button
                   type="button"
                   className="web-drop-button"
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  <span className="web-drop-icon">
-                    <Icon name="upload" size={25} />
-                  </span>
-                  <span>
-                    <strong>Choose a video</strong>
-                    <small>or drag and drop files here</small>
+                  <span className="web-drop-label">Drag a video here or click Browse</span>
+                  <span className="web-browse-button" aria-hidden="true">
+                    Browse File
                   </span>
                 </button>
               )}
@@ -1032,12 +1034,11 @@ function WebApp() {
 
             <div className="web-workspace">
               <section className="web-controls-panel" aria-label="Export controls">
-                <div className="web-mode-tabs" role="tablist" aria-label="Export mode">
+                <div className="web-mode-tabs" role="group" aria-label="Export mode">
                   {(["compress", "advanced", "lossless", "gif"] as BrowserMode[]).map((mode) => (
                     <button
                       type="button"
-                      role="tab"
-                      aria-selected={activeMode === mode}
+                      aria-pressed={activeMode === mode}
                       className={activeMode === mode ? "active" : ""}
                       disabled={batchMode || isExporting}
                       key={mode}
@@ -1046,16 +1047,14 @@ function WebApp() {
                       {browserModeLabel(mode)}
                     </button>
                   ))}
-                  {batchMode && (
-                    <button
-                      type="button"
-                      role="tab"
-                      className="active batch-tab"
-                      aria-selected="true"
-                    >
-                      Batch
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className={batchMode ? "active batch-tab" : "batch-tab"}
+                    aria-pressed={batchMode}
+                    disabled={!batchMode || isExporting}
+                  >
+                    Batch
+                  </button>
                 </div>
 
                 {(activeMode === "compress" || activeMode === "batch") && (
@@ -1163,12 +1162,12 @@ function WebApp() {
                       <span>FPS</span>
                       <input
                         type="number"
-                        min="1"
+                        min="0.1"
                         max="240"
-                        step="0.01"
+                        step="1"
                         inputMode="decimal"
                         value={settings.fps === "off" ? "" : settings.fps}
-                        placeholder="Source"
+                        placeholder="Off"
                         disabled={isExporting}
                         onChange={(event) => patchSettings({ fps: event.target.value })}
                         onBlur={() =>
@@ -1237,29 +1236,9 @@ function WebApp() {
 
                 {activeMode === "lossless" && (
                   <div className="web-lossless-note">
-                    <span className="web-note-icon">
-                      <Icon name="spark" size={18} />
+                    <span className="web-lossless-settings-hint">
+                      Copies the original video at keyframes; no re-encoding.
                     </span>
-                    <div className="web-lossless-note-copy">
-                      <div className="web-lossless-title-row">
-                        <strong>Stream copy</strong>
-                        <span
-                          className="web-lossless-status"
-                          role={losslessKeyframeError ? "alert" : "status"}
-                        >
-                          {losslessKeyframesLoading
-                            ? "Finding keyframes…"
-                            : losslessKeyframeError
-                              ? "Unavailable"
-                              : losslessKeyframes.length > 0
-                                ? "Keyframe aligned"
-                                : "Waiting for video…"}
-                        </span>
-                      </div>
-                      <span>
-                        Trims without re-encoding. Boundaries snap outward to source keyframes.
-                      </span>
-                    </div>
                     <button
                       type="button"
                       className={`web-lossless-audio-toggle${settings.removeAudio ? " active" : ""}`}
@@ -1302,15 +1281,7 @@ function WebApp() {
                     </ol>
                   </section>
                 ) : (
-                  <section className="web-preview-panel">
-                    <div className="web-panel-topline">
-                      <span>Preview</span>
-                      {activeFile && (
-                        <span>
-                          {metadata ? `${metadata.width} × ${metadata.height}` : "Loading…"}
-                        </span>
-                      )}
-                    </div>
+                  <section className="web-preview-panel" aria-label="Video preview">
                     <div className="web-preview-frame">
                       {previewUrl ? (
                         <>
@@ -1322,10 +1293,7 @@ function WebApp() {
                             onTimeUpdate={handleVideoTimeUpdate}
                             onPlay={() => setPreviewPlaying(true)}
                             onPause={() => setPreviewPlaying(false)}
-                            onEnded={() => {
-                              setPreviewPlaying(false);
-                              setCurrentTime(startTime);
-                            }}
+                            onEnded={handleVideoEnded}
                             onLoadedMetadata={(event) => {
                               if (!metadata && Number.isFinite(event.currentTarget.duration)) {
                                 setEndTime(event.currentTarget.duration);
@@ -1355,25 +1323,51 @@ function WebApp() {
                           </button>
                         </>
                       ) : (
-                        <div className="web-preview-empty">
-                          <span className="web-empty-icon">
-                            <Icon name="video" size={28} />
+                        <span className="web-preview-placeholder" role="status" aria-live="polite">
+                          {!activeFile && (
+                            <svg
+                              className="web-preview-placeholder-icon"
+                              width="28"
+                              height="28"
+                              viewBox="0 0 28 28"
+                              fill="none"
+                              aria-hidden="true"
+                            >
+                              <rect
+                                x="4.5"
+                                y="5.5"
+                                width="19"
+                                height="17"
+                                rx="2.5"
+                                stroke="currentColor"
+                              />
+                              <path
+                                d="M8 5.5v17M20 5.5v17M4.5 10h3.5M4.5 18h3.5M20 10h3.5M20 18h3.5"
+                                stroke="currentColor"
+                                strokeLinecap="round"
+                              />
+                              <path
+                                d="m11.5 10.5 6 3.5-6 3.5v-7Z"
+                                stroke="currentColor"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          )}
+                          <span>
+                            {activeFile
+                              ? metadataLoading
+                                ? "Reading video…"
+                                : "Preview"
+                              : "No file selected"}
                           </span>
-                          <strong>Your video preview appears here</strong>
-                          <span>Everything is processed locally in this browser.</span>
+                        </span>
+                      )}
+                      {activeFile && metadata && (
+                        <div className="web-preview-time-overlay">
+                          {currentTime.toFixed(1)}s / {duration.toFixed(1)}s
                         </div>
                       )}
                     </div>
-                    {activeFile && (
-                      <div className="web-preview-footer">
-                        <span>
-                          {formatClock(currentTime)} / {formatClock(duration)}
-                        </span>
-                        <span className="web-preview-caption">
-                          Preview uses your browser’s media decoder
-                        </span>
-                      </div>
-                    )}
                   </section>
                 )}
 
@@ -1392,18 +1386,14 @@ function WebApp() {
                     endTime={endTime || duration}
                     currentTime={currentTime}
                     disabled={!metadata || isExporting}
-                    onStartChange={(value) => {
-                      const nextRange = snapTrimRange(value, endTime || duration);
-                      setStartTime(nextRange.start);
-                      setEndTime(nextRange.end);
-                      seekTo(nextRange.start);
-                    }}
-                    onEndChange={(value) => {
-                      const nextRange = snapTrimRange(startTime, value);
-                      setStartTime(nextRange.start);
-                      setEndTime(nextRange.end);
-                      seekTo(nextRange.end);
-                    }}
+                    editableTimes={activeMode === "advanced" || activeMode === "lossless"}
+                    losslessTrim={activeMode === "lossless"}
+                    losslessInfoLoading={losslessKeyframesLoading}
+                    losslessInfoError={losslessKeyframeError}
+                    historyKey={`${activeFile?.name ?? ""}\0${activeFile?.lastModified ?? 0}\0${activeMode}`}
+                    loopPlayback={loopPlayback}
+                    onLoopPlaybackChange={setLoopPlayback}
+                    onRangeChange={applyTrimRange}
                     onSeek={seekTo}
                   />
                 )}
@@ -1426,14 +1416,7 @@ function WebApp() {
                   }
                   onClick={isExporting ? cancelExport : () => void startExport()}
                 >
-                  {isExporting ? (
-                    "Cancel export"
-                  ) : (
-                    <>
-                      <Icon name="download" size={19} />
-                      {actionLabel}
-                    </>
-                  )}
+                  {isExporting ? "Cancel export" : actionLabel}
                 </button>
 
                 {(isExporting || progress > 0 || lastExport) && (
