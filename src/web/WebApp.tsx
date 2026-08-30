@@ -505,6 +505,24 @@ function WebApp() {
     [acceptFiles, isExporting]
   );
 
+  const removeQueuedFile = useCallback(
+    (fileIndex: number) => {
+      if (isExporting || fileIndex < 0 || fileIndex >= files.length) return;
+      const nextFiles = files.filter((_, index) => index !== fileIndex);
+      setFiles(nextFiles);
+      setActiveFileIndex((currentIndex) => {
+        if (nextFiles.length === 0) return 0;
+        if (fileIndex < currentIndex) return currentIndex - 1;
+        if (fileIndex === currentIndex) return Math.min(currentIndex, nextFiles.length - 1);
+        return currentIndex;
+      });
+      setLastExport(null);
+      setProgress(0);
+      setExportStatus("Ready");
+    },
+    [files, isExporting]
+  );
+
   const seekTo = useCallback(
     (time: number) => {
       const next = Math.max(0, Math.min(time, duration));
@@ -1144,12 +1162,26 @@ function WebApp() {
                           key={`${file.name}-${file.lastModified}-${index}`}
                           className={index === activeFileIndex ? "active" : ""}
                         >
-                          <button type="button" onClick={() => setActiveFileIndex(index)}>
+                          <button
+                            type="button"
+                            className="web-queue-item"
+                            onClick={() => setActiveFileIndex(index)}
+                          >
                             <span className="web-queue-index">{index + 1}</span>
                             <span className="web-queue-name" title={file.name}>
                               {file.name}
                             </span>
                             <span className="web-queue-size">{formatFileSize(file.size)}</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="web-queue-remove"
+                            onClick={() => removeQueuedFile(index)}
+                            disabled={isExporting}
+                            aria-label={`Remove ${file.name} from queue`}
+                            title="Remove from queue"
+                          >
+                            ×
                           </button>
                         </li>
                       ))}
