@@ -2091,6 +2091,22 @@
   max-width: 720px;
 }
 
+.web-bridge-preview {
+  min-width: 0;
+  padding: clamp(12px, 1.5vw, 19px);
+  border: 1px solid var(--web-border);
+  border-radius: 9px;
+  background: linear-gradient(145deg, rgba(16, 43, 76, 0.82), rgba(5, 21, 41, 0.82));
+  box-shadow: 0 24px 58px rgba(0, 8, 20, 0.3);
+}
+
+.web-bridge-preview img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
 .web-bridge-copy h2,
 .web-platform-section h2,
 .web-marketing-heading h2,
@@ -2122,6 +2138,10 @@
   border: 1px solid var(--web-border);
   border-radius: 10px;
   background: var(--web-border);
+}
+
+.web-bridge-points {
+  grid-column: 1 / -1;
 }
 
 .web-bridge-points > div,

@@ -409,6 +409,21 @@ function DesktopUpgrade() {
             </a>
           </div>
         </div>
+        <div className="web-bridge-preview">
+          <Screenshot
+            fallback="window.png"
+            variants={[
+              { file: "window-480.webp", width: 480 },
+              { file: "window-720.webp", width: 720 },
+              { file: "window-960.webp", width: 960 },
+              { file: "window-1144.webp", width: 1144 },
+            ]}
+            width={1144}
+            height={1668}
+            alt="vidcord desktop app with Compress mode, video preview, trim timeline, and Discord target controls"
+            sizes="(max-width: 820px) calc(100vw - 36px), 500px"
+          />
+        </div>
         <div className="web-bridge-points">
           <div>
             <strong>Faster native encoding</strong>
