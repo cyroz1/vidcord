@@ -63,6 +63,7 @@ type ScreenshotProps = {
   height: number;
   alt: string;
   sizes?: string;
+  loading?: "eager" | "lazy";
 };
 
 function asset(file: string): string {
@@ -72,12 +73,12 @@ function asset(file: string): string {
 function platformArch(
   platform: Exclude<DownloadPlatform, "unknown">,
   environment: DownloadEnvironment
-) {
+): DownloadArch {
   return platform === "macos"
-    ? ("unknown" as const)
+    ? "unknown"
     : platform === environment.platform && environment.archCertain
       ? environment.arch
-      : ("unknown" as const);
+      : "unknown";
 }
 
 function createDownloadAction(
@@ -181,7 +182,7 @@ function createArchitectureAction(
 
 function PlatformIcon({ platform }: { platform: Exclude<DownloadPlatform, "unknown"> }) {
   return (
-    <svg className="web-platform-icon" aria-hidden="true" viewBox="0 0 24 24">
+    <svg className="platform-icon" aria-hidden="true" viewBox="0 0 24 24">
       {platform === "windows" ? (
         <path d="M3 5.1 10.8 4v7.4H3zm9-1.3L21 2.5v8.9h-9zM3 12.6h7.8V20L3 18.9zm9 .1h9v8.8l-9-1.3z" />
       ) : platform === "macos" ? (
@@ -204,7 +205,7 @@ function DownloadIcon() {
   );
 }
 
-function Screenshot({ fallback, variants, width, height, alt, sizes }: ScreenshotProps) {
+function Screenshot({ fallback, variants, width, height, alt, sizes, loading }: ScreenshotProps) {
   return (
     <picture>
       <source
@@ -218,7 +219,7 @@ function Screenshot({ fallback, variants, width, height, alt, sizes }: Screensho
         src={asset(fallback)}
         width={width}
         height={height}
-        loading="lazy"
+        loading={loading ?? "lazy"}
         decoding="async"
         alt={alt}
       />
@@ -226,12 +227,29 @@ function Screenshot({ fallback, variants, width, height, alt, sizes }: Screensho
   );
 }
 
-function FeatureGlyph({ symbol }: { symbol: string }) {
-  return (
-    <span className="web-feature-glyph" aria-hidden="true">
-      {symbol}
-    </span>
-  );
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "0";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    if (!document.execCommand("copy")) {
+      throw new Error("Copy fallback failed");
+    }
+  } finally {
+    textarea.remove();
+  }
 }
 
 function CopyCommand({ command }: { command: string }) {
@@ -239,7 +257,7 @@ function CopyCommand({ command }: { command: string }) {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(command);
+      await copyText(command);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
@@ -248,19 +266,116 @@ function CopyCommand({ command }: { command: string }) {
   };
 
   return (
-    <div className="web-command-block">
+    <div className="command-block">
       <pre>
         <code>{command}</code>
       </pre>
-      <button type="button" onClick={() => void copy()}>
-        {copied ? "Copied" : "Copy"}
+      <button className="copy-command" type="button" onClick={() => void copy()}>
+        <span>{copied ? "Copied" : "Copy"}</span>
       </button>
     </div>
   );
 }
 
+function InlineCopyCommand({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await copyText(command);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <div className="command-block ffmpeg-prereq-command">
+      <code>{command}</code>
+      <button className="copy-command" type="button" onClick={() => void copy()}>
+        <span>{copied ? "Copied" : "Copy"}</span>
+      </button>
+    </div>
+  );
+}
+
+type FfmpegInstallInfo = {
+  instruction: string;
+  command: string;
+};
+
+function ffmpegInstallInfo(platform: DownloadPlatform): FfmpegInstallInfo {
+  if (platform === "windows") {
+    return {
+      instruction:
+        "vidcord can run this during install or first launch. If needed, run it manually, then restart or sign out:",
+      command: "winget install Gyan.FFmpeg",
+    };
+  }
+
+  if (platform === "macos") {
+    return {
+      instruction: "In Terminal, install Homebrew if needed, then run:",
+      command: "brew install ffmpeg",
+    };
+  }
+
+  if (platform === "linux") {
+    return {
+      instruction: "On Debian or Ubuntu, run this. Fedora and Arch commands are in the guide:",
+      command: "sudo apt install ffmpeg",
+    };
+  }
+
+  return {
+    instruction: "Install ffmpeg and ffprobe before compressing videos. Use the guide for your OS:",
+    command: "",
+  };
+}
+
+function downloadStatusText(
+  environment: DownloadEnvironment,
+  release: LatestRelease | null,
+  releaseError: boolean
+): string {
+  const platform = environment.platform;
+
+  if (platform === "unknown") {
+    if (releaseError) {
+      return "Could not check GitHub automatically. The button opens the latest release page.";
+    }
+
+    return "Choose Windows, macOS, or Linux below to get the right latest-release asset.";
+  }
+
+  const platformLabel = platformDisplayName(platform);
+  const arch = platformArch(platform, environment);
+  const shouldChooseArch = needsArchitectureChoice(platform, arch);
+  const primaryAsset =
+    !shouldChooseArch && release ? selectBestDownloadAsset(platform, arch, release.assets) : null;
+
+  if (release && shouldChooseArch) {
+    return `${platformLabel} detected, but architecture needs confirmation. Choose x64 or ARM64 to download the direct binary.`;
+  }
+
+  if (release && primaryAsset) {
+    const archLabel = arch !== "unknown" ? ` ${archDisplayName(arch)}` : "";
+    return `${platformLabel}${archLabel} detected. The button downloads ${primaryAsset.name}.`;
+  }
+
+  if (release) {
+    return `${platformLabel} detected. Choose a direct latest-release binary below.`;
+  }
+
+  if (releaseError) {
+    return "Could not check GitHub automatically. The button opens the latest release page.";
+  }
+
+  return `${platformLabel} detected. Selecting the latest release asset.`;
+}
+
 type DetailSectionProps = {
-  label: string;
   title: string;
   copy: string;
   items: readonly string[];
@@ -268,11 +383,10 @@ type DetailSectionProps = {
   reverse?: boolean;
 };
 
-function DetailSection({ label, title, copy, items, image, reverse = false }: DetailSectionProps) {
+function DetailSection({ title, copy, items, image, reverse = false }: DetailSectionProps) {
   return (
-    <section className={`web-marketing-detail${reverse ? " reverse" : ""}`} aria-label={label}>
-      <div className="web-detail-copy">
-        <span className="web-eyebrow">{label}</span>
+    <section className={`detail-section${reverse ? " detail-section-reverse" : ""}`}>
+      <div className="detail-copy">
         <h2>{title}</h2>
         <p>{copy}</p>
         <ul>
@@ -281,7 +395,7 @@ function DetailSection({ label, title, copy, items, image, reverse = false }: De
           ))}
         </ul>
       </div>
-      <div className="web-detail-image">
+      <div className="detail-image">
         <Screenshot {...image} />
       </div>
     </section>
@@ -292,11 +406,30 @@ function DesktopUpgrade() {
   const [environment, setEnvironment] = useState<DownloadEnvironment>(DEFAULT_ENVIRONMENT);
   const [release, setRelease] = useState<LatestRelease | null>(null);
   const [releaseError, setReleaseError] = useState(false);
+  const [downloadCount, setDownloadCount] = useState("—");
   const [architectureChoice, setArchitectureChoice] = useState<Exclude<
     DownloadPlatform,
     "unknown"
   > | null>(null);
   const architectureDialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const existingLink = document.querySelector<HTMLLinkElement>(
+      'link[data-vidcord-legacy-styles="true"]'
+    );
+
+    if (existingLink) {
+      return;
+    }
+
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "/legacy/styles.css";
+    link.dataset.vidcordLegacyStyles = "true";
+    document.head.appendChild(link);
+
+    return () => link.remove();
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -333,6 +466,47 @@ function DesktopUpgrade() {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 8000);
+    let active = true;
+
+    void fetch("https://img.shields.io/github/downloads/cyroz1/vidcord/total", {
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Shields returned ${response.status}`);
+        }
+
+        return response.text();
+      })
+      .then((badge) => {
+        const match = badge.match(/aria-label=["']downloads:\s*([^"']+)["']/i);
+        const count = match?.[1]?.trim();
+
+        if (!count || !/^\d+(?:\.\d+)?[kKmMbB]?$/.test(count)) {
+          throw new Error("Shields returned an unexpected download count");
+        }
+
+        if (active) {
+          setDownloadCount(count);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setDownloadCount("—");
+        }
+      })
+      .finally(() => window.clearTimeout(timeout));
+
+    return () => {
+      active = false;
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, []);
+
+  useEffect(() => {
     const dialog = architectureDialogRef.current;
 
     if (!dialog || !architectureChoice) {
@@ -357,7 +531,8 @@ function DesktopUpgrade() {
   }, [architectureChoice]);
 
   const selectedPlatform = environment.platform;
-  const desktopAction =
+  const ffmpegInfo = ffmpegInstallInfo(selectedPlatform);
+  const desktopAction: DownloadAction =
     selectedPlatform === "unknown"
       ? {
           href: "#download",
@@ -380,19 +555,34 @@ function DesktopUpgrade() {
   };
 
   return (
-    <div className="web-marketing">
-      <section className="web-desktop-bridge" id="desktop-app" aria-labelledby="desktop-app-title">
-        <div className="web-bridge-copy">
-          <span className="web-eyebrow">Native desktop edition</span>
-          <h2 id="desktop-app-title">Need more power? Download the full vidcord app.</h2>
-          <p>
-            The browser editor is the quick, private way to make a clip shareable. Install the
-            native app when you want faster encoding, hardware acceleration, file-manager shortcuts,
-            native save locations, and the complete workflow.
+    <div className="web-legacy-marketing">
+      <section className="hero" id="desktop-app" aria-labelledby="desktop-app-title">
+        <div className="hero-copy">
+          <h1 id="desktop-app-title">vidcord</h1>
+          <p className="hero-lede">The full desktop app for local Discord compression.</p>
+          <p className="hero-body">
+            Compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord&apos;s 20, 50, 100,
+            or 500 MB limits using system FFmpeg locally. Lossless Trim cuts on keyframes without
+            re-encoding. GIF Mode creates Discord-ready GIFs at 15, 30, or up to 50 FPS.
           </p>
-          <div className="web-marketing-actions">
+          <p className="hero-body">
+            The browser editor above is the fast, no-install option. Download the native app for
+            faster encoding, GPU acceleration, Open With integration, native output locations, and
+            the complete desktop workflow.
+          </p>
+          <p className="hero-body">
+            Want to stay in the browser? The{" "}
+            <a className="hero-inline-link" href="#web-editor">
+              web edition
+            </a>{" "}
+            keeps selected files local with FFmpeg WebAssembly and sends finished exports to your
+            browser downloads.
+          </p>
+
+          <div className="hero-actions">
             <a
-              className="web-marketing-button primary"
+              className="button button-primary"
+              id="primaryDownload"
               href={desktopAction.href}
               aria-label={desktopAction.label}
               aria-disabled={desktopAction.pending ? "true" : undefined}
@@ -402,154 +592,227 @@ function DesktopUpgrade() {
                 }
               }}
             >
-              {desktopAction.needsArchChoice ? desktopAction.label : "Download the desktop app"}
+              <DownloadIcon />
+              <span>
+                {desktopAction.needsArchChoice ? desktopAction.label : "Download for your platform"}
+              </span>
             </a>
-            <a className="web-marketing-button secondary" href="#features">
-              See what’s included
+            <a className="button button-secondary" href="#web-editor">
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M4 5.5h16v11H4z" />
+                <path d="M8 20h8M12 16.5V20" />
+              </svg>
+              <span>Try the browser edition</span>
+            </a>
+            <a
+              className="button button-secondary"
+              href="https://github.com/cyroz1/vidcord"
+              rel="noreferrer"
+              target="_blank"
+            >
+              <svg className="github-mark" aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M12 2.75a9.25 9.25 0 0 0-2.92 18.03c.46.08.63-.2.63-.44v-1.72c-2.57.56-3.11-1.09-3.11-1.09-.42-1.07-1.03-1.36-1.03-1.36-.84-.58.06-.56.06-.56.93.07 1.42.96 1.42.96.83 1.41 2.17 1 2.7.77.08-.6.32-1 .58-1.23-2.05-.23-4.2-1.02-4.2-4.56 0-1 .36-1.83.95-2.48-.1-.23-.41-1.17.09-2.44 0 0 .78-.25 2.55.95A8.8 8.8 0 0 1 12 7.27c.79 0 1.58.1 2.32.31 1.77-1.2 2.55-.95 2.55-.95.5 1.27.19 2.21.09 2.44.59.65.95 1.47.95 2.48 0 3.55-2.16 4.32-4.22 4.55.33.29.63.85.63 1.72v2.52c0 .24.17.52.64.43A9.25 9.25 0 0 0 12 2.75Z" />
+              </svg>
+              <span>View on GitHub</span>
             </a>
           </div>
-        </div>
-        <div className="web-bridge-preview">
-          <Screenshot
-            fallback="window.png"
-            variants={[
-              { file: "window-480.webp", width: 480 },
-              { file: "window-720.webp", width: 720 },
-              { file: "window-960.webp", width: 960 },
-              { file: "window-1144.webp", width: 1144 },
-            ]}
-            width={1144}
-            height={1668}
-            alt="vidcord desktop app with Compress mode, video preview, trim timeline, and Discord target controls"
-            sizes="(max-width: 820px) calc(100vw - 36px), 500px"
-          />
-        </div>
-        <div className="web-bridge-points">
-          <div>
-            <strong>Faster native encoding</strong>
-            <span>Use system FFmpeg and available H.264 hardware encoders.</span>
+
+          <p className="download-count">
+            <strong id="downloadCount">{downloadCount}</strong>
+            <span>downloads</span>
+          </p>
+
+          <div className="ffmpeg-prereq" role="note" aria-labelledby="ffmpeg-prereq-title">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M12 9v4M12 17h.01" />
+              <path d="M10.3 4.5 2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.5a2 2 0 0 0-3.4 0Z" />
+            </svg>
+            <div>
+              <strong id="ffmpeg-prereq-title">FFmpeg required for the desktop app</strong>
+              <span id="ffmpegInstruction">{ffmpegInfo.instruction}</span>
+              {ffmpegInfo.command ? <InlineCopyCommand command={ffmpegInfo.command} /> : null}
+              <div className="ffmpeg-prereq-links">
+                <a
+                  href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Full FFMPEG_SETUP.md
+                </a>
+              </div>
+            </div>
           </div>
-          <div>
-            <strong>More control</strong>
-            <span>Choose encoders, output folders, audio tracks, and desktop presets.</span>
-          </div>
-          <div>
-            <strong>Fits your workflow</strong>
-            <span>Open clips from Explorer or Finder and keep working while exports run.</span>
+
+          <p className="download-note" id="downloadStatus">
+            {downloadStatusText(environment, release, releaseError)}
+          </p>
+
+          <dl className="hero-facts" aria-label="Project facts">
+            <div>
+              <dt>Tauri 2</dt>
+              <dd>Small native desktop app</dd>
+            </div>
+            <div>
+              <dt>Offline</dt>
+              <dd>No uploads or telemetry</dd>
+            </div>
+            <div>
+              <dt>FFmpeg</dt>
+              <dd>Install it before compressing</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div className="hero-product" aria-label="vidcord desktop application screenshot">
+          <div className="product-window">
+            <div className="window-bar" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </div>
+            <Screenshot
+              fallback="window.png"
+              variants={[
+                { file: "window-480.webp", width: 480 },
+                { file: "window-720.webp", width: 720 },
+                { file: "window-960.webp", width: 960 },
+                { file: "window-1144.webp", width: 1144 },
+              ]}
+              width={1144}
+              height={1668}
+              loading="eager"
+              alt="vidcord desktop app with Compress mode, video preview, trim timeline, and Discord target controls"
+              sizes="(max-width: 760px) calc(100vw - 36px), (max-width: 1040px) 560px, 500px"
+            />
           </div>
         </div>
       </section>
 
-      <section className="web-feature-band" id="features" aria-label="vidcord features">
+      <section className="feature-band" id="features" aria-label="Features">
         <article>
-          <FeatureGlyph symbol="◌" />
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M7 11V8.5a5 5 0 0 1 10 0V11M6 11h12v9H6zM12 15v2" />
+          </svg>
           <h2>100% local</h2>
           <p>Your files stay on your device. vidcord never uploads video to a server.</p>
         </article>
         <article>
-          <FeatureGlyph symbol="◇" />
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M8 7.5 12 5l4 2.5v5L12 15l-4-2.5z" />
+            <path d="M8 12.5v4L12 19l4-2.5v-4" />
+          </svg>
           <h2>Discord targets</h2>
           <p>
             Choose a 20, 50, 100, or 500 MB limit and let vidcord calculate the bitrate. GIF Mode
-            supports 20 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS.
+            supports 20 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS in both
+            editions.
           </p>
         </article>
         <article>
-          <FeatureGlyph symbol="×" />
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="m5 19 14-14M5 5l14 14M9 9l6 6" />
+          </svg>
           <h2>Trim and preview</h2>
           <p>
             Scrub, preview, and compress only the range you need. Lossless Trim preserves source
-            streams with keyframe-aligned boundaries.
+            streams with keyframe-aligned boundaries. The browser editor uses the video preview; the
+            desktop app adds native preview fallbacks on Linux.
           </p>
         </article>
         <article>
-          <FeatureGlyph symbol="ϟ" />
-          <h2>GPU acceleration</h2>
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M13 2 4 14h7l-1 8 10-13h-7z" />
+          </svg>
+          <h2>Desktop acceleration</h2>
           <p>
-            Detects NVENC, AMF, QSV, VAAPI, and VideoToolbox, prefers H.264 hardware on first run,
-            and keeps CPU fallback ready.
+            The desktop app detects NVENC, AMF, QSV, VAAPI, and VideoToolbox, prefers H.264 hardware
+            on first run, and keeps CPU fallback ready. The web editor uses a fixed local
+            WebAssembly encoder.
           </p>
         </article>
       </section>
 
-      <section className="web-platform-section" aria-labelledby="platform-title">
-        <div>
-          <span className="web-eyebrow">Start in the browser</span>
-          <h2 id="platform-title">The web version is the fast, private start.</h2>
+      <section className="browser-section" id="browser" aria-labelledby="browser-title">
+        <div className="browser-copy">
+          <span className="eyebrow">Browser edition</span>
+          <h2 id="browser-title">Compress locally from a website.</h2>
           <p>
-            No account, no upload step, and no installer. Selected files stay in this browser while
-            FFmpeg WebAssembly handles the encode locally; finished videos and frame snapshots are
-            downloaded by the browser.
+            Open the no-install editor when you need a quick export. Your selected files stay in the
+            browser while local FFmpeg WebAssembly handles the encode; finished videos and PNG frame
+            snapshots are downloaded by the browser.
           </p>
+          <div className="browser-actions">
+            <a className="button button-primary" href="#web-editor">
+              Open browser editor
+            </a>
+            <a className="text-link" href="#download">
+              Download the desktop app
+            </a>
+          </div>
         </div>
-        <div className="web-platform-points">
+        <div className="browser-points">
           <div>
-            <strong>Included here</strong>
+            <strong>Included</strong>
             <span>
-              Compress, Advanced, Lossless Trim, GIF, trim, crop, FPS, presets, snapshots, and
+              Compress, Advanced, Lossless Trim, GIF, trim, crop, FPS, snapshots, and same-profile
               batches.
             </span>
           </div>
           <div>
-            <strong>Desktop upgrade</strong>
+            <strong>Browser constraints</strong>
             <span>
-              Get native folders, GPU encoder discovery, Open With, notifications, and faster system
-              encoding.
+              Browser-readable inputs, a fixed libx264 WASM encoder, and browser downloads; native
+              folders, GPU encoder discovery, and Open With stay in the desktop app.
             </span>
           </div>
         </div>
       </section>
 
-      <section
-        className="web-marketing-section web-workflow"
-        id="workflow"
-        aria-labelledby="workflow-title"
-      >
-        <div className="web-marketing-heading">
-          <span className="web-eyebrow">A simple flow</span>
+      <section className="workflow-section" id="workflow" aria-labelledby="workflow-title">
+        <div className="section-heading">
           <h2 id="workflow-title">How it works</h2>
           <p>Three steps from a large clip—or a batch—to Discord-ready uploads.</p>
         </div>
-        <div className="web-workflow-grid">
+        <div className="workflow-grid">
           <article>
-            <span className="web-step-number">1</span>
+            <span className="step-number">1</span>
             <h3>Add your videos</h3>
             <p>
-              Choose a local file or drag and drop. Multi-select to activate Batch mode
-              automatically.
+              Choose a local file in the browser editor above or drag and drop. Use Open With from
+              Finder or Explorer in the desktop app, and multi-select to activate Batch mode.
             </p>
           </article>
           <article>
-            <span className="web-step-number">2</span>
+            <span className="step-number">2</span>
             <h3>Choose controls and trim</h3>
             <p>
-              Select a Discord target, cap FPS or remove audio, then preview the range you want to
-              share.
+              Select a Discord size target, cap FPS or remove audio if needed, and preview the range
+              you want to share. Desktop mode adds its full native control set.
             </p>
           </article>
           <article>
-            <span className="web-step-number">3</span>
-            <h3>Export locally</h3>
+            <span className="step-number">3</span>
+            <h3>Compress and save</h3>
             <p>
-              Run FFmpeg on this device, verify the output size, and download a ready-to-send clip.
+              Run the local encoder, verify the output size, and download a ready-to-send browser
+              export—or save it through the desktop app&apos;s native destinations.
             </p>
           </article>
         </div>
       </section>
 
       <DetailSection
-        label="Desktop controls"
         title="Simple when you want it. Precise when you need it."
-        copy="Compress includes aspect-ratio crop presets, while Advanced mode adds custom size, resolution, FPS, and audio normalization. The desktop app also adds encoder selection, source audio-track mixing, and saved output preferences."
+        copy="Both editions include aspect-ratio crop presets, custom size, resolution, FPS, and audio normalization. The desktop app adds encoder selection, source audio-track mixing, saved settings presets, and native output preferences."
         items={[
-          "Automatic Batch mode for multiple selections with per-file details, separate trims, and an aggregate ETA.",
+          "Browser Batch mode for multiple selections with per-file details and an aggregate ETA; desktop Batch adds separate trims and native parallel encoding.",
           "Strict output size checks with safer adaptive retry behavior.",
-          "Named settings presets with Autosave, restore, and delete controls.",
+          "Named settings presets with Autosave, restore, and delete controls in the desktop app.",
           "Output FPS controls for 24, 30, 60, or a custom advanced value.",
           "Crop to 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, or 5:4 before scaling.",
-          "Peak-normalize audio, remove it for more video bitrate, or mix source tracks.",
-          "Race-safe cancellation and atomically reserved outputs that never overwrite your files.",
-          "User-approved update installers verified against GitHub’s published integrity data.",
+          "Peak-normalize audio or remove it for more video bitrate in the browser; desktop Advanced can also mix source tracks.",
+          "Race-safe cancellation in both editions; native exports use atomically reserved outputs that never overwrite your files.",
+          "User-approved desktop update installers verified against GitHub’s published integrity data.",
         ]}
         image={{
           fallback: "advancedmode.png",
@@ -561,14 +824,13 @@ function DesktopUpgrade() {
           ],
           width: 1144,
           height: 1668,
-          alt: "vidcord Advanced mode with target size, resolution, and encoder controls",
+          alt: "vidcord advanced mode with target size, resolution, and encoder controls",
         }}
       />
 
       <DetailSection
-        label="Lossless Trim"
         title="Keep the original quality when you only need a shorter clip."
-        copy="Lossless Trim cuts on source keyframes without re-encoding the video. Choose the section you need, keep or remove audio, and export an original-quality clip quickly with stream-copy processing."
+        copy="Lossless Trim cuts on source keyframes without re-encoding the video in both editions. Choose the section you need, keep or remove audio, and export an original-quality clip quickly with stream-copy processing."
         items={[
           "No video re-encoding for fast, original-quality exports.",
           "Trim boundaries snap outward to source keyframes.",
@@ -591,9 +853,8 @@ function DesktopUpgrade() {
       />
 
       <DetailSection
-        label="GIF Mode"
         title="Turn the best moment into a Discord-ready GIF."
-        copy="GIF Mode swaps in focused controls for animated exports. Choose a Discord Free or Nitro Basic size target and the motion quality you want, then let vidcord optimize the result locally."
+        copy="GIF Mode swaps in focused controls for animated exports in the browser and desktop app. Choose a Discord Free or Nitro Basic size target and the motion quality you want, then let vidcord optimize the result locally."
         items={[
           "Focused 20 MB Free and 50 MB Nitro Basic targets.",
           "Selectable 15, 30, or Discord-safe maximum 50 FPS output.",
@@ -617,13 +878,12 @@ function DesktopUpgrade() {
       />
 
       <DetailSection
-        label="Batch mode"
-        title="Compress a whole queue in one pass."
-        copy="Select multiple videos and vidcord probes, trims, and encodes each one independently. The queue keeps source details and per-file progress visible while the aggregate status shows how much of the batch is complete."
+        title="Compress a whole queue in Batch mode."
+        copy="Select multiple videos and vidcord probes and encodes each one independently. The browser queue keeps source details and per-file progress visible; the desktop queue also supports separate trims, native parallel workers, and native output handling."
         items={[
-          "Select multiple videos through Browse, drag-and-drop, Open With, or the command line.",
-          "Apply shared standard Compress settings with separate start and end trims.",
-          "Run up to two encodes at once, with a serial fallback when resources contend.",
+          "Select multiple videos through Browse or drag-and-drop in the browser, or Open With and the command line on desktop.",
+          "Apply shared standard Compress settings; desktop Batch adds separate start and end trims.",
+          "The desktop app runs up to two encodes at once, with a serial fallback when resources contend.",
           "Continue after individual failures and keep collision-safe MP4 outputs.",
           "Cancel active work while queued items are skipped cleanly.",
         ]}
@@ -641,17 +901,24 @@ function DesktopUpgrade() {
         }}
       />
 
-      <section className="web-integrations" id="integrations" aria-labelledby="integrations-title">
-        <div className="web-marketing-heading">
-          <span className="web-eyebrow">Native workflow</span>
-          <h2 id="integrations-title">Open videos from Explorer or Finder.</h2>
-          <p>
-            These integrations belong to the desktop app. Start from your file manager, choose one
-            or more videos, and get compressed MP4s in the destination you already use.
-          </p>
+      <section
+        className="integration-section"
+        id="integrations"
+        aria-labelledby="integrations-title"
+      >
+        <div className="section-heading">
+          <div>
+            <h2 id="integrations-title">Open one or more videos from Explorer or Finder</h2>
+            <p>
+              These integrations belong to the desktop app. Start from your file manager, choose one
+              or more videos, and get compressed MP4s in Downloads or another native output
+              location.
+            </p>
+          </div>
         </div>
-        <div className="web-integration-grid">
-          <article>
+
+        <div className="integration-grid">
+          <article className="integration-panel">
             <div>
               <h3>Windows context menu</h3>
               <p>Right-click a video and choose vidcord from Open with.</p>
@@ -669,7 +936,7 @@ function DesktopUpgrade() {
               sizes="(max-width: 760px) calc(100vw - 80px), 430px"
             />
           </article>
-          <article className="wide">
+          <article className="integration-panel integration-panel-wide">
             <div>
               <h3>macOS Finder</h3>
               <p>Use Open With in Finder to send a local video straight into vidcord.</p>
@@ -687,10 +954,13 @@ function DesktopUpgrade() {
               sizes="(max-width: 760px) calc(100vw - 80px), 670px"
             />
           </article>
-          <article>
+          <article className="integration-panel">
             <div>
               <h3>Saved output file</h3>
-              <p>Use Downloads, the clip folder, a remembered custom folder, or a save prompt.</p>
+              <p>
+                Desktop exports use a safe auto-incremented filename in Downloads, beside the clip,
+                or in your saved custom folder. The browser edition downloads through the browser.
+              </p>
             </div>
             <Screenshot
               fallback="file.png"
@@ -707,133 +977,167 @@ function DesktopUpgrade() {
         </div>
       </section>
 
-      <section className="web-faq" id="faq" aria-labelledby="faq-title">
-        <div className="web-marketing-heading">
-          <span className="web-eyebrow">Good to know</span>
-          <h2 id="faq-title">Questions people ask before downloading.</h2>
-          <p>Short answers for anyone checking how the web and desktop editions work.</p>
+      <section className="faq-section" id="faq" aria-labelledby="faq-title">
+        <div className="section-heading">
+          <div>
+            <h2 id="faq-title">Questions people ask before downloading</h2>
+            <p>Short answers for anyone checking how the web and desktop editions work.</p>
+          </div>
         </div>
-        <div className="web-faq-grid">
+
+        <div className="faq-grid">
           <article>
             <h3>Does vidcord upload videos?</h3>
             <p>
-              No. The browser editor keeps selected files local, and the desktop app runs FFmpeg on
-              your device.
+              No. The browser edition keeps selected files local while FFmpeg WebAssembly runs on
+              your device, and the desktop edition runs system FFmpeg locally. Neither edition
+              uploads video, requires an account, or uses telemetry.
             </p>
           </article>
           <article>
-            <h3>What does the web editor include?</h3>
+            <h3>Can I use vidcord in a browser?</h3>
             <p>
-              Compress, Advanced, Lossless Trim, GIF, trim, crop, FPS, presets, snapshots, and
-              same-profile batches.
-            </p>
-          </article>
-          <article>
-            <h3>Which features need the desktop app?</h3>
-            <p>
-              Native folders, Open With, GPU encoder discovery, system FFmpeg, notifications, and
-              other OS integrations.
+              Yes. Open the <a href="#web-editor">browser edition</a> to run FFmpeg WebAssembly
+              locally. Files stay in your browser and exports go to browser downloads. It is a
+              lighter alternative with a fixed WASM encoder and no desktop-only GPU, Open With,
+              native folder, or OS notification integrations.
             </p>
           </article>
           <article>
             <h3>Which Discord upload limits are supported?</h3>
             <p>
-              Presets cover 20 MB, 50 MB, 100 MB, and 500 MB targets. GIF Mode supports 20 MB and 50
-              MB exports.
+              Both editions cover 20 MB, 50 MB, 100 MB, and 500 MB targets. Advanced mode adds
+              custom size, resolution, FPS, and encoder controls on desktop; GIF Mode supports 20 MB
+              Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS.
             </p>
           </article>
           <article>
-            <h3>Can vidcord compress multiple videos?</h3>
+            <h3>Can vidcord compress multiple videos at once?</h3>
             <p>
-              Yes. Select two or more files to activate Batch mode, which applies a shared profile
-              and reports queue progress.
+              Yes. Select two or more videos through Browse or drag-and-drop in the browser, or Open
+              With and the command line on desktop, to activate Batch mode. The browser queue
+              reports per-file and aggregate progress; desktop Batch also supports separate trims
+              and native parallel workers.
             </p>
           </article>
           <article>
-            <h3>Can I change output FPS?</h3>
+            <h3>Can vidcord change output FPS?</h3>
             <p>
-              Standard mode offers source, 24, 30, and 60 FPS. Advanced mode accepts a custom value
-              or a blank source-rate setting.
+              Yes. Standard mode can leave FPS unchanged or cap it at 24, 30, or 60 FPS. Advanced
+              mode accepts a custom typed value in both editions; desktop also offers native encoder
+              choices.
+            </p>
+          </article>
+          <article>
+            <h3>Are scrubbing and playback previews available on Linux?</h3>
+            <p>
+              The desktop Linux edition uses FFmpeg to generate filmstrip and frame previews while
+              scrubbing. The browser edition uses the browser&apos;s local video preview instead.
             </p>
           </article>
           <article>
             <h3>Does vidcord include FFmpeg?</h3>
             <p>
-              No. The desktop edition uses <code>ffmpeg</code> and <code>ffprobe</code> on PATH. The
-              web edition loads a local WebAssembly build.
+              The desktop edition does not bundle FFmpeg: install <code>ffmpeg</code> and
+              <code>ffprobe</code> and make them available on PATH. The browser edition loads a
+              local WebAssembly build.
             </p>
           </article>
           <article>
             <h3>How does the desktop download work?</h3>
             <p>
-              The download page detects your platform and links to the matching latest-release
-              asset, with architecture choice when needed.
+              The page detects your OS and links to the matching latest-release binary. If x64 or
+              ARM64 is unclear, it asks you to choose the architecture.
             </p>
           </article>
           <article>
             <h3>How do desktop updates work?</h3>
             <p>
               After approval, vidcord streams, validates, and hashes the installer before saving and
-              opening it.
+              opening it. The release page remains a fallback.
             </p>
           </article>
         </div>
       </section>
 
-      <section className="web-ffmpeg" id="ffmpeg-install" aria-labelledby="ffmpeg-title">
-        <div className="web-marketing-heading">
-          <span className="web-eyebrow">Desktop setup</span>
-          <h2 id="ffmpeg-title">Set up FFmpeg for the native app.</h2>
-          <p>
-            vidcord does not bundle FFmpeg. The installer or first launch can help install it
-            through your platform package manager, then detect <code>ffmpeg</code> and{" "}
-            <code>ffprobe</code> automatically.
-          </p>
+      <section className="ffmpeg-section" id="ffmpeg-install" aria-labelledby="ffmpeg-title">
+        <div className="section-heading">
+          <div>
+            <h2 id="ffmpeg-title">Set up FFmpeg</h2>
+            <p>
+              The browser edition uses local WebAssembly. The desktop app does not bundle FFmpeg;
+              its installer or first launch can help install it through your platform package
+              manager, then detect <code>ffmpeg</code> and <code>ffprobe</code> automatically.
+            </p>
+          </div>
+          <a
+            className="text-link"
+            href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Full FFMPEG_SETUP.md
+          </a>
         </div>
-        <div className="web-ffmpeg-grid">
-          <article>
-            <span className="web-detected-pill">Windows</span>
-            <h3>Install with WinGet</h3>
+
+        <div className="ffmpeg-install-grid" aria-label="FFmpeg install directions by platform">
+          <article
+            className={`ffmpeg-install-card${selectedPlatform === "windows" ? " is-active" : ""}`}
+            id="ffmpeg-windows"
+            data-ffmpeg-platform="windows"
+            aria-current={selectedPlatform === "windows" ? "true" : undefined}
+          >
+            <span className="detected-pill">Detected platform</span>
+            <h3>Windows</h3>
+            <p>vidcord can run this through the installer or first-launch setup:</p>
             <CopyCommand command="winget install Gyan.FFmpeg" />
             <p>
-              Select Retry in vidcord when it finishes. The app recognizes the WinGet install
+              When it finishes, select Retry in vidcord. The app recognizes WinGet&apos;s install
               directory without a restart.
             </p>
           </article>
-          <article>
-            <span className="web-detected-pill">macOS</span>
-            <h3>Install with Homebrew</h3>
+          <article
+            className={`ffmpeg-install-card${selectedPlatform === "macos" ? " is-active" : ""}`}
+            id="ffmpeg-macos"
+            data-ffmpeg-platform="macos"
+            aria-current={selectedPlatform === "macos" ? "true" : undefined}
+          >
+            <span className="detected-pill">Detected platform</span>
+            <h3>macOS</h3>
+            <p>Install Homebrew if you do not have it, then run this in Terminal:</p>
             <CopyCommand command="brew install ffmpeg" />
             <p>
-              After Homebrew finishes, reopen vidcord. It will look for both binaries on your PATH.
+              After Homebrew finishes, reopen vidcord. It will look for <code>ffmpeg</code> and
+              <code>ffprobe</code> on your PATH.
             </p>
           </article>
-          <article>
-            <span className="web-detected-pill">Linux</span>
-            <h3>Use your distro package manager</h3>
+          <article
+            className={`ffmpeg-install-card${selectedPlatform === "linux" ? " is-active" : ""}`}
+            id="ffmpeg-linux"
+            data-ffmpeg-platform="linux"
+            aria-current={selectedPlatform === "linux" ? "true" : undefined}
+          >
+            <span className="detected-pill">Detected platform</span>
+            <h3>Linux</h3>
+            <p>Install FFmpeg with your distribution package manager:</p>
             <CopyCommand
               command={"sudo apt install ffmpeg\nsudo dnf install ffmpeg\nsudo pacman -S ffmpeg"}
             />
-            <p>Use the command for your distro, then launch vidcord normally.</p>
+            <p>
+              Use the command for your distro, then launch vidcord normally. The app uses the system
+              <code>ffmpeg</code> and <code>ffprobe</code> binaries.
+            </p>
           </article>
         </div>
-        <a
-          className="web-marketing-text-link"
-          href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Read the full FFMPEG_SETUP.md guide →
-        </a>
       </section>
 
-      <section className="web-downloads" id="download" aria-labelledby="download-title">
-        <div className="web-download-heading">
+      <section className="download-section" id="download" aria-labelledby="download-title">
+        <div className="download-heading">
           <div>
             <h2 id="download-title">Download vidcord</h2>
             <p>Free, open-source, MIT licensed. Built for Windows, macOS, and Linux.</p>
           </div>
-          <div className="web-release-state" data-release-state>
+          <div className="release-state" id="releaseState" data-release-state>
             {release
               ? `Latest release: ${release.tag_name}`
               : releaseError
@@ -842,19 +1146,19 @@ function DesktopUpgrade() {
           </div>
         </div>
 
-        <div className="web-download-callout">
+        <div className="ffmpeg-callout">
           <svg aria-hidden="true" viewBox="0 0 24 24">
             <path d="M12 17v-6M12 7.5h.01" />
             <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
           </svg>
           <div>
-            <strong>FFmpeg required</strong>
+            <strong>FFmpeg required for the desktop app</strong>
             <span>
-              vidcord can help install FFmpeg through your package manager. The app shells out to
-              your system <code>ffmpeg</code> and <code>ffprobe</code>.
+              The desktop app shells out to your system <code>ffmpeg</code> and <code>ffprobe</code>
+              ; the browser edition uses local WebAssembly.
             </span>
           </div>
-          <div className="web-download-callout-actions">
+          <div className="ffmpeg-callout-actions">
             <a href="#ffmpeg-install">Setup steps</a>
             <a
               href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
@@ -866,14 +1170,14 @@ function DesktopUpgrade() {
           </div>
         </div>
 
-        <div className="web-download-grid" aria-label="Platform downloads">
+        <div className="download-grid" aria-label="Platform downloads">
           {DOWNLOAD_PLATFORMS.map(({ id, name, description }) => {
             const action = createDownloadAction(id, environment, release, releaseError);
             const isActive = selectedPlatform === id;
 
             return (
               <article
-                className={`web-download-card${isActive ? " active" : ""}`}
+                className={`download-card${isActive ? " is-active" : ""}`}
                 data-platform-card={id}
                 key={id}
               >
@@ -881,7 +1185,7 @@ function DesktopUpgrade() {
                 <h3>{name}</h3>
                 <p>{description}</p>
                 <a
-                  className="web-marketing-button secondary web-download-button"
+                  className="button button-platform"
                   href={action.href}
                   aria-label={
                     action.assetName ? `${action.label}: ${action.assetName}` : action.label
@@ -904,8 +1208,8 @@ function DesktopUpgrade() {
         {architectureChoice ? (
           <dialog
             ref={architectureDialogRef}
-            className="web-arch-dialog"
-            aria-labelledby="web-arch-choice-title"
+            className="arch-dialog"
+            aria-labelledby="arch-choice-title"
             onCancel={(event) => {
               event.preventDefault();
               setArchitectureChoice(null);
@@ -916,9 +1220,9 @@ function DesktopUpgrade() {
               }
             }}
           >
-            <div className="web-arch-dialog-panel">
+            <div className="arch-dialog-panel">
               <button
-                className="web-arch-dialog-close"
+                className="arch-dialog-close"
                 type="button"
                 aria-label="Close"
                 onClick={() => setArchitectureChoice(null)}
@@ -927,14 +1231,14 @@ function DesktopUpgrade() {
                   <path d="M6 6l12 12M18 6 6 18" />
                 </svg>
               </button>
-              <h3 id="web-arch-choice-title">
+              <h3 id="arch-choice-title">
                 Choose {platformDisplayName(architectureChoice)} download
               </h3>
               <p>
                 Your browser did not report this device architecture with enough certainty. Choose
                 the build that matches your computer.
               </p>
-              <div className="web-arch-options">
+              <div className="arch-options">
                 {architectureOptions(architectureChoice).map(({ arch, label, detail }) => {
                   const action = createArchitectureAction(
                     architectureChoice,
@@ -945,7 +1249,7 @@ function DesktopUpgrade() {
 
                   return (
                     <a
-                      className="web-arch-option"
+                      className="arch-option"
                       href={action.href}
                       aria-label={action.assetName ? `${label}: ${action.assetName}` : label}
                       aria-disabled={action.pending ? "true" : undefined}

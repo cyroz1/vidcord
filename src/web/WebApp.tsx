@@ -1405,14 +1405,38 @@ function WebApp() {
         <DesktopUpgrade />
       </main>
 
-      <footer className="web-footer">
-        <span>vidcord · browser-first video compression</span>
-        <span>Local-only processing · FFmpeg WebAssembly</span>
-        <a href="#desktop-app">Desktop app</a>
-        <a href="/legacy/">Original site</a>
-        <a href="https://github.com/cyroz1/vidcord" target="_blank" rel="noreferrer">
-          GitHub
-        </a>
+      <footer className="site-footer">
+        <div>
+          <a className="footer-brand" href="#web-editor">
+            <picture>
+              <source
+                type="image/webp"
+                srcSet="/legacy/assets/icon-64.webp 64w, /legacy/assets/icon-128.webp 128w"
+                sizes="34px"
+              />
+              <img src="/legacy/assets/icon.png" width="128" height="128" alt="" />
+            </picture>
+            <span>vidcord</span>
+          </a>
+          <p>Local video compression for Discord upload limits.</p>
+        </div>
+        <nav aria-label="Footer navigation">
+          <a href="https://github.com/cyroz1/vidcord" target="_blank" rel="noreferrer">
+            GitHub
+          </a>
+          <a href="https://github.com/cyroz1/vidcord/issues" target="_blank" rel="noreferrer">
+            Issues
+          </a>
+          <a
+            href="https://github.com/cyroz1/vidcord/blob/main/LICENSE"
+            target="_blank"
+            rel="noreferrer"
+          >
+            MIT License
+          </a>
+          <a href="/sitemap.xml">Sitemap</a>
+          <a href="/llms.txt">AI context</a>
+        </nav>
       </footer>
 
       {notice && (

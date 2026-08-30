@@ -8,8 +8,10 @@ const limits = {
   // export UI while keeping the desktop app in lazy chunks.
   // The hosted editor mirrors the native trim controls, including editable time labels,
   // history, loop playback, and the lossless-trim status affordance.
-  javascriptRaw: 465 * 1024,
-  javascriptGzip: 145 * 1024,
+  // The root page includes the complete legacy-compatible desktop story below the browser
+  // editor, so its copy and comparison details are intentionally part of the hosted bundle.
+  javascriptRaw: 475 * 1024,
+  javascriptGzip: 147 * 1024,
   // The browser editor also carries the integrated desktop feature story, responsive layout,
   // and the legacy-matched platform download/architecture-choice surfaces.
   cssGzip: 18.5 * 1024,
