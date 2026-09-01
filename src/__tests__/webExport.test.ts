@@ -13,7 +13,7 @@ import {
   targetBitrateKbps,
   GIF_PRESETS,
 } from "../web/exportPlan";
-import { formatBrowserEta } from "../web/browserProgress";
+import { formatBrowserEta, progressFromMediaTime } from "../web/browserProgress";
 import { exportBrowserFile } from "../web/webExporter";
 import { isAudioCompatibilityError } from "../web/webExporter";
 import type { BrowserFfmpegEngine } from "../web/ffmpegEngine";
@@ -45,6 +45,12 @@ describe("browser export planning", () => {
     expect(formatBrowserEta(0, 2_000)).toBe("ETA: estimating…");
     expect(formatBrowserEta(50, 10_000)).toBe("ETA: 0:10");
     expect(formatBrowserEta(100, 10_000)).toBe("Complete");
+  });
+
+  it("uses encoded media time for browser progress and falls back safely", () => {
+    expect(progressFromMediaTime(3_000_000, 30, 0.9)).toBeCloseTo(0.1);
+    expect(progressFromMediaTime(0, 30, 0.25)).toBe(0);
+    expect(progressFromMediaTime(Number.NaN, 30, 0.25)).toBe(0.25);
   });
 
   it("calculates a target-aware bitrate with an audio allowance", () => {
@@ -150,7 +156,7 @@ describe("browser export planning", () => {
     expect(normalized).toContain("volume=2.000000dB");
   });
 
-  it("uses literal encoded heights for portrait sources and keeps unknown FPS unchanged", () => {
+  it("uses literal encoded heights and applies Advanced FPS without source metadata", () => {
     const portrait = { ...metadata, width: 1080, height: 1920 };
     const advanced = normalizeBrowserSettings({
       mode: "advanced",
@@ -167,7 +173,7 @@ describe("browser export planning", () => {
 
     expect(portraitFilter).toContain("scale=-2:720");
     expect(portraitFilter).not.toContain("scale=720:-2");
-    expect(unknownFpsFilter).not.toContain("fps=60");
+    expect(unknownFpsFilter).toContain("fps=60");
   });
 
   it("keeps cropped H.264 dimensions even for odd square sources", () => {
@@ -392,6 +398,35 @@ describe("browser export planning", () => {
     expect(progress.some((value) => value > 0 && value < 1)).toBe(true);
     expect(progress[progress.length - 1]).toBe(1);
     expect(result.wasOversized).toBe(true);
+  });
+
+  it("maps the encoded timestamp instead of the unreliable FFmpeg ratio", async () => {
+    const progress: number[] = [];
+    const engine = {
+      transcode: async (
+        _file: File,
+        _argsForInput: (inputName: string) => string[],
+        _outputName: string,
+        onProgress?: (event: { progress: number; time: number }) => void
+      ) => {
+        onProgress?.({ progress: 0.9, time: 3_000_000 });
+        return new Uint8Array(200_000);
+      },
+    } as unknown as BrowserFfmpegEngine;
+
+    const advanced = normalizeBrowserSettings({ mode: "advanced", advancedTargetSize: "" });
+    await exportBrowserFile({
+      engine,
+      file: { name: "capture.mp4" } as File,
+      metadata,
+      settings: advanced,
+      mode: "advanced",
+      startTime: 0,
+      endTime: 30,
+      onProgress: (value) => progress.push(value),
+    });
+
+    expect(progress[1]).toBeCloseTo(0.1);
   });
 
   it("accepts bounded custom advanced FPS values and rejects unsafe settings", () => {

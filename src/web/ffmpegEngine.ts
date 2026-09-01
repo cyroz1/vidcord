@@ -98,7 +98,7 @@ export class BrowserFfmpegEngine {
   private readonly handleProgress = ({ progress, time }: FfmpegProgressEvent) => {
     const event = {
       progress: Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0,
-      time: Number.isFinite(time) ? Math.max(0, time) : 0,
+      time: Number.isFinite(time) ? Math.max(0, time) : Number.NaN,
     };
     this.operationProgressHandler?.(event);
   };

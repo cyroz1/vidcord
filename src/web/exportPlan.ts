@@ -198,7 +198,11 @@ function getExportFps(
     typeof metadata.frameRate === "number" &&
     Number.isFinite(metadata.frameRate) &&
     metadata.frameRate > 0;
-  if (!hasSourceFrameRate) return "off";
+  // Standard mode exposes FPS values as caps, so keep its safe source-FPS
+  // fallback when the browser cannot verify the source rate. Advanced mode
+  // explicitly requests an output rate and FFmpeg can apply it without that
+  // metadata; an unknown source rate only means the cap cannot be validated.
+  if (!hasSourceFrameRate) return mode === "compress" ? "off" : normalized;
   if (mode !== "compress") return normalized;
 
   const option = FPS_OPTIONS.find((candidate) => candidate.value === normalized);

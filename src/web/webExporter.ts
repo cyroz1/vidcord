@@ -9,6 +9,7 @@ import {
   outputFileName,
   parsePeakNormalizationGain,
 } from "./exportPlan";
+import { progressFromMediaTime } from "./browserProgress";
 import type { BrowserVideoMetadata } from "./webMedia";
 import type { BrowserMode, BrowserSettings } from "./webSettings";
 
@@ -49,11 +50,15 @@ function operationProgressHandler(
   onProgress: ExportProgressHandler | undefined,
   start: number,
   end: number,
-  status: string
+  status: string,
+  durationSeconds: number
 ): FfmpegProgressHandler {
-  return ({ progress }) => {
-    const safeProgress = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
-    onProgress?.(start + (end - start) * safeProgress, status);
+  let lastProgress = 0;
+  return ({ progress, time }) => {
+    const safeProgress = progressFromMediaTime(time, durationSeconds, progress);
+    const monotonicProgress = Math.max(lastProgress, safeProgress);
+    lastProgress = monotonicProgress;
+    onProgress?.(start + (end - start) * monotonicProgress, status);
   };
 }
 
@@ -88,7 +93,7 @@ export async function exportBrowserFile({
       (inputName) =>
         buildLosslessArgs(inputName, baseName, plan.startTime, plan.endTime, settings.removeAudio),
       baseName,
-      operationProgressHandler(onProgress, 0, 1, "Encoding lossless trim…")
+      operationProgressHandler(onProgress, 0, 1, "Encoding lossless trim…", plan.selectedDuration)
     );
     onProgress?.(1, "Finishing export…");
     return {
@@ -120,7 +125,13 @@ export async function exportBrowserFile({
       const analysisLog = await engine.run(
         file,
         (inputName) => buildAudioPeakAnalysisArgs(inputName, plan),
-        operationProgressHandler(onProgress, 0, analysisEnd, "Analyzing audio peak…")
+        operationProgressHandler(
+          onProgress,
+          0,
+          analysisEnd,
+          "Analyzing audio peak…",
+          plan.selectedDuration
+        )
       );
       audioGainDb = parsePeakNormalizationGain(analysisLog);
     } catch (error: unknown) {
@@ -165,7 +176,13 @@ export async function exportBrowserFile({
                 gainDb
               ),
         outputName,
-        operationProgressHandler(onProgress, attemptStart, attemptEnd, encodingStatus)
+        operationProgressHandler(
+          onProgress,
+          attemptStart,
+          attemptEnd,
+          encodingStatus,
+          plan.selectedDuration
+        )
       );
     let bytes: Uint8Array<ArrayBuffer>;
     while (true) {

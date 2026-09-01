@@ -318,10 +318,6 @@ function WebApp() {
     () => getAvailableFpsOptions(metadata?.frameRate),
     [metadata?.frameRate]
   );
-  const sourceFpsKnown =
-    typeof metadata?.frameRate === "number" &&
-    Number.isFinite(metadata.frameRate) &&
-    metadata.frameRate > 0;
   const plan = useMemo<ExportPlan | null>(
     () =>
       metadata
@@ -1150,22 +1146,12 @@ function WebApp() {
                         inputMode="decimal"
                         value={settings.fps === "off" ? "" : settings.fps}
                         placeholder="Off"
-                        disabled={isExporting || !sourceFpsKnown}
-                        title={
-                          sourceFpsKnown
-                            ? "Set an output FPS at or below the source FPS"
-                            : "The browser could not determine the source FPS for this video"
-                        }
+                        disabled={isExporting}
                         onChange={(event) => patchSettings({ fps: event.target.value })}
                         onBlur={() =>
                           patchSettings({ fps: normalizeBrowserFps(settingsRef.current.fps) })
                         }
                       />
-                      {!sourceFpsKnown && (
-                        <small className="web-field-hint">
-                          Source FPS unavailable in this browser
-                        </small>
-                      )}
                     </label>
                     <WebAudioActions
                       removeAudio={settings.removeAudio}

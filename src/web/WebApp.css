@@ -2322,7 +2322,7 @@
 
 .web-editor-column .web-settings-grid {
   min-height: 49.5px;
-  height: 49.5px;
+  height: auto;
   align-items: end;
   gap: 8px;
 }
