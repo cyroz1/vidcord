@@ -57,6 +57,15 @@ describe("normalizePresetSettings", () => {
       lossless_mode: true,
     });
   });
+
+  it("stores semantic GIF targets and migrates the old index values", () => {
+    expect(normalizePresetSettings({ gif_target_mb: 20 }).gif_target_mb).toBe(20);
+    expect(normalizePresetSettings({ gif_quality_index: 0 }).gif_target_mb).toBe(20);
+    expect(normalizePresetSettings({ gif_quality_index: 1 }).gif_target_mb).toBe(20);
+    expect(normalizePresetSettings({ gif_quality_index: 2 }).gif_target_mb).toBe(5);
+    expect(normalizePresetSettings({ gif_quality_index: 3 }).gif_target_mb).toBe(5);
+    expect(normalizePresetSettings({ gif_target_mb: 50 }).gif_target_mb).toBe(5);
+  });
 });
 
 describe("parseSettingsPresets", () => {

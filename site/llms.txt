@@ -21,19 +21,19 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Windows desktop FFmpeg setup: vidcord can install `Gyan.FFmpeg` with WinGet and recognizes WinGet's aliases or package directory without requiring a Windows restart
 - Main use case: compress local videos under Discord's current 20 / 50 / 100 / 500 MB upload limits
 - Desktop inputs: MP4, MOV, MKV, AVI, WebM, FLV, WMV, and other formats the installed FFmpeg can demux
-- Browser inputs: video files the browser can decode; input support and performance depend on the browser, device, memory, and source format
+- Browser inputs: video files the browser can decode, capped at 512 MB per selected file; input support and performance depend on the browser, device, memory, and source format
 - Export modes in both editions: Compress, Advanced, Lossless Trim, and GIF
-- Browser controls: Discord targets, custom Advanced size/resolution/FPS, crop, audio normalization, audio removal for re-encoded exports, single-video trim/preview, snapshots, and same-profile multi-file batches
+- Browser controls: Discord targets, custom Advanced size/resolution/FPS when source-rate metadata permits, crop, audio normalization, audio removal for re-encoded exports, lossless audio removal, single-video trim/preview, trim snap/zoom/pan, snapshots, and same-profile multi-file batches
 - Browser encoder: fixed `libx264` in FFmpeg WebAssembly; browser exports use browser downloads
 - Browser Batch: applies one standard Compress profile to each selected full-duration file, shows per-file progress and aggregate ETA, and allows queued files to be removed before export; it has no per-file trim fields
 - Browser omissions: no encoder picker, source audio-track mixer, saved settings presets, native output destinations, native completion actions, Open With, OS notifications, taskbar/Dock progress, or desktop updater
 - Desktop Batch: multi-selection through Browse, drag-and-drop, Open With, command-line file arguments, or a second-instance launch; supports shared standard controls, separate start/end trims, up to two native workers, collision-safe MP4 outputs, and grouped completion actions
 - Desktop settings: named settings presets are available in the native footer; the browser editor has no saved preset UI
-- GIF exports: animated `.gif` files for Discord's 20 MB Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS; audio is removed
+- GIF exports: animated `.gif` files with 5 MB, 10 MB, or 20 MB size targets at 15, 30, or Discord-safe maximum 50 FPS; audio is removed
 - Desktop Lossless Trim: keyframe-aligned stream copy, optional audio-track removal, MP4/source-container selection, and normal-compression fallback when stream copying is incompatible
-- Browser Lossless Trim: local keyframe discovery and source-stream copy through WebAssembly; it does not provide the desktop app's native output or track controls
-- FPS: standard mode can leave FPS unchanged or cap it at 24, 30, or 60 FPS when the choice is below the source rate; Advanced accepts a typed positive FPS value
-- Audio: both editions can peak-normalize retained audio to 0 dB or remove audio in re-encoded modes; desktop Advanced can select and mix source tracks, while browser exports use the first audio stream
+- Browser Lossless Trim: local keyframe discovery and source-stream copy through WebAssembly, with optional `-an` audio removal; it does not provide the desktop app's native output or track controls
+- FPS: standard mode can leave FPS unchanged or cap it at 24, 30, or 60 FPS when the choice is below the source rate; browser unknown-rate imports retain Source and disable custom FPS, while Advanced accepts a typed positive FPS value when the source rate is known
+- Audio: both editions can peak-normalize retained audio or remove audio in re-encoded modes, and both can remove audio during Lossless Trim; desktop Advanced can select and mix source tracks, while browser exports use the first audio stream
 - Browser metadata: dimensions, duration, container information, and a file-size-based bitrate estimate are available when the browser can read the file; exact codec, frame-rate, and track details may be unavailable
 - Desktop preview: Windows and macOS support live scrubbing and trim playback; Linux uses FFmpeg-generated filmstrip/frame previews because WebKitGTK live playback can crash on some systems
 - Desktop encoder behavior: detects CPU/GPU encoders exposed by installed FFmpeg, prefers a usable H.264 hardware encoder on first run, preserves saved choices, and falls back to CPU encoding if hardware fails
@@ -50,7 +50,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Does the browser edition require FFmpeg? No system install is required. The browser loads the site's FFmpeg WebAssembly asset. The native desktop app separately requires `ffmpeg` and `ffprobe` on PATH.
 - What is desktop-only? GPU encoder discovery and selection, system-FFmpeg format coverage, source audio-track mixing, named settings presets, native output destinations, Open With, OS notifications, taskbar/Dock progress, and desktop updater flows.
 - Can vidcord compress multiple videos? Yes. Browser Batch accepts Browse or drag-and-drop selections and applies one shared full-duration Compress profile. Desktop Batch also accepts Open With, command-line arguments, and second-instance selections and adds per-file trims and native workers.
-- Which Discord size targets are supported? Both editions provide 20 MB, 50 MB, 100 MB, and 500 MB video targets. Advanced adds custom size, resolution, and typed FPS; GIF Mode provides 20 MB Free and 50 MB Nitro Basic GIF targets.
+- Which Discord size targets are supported? Both editions provide 20 MB, 50 MB, 100 MB, and 500 MB video targets. Advanced adds custom size, resolution, and typed FPS; GIF Mode provides 5 MB, 10 MB, and 20 MB GIF targets.
 - How does downloading work? The root desktop download section and `/legacy/` page fetch latest GitHub release metadata and link directly to the matching platform asset when possible. If x64 versus ARM64 is uncertain, they ask the user to choose. If metadata cannot be fetched, they fall back to the GitHub release page.
 - How do desktop in-app updates work? After user approval, vidcord downloads the matching installer under an unused Downloads filename, verifies its size and completeness, checks GitHub's SHA-256 digest and the independent Ed25519 release signature, and only then opens it.
 

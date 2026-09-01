@@ -9,9 +9,16 @@ export type BrowserVideoMetadata = {
   sourceBitrateKbps?: number;
   codec: string;
   hasAudio: boolean;
+  audioTrackCount?: number;
+  displayWidth?: number;
+  displayHeight?: number;
 };
 
 const VIDEO_EXTENSION = /\.(mp4|avi|mov|mkv|flv|wmv|webm|m4v|mpeg|mpg|ogv)$/i;
+export const VIDEO_FILE_ACCEPT =
+  "video/*,.mp4,.avi,.mov,.mkv,.flv,.wmv,.webm,.m4v,.mpeg,.mpg,.ogv";
+export const MAX_BROWSER_INPUT_BYTES = 512 * 1024 * 1024;
+export const MAX_BROWSER_INPUT_LABEL = "512 MB";
 
 const CONTAINER_LABELS: Record<string, string> = {
   avi: "AVI container",
@@ -44,6 +51,10 @@ const CLIPBOARD_WRITE_TIMEOUT_MS = 2_000;
 
 export function isVideoFile(file: File): boolean {
   return file.type.startsWith("video/") || VIDEO_EXTENSION.test(file.name);
+}
+
+export function isBrowserFileSizeSupported(file: Pick<File, "size">): boolean {
+  return Number.isFinite(file.size) && file.size > 0 && file.size <= MAX_BROWSER_INPUT_BYTES;
 }
 
 export function formatFileSize(bytes: number): string {
@@ -102,13 +113,15 @@ export function estimateAverageBitrateKbps(sizeBytes: number, duration: number):
   return (sizeBytes * 8) / duration / 1000;
 }
 
-export function estimateVideoBitrateKbps(sizeBytes: number, duration: number): number {
+export function estimateVideoBitrateKbps(
+  sizeBytes: number,
+  duration: number,
+  audioTrackCount = 1
+): number {
   const averageBitrateKbps = estimateAverageBitrateKbps(sizeBytes, duration);
   if (averageBitrateKbps <= 0) return 0;
-  // The browser cannot enumerate source tracks reliably. Reserve the same
-  // 128 kbps AAC allowance used by the desktop app while deriving a safe
-  // source-video bitrate for target-size planning.
-  return Math.max(100, Math.floor(averageBitrateKbps - 128));
+  const audioAllowance = Math.max(0, Math.floor(audioTrackCount)) * 128;
+  return Math.max(100, Math.floor(averageBitrateKbps - audioAllowance));
 }
 
 export function getPreviewUrl(file: File): string {
@@ -119,14 +132,22 @@ export async function readVideoMetadata(file: File): Promise<BrowserVideoMetadat
   const url = getPreviewUrl(file);
 
   try {
-    const metadata = await new Promise<Pick<BrowserVideoMetadata, "duration" | "width" | "height">>(
-      (resolve, reject) => {
+    const metadata = await new Promise<
+      Pick<BrowserVideoMetadata, "duration" | "width" | "height" | "frameRate" | "hasAudio" | "audioTrackCount">
+    >((resolve, reject) => {
         const video = document.createElement("video");
+        const extendedVideo = video as HTMLVideoElement & {
+          audioTracks?: { length: number };
+          frameRate?: number;
+          mozHasAudio?: boolean;
+        };
         video.preload = "metadata";
         video.muted = true;
         video.playsInline = true;
+        let timeoutId: number | null = null;
 
         const cleanup = () => {
+          if (timeoutId !== null) window.clearTimeout(timeoutId);
           video.removeAttribute("src");
           video.load();
         };
@@ -142,8 +163,26 @@ export async function readVideoMetadata(file: File): Promise<BrowserVideoMetadat
               reject(new Error("The browser could not read this video's dimensions or duration."));
               return;
             }
+            const audioTrackCount =
+              extendedVideo.audioTracks &&
+              Number.isInteger(extendedVideo.audioTracks.length) &&
+              extendedVideo.audioTracks.length >= 0
+                ? extendedVideo.audioTracks.length
+                : undefined;
+            const hasAudio =
+              typeof extendedVideo.mozHasAudio === "boolean"
+                ? extendedVideo.mozHasAudio
+                : audioTrackCount === undefined
+                  ? true
+                  : audioTrackCount > 0;
+            const frameRate =
+              typeof extendedVideo.frameRate === "number" &&
+              Number.isFinite(extendedVideo.frameRate) &&
+              extendedVideo.frameRate > 0
+                ? extendedVideo.frameRate
+                : null;
             cleanup();
-            resolve({ duration, width, height });
+            resolve({ duration, width, height, frameRate, hasAudio, audioTrackCount });
           },
           { once: true }
         );
@@ -155,6 +194,10 @@ export async function readVideoMetadata(file: File): Promise<BrowserVideoMetadat
           },
           { once: true }
         );
+        timeoutId = window.setTimeout(() => {
+          cleanup();
+          reject(new Error("The browser took too long to read this video's metadata."));
+        }, 10_000);
         video.src = url;
         video.load();
       }
@@ -166,13 +209,21 @@ export async function readVideoMetadata(file: File): Promise<BrowserVideoMetadat
       duration: metadata.duration,
       width: metadata.width,
       height: metadata.height,
-      frameRate: null,
+      frameRate: metadata.frameRate,
       bitrateKbps: estimateAverageBitrateKbps(file.size, metadata.duration),
-      sourceBitrateKbps: estimateVideoBitrateKbps(file.size, metadata.duration),
+      sourceBitrateKbps: estimateVideoBitrateKbps(
+        file.size,
+        metadata.duration,
+        metadata.audioTrackCount ?? (metadata.hasAudio ? 1 : 0)
+      ),
       codec: browserContainerLabel(file),
-      // Browsers do not expose a reliable source-track list. FFmpeg still keeps
-      // the first audio stream unless the user explicitly removes audio.
-      hasAudio: true,
+      hasAudio: metadata.hasAudio,
+      audioTrackCount: metadata.audioTrackCount,
+      // videoWidth/videoHeight are the browser's intrinsic display dimensions;
+      // keep them separate so crop UI can use display geometry when a browser
+      // exposes encoded dimensions through another metadata path in the future.
+      displayWidth: metadata.width,
+      displayHeight: metadata.height,
     };
   } finally {
     URL.revokeObjectURL(url);

@@ -14,7 +14,7 @@ import {
   formatFrameRate,
   formatVideoDuration,
 } from "../videoMetadata";
-import { snapLosslessTrimRange } from "../losslessTrim";
+import { normalizeLosslessKeyframes, snapLosslessTrimRange } from "../losslessTrim";
 import WebTrimTimeline from "./WebTrimTimeline";
 import {
   GIF_PRESETS,
@@ -29,6 +29,7 @@ import { buildKeyframeProbeArgs, parseKeyframeTimes } from "./keyframes";
 import DesktopUpgrade from "./DesktopUpgrade";
 import { formatBrowserEta } from "./browserProgress";
 import { exportBrowserFile } from "./webExporter";
+import { effectiveBrowserExportMode, shouldCopyBrowserExport } from "./webExportState";
 import {
   loadBrowserSettings,
   normalizeBrowserFps,
@@ -42,9 +43,12 @@ import {
   fileStem,
   formatFileSize,
   getPreviewUrl,
+  isBrowserFileSizeSupported,
   isVideoFile,
+  MAX_BROWSER_INPUT_LABEL,
   readVideoMetadata,
   tryCopyBlobToClipboard,
+  VIDEO_FILE_ACCEPT,
   type BrowserVideoMetadata,
 } from "./webMedia";
 import "./WebApp.css";
@@ -297,19 +301,27 @@ function WebApp() {
   const activeFile = files[activeFileIndex] ?? null;
   const batchMode = files.length > 1;
   const activeMode: BrowserMode | "batch" = batchMode ? "batch" : settings.mode;
-  const exportMode: BrowserMode = activeMode === "batch" ? "compress" : activeMode;
+  const exportMode = effectiveBrowserExportMode(activeMode);
   const duration = metadata?.duration ?? 0;
   const losslessKeyframeCacheKey = activeFile
     ? `${activeFile.name}\0${activeFile.size}\0${activeFile.lastModified}\0${duration}`
     : "";
   const cropOptions = useMemo(
-    () => getAvailableCropOptions(metadata?.width, metadata?.height),
-    [metadata?.height, metadata?.width]
+    () =>
+      getAvailableCropOptions(
+        metadata?.displayWidth ?? metadata?.width,
+        metadata?.displayHeight ?? metadata?.height
+      ),
+    [metadata?.displayHeight, metadata?.displayWidth, metadata?.height, metadata?.width]
   );
   const standardFpsOptions = useMemo(
     () => getAvailableFpsOptions(metadata?.frameRate),
     [metadata?.frameRate]
   );
+  const sourceFpsKnown =
+    typeof metadata?.frameRate === "number" &&
+    Number.isFinite(metadata.frameRate) &&
+    metadata.frameRate > 0;
   const plan = useMemo<ExportPlan | null>(
     () =>
       metadata
@@ -415,6 +427,12 @@ function WebApp() {
   );
 
   useEffect(() => {
+    if (settings.crop !== "off" && !cropOptions.some((option) => option.value === settings.crop)) {
+      patchSettings({ crop: "off" });
+    }
+  }, [cropOptions, patchSettings, settings.crop]);
+
+  useEffect(() => {
     const generation = ++keyframeProbeGenerationRef.current;
     const canProbe = settings.mode === "lossless" && !batchMode && activeFile && duration > 0;
 
@@ -438,6 +456,7 @@ function WebApp() {
     const file = activeFile;
     const engine = engineRef.current ?? new BrowserFfmpegEngine();
     engineRef.current = engine;
+    const discoveredKeyframes: number[] = [];
     let probeRunning = true;
     setLosslessKeyframes([]);
     setLosslessKeyframesLoading(true);
@@ -445,10 +464,12 @@ function WebApp() {
     setWasmLoading(true);
 
     void engine
-      .run(file, buildKeyframeProbeArgs)
-      .then((log) => {
+      .run(file, buildKeyframeProbeArgs, undefined, (message) => {
+        discoveredKeyframes.push(...parseKeyframeTimes(message, duration));
+      })
+      .then(() => {
         if (generation !== keyframeProbeGenerationRef.current) return;
-        const keyframes = parseKeyframeTimes(log, duration);
+        const keyframes = normalizeLosslessKeyframes(discoveredKeyframes, duration);
         if (keyframes.length === 0) {
           throw new Error("The browser could not find any source keyframes.");
         }
@@ -493,13 +514,25 @@ function WebApp() {
 
   const acceptFiles = useCallback(
     (candidateFiles: readonly File[]) => {
-      const nextFiles = candidateFiles.filter(isVideoFile).slice(0, 12);
+      const videoCandidates = candidateFiles.filter(isVideoFile);
+      const nextFiles = videoCandidates.filter(isBrowserFileSizeSupported).slice(0, 12);
       if (nextFiles.length === 0) {
-        showNotice("warning", "Choose a video file that the browser can read.");
+        showNotice(
+          "warning",
+          videoCandidates.some((file) => !isBrowserFileSizeSupported(file))
+            ? `Browser exports support video files up to ${MAX_BROWSER_INPUT_LABEL}.`
+            : "Choose a video file that the browser can read."
+        );
         return;
       }
       if (candidateFiles.length > nextFiles.length) {
-        showNotice("warning", "Some selections were skipped because they are not video files.");
+        const skippedLargeFile = videoCandidates.some((file) => !isBrowserFileSizeSupported(file));
+        showNotice(
+          "warning",
+          skippedLargeFile
+            ? `Some selections were skipped because browser exports support files up to ${MAX_BROWSER_INPUT_LABEL}.`
+            : "Some selections were skipped because they are not video files."
+        );
       }
       setFiles(nextFiles);
       setActiveFileIndex(0);
@@ -747,11 +780,7 @@ function WebApp() {
           },
         });
         downloadBlob(result.blob, result.fileName);
-        if (
-          settings.mode === "advanced" ||
-          settings.mode === "lossless" ||
-          settings.mode === "gif"
-        ) {
+        if (shouldCopyBrowserExport(exportMode, batchMode)) {
           const copied = await tryCopyBlobToClipboard(result.blob);
           if (copied) setExportStatus("Downloaded and copied to clipboard");
         }
@@ -937,7 +966,7 @@ function WebApp() {
                 ref={fileInputRef}
                 className="web-hidden-input"
                 type="file"
-                accept="video/*,.mkv,.avi,.mov,.webm,.flv,.wmv"
+                accept={VIDEO_FILE_ACCEPT}
                 multiple
                 disabled={isExporting}
                 onChange={handleFileInput}
@@ -1121,12 +1150,22 @@ function WebApp() {
                         inputMode="decimal"
                         value={settings.fps === "off" ? "" : settings.fps}
                         placeholder="Off"
-                        disabled={isExporting}
+                        disabled={isExporting || !sourceFpsKnown}
+                        title={
+                          sourceFpsKnown
+                            ? "Set an output FPS at or below the source FPS"
+                            : "The browser could not determine the source FPS for this video"
+                        }
                         onChange={(event) => patchSettings({ fps: event.target.value })}
                         onBlur={() =>
                           patchSettings({ fps: normalizeBrowserFps(settingsRef.current.fps) })
                         }
                       />
+                      {!sourceFpsKnown && (
+                        <small className="web-field-hint">
+                          Source FPS unavailable in this browser
+                        </small>
+                      )}
                     </label>
                     <WebAudioActions
                       removeAudio={settings.removeAudio}
@@ -1143,14 +1182,18 @@ function WebApp() {
                     <label className="web-field">
                       <span>Target size</span>
                       <select
-                        value={settings.gifQualityIndex}
+                        value={settings.gifTargetMb}
                         disabled={isExporting}
                         onChange={(event) =>
-                          patchSettings({ gifQualityIndex: Number(event.target.value) })
+                          patchSettings({
+                            gifTargetMb: Number(
+                              event.target.value
+                            ) as BrowserSettings["gifTargetMb"],
+                          })
                         }
                       >
-                        {GIF_PRESETS.map((preset, index) => (
-                          <option value={index} key={preset.label}>
+                        {GIF_PRESETS.map((preset) => (
+                          <option value={preset.sizeMb} key={preset.label}>
                             {preset.label}
                           </option>
                         ))}
@@ -1190,13 +1233,13 @@ function WebApp() {
                 {activeMode === "lossless" && (
                   <div className="web-lossless-note">
                     <span className="web-lossless-settings-hint">
-                      Copies the original video at keyframes; no re-encoding.
+                      Copies the original video at keyframes; audio removal does not re-encode.
                     </span>
                     <button
                       type="button"
                       className={`web-lossless-audio-toggle${settings.removeAudio ? " active" : ""}`}
-                      title={settings.removeAudio ? "Keep audio" : "Mute audio"}
-                      aria-label={settings.removeAudio ? "Keep audio" : "Mute audio"}
+                      title={settings.removeAudio ? "Keep audio" : "Remove audio tracks"}
+                      aria-label={settings.removeAudio ? "Keep audio" : "Remove audio tracks"}
                       aria-pressed={settings.removeAudio}
                       disabled={isExporting}
                       onClick={() => setBrowserRemoveAudio(!settings.removeAudio)}

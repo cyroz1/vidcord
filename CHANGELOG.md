@@ -27,6 +27,14 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Updated the README, FFmpeg setup guide, legacy metadata/structured data, public crawler files,
   and deployment notes to document the browser/desktop capability boundary and local-only
   processing model.
+- Changed GIF size presets in both editions to 5 MB, 10 MB, and 20 MB targets.
+- Migrated GIF settings to semantic size targets so existing 20/50 MB-era saved choices do not
+  silently become the new 5 MB option; legacy values are capped safely at the new 20 MB maximum.
+- Added browser Lossless Trim audio removal, bounded browser inputs to 512 MB per file, and aligned
+  browser crop/scaling, FPS safeguards, bitrate planning, GIF retries, and audio-error fallbacks
+  with the native export policy.
+- Added browser trim snap intervals plus zoom and pan controls, and expanded automated coverage for
+  browser settings migration, export planning, batch completion behavior, and rendered controls.
 
 ## v7.3
 

@@ -5,14 +5,17 @@ import {
   buildGifArgs,
   buildLosslessArgs,
   createExportPlan,
+  buildVideoFilter,
   getAvailableFpsOptions,
   getRetryBitrate,
   outputFileName,
   parsePeakNormalizationGain,
   targetBitrateKbps,
+  GIF_PRESETS,
 } from "../web/exportPlan";
 import { formatBrowserEta } from "../web/browserProgress";
 import { exportBrowserFile } from "../web/webExporter";
+import { isAudioCompatibilityError } from "../web/webExporter";
 import type { BrowserFfmpegEngine } from "../web/ffmpegEngine";
 import { normalizeBrowserSettings } from "../web/webSettings";
 import type { BrowserVideoMetadata } from "../web/webMedia";
@@ -47,6 +50,7 @@ describe("browser export planning", () => {
   it("calculates a target-aware bitrate with an audio allowance", () => {
     expect(targetBitrateKbps(20, 30, false)).toBe(4800);
     expect(targetBitrateKbps(20, 30, true)).toBeGreaterThan(targetBitrateKbps(20, 30, false));
+    expect(targetBitrateKbps(20, 30, false, 2)).toBe(4684);
     expect(targetBitrateKbps(20, 30, false, 1, 3_200)).toBe(3_200);
   });
 
@@ -69,6 +73,7 @@ describe("browser export planning", () => {
       480
     );
     const lossless = buildLosslessArgs("input.mp4", "output.mp4", 2, 20);
+    const losslessWithoutAudio = buildLosslessArgs("input.mp4", "output.mp4", 2, 20, true);
 
     expect(standard).toContain("libx264");
     expect(standard).toContain("2.000");
@@ -83,15 +88,39 @@ describe("browser export planning", () => {
     expect(gif).toContain("-an");
     expect(lossless).toContain("copy");
     expect(lossless).not.toContain("-vf");
+    expect(lossless).not.toContain("-an");
+    expect(losslessWithoutAudio).toContain("-an");
+  });
+
+  it("uses the shared 5, 10, and 20 MB GIF targets", () => {
+    expect(GIF_PRESETS.map((preset) => preset.sizeMb)).toEqual([5, 10, 20]);
+
+    const plan = createExportPlan(
+      metadata,
+      normalizeBrowserSettings({ gifTargetMb: 20 }),
+      "gif",
+      0,
+      20
+    );
+
+    expect(plan.targetSizeMb).toBe(20);
+    expect(plan.targetHeight).toBe(720);
   });
 
   it("keeps source-quality advanced exports at the source bitrate", () => {
     const advanced = normalizeBrowserSettings({ mode: "advanced", advancedTargetSize: "" });
-    expect(createExportPlan(metadata, advanced, "advanced", 0, 20).bitrateKbps).toBe(4_000);
+    const plan = createExportPlan(metadata, advanced, "advanced", 0, 20);
+    const args = buildCompressionArgs("input.mp4", "output.mp4", metadata, advanced, plan, 4_000);
+
+    expect(plan.bitrateKbps).toBe(4_000);
+    expect(args).toContain("-b:v");
+    expect(args).not.toContain("-maxrate");
+    expect(args).not.toContain("-bufsize");
   });
 
   it("matches desktop FPS filtering and peak-normalization analysis", () => {
     expect(getAvailableFpsOptions(30).map((option) => option.value)).toEqual(["off", "24"]);
+    expect(getAvailableFpsOptions(null).map((option) => option.value)).toEqual(["off"]);
     expect(
       parsePeakNormalizationGain(
         "[volumedetect] max_volume: -12.5 dB\n[volumedetect] max_volume: -2.0 dB"
@@ -119,6 +148,71 @@ describe("browser export planning", () => {
     expect(analysis).toContain("volumedetect");
     expect(analysis.indexOf("-t")).toBeLessThan(analysis.indexOf("-i"));
     expect(normalized).toContain("volume=2.000000dB");
+  });
+
+  it("uses literal encoded heights for portrait sources and keeps unknown FPS unchanged", () => {
+    const portrait = { ...metadata, width: 1080, height: 1920 };
+    const advanced = normalizeBrowserSettings({
+      mode: "advanced",
+      resolution: "720p",
+      fps: "60",
+    });
+    const portraitFilter = buildVideoFilter(portrait, advanced, 720, "advanced");
+    const unknownFpsFilter = buildVideoFilter(
+      { ...metadata, frameRate: null },
+      advanced,
+      720,
+      "advanced"
+    );
+
+    expect(portraitFilter).toContain("scale=-2:720");
+    expect(portraitFilter).not.toContain("scale=720:-2");
+    expect(unknownFpsFilter).not.toContain("fps=60");
+  });
+
+  it("keeps cropped H.264 dimensions even for odd square sources", () => {
+    const oddSource = { ...metadata, width: 1081, height: 721 };
+    const settingsWithSquareCrop = normalizeBrowserSettings({ crop: "1:1" });
+    const filter = buildVideoFilter(oddSource, settingsWithSquareCrop, null, "compress");
+
+    expect(filter).toContain("crop=trunc(min(iw\\,ih)/2)*2:trunc(min(iw\\,ih)/2)*2");
+    expect(filter).toContain("scale=trunc(iw/2)*2:trunc(ih/2)*2");
+  });
+
+  it("matches the native GIF quality tradeoff across FPS and retries", () => {
+    const gifSettings = normalizeBrowserSettings({ mode: "gif", gifTargetMb: 20, gifFps: 15 });
+    const gifPlan = createExportPlan(metadata, gifSettings, "gif", 0, 20);
+    const standardFilter = buildGifArgs(
+      "input.mp4",
+      "output.gif",
+      metadata,
+      gifSettings,
+      gifPlan,
+      gifPlan.targetHeight ?? 480
+    ).find((argument) => argument.includes("palettegen"));
+    const highFpsFilter = buildGifArgs(
+      "input.mp4",
+      "output.gif",
+      metadata,
+      { ...gifSettings, gifFps: 50 },
+      gifPlan,
+      gifPlan.targetHeight ?? 480
+    ).find((argument) => argument.includes("palettegen"));
+    const retryFilter = buildGifArgs(
+      "input.mp4",
+      "output.gif",
+      metadata,
+      gifSettings,
+      gifPlan,
+      gifPlan.targetHeight ?? 480,
+      Math.floor((gifPlan.bitrateKbps ?? 1) * 0.25)
+    ).find((argument) => argument.includes("palettegen"));
+
+    expect(standardFilter).toContain("max_colors=256");
+    expect(highFpsFilter).toContain("fps=50");
+    expect(highFpsFilter).toContain("max_colors=256");
+    expect(retryFilter).toContain("max_colors=128");
+    expect(retryFilter).toContain("scale=640:360");
   });
 
   it("retries an export without audio normalization when its filter fails", async () => {
@@ -197,6 +291,64 @@ describe("browser export planning", () => {
     expect(result.audioRemovedForCompatibility).toBe(true);
   });
 
+  it("does not change the requested media shape after an unrelated encode failure", async () => {
+    let transcodeCount = 0;
+    const engine = {
+      run: async () => "[volumedetect] max_volume: -6.0 dB",
+      transcode: async () => {
+        transcodeCount += 1;
+        throw new Error("filter graph failed while allocating frames");
+      },
+    } as unknown as BrowserFfmpegEngine;
+
+    await expect(
+      exportBrowserFile({
+        engine,
+        file: { name: "capture.mp4" } as File,
+        metadata,
+        settings: normalizeBrowserSettings({ mode: "advanced", audioNormalize: true }),
+        mode: "advanced",
+        startTime: 0,
+        endTime: 20,
+      })
+    ).rejects.toThrow("filter graph failed");
+    expect(transcodeCount).toBe(1);
+    expect(isAudioCompatibilityError("filter graph failed while allocating frames")).toBe(false);
+    expect(isAudioCompatibilityError("audio filter failed")).toBe(true);
+  });
+
+  it("gives browser GIF exports the same four bounded adaptive attempts", async () => {
+    const filters: string[] = [];
+    let transcodeCount = 0;
+    const engine = {
+      transcode: async (
+        _file: File,
+        argsForInput: (inputName: string) => string[],
+        _outputName: string
+      ) => {
+        const args = argsForInput("input.mp4");
+        filters.push(args[args.indexOf("-filter_complex") + 1] ?? "");
+        transcodeCount += 1;
+        return new Uint8Array(5 * 1024 * 1024 + 1);
+      },
+    } as unknown as BrowserFfmpegEngine;
+
+    const settings = normalizeBrowserSettings({ mode: "gif", gifTargetMb: 5 });
+    const result = await exportBrowserFile({
+      engine,
+      file: { name: "capture.mp4" } as File,
+      metadata,
+      settings,
+      mode: "gif",
+      startTime: 0,
+      endTime: 20,
+    });
+
+    expect(transcodeCount).toBe(4);
+    expect(new Set(filters).size).toBeGreaterThan(1);
+    expect(result.wasOversized).toBe(true);
+  });
+
   it("corrects oversized target encodes and sanitizes browser downloads", () => {
     expect(getRetryBitrate(4000, 30 * 1024 * 1024, 20)).toBe(2400);
     expect(outputFileName("my capture (final).mov", "mp4", 0)).toBe(
@@ -254,6 +406,11 @@ describe("browser export planning", () => {
     expect(normalized.fps).toBe("120.5");
     expect(normalized.crop).toBe("off");
     expect(normalized.gifFps).toBe(15);
+    expect(normalized.gifTargetMb).toBe(5);
+    expect(normalizeBrowserSettings({ gifQualityIndex: 0 }).gifTargetMb).toBe(20);
+    expect(normalizeBrowserSettings({ gifQualityIndex: 1 }).gifTargetMb).toBe(20);
+    expect(normalizeBrowserSettings({ gifQualityIndex: 2 }).gifTargetMb).toBe(5);
+    expect(normalizeBrowserSettings({ gifQualityIndex: 3 }).gifTargetMb).toBe(5);
 
     expect(normalizeBrowserSettings({ fps: "240.01" }).fps).toBe("off");
     expect(normalizeBrowserSettings({ fps: "javascript:" }).fps).toBe("off");

@@ -10,8 +10,10 @@ const limits = {
   // history, loop playback, and the lossless-trim status affordance.
   // The root page includes the complete legacy-compatible desktop story below the browser
   // editor, so its copy and comparison details are intentionally part of the hosted bundle.
-  javascriptRaw: 475 * 1024,
-  javascriptGzip: 147 * 1024,
+  // 7.4 adds browser GIF parity, semantic settings migration, and snap/zoom/pan trim controls;
+  // keep a small explicit allowance for those user-visible capabilities.
+  javascriptRaw: 482 * 1024,
+  javascriptGzip: 150 * 1024,
   // The browser editor also carries the integrated desktop feature story, responsive layout,
   // and the legacy-matched platform download/architecture-choice surfaces.
   cssGzip: 18.5 * 1024,

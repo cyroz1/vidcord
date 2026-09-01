@@ -2,6 +2,7 @@ import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile } from "@ffmpeg/util";
 import coreURL from "@ffmpeg/core?url";
 import wasmURL from "@ffmpeg/core/wasm?url";
+import { isBrowserFileSizeSupported, MAX_BROWSER_INPUT_LABEL } from "./webMedia";
 
 export type FfmpegProgressEvent = {
   progress: number;
@@ -92,6 +93,8 @@ export class BrowserFfmpegEngine {
 
   private logBuffer = "";
 
+  private runLogHandler: ((message: string) => void) | null = null;
+
   private readonly handleProgress = ({ progress, time }: FfmpegProgressEvent) => {
     const event = {
       progress: Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0,
@@ -101,6 +104,7 @@ export class BrowserFfmpegEngine {
   };
 
   private readonly handleLog = ({ message }: { message: string }) => {
+    this.runLogHandler?.(message);
     this.lastLog = message.trim().slice(-500);
     this.logBuffer = `${this.logBuffer}\n${message}`.slice(-32_000);
   };
@@ -146,6 +150,9 @@ export class BrowserFfmpegEngine {
     outputName: string,
     onProgress?: FfmpegProgressHandler
   ): Promise<Uint8Array<ArrayBuffer>> {
+    if (!isBrowserFileSizeSupported(file)) {
+      throw new Error(`Browser exports support video files up to ${MAX_BROWSER_INPUT_LABEL}.`);
+    }
     await this.load();
     const ffmpeg = this.ffmpeg;
     if (!ffmpeg) throw new Error("The browser encoder is not available.");
@@ -155,6 +162,7 @@ export class BrowserFfmpegEngine {
     const inputData = await fetchFile(file);
     this.lastLog = "";
     this.logBuffer = "";
+    this.runLogHandler = null;
     await ffmpeg.writeFile(inputName, inputData);
 
     try {
@@ -167,6 +175,7 @@ export class BrowserFfmpegEngine {
       return readBytes(await ffmpeg.readFile(outputName));
     } finally {
       this.operationProgressHandler = null;
+      this.runLogHandler = null;
       await ffmpeg.deleteFile(inputName).catch(() => false);
       await ffmpeg.deleteFile(outputName).catch(() => false);
     }
@@ -175,8 +184,12 @@ export class BrowserFfmpegEngine {
   async run(
     file: File,
     argsForInput: (inputName: string) => string[],
-    onProgress?: FfmpegProgressHandler
+    onProgress?: FfmpegProgressHandler,
+    onLog?: (message: string) => void
   ): Promise<string> {
+    if (!isBrowserFileSizeSupported(file)) {
+      throw new Error(`Browser exports support video files up to ${MAX_BROWSER_INPUT_LABEL}.`);
+    }
     await this.load();
     const ffmpeg = this.ffmpeg;
     if (!ffmpeg) throw new Error("The browser encoder is not available.");
@@ -190,6 +203,7 @@ export class BrowserFfmpegEngine {
     await ffmpeg.writeFile(inputName, inputData);
 
     try {
+      this.runLogHandler = onLog ?? null;
       this.operationProgressHandler = onProgress ?? null;
       const exitCode = await ffmpeg.exec(argsForInput(inputName));
       if (this.loadGeneration !== operationGeneration) {
@@ -205,6 +219,7 @@ export class BrowserFfmpegEngine {
       throw error;
     } finally {
       this.operationProgressHandler = null;
+      this.runLogHandler = null;
       await ffmpeg.deleteFile(inputName).catch(() => false);
     }
   }
@@ -212,6 +227,7 @@ export class BrowserFfmpegEngine {
   cancel(): void {
     this.loadGeneration += 1;
     this.operationProgressHandler = null;
+    this.runLogHandler = null;
     if (!this.ffmpeg) return;
     this.ffmpeg.off("progress", this.handleProgress);
     this.ffmpeg.off("log", this.handleLog);

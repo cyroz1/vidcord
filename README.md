@@ -10,7 +10,7 @@ your browser with FFmpeg WebAssembly: choose a **20 MB, 50 MB, 100 MB, or
 500 MB** target, trim the clip, or choose **Lossless Trim** to cut on source
 keyframes without re-encoding. Finished files download through the browser;
 selected videos never leave the device. GIF Mode creates animated `.gif`
-exports for Discord's **20 MB Free** and **50 MB Nitro Basic** tiers.
+exports with **5 MB**, **10 MB**, or **20 MB** size targets.
 
 Download the optional [native desktop app](https://vidcord.app/#download) when
 you want faster system encoding, GPU encoders, native folders, Open With,
@@ -104,7 +104,7 @@ and retry oversized results with safer bitrates and CPU fallback.
 | Compress large MP4, MOV, MKV, AVI, or WebM files        | The desktop app uses system FFmpeg; the browser edition accepts formats its browser can decode.                              |
 | Compress several videos in one pass                     | Browser Batch applies shared settings to full-duration files; desktop Batch adds trims, native workers, and output handling. |
 | Preserve original video quality while trimming          | Use Lossless Trim for keyframe-aligned stream-copy output without re-encoding.                                               |
-| Turn a video clip into a Discord GIF                    | Enable GIF Mode and choose the 20 MB Free or 50 MB Nitro Basic target.                                                       |
+| Turn a video clip into a Discord GIF                    | Enable GIF Mode and choose the 5 MB, 10 MB, or 20 MB target.                                                                 |
 | Make a video fit Discord Nitro or boosted server limits | Pick the 50 MB, 100 MB, or 500 MB target without calculating bitrates by hand.                                               |
 | Keep video compression private                          | Everything runs locally on your computer; no web upload step.                                                                |
 | Compress without installing the desktop app             | Use the browser edition for local WebAssembly processing and browser downloads.                                              |
@@ -135,8 +135,8 @@ and retry oversized results with safer bitrates and CPU fallback.
   - 100 MB @ 1080p — Boost Level 3 or
     [Clips Bypass](https://github.com/riolubruh/YABDP4Nitro?tab=readme-ov-file#clips)
   - 500 MB @ native — Nitro Full
-- **GIF Mode** — export an optimized animated GIF for the 20 MB Discord Free
-  or 50 MB Nitro Basic tier at 15, 30, or Discord-safe maximum 50 FPS. Video-only encoder, audio,
+- **GIF Mode** — export an optimized animated GIF for a 5 MB, 10 MB, or 20 MB target at 15, 30, or
+  Discord-safe maximum 50 FPS. Video-only encoder, audio,
   and unrelated video controls are hidden while GIF Mode is active; the aspect-ratio crop selector
   remains available because it still applies to GIF output. Higher frame rates trade spatial detail
   for motion, and oversized GIFs are retried at
@@ -162,20 +162,22 @@ and retry oversized results with safer bitrates and CPU fallback.
   through the browser.
 - **Output FPS controls** — standard mode can leave FPS unchanged or cap it
   at 24, 30, or 60 FPS. The desktop app hides choices at or above the FFprobe
-  frame rate when they would be redundant; browser frame-rate metadata may be
-  unavailable. Advanced mode accepts a custom FPS value, or an empty field
-  shown as Off for no change.
+  frame rate when they would be redundant. When browser frame-rate metadata is
+  unavailable, the browser keeps Source as the only safe FPS choice and
+  disables typed Advanced FPS rather than upsampling by accident. Advanced
+  mode otherwise accepts a custom FPS value, or an empty field shown as Off
+  for no change.
 - **Desktop completion actions** — copy the finished output file itself to the
   system clipboard by default, with an automatic reveal fallback, or always
   reveal it in Explorer/Finder instead.
 - **Desktop trim timeline** with fine-grained handles, draggable playhead, snap
   controls, zoom, pan, undo/redo, and optional looped playback. The browser
-  editor keeps the supported handle, playhead, history, and loop controls in
-  its lighter timeline.
+  editor keeps handles, a playhead, history, loop playback, snap intervals,
+  zoom, and pan in its lighter timeline.
 - **Lossless Trim** — use the dedicated copy-mode tab beside Advanced to
   preserve source streams with a fast keyframe-aligned stream copy. Both
-  editions discover source keyframes locally; the desktop app can also remove
-  all audio tracks without re-encoding the video. When a selected segment is
+  editions discover source keyframes locally, and both can remove all audio
+  tracks without re-encoding the video. When a selected segment is
   estimated to fit a chosen size target at the source bitrate, the desktop app
   offers this mode with a keyframe-precision warning. Boundaries snap outward
   to source keyframes; the desktop app prefers an MP4 stream-copy output, then
@@ -271,17 +273,20 @@ normal browser downloads for videos and PNG frame snapshots.
 
 The browser editor includes Compress, Advanced, Lossless Trim, GIF, single-file
 trim and preview, crop, audio normalization, audio removal for re-encoded
-exports, standard FPS controls, typed Advanced FPS, snapshots, and same-profile
-multi-file batches. Browser Batch applies one standard Compress profile to each
-selected file at full duration, reports per-file progress and aggregate ETA, and
-allows queued files to be removed before export. It does not expose per-file
-batch trim fields or a batch preview timeline.
+exports, lossless audio removal, standard FPS controls, typed Advanced FPS when
+the source rate is known, snapshots, and same-profile multi-file batches. Each
+selected browser input is capped at 512 MB because FFmpeg WebAssembly processes
+the file in browser memory. Browser Batch applies one standard Compress profile
+to each selected file at full duration, reports per-file progress and aggregate
+ETA, and allows queued files to be removed before export. It does not expose
+per-file batch trim fields or a batch preview timeline.
 
 The browser encoder is intentionally fixed to `libx264` in WebAssembly. Advanced
 mode can set a custom target size, resolution, and FPS, but cannot select a
 different encoder or source audio tracks. Lossless Trim copies the source
-streams at locally discovered keyframes. Browser input support and performance
-depend on the browser, device, available memory, and source format.
+streams at locally discovered keyframes and can omit audio streams with `-an`.
+Its trim panel supports snap intervals, zoom, and pan. Browser input support and
+performance depend on the browser, device, available memory, and source format.
 
 The browser edition does not provide the desktop app's system FFmpeg, GPU
 encoder discovery, native output folders, Open With routing, saved settings
@@ -291,17 +296,17 @@ the browser controls its download location and any download prompts.
 
 ### Browser and desktop capability matrix
 
-| Capability             | Browser editor at `/`                                              | Native desktop app                                       |
-| ---------------------- | ------------------------------------------------------------------ | -------------------------------------------------------- |
-| Processing engine      | Local FFmpeg WebAssembly                                           | Local system `ffmpeg` and `ffprobe`                      |
-| Video encoder          | Fixed `libx264`                                                    | CPU and detected GPU encoders, selectable on desktop     |
-| Inputs                 | Formats the browser can decode                                     | Formats the installed FFmpeg can demux                   |
-| Modes                  | Compress, Advanced, Lossless Trim, GIF                             | Compress, Advanced, Lossless Trim, GIF                   |
-| Audio                  | Normalize/remove audio for re-encoded exports; first source stream | Track selection/mixing, normalization, or removal        |
-| Batch                  | Shared Compress profile, full duration, browser downloads          | Shared controls plus per-file trims and native workers   |
-| Output                 | Browser downloads                                                  | Downloads, source folder, custom folder, or save prompt  |
-| Saved settings presets | Not available                                                      | Available in the desktop footer                          |
-| Native integrations    | None                                                               | Open With, clipboard/reveal, notifications, taskbar/Dock |
+| Capability             | Browser editor at `/`                                                  | Native desktop app                                       |
+| ---------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------- |
+| Processing engine      | Local FFmpeg WebAssembly                                               | Local system `ffmpeg` and `ffprobe`                      |
+| Video encoder          | Fixed `libx264`                                                        | CPU and detected GPU encoders, selectable on desktop     |
+| Inputs                 | Formats the browser can decode                                         | Formats the installed FFmpeg can demux                   |
+| Modes                  | Compress, Advanced, Lossless Trim, GIF                                 | Compress, Advanced, Lossless Trim, GIF                   |
+| Audio                  | Normalize/remove re-encoded audio; lossless `-an`; first source stream | Track selection/mixing, normalization, or removal        |
+| Batch                  | Shared Compress profile, full duration, browser downloads              | Shared controls plus per-file trims and native workers   |
+| Output                 | Browser downloads                                                      | Downloads, source folder, custom folder, or save prompt  |
+| Saved settings presets | Not available                                                          | Available in the desktop footer                          |
+| Native integrations    | None                                                                   | Open With, clipboard/reveal, notifications, taskbar/Dock |
 
 To build the static browser bundle locally:
 
@@ -408,10 +413,13 @@ For more distros, manual installs, or troubleshooting, read
 ### Browser editor
 
 1. Open [vidcord.app](https://vidcord.app/) and choose **Browse File**, or drag
-   a browser-readable video onto the editor.
+   a browser-readable video onto the editor. Each selected browser input must be
+   512 MB or smaller because processing happens in WebAssembly memory.
 2. Choose **Compress**, **Advanced**, **Lossless Trim**, or **GIF**. Use the
    Discord target, crop, FPS, audio, and trim controls that apply to the mode.
-   Advanced mode accepts a typed FPS value.
+   Advanced mode accepts a typed FPS value when the browser can determine the
+   source frame rate. The trim options panel also provides snap intervals and
+   timeline zoom/pan controls.
 3. Click the export button. FFmpeg WebAssembly loads locally, progress and ETA
    update in the page, and the finished video downloads through the browser.
 
@@ -433,8 +441,8 @@ preserve the full selection.
    remembered custom folder, or **Ask when done**. Choose whether completion
    copies the output file or reveals it.
 3. **Pick a mode or target** — choose **Compress**, **Advanced**, **Lossless
-   Trim**, or **GIF**, then select a 20/50/100/500 MB target where that mode
-   applies. Compress, Advanced, and GIF Mode expose the aspect-ratio crop selector;
+   Trim**, or **GIF**, then select a target size for that mode: 20/50/100/500 MB for video or
+   5/10/20 MB for GIF. Compress, Advanced, and GIF Mode expose the aspect-ratio crop selector;
    Advanced also exposes custom target size, resolution, FPS, audio normalization,
    and encoder controls. Leaving its size empty uses the source bitrate
    without a file-size limit. Standard mode can cap output FPS at 24, 30, or 60
@@ -716,8 +724,9 @@ assets, then can process selected files without uploading them.
 Yes. Open the [browser edition](https://vidcord.app/) for a no-install
 workflow. It runs FFmpeg WebAssembly locally, keeps selected files in the
 browser, and downloads finished exports. It includes the four export modes,
-trim, crop, audio normalization, audio removal for re-encoded exports, typed
-Advanced FPS, snapshots, and same-profile Batch mode. It is a lighter
+trim, crop, audio normalization, audio removal for re-encoded exports, lossless
+audio removal, typed Advanced FPS when source metadata permits, snapshots, and
+same-profile Batch mode. Each selected browser input is limited to 512 MB. It is a lighter
 alternative with a fixed `libx264` WASM encoder and browser-dependent input
 support; use the desktop app for native folders, Open With, GPU encoder
 discovery, saved settings presets, and other OS integrations.
@@ -777,9 +786,10 @@ targets cover Nitro Basic, boosted servers, and Nitro.
 ### Can I change the output FPS?
 
 Yes. Standard mode offers Off, 24, 30, and 60 FPS, and hides choices at or
-above the source video's frame rate when they would be redundant. Advanced mode
-lets you enter any positive FPS value, or leave the Off field empty to keep the
-original cadence.
+above the source video's frame rate when they would be redundant. In the browser,
+unknown source-rate metadata leaves only Source and disables custom FPS so the
+export cannot accidentally upsample. Advanced mode otherwise lets you enter any
+positive FPS value, or leave the Off field empty to keep the original cadence.
 
 ### How is vidcord different from using FFmpeg directly?
 
@@ -798,7 +808,8 @@ exposes the encoder string so you can override any of it.
 Yes. **Lossless Trim** stream-copies the selected source streams and snaps the
 visible boundaries outward to source keyframes, so the export keeps original
 quality without video re-encoding. The browser and desktop editions discover
-keyframes locally. It does not promise a target size; on desktop, when a
+keyframes locally, and both can remove audio streams without re-encoding video.
+It does not promise a target size; on desktop, when a
 size-based segment is estimated to fit, Compress offers the same mode with a
 keyframe-precision warning. Keyframe discovery failure blocks the lossless
 export, and incompatible stream-copy inputs fall back to normal compression.
@@ -829,7 +840,8 @@ while offline.
 ### What are the system requirements?
 
 - Browser edition: a modern browser with WebAssembly, local file access, and
-  support for the selected video's container and codec.
+  support for the selected video's container and codec; each selected input is
+  limited to 512 MB.
 - Windows 10 or 11 (x86_64 or aarch64) with the WebView2 Runtime
   (pre-installed on Windows 11).
 - macOS 11 (Big Sur) or newer, Intel or Apple Silicon.

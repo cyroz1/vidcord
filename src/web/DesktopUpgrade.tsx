@@ -563,7 +563,8 @@ function DesktopUpgrade() {
           <p className="hero-body">
             Compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord&apos;s 20, 50, 100,
             or 500 MB limits using system FFmpeg locally. Lossless Trim cuts on keyframes without
-            re-encoding. GIF Mode creates Discord-ready GIFs at 15, 30, or up to 50 FPS.
+            re-encoding. GIF Mode creates Discord-ready GIFs with 5 MB, 10 MB, or 20 MB size
+            targets at 15, 30, or up to 50 FPS.
           </p>
           <p className="hero-body">
             The browser editor above is the fast, no-install option. Download the native app for
@@ -704,8 +705,7 @@ function DesktopUpgrade() {
           <h2>Discord targets</h2>
           <p>
             Choose a 20, 50, 100, or 500 MB limit and let vidcord calculate the bitrate. GIF Mode
-            supports 20 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS in both
-            editions.
+            supports 5 MB, 10 MB, and 20 MB exports at 15, 30, or up to 50 FPS in both editions.
           </p>
         </article>
         <article>
@@ -755,15 +755,16 @@ function DesktopUpgrade() {
             <strong>Included</strong>
             <span>
               Compress, Advanced, Lossless Trim, GIF, trim, crop, audio normalization, audio removal
-              for re-encoded exports, FPS, snapshots, and same-profile batches.
+              for re-encoded exports, lossless audio removal, FPS, trim snap/zoom/pan, snapshots,
+              and same-profile batches.
             </span>
           </div>
           <div>
             <strong>Browser constraints</strong>
             <span>
-              Browser-readable inputs, a fixed libx264 WASM encoder, and browser downloads; encoder
-              selection, audio-track mixing, saved presets, native folders, GPU encoder discovery,
-              and Open With stay in the desktop app.
+              Browser-readable inputs up to 512 MB each, a fixed libx264 WASM encoder, and browser
+              downloads; encoder selection, audio-track mixing, saved presets, native folders, GPU
+              encoder discovery, and Open With stay in the desktop app.
             </span>
           </div>
         </div>
@@ -809,9 +810,9 @@ function DesktopUpgrade() {
           "Browser Batch mode applies one shared full-duration Compress profile with per-file details and an aggregate ETA; desktop Batch adds separate trims and native parallel encoding.",
           "Strict output size checks with safer adaptive retry behavior.",
           "Named settings presets with Autosave, restore, and delete controls in the desktop app.",
-          "Output FPS controls for 24, 30, 60, or a custom advanced value.",
+          "Output FPS controls for 24, 30, 60, or a custom Advanced value when browser source-rate metadata permits.",
           "Crop to 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, or 5:4 before scaling.",
-          "Peak-normalize audio or remove it for more video bitrate in browser re-encoded modes; desktop Advanced can also mix source tracks.",
+          "Peak-normalize audio or remove it for more video bitrate in browser re-encoded or Lossless Trim modes; desktop Advanced can also mix source tracks.",
           "Race-safe cancellation in both editions; native exports use atomically reserved outputs that never overwrite your files, while browser exports use browser downloads.",
           "User-approved desktop update installers verified against GitHub’s published integrity data.",
         ]}
@@ -831,11 +832,11 @@ function DesktopUpgrade() {
 
       <DetailSection
         title="Keep the original quality when you only need a shorter clip."
-        copy="Lossless Trim cuts on source keyframes without re-encoding the video in both editions. The browser editor copies source streams through WebAssembly; the desktop app also supports removing audio without re-encoding and native container/output handling."
+        copy="Lossless Trim cuts on source keyframes without re-encoding the video in both editions. The browser editor copies source streams through WebAssembly and can remove audio without re-encoding; the desktop app also supports native container/output handling."
         items={[
           "No video re-encoding for fast, original-quality exports.",
           "Trim boundaries snap outward to source keyframes.",
-          "Desktop Lossless Trim can keep audio or remove every audio track without re-encoding video.",
+          "Both editions can keep audio or remove every audio track without re-encoding video.",
           "Desktop size-based exports offer it when the selected segment is estimated to fit.",
           "Desktop falls back to normal compression when stream copying is incompatible.",
         ]}
@@ -855,9 +856,9 @@ function DesktopUpgrade() {
 
       <DetailSection
         title="Turn the best moment into a Discord-ready GIF."
-        copy="GIF Mode swaps in focused controls for animated exports in the browser and desktop app. Choose a Discord Free or Nitro Basic size target and the motion quality you want, then let vidcord optimize the result locally."
+        copy="GIF Mode swaps in focused controls for animated exports in the browser and desktop app. Choose a 5 MB, 10 MB, or 20 MB size target and the motion quality you want, then let vidcord optimize the result locally."
         items={[
-          "Focused 20 MB Free and 50 MB Nitro Basic targets.",
+          "Focused 5 MB, 10 MB, and 20 MB targets.",
           "Selectable 15, 30, or Discord-safe maximum 50 FPS output.",
           "Automatic palette generation for cleaner color and motion.",
           "Adaptive size retries that preserve your selected frame rate.",
@@ -1008,8 +1009,8 @@ function DesktopUpgrade() {
             <h3>Which Discord upload limits are supported?</h3>
             <p>
               Both editions cover 20 MB, 50 MB, 100 MB, and 500 MB targets. Advanced mode adds
-              custom size, resolution, FPS, and encoder controls on desktop; GIF Mode supports 20 MB
-              Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS.
+              custom size, resolution, FPS, and encoder controls on desktop; GIF Mode supports 5 MB,
+              10 MB, and 20 MB exports at 15, 30, or up to 50 FPS.
             </p>
           </article>
           <article>

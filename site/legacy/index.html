@@ -92,12 +92,12 @@
             "featureList": [
               "Local video compression in the browser with FFmpeg WebAssembly or in the desktop app with system FFmpeg",
               "Desktop app named compression and mode presets with Autosave, restore, and delete controls",
-              "Lossless Trim stream-copy exports with outward keyframe-aligned boundaries; desktop also supports lossless audio-track removal",
+              "Lossless Trim stream-copy exports with outward keyframe-aligned boundaries and optional audio-track removal in both editions",
               "Discord upload targets: current 20 MB, 50 MB, 100 MB, and 500 MB limits in both editions",
               "Browser Batch mode for shared full-duration Compress exports and desktop Batch mode with separate start/end trim fields",
               "Desktop two-worker batch encoding with adaptive serial fallback, continue-on-error processing, aggregate progress and whole-queue ETA",
-              "Animated GIF exports for Discord's 20 MB Free and 50 MB Nitro Basic tiers at 15, 30, or Discord-safe maximum 50 FPS with aspect-ratio cropping",
-              "Output FPS controls with source-aware 24, 30, and 60 FPS choices plus typed Advanced FPS",
+              "Animated GIF exports with 5 MB, 10 MB, or 20 MB size targets at 15, 30, or Discord-safe maximum 50 FPS with aspect-ratio cropping",
+              "Output FPS controls with source-aware 24, 30, and 60 FPS choices plus typed Advanced FPS when browser source metadata permits",
               "Desktop output destinations for Downloads, the imported clip folder, a remembered custom folder, or an after-compression save prompt; browser exports use browser downloads",
               "Desktop completion actions that copy the output file to the system clipboard by default or reveal it in the platform file manager",
               "Peak audio normalization that sets the highest sample peak to 0 dB in re-encoded modes",
@@ -113,7 +113,7 @@
               "Race-safe compression cancellation and collision-safe desktop output reservation",
               "Desktop user-approved installer downloads verified with GitHub-published SHA-256 digests and independent Ed25519 release signatures",
               "No uploads, accounts, or telemetry",
-              "Client-side browser edition with fixed libx264 WebAssembly encoding, browser downloads, crop, audio normalization, audio removal for re-encoded exports, snapshots, and same-profile batches"
+              "Client-side browser edition with fixed libx264 WebAssembly encoding, browser downloads, crop, audio normalization, audio removal for re-encoded and lossless exports, trim snap/zoom/pan, snapshots, and same-profile batches; browser inputs are capped at 512 MB"
             ],
             "image": [
               "https://vidcord.app/legacy/assets/window.png",
@@ -152,7 +152,7 @@
                 "name": "Can I use vidcord in a browser?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Yes. The browser edition at https://vidcord.app/ runs FFmpeg WebAssembly on your device, keeps selected videos in the browser, and downloads the result through the browser. It is a lighter alternative with a fixed WASM encoder, browser-readable input formats, browser downloads, and no desktop-only GPU, Open With, or native filesystem integrations."
+                  "text": "Yes. The browser edition at https://vidcord.app/ runs FFmpeg WebAssembly on your device, keeps selected videos in the browser, and downloads the result through the browser. It accepts browser-readable inputs up to 512 MB each and is a lighter alternative with a fixed WASM encoder, browser downloads, and no desktop-only GPU, Open With, or native filesystem integrations."
                 }
               },
               {
@@ -160,7 +160,7 @@
                 "name": "Which Discord upload limits are supported?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Both editions provide 20 MB, 50 MB, 100 MB, and 500 MB video targets. Advanced mode adds custom size, resolution, and typed FPS in both editions; encoder selection and named settings presets are desktop-only. GIF Mode supports 20 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS."
+                  "text": "Both editions provide 20 MB, 50 MB, 100 MB, and 500 MB video targets. Advanced mode adds custom size, resolution, and typed FPS in both editions; encoder selection and named settings presets are desktop-only. GIF Mode supports 5 MB, 10 MB, and 20 MB exports at 15, 30, or up to 50 FPS."
                 }
               },
               {
@@ -176,7 +176,7 @@
                 "name": "Can vidcord change output FPS?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Yes. Standard mode can leave FPS unchanged or cap it at 24, 30, or 60 FPS. Advanced mode accepts a custom typed value or Off in both editions."
+                  "text": "Yes. Standard mode can leave FPS unchanged or cap it at 24, 30, or 60 FPS. Advanced mode accepts a custom typed value or Off in both editions when the browser can determine the source rate; otherwise the browser keeps Source and disables custom FPS."
                 }
               },
               {
@@ -403,9 +403,8 @@
           <h2>Discord targets</h2>
           <p>
             Choose a 20, 50, 100, or 500 MB limit and let vidcord calculate the bitrate. GIF Mode
-            supports 20 MB Free and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS. Select
-            multiple videos for browser Batch's full-duration profile or desktop Batch's per-file
-            trims.
+            supports 5 MB, 10 MB, and 20 MB exports at 15, 30, or up to 50 FPS. Select multiple
+            videos for browser Batch's full-duration profile or desktop Batch's per-file trims.
           </p>
         </article>
         <article>
@@ -452,15 +451,16 @@
             <strong>Included</strong>
             <span
               >Compress, Advanced, Lossless Trim, GIF, trim, crop, audio normalization, audio
-              removal for re-encoded exports, FPS, snapshots, and same-profile batches.</span
+              removal for re-encoded exports, lossless audio removal, FPS, trim snap/zoom/pan,
+              snapshots, and same-profile batches.</span
             >
           </div>
           <div>
             <strong>Browser constraints</strong>
             <span
-              >Browser-readable inputs, a fixed libx264 WASM encoder, and browser downloads; encoder
-              selection, audio-track mixing, saved presets, native folders, GPU encoder discovery,
-              and Open With stay in the desktop app.</span
+              >Browser-readable inputs up to 512 MB each, a fixed libx264 WASM encoder, and browser
+              downloads; encoder selection, audio-track mixing, saved presets, native folders, GPU
+              encoder discovery, and Open With stay in the desktop app.</span
             >
           </div>
         </div>
@@ -586,15 +586,14 @@
           <h2>Keep the original quality with Lossless Trim.</h2>
           <p>
             Lossless Trim cuts on source keyframes without re-encoding the video. The browser editor
-            copies source streams through WebAssembly; the desktop app can also remove audio without
-            re-encoding and handle native output containers.
+            copies source streams through WebAssembly and can remove audio without re-encoding; the
+            desktop app also handles native output containers.
           </p>
           <ul>
             <li>No video re-encoding for fast, original-quality exports.</li>
             <li>Trim boundaries snap outward to source keyframes.</li>
             <li>
-              Desktop Lossless Trim can keep audio or remove every audio track without re-encoding
-              video.
+              Both editions can keep audio or remove every audio track without re-encoding video.
             </li>
             <li>
               Desktop size-based exports offer it when the selected segment is estimated to fit.
@@ -635,7 +634,7 @@
             locally.
           </p>
           <ul>
-            <li>Focused 20 MB Free and 50 MB Nitro Basic targets.</li>
+            <li>Focused 5 MB, 10 MB, and 20 MB targets.</li>
             <li>Selectable 15, 30, or Discord-safe maximum 50 FPS output.</li>
             <li>Automatic palette generation for cleaner color and motion.</li>
             <li>Adaptive size retries that preserve your selected frame rate.</li>
@@ -845,8 +844,8 @@
             <p>
               Both editions cover Discord's current 20 MB, 50 MB, 100 MB, and 500 MB targets.
               Advanced mode adds custom size, resolution, and typed FPS in both editions; encoder
-              selection and named settings presets are desktop-only. GIF Mode supports 20 MB Free
-              and 50 MB Nitro Basic exports at 15, 30, or up to 50 FPS.
+              selection and named settings presets are desktop-only. GIF Mode supports 5 MB, 10 MB,
+              and 20 MB exports at 15, 30, or up to 50 FPS.
             </p>
           </article>
           <article>

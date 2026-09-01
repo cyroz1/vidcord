@@ -1,17 +1,15 @@
 import { getCroppedDimensions } from "../videoMetadata";
+import { GIF_PRESETS, normalizeGifTarget } from "../gifPresets";
 import type { BrowserVideoMetadata } from "./webMedia";
 import { normalizeBrowserFps, type BrowserMode, type BrowserSettings } from "./webSettings";
+
+export { GIF_PRESETS } from "../gifPresets";
 
 export const QUALITY_PRESETS = [
   { label: "20 MB · 480p", sizeMb: 20, targetHeight: 480 },
   { label: "50 MB · 720p", sizeMb: 50, targetHeight: 720 },
   { label: "100 MB · 1080p", sizeMb: 100, targetHeight: 1080 },
   { label: "500 MB · native", sizeMb: 500, targetHeight: null },
-] as const;
-
-export const GIF_PRESETS = [
-  { label: "20 MB", sizeMb: 20, targetHeight: 480 },
-  { label: "50 MB", sizeMb: 50, targetHeight: 720 },
 ] as const;
 
 export const RESOLUTION_OPTIONS = ["Native", "1080p", "720p", "480p"] as const;
@@ -77,9 +75,8 @@ export function targetBitrateKbps(
 export function getAvailableFpsOptions(sourceFrameRate: number | null | undefined) {
   const hasSourceFrameRate =
     typeof sourceFrameRate === "number" && Number.isFinite(sourceFrameRate) && sourceFrameRate > 0;
-  return FPS_OPTIONS.filter(
-    (option) => option.fps === null || !hasSourceFrameRate || option.fps < sourceFrameRate
-  );
+  if (!hasSourceFrameRate) return FPS_OPTIONS.filter((option) => option.fps === null);
+  return FPS_OPTIONS.filter((option) => option.fps === null || option.fps < sourceFrameRate);
 }
 
 export function resolutionToHeight(value: string): number | null {
@@ -136,13 +133,16 @@ export function createExportPlan(
   }
 
   if (mode === "gif") {
-    const preset = GIF_PRESETS[settings.gifQualityIndex] ?? GIF_PRESETS[0];
+    const preset =
+      GIF_PRESETS.find(
+        (candidate) => candidate.sizeMb === normalizeGifTarget(settings.gifTargetMb)
+      ) ?? GIF_PRESETS[0];
     return {
       mode,
       outputExtension: "gif",
       targetSizeMb: preset.sizeMb,
       targetHeight: preset.targetHeight,
-      bitrateKbps: null,
+      bitrateKbps: targetBitrateKbps(preset.sizeMb, duration, true, 0),
       startTime: range.startTime,
       endTime: range.endTime,
       selectedDuration: duration,
@@ -161,12 +161,19 @@ export function createExportPlan(
     ? resolutionToHeight(settings.resolution)
     : (QUALITY_PRESETS[settings.qualityIndex] ?? QUALITY_PRESETS[0]).targetHeight;
   const exportFps = getExportFps(metadata, settings, mode);
+  const audioTrackCount = metadata.audioTrackCount ?? (metadata.hasAudio ? 1 : 0);
   const bitrateKbps =
     targetSizeMb === null
       ? Number.isFinite(sourceBitrateKbps) && sourceBitrateKbps > 0
         ? Math.max(100, Math.floor(sourceBitrateKbps))
         : null
-      : targetBitrateKbps(targetSizeMb, duration, settings.removeAudio, 1, sourceBitrateKbps);
+      : targetBitrateKbps(
+          targetSizeMb,
+          duration,
+          settings.removeAudio,
+          audioTrackCount,
+          sourceBitrateKbps
+        );
 
   return {
     mode,
@@ -187,6 +194,11 @@ function getExportFps(
   mode: BrowserMode
 ): string {
   const normalized = normalizeBrowserFps(settings.fps);
+  const hasSourceFrameRate =
+    typeof metadata.frameRate === "number" &&
+    Number.isFinite(metadata.frameRate) &&
+    metadata.frameRate > 0;
+  if (!hasSourceFrameRate) return "off";
   if (mode !== "compress") return normalized;
 
   const option = FPS_OPTIONS.find((candidate) => candidate.value === normalized);
@@ -208,7 +220,7 @@ function cropFilter(crop: string): string | null {
     case "16:9":
       return "crop=trunc(if(gt(iw/ih\\,16/9)\\,ih*16/9\\,iw)/2)*2:trunc(if(gt(iw/ih\\,16/9)\\,ih\\,iw*9/16)/2)*2";
     case "1:1":
-      return "crop=min(iw\\,ih):min(iw\\,ih)";
+      return "crop=trunc(min(iw\\,ih)/2)*2:trunc(min(iw\\,ih)/2)*2";
     case "9:16":
       return "crop=trunc(if(gt(iw/ih\\,9/16)\\,ih*9/16\\,iw)/2)*2:trunc(if(gt(iw/ih\\,9/16)\\,ih\\,iw*16/9)/2)*2";
     case "4:3":
@@ -232,7 +244,27 @@ function scaleFilter(
   if (!targetHeight) return null;
   const [croppedWidth, croppedHeight] = getCroppedDimensions(metadata.width, metadata.height, crop);
   if (croppedWidth <= 0 || croppedHeight <= 0 || targetHeight >= croppedHeight) return null;
-  return croppedWidth >= croppedHeight ? `scale=-2:${targetHeight}` : `scale=${targetHeight}:-2`;
+  return `scale=-2:${targetHeight}`;
+}
+
+function evenDimension(value: number): number {
+  return Math.max(2, Math.floor(value / 2) * 2);
+}
+
+function gifScaleFilter(
+  metadata: BrowserVideoMetadata,
+  crop: string,
+  targetHeight: number,
+  dimensionScale: number
+): string {
+  const [croppedWidth, croppedHeight] = getCroppedDimensions(metadata.width, metadata.height, crop);
+  const baseHeight =
+    targetHeight > 0 && targetHeight < croppedHeight ? targetHeight : croppedHeight;
+  const baseWidth =
+    targetHeight > 0 && targetHeight < croppedHeight
+      ? (croppedWidth / Math.max(croppedHeight, 1)) * targetHeight
+      : croppedWidth;
+  return `scale=${evenDimension(baseWidth * dimensionScale)}:${evenDimension(baseHeight * dimensionScale)}:flags=lanczos`;
 }
 
 export function buildVideoFilter(
@@ -248,7 +280,10 @@ export function buildVideoFilter(
   const fps = normalizedFps !== "off" ? Number(normalizedFps) : 0;
   if (Number.isFinite(fps) && fps > 0) filters.push(`fps=${fps}`);
   if (scale) filters.push(scale);
-  if (!crop && !scale && (metadata.width % 2 !== 0 || metadata.height % 2 !== 0)) {
+  if (
+    (!crop && !scale && (metadata.width % 2 !== 0 || metadata.height % 2 !== 0)) ||
+    (crop && !scale)
+  ) {
     filters.push("scale=trunc(iw/2)*2:trunc(ih/2)*2");
   }
   return filters.length > 0 ? filters.join(",") : null;
@@ -324,14 +359,10 @@ export function buildCompressionArgs(
   if (filter) args.push("-vf", filter);
   args.push("-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p");
   if (bitrateKbps !== null) {
-    args.push(
-      "-b:v",
-      `${bitrateKbps}k`,
-      "-maxrate",
-      `${bitrateKbps}k`,
-      "-bufsize",
-      `${Math.round(bitrateKbps * 2)}k`
-    );
+    args.push("-b:v", `${bitrateKbps}k`);
+    if (plan.targetSizeMb !== null) {
+      args.push("-maxrate", `${bitrateKbps}k`, "-bufsize", `${Math.round(bitrateKbps * 2)}k`);
+    }
   } else {
     args.push("-crf", "23");
   }
@@ -362,14 +393,23 @@ export function buildGifArgs(
   metadata: BrowserVideoMetadata,
   settings: BrowserSettings,
   plan: ExportPlan,
-  targetHeight: number
+  targetHeight: number,
+  qualityBitrateKbps: number | null = plan.bitrateKbps
 ): string[] {
+  const initialBitrate = Math.max(plan.bitrateKbps ?? 100, 1);
+  const retryQuality = Math.sqrt(
+    Math.max(0.04, Math.min(1, (qualityBitrateKbps ?? initialBitrate) / initialBitrate))
+  );
+  const fps = Math.max(1, settings.gifFps);
+  const temporalQuality = Math.max(0.5, Math.min(1, Math.sqrt(15 / fps)));
+  const dimensionScale = retryQuality * temporalQuality;
+  const colors = Math.max(32, Math.min(256, Math.round(256 * retryQuality)));
   const visualFilters = [
     cropFilter(settings.crop),
-    `fps=${settings.gifFps}`,
-    scaleFilter(metadata, settings.crop, targetHeight),
+    `fps=${fps}`,
+    gifScaleFilter(metadata, settings.crop, targetHeight, dimensionScale),
   ].filter((value): value is string => Boolean(value));
-  const filter = `${visualFilters.join(",")},split[gif_source][palette_source];[palette_source]palettegen=max_colors=256:stats_mode=diff[palette];[gif_source][palette]paletteuse=dither=sierra2_4a:diff_mode=rectangle[gif]`;
+  const filter = `${visualFilters.join(",")},split[gif_source][palette_source];[palette_source]palettegen=max_colors=${colors}:stats_mode=diff[palette];[gif_source][palette]paletteuse=dither=sierra2_4a:diff_mode=rectangle[gif]`;
   return [
     "-ss",
     plan.startTime.toFixed(3),
@@ -394,9 +434,10 @@ export function buildLosslessArgs(
   inputName: string,
   outputName: string,
   startTime: number,
-  endTime: number
+  endTime: number,
+  removeAudio = false
 ): string[] {
-  return [
+  const args = [
     "-ss",
     Math.max(0, startTime).toFixed(3),
     "-i",
@@ -409,8 +450,10 @@ export function buildLosslessArgs(
     "copy",
     "-avoid_negative_ts",
     "make_zero",
-    outputName,
   ];
+  if (removeAudio) args.push("-an");
+  args.push(outputName);
+  return args;
 }
 
 export function getRetryBitrate(

@@ -1,9 +1,15 @@
+import {
+  migrateLegacyGifQualityIndex,
+  normalizeGifTarget,
+  type GifTargetMb,
+} from "../gifPresets";
+
 export type BrowserMode = "compress" | "advanced" | "lossless" | "gif";
 
 export type BrowserSettings = {
   mode: BrowserMode;
   qualityIndex: number;
-  gifQualityIndex: number;
+  gifTargetMb: GifTargetMb;
   gifFps: number;
   advancedTargetSize: string;
   resolution: string;
@@ -13,7 +19,8 @@ export type BrowserSettings = {
   crop: string;
 };
 
-const SETTINGS_KEY = "vidcord.browser.settings.v1";
+const SETTINGS_KEY = "vidcord.browser.settings.v2";
+const LEGACY_SETTINGS_KEY = "vidcord.browser.settings.v1";
 const RESOLUTION_VALUES = new Set(["Native", "1080p", "720p", "480p"]);
 const FPS_VALUES = new Set(["off", "24", "30", "60"]);
 const CROP_VALUES = new Set(["off", "16:9", "1:1", "9:16", "4:3", "3:4", "4:5", "5:4"]);
@@ -24,7 +31,7 @@ const FPS_PATTERN = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
 export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   mode: "compress",
   qualityIndex: 0,
-  gifQualityIndex: 0,
+  gifTargetMb: 5,
   gifFps: 15,
   advancedTargetSize: "",
   resolution: "Native",
@@ -76,10 +83,8 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
     typeof record.qualityIndex === "number" && Number.isInteger(record.qualityIndex)
       ? Math.max(0, Math.min(3, record.qualityIndex))
       : DEFAULT_BROWSER_SETTINGS.qualityIndex;
-  const gifQualityIndex =
-    typeof record.gifQualityIndex === "number" && Number.isInteger(record.gifQualityIndex)
-      ? Math.max(0, Math.min(1, record.gifQualityIndex))
-      : DEFAULT_BROWSER_SETTINGS.gifQualityIndex;
+  const legacyGifTarget = migrateLegacyGifQualityIndex(record.gifQualityIndex);
+  const gifTargetMb = normalizeGifTarget(record.gifTargetMb, legacyGifTarget ?? 5);
   const gifFps = record.gifFps === 30 || record.gifFps === 50 ? record.gifFps : 15;
   const resolution =
     typeof record.resolution === "string" && RESOLUTION_VALUES.has(record.resolution)
@@ -98,7 +103,7 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
   return {
     mode: normalizeMode(record.mode),
     qualityIndex,
-    gifQualityIndex,
+    gifTargetMb,
     gifFps,
     advancedTargetSize:
       typeof record.advancedTargetSize === "string" ? record.advancedTargetSize.slice(0, 12) : "",
@@ -111,7 +116,7 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
 }
 
 export function loadBrowserSettings(): BrowserSettings {
-  const raw = safeStorageGet(SETTINGS_KEY);
+  const raw = safeStorageGet(SETTINGS_KEY) ?? safeStorageGet(LEGACY_SETTINGS_KEY);
   if (!raw) return DEFAULT_BROWSER_SETTINGS;
   try {
     return normalizeBrowserSettings(JSON.parse(raw));

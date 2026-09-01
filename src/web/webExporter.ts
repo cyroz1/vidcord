@@ -35,6 +35,16 @@ function isTargetMet(bytes: number, targetSizeMb: number | null): boolean {
   return targetSizeMb === null || bytes <= targetSizeMb * 1024 * 1024;
 }
 
+export function isAudioCompatibilityError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    /audio|aac|loudnorm|volumedetect|0:a|channel|sample.?fmt|stream.?specifier/.test(normalized) &&
+    /error|failed|fail|invalid|unsupported|unknown|missing|unavailable|could not|cannot|not found/.test(
+      normalized
+    )
+  );
+}
+
 function operationProgressHandler(
   onProgress: ExportProgressHandler | undefined,
   start: number,
@@ -75,7 +85,8 @@ export async function exportBrowserFile({
     onProgress?.(0, "Encoding lossless trim…");
     const bytes = await engine.transcode(
       file,
-      (inputName) => buildLosslessArgs(inputName, baseName, plan.startTime, plan.endTime),
+      (inputName) =>
+        buildLosslessArgs(inputName, baseName, plan.startTime, plan.endTime, settings.removeAudio),
       baseName,
       operationProgressHandler(onProgress, 0, 1, "Encoding lossless trim…")
     );
@@ -90,16 +101,16 @@ export async function exportBrowserFile({
     };
   }
 
-  const maximumAttempts = mode === "gif" ? 3 : plan.targetSizeMb === null ? 1 : 3;
+  const maximumAttempts = mode === "gif" ? 4 : plan.targetSizeMb === null ? 1 : 3;
   let bitrate = plan.bitrateKbps;
   let audioGainDb: number | null = null;
   let normalizationSkipped = false;
   let audioRemovedForCompatibility = false;
   let lastBytes: Uint8Array<ArrayBuffer> = new Uint8Array();
-  let lastHeight = plan.targetHeight ?? 480;
 
-  const shouldAnalyzeAudio = settings.audioNormalize && !settings.removeAudio && mode !== "gif";
-  const canDropAudio = mode !== "gif" && !settings.removeAudio;
+  const shouldAnalyzeAudio =
+    settings.audioNormalize && !settings.removeAudio && metadata.hasAudio && mode !== "gif";
+  const canDropAudio = mode !== "gif" && !settings.removeAudio && metadata.hasAudio;
   const analysisEnd = shouldAnalyzeAudio ? 0.12 : 0;
   const encodingSpan = 1 - analysisEnd;
 
@@ -135,7 +146,15 @@ export async function exportBrowserFile({
         file,
         (inputName) =>
           mode === "gif"
-            ? buildGifArgs(inputName, outputName, metadata, encodeSettings, plan, lastHeight)
+            ? buildGifArgs(
+                inputName,
+                outputName,
+                metadata,
+                encodeSettings,
+                plan,
+                plan.targetHeight ?? 480,
+                bitrate
+              )
             : buildCompressionArgs(
                 inputName,
                 outputName,
@@ -164,14 +183,15 @@ export async function exportBrowserFile({
       } catch (error: unknown) {
         const errorMessage = String(error).toLowerCase();
         if (errorMessage.includes("cancel")) throw error;
+        const audioCompatibilityFailure = isAudioCompatibilityError(errorMessage);
 
-        if (shouldAnalyzeAudio && !normalizationSkipped) {
+        if (shouldAnalyzeAudio && audioCompatibilityFailure && !normalizationSkipped) {
           normalizationSkipped = true;
           onProgress?.(attemptStart, "Audio normalization unavailable; retrying export…");
           continue;
         }
 
-        if (canDropAudio && !audioRemovedForCompatibility) {
+        if (canDropAudio && audioCompatibilityFailure && !audioRemovedForCompatibility) {
           audioRemovedForCompatibility = true;
           onProgress?.(attemptStart, "Audio track unavailable; retrying video-only export…");
           continue;
@@ -196,7 +216,9 @@ export async function exportBrowserFile({
     }
 
     if (mode === "gif") {
-      lastHeight = Math.max(240, Math.round(lastHeight * 0.72));
+      if (bitrate !== null && plan.targetSizeMb !== null) {
+        bitrate = getRetryBitrate(bitrate, bytes.byteLength, plan.targetSizeMb);
+      }
     } else if (bitrate !== null && plan.targetSizeMb !== null) {
       bitrate = getRetryBitrate(bitrate, bytes.byteLength, plan.targetSizeMb);
     }

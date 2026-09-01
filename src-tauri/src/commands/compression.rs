@@ -7,6 +7,7 @@ use crate::ffmpeg::{
 use crate::log::vidcord_log;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -692,6 +693,10 @@ fn format_fps_filter_value(fps: f64) -> String {
 
 fn video_filter_for_encoder(opts: &CompressOptions, encoder: &str) -> Option<String> {
     let mut filters = Vec::new();
+    let has_crop = opts
+        .crop_aspect_ratio
+        .as_deref()
+        .is_some_and(|crop| crop != "off");
     if let Some(crop_expr) = opts
         .crop_aspect_ratio
         .as_deref()
@@ -708,7 +713,7 @@ fn video_filter_for_encoder(opts: &CompressOptions, encoder: &str) -> Option<Str
         if let Some(filter) = opts.scale_filter.as_deref() {
             let scale = filter.strip_prefix("scale=").unwrap_or(filter);
             filters.push(format!("scale_vaapi={scale}"));
-        } else if source_dimensions_need_even_fix(opts) {
+        } else if source_dimensions_need_even_fix(opts) || has_crop {
             filters.push("scale_vaapi=trunc(iw/2)*2:trunc(ih/2)*2".into());
         }
     } else if let Some(filter) = opts.scale_filter.as_deref() {
@@ -717,7 +722,7 @@ fn video_filter_for_encoder(opts: &CompressOptions, encoder: &str) -> Option<Str
         } else {
             format!("scale={filter}")
         });
-    } else if source_dimensions_need_even_fix(opts) {
+    } else if source_dimensions_need_even_fix(opts) || has_crop {
         filters.push("scale=trunc(iw/2)*2:trunc(ih/2)*2".into());
     }
     (!filters.is_empty()).then(|| filters.join(","))
@@ -782,6 +787,13 @@ fn should_use_lossless_faststart(input_size: Option<u64>) -> bool {
     input_size
         .map(|size| size <= LOSSLESS_FASTSTART_MAX_INPUT_BYTES)
         .unwrap_or(true)
+}
+
+fn is_mp4_output(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"))
 }
 
 struct TemporaryOutput(std::path::PathBuf);
@@ -1331,10 +1343,7 @@ async fn run_ffmpeg_attempt(
             std::fs::metadata(&opts.input_path)
                 .ok()
                 .map(|metadata| metadata.len()),
-        ) && std::path::Path::new(&opts.output_path)
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"))
+        ) && is_mp4_output(&opts.output_path)
         {
             cmd_args.extend(["-movflags".into(), "+faststart".into()]);
         }
@@ -1400,6 +1409,9 @@ async fn run_ffmpeg_attempt(
         }
     }
 
+    if !opts.lossless_trim && !opts.gif_mode && is_mp4_output(&opts.output_path) {
+        cmd_args.extend(["-movflags".into(), "+faststart".into()]);
+    }
     if !opts.lossless_trim {
         cmd_args.extend([
             "-metadata".into(),
@@ -3253,6 +3265,17 @@ mod tests {
     }
 
     #[test]
+    fn test_video_filter_keeps_crop_dimensions_even_without_explicit_scale() {
+        let mut opts = retry_test_options("libx264", None);
+        opts.crop_aspect_ratio = Some("1:1".into());
+
+        assert_eq!(
+            video_filter_for_encoder(&opts, "libx264"),
+            Some("crop=min(iw\\,ih):min(iw\\,ih),scale=trunc(iw/2)*2:trunc(ih/2)*2".into())
+        );
+    }
+
+    #[test]
     fn test_video_filter_adds_fps_before_vaapi_upload() {
         let mut opts = retry_test_options("h264_vaapi", None);
         opts.output_fps = Some(24.0);
@@ -3346,6 +3369,14 @@ mod tests {
         assert!(should_use_lossless_faststart(Some(256 * 1024 * 1024)));
         assert!(!should_use_lossless_faststart(Some(256 * 1024 * 1024 + 1)));
         assert!(should_use_lossless_faststart(None));
+    }
+
+    #[test]
+    fn mp4_output_detection_is_case_insensitive_and_container_specific() {
+        assert!(is_mp4_output("/tmp/output.mp4"));
+        assert!(is_mp4_output("/tmp/output.MP4"));
+        assert!(!is_mp4_output("/tmp/output.mov"));
+        assert!(!is_mp4_output("/tmp/output"));
     }
 
     #[test]

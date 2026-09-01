@@ -97,6 +97,7 @@ import {
 } from "./videoMetadata";
 import { MAX_SETTINGS_PRESETS, type SettingsPreset } from "./settingsPresets";
 import { defaultAudioTrackIndices, normalizeAudioTrackIndices } from "./audioTracks";
+import { GIF_PRESETS } from "./gifPresets";
 import pkg from "../package.json";
 
 // EncodersDialog is only shown after an explicit user click from Advanced
@@ -169,10 +170,6 @@ const QUALITY_PRESETS_BY_INDEX = [
   QUALITY_PRESETS[3],
 ] as const;
 
-const GIF_PRESETS = [
-  { label: "20MB", size_mb: 20, target_h: 480 },
-  { label: "50MB", size_mb: 50, target_h: 720 },
-] as const;
 const GIF_FPS_OPTIONS = [15, 30, 50] as const;
 
 const RESOLUTION_OPTIONS = ["Native", "4K", "1440p", "1080p", "720p", "480p"];
@@ -728,7 +725,7 @@ export default function App() {
         standardFpsValue === "off" ? "Keep source FPS" : `${standardFpsValue} fps`
       }`
     : gifMode
-      ? `GIF · up to ${selectedGifPreset.size_mb} MB · ${cropSummary} · ${gifFps} fps`
+      ? `GIF · up to ${selectedGifPreset.sizeMb} MB · ${cropSummary} · ${gifFps} fps`
       : losslessTrim
         ? "Original quality · keyframe-aligned trim"
         : advancedMode
@@ -745,7 +742,7 @@ export default function App() {
   const readyActionLabel = isBatchMode
     ? `Compress ${batchPaths.length} videos`
     : gifMode
-      ? `Create ${selectedGifPreset.size_mb} MB GIF`
+      ? `Create ${selectedGifPreset.sizeMb} MB GIF`
       : losslessTrim
         ? "Trim Without Re-encoding"
         : advancedMode && hasAdvancedTargetSize
@@ -2393,8 +2390,8 @@ export default function App() {
 
     if (gifMode) {
       const preset = GIF_PRESETS[gifQualityIdx] ?? GIF_PRESETS[0];
-      targetSize = preset.size_mb;
-      targetH = preset.target_h;
+      targetSize = preset.sizeMb;
+      targetH = preset.targetHeight;
       encoderName = "gif";
       outputFps = gifFps;
     } else if (losslessTrim) {
@@ -3595,11 +3592,14 @@ export default function App() {
                           onChange={(event) => {
                             const next = Number(event.target.value);
                             setGifQualityIdx(next);
-                            saveSettings({ gif_quality_index: next });
+                            saveSettings({
+                              gif_target_mb: GIF_PRESETS[next]?.sizeMb ?? GIF_PRESETS[0].sizeMb,
+                              gif_quality_index: undefined,
+                            });
                           }}
                         >
                           {GIF_PRESETS.map((preset, index) => (
-                            <option key={preset.size_mb} value={index}>
+                            <option key={preset.sizeMb} value={index}>
                               {preset.label}
                             </option>
                           ))}

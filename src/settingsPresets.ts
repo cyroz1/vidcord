@@ -1,10 +1,16 @@
+import {
+  migrateLegacyGifQualityIndex,
+  normalizeGifTarget,
+  type GifTargetMb,
+} from "./gifPresets";
+
 export type OutputDestination = "downloads" | "source" | "ask" | "custom";
 export type CompletionAction = "reveal" | "copy";
 
 export type PresetSettings = {
   quality_index: number;
   gif_mode: boolean;
-  gif_quality_index: number;
+  gif_target_mb: GifTargetMb;
   gif_fps: number;
   advanced_mode: boolean;
   lossless_mode: boolean;
@@ -30,7 +36,7 @@ export const MAX_PRESET_NAME_LENGTH = 40;
 const DEFAULT_PRESET_SETTINGS: PresetSettings = {
   quality_index: 0,
   gif_mode: false,
-  gif_quality_index: 0,
+  gif_target_mb: 5,
   gif_fps: 15,
   advanced_mode: false,
   lossless_mode: false,
@@ -63,19 +69,17 @@ export function normalizePresetSettings(value: unknown): PresetSettings {
     if (typeof record[key] === typeof DEFAULT_PRESET_SETTINGS[key]) mutable[key] = record[key];
   }
 
+  normalized.gif_target_mb = normalizeGifTarget(
+    record.gif_target_mb,
+    migrateLegacyGifQualityIndex(record.gif_quality_index) ?? 5
+  );
+
   if (
     !Number.isInteger(normalized.quality_index) ||
     normalized.quality_index < 0 ||
     normalized.quality_index > 4
   ) {
     normalized.quality_index = 0;
-  }
-  if (
-    !Number.isInteger(normalized.gif_quality_index) ||
-    normalized.gif_quality_index < 0 ||
-    normalized.gif_quality_index > 1
-  ) {
-    normalized.gif_quality_index = 0;
   }
   if (![15, 30, 50].includes(normalized.gif_fps)) normalized.gif_fps = 15;
   if (

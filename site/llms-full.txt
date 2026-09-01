@@ -24,7 +24,7 @@ This file gives web crawlers and AI agents a more complete grounding source than
 
 The root URL is the web-first product home. It presents the browser editor first and then an integrated desktop-app upgrade story using the same vidcord branding, screenshots, feature tour, FFmpeg setup notes, FAQ, and platform-aware download section. The original crawlable marketing and desktop-download page remains available at `/legacy/`; it is a preserved route, not a separate product.
 
-The browser edition is a lighter, no-install client. Selected files remain in the browser, FFmpeg WebAssembly performs the work locally, and finished exports download through the browser. No selected video is uploaded to vidcord or to any download-metadata service.
+The browser edition is a lighter, no-install client. Selected files remain in the browser, FFmpeg WebAssembly performs the work locally, and finished exports download through the browser. Each selected input is limited to 512 MB because the encode runs in browser memory. No selected video is uploaded to vidcord or to any download-metadata service.
 
 The native desktop app is the full local workflow for users who want system FFmpeg format coverage, faster native encoding, GPU encoders, native filesystem destinations, file-manager integration, desktop notifications, taskbar or Dock progress, saved settings presets, and in-app installer updates.
 
@@ -35,15 +35,15 @@ The browser editor at https://vidcord.app/ supports these modes:
 - Compress with 20 MB, 50 MB, 100 MB, or 500 MB Discord target profiles
 - Advanced with custom target size, resolution, and typed FPS
 - Lossless Trim with local keyframe discovery and source-stream copy
-- GIF with 20 MB or 50 MB targets and 15, 30, or 50 FPS
+- GIF with 5 MB, 10 MB, or 20 MB targets and 15, 30, or 50 FPS
 
-Browser controls also include single-video preview and trimming, crop presets, audio normalization in Compress and Advanced modes, audio removal for re-encoded exports, loop playback, trim history, full-resolution PNG snapshots, and multi-file Batch mode. The browser uses a fixed `libx264` encoder from FFmpeg WebAssembly. Advanced mode cannot select a different encoder or mix source audio tracks.
+Browser controls also include single-video preview and trimming, crop presets, audio normalization in Compress and Advanced modes, audio removal for re-encoded exports, lossless audio removal, loop playback, trim history, snap intervals, timeline zoom and pan, full-resolution PNG snapshots, and multi-file Batch mode. The browser uses a fixed `libx264` encoder from FFmpeg WebAssembly. Advanced mode cannot select a different encoder or mix source audio tracks.
 
 Browser Batch starts when two or more files are selected through Browse or drag-and-drop. It applies one standard Compress profile to each full-duration file, downloads each MP4, displays per-file progress, and reports aggregate progress and ETA for the queue. Queued videos can be removed before export. Browser Batch has no per-file trim fields, preview timeline, native output destination, or native completion-action controls.
 
 Browser exports always use the browser download flow. The browser controls the download folder and any save prompts. The web UI intentionally does not expose the desktop app's encoder picker, source audio-track mixer, named settings presets, native output folders, native copy/reveal completion actions, Open With routing, OS notifications, taskbar/Dock progress, or in-app updater.
 
-Browser input support depends on the browser's media decoder, source codec/container, device performance, available memory, and file size. When available, the import summary shows dimensions, duration, container information, and a file-size-based average bitrate estimate; exact source codec, frame rate, and audio-track details may not be exposed by browser media APIs.
+Browser input support depends on the browser's media decoder, source codec/container, device performance, available memory, and file size; each selected file is capped at 512 MB before it reaches WebAssembly. When available, the import summary shows dimensions, duration, container information, and a file-size-based average bitrate estimate; exact source codec, frame rate, and audio-track details may not be exposed by browser media APIs.
 
 ## Native desktop app
 
@@ -66,13 +66,13 @@ Both editions provide Discord target profiles for:
 - 100 MB — Boost Level 3
 - 500 MB — Nitro
 
-Standard mode can leave output FPS unchanged or cap it at 24, 30, or 60 FPS when the choice is below the source frame rate; the desktop app hides redundant choices when FFprobe reports the source rate, while browser source-rate metadata may be unavailable. Advanced mode accepts a positive typed FPS value; an empty value means no frame-rate change. Standard, Advanced, and GIF Mode expose aspect-ratio crop presets: 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, and 5:4, with a native-ratio option hidden when it would be redundant.
+Standard mode can leave output FPS unchanged or cap it at 24, 30, or 60 FPS when the choice is below the source frame rate; the desktop app hides redundant choices when FFprobe reports the source rate, while the browser keeps Source as the only safe choice and disables custom FPS when source-rate metadata is unavailable. Advanced mode otherwise accepts a positive typed FPS value; an empty value means no frame-rate change. Standard, Advanced, and GIF Mode expose aspect-ratio crop presets: 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, and 5:4, with a native-ratio option hidden when it would be redundant.
 
-Both editions can peak-normalize retained audio so its highest sample peak reaches 0 dB with a fixed gain, or remove audio in re-encoded modes. The browser re-encoded path keeps the first audio stream because browsers do not expose a reliable source-track list. Desktop standard compression prioritizes the first track and switches to a later track only when it is at least 20% larger by estimated data. Desktop Advanced can select one, several, or all source tracks; each selected track is encoded at 128 kbps and included in the video bitrate budget.
+Both editions can peak-normalize retained audio so its highest sample peak reaches 0 dB with a fixed gain, or remove audio in re-encoded modes; both also support audio removal during Lossless Trim without video re-encoding. The browser re-encoded path keeps the first audio stream because browsers do not expose a reliable source-track list. Desktop standard compression prioritizes the first track and switches to a later track only when it is at least 20% larger by estimated data. Desktop Advanced can select one, several, or all source tracks; each selected track is encoded at 128 kbps and included in the video bitrate budget.
 
 Lossless Trim stream-copies source streams at outward-snapped source keyframes without video re-encoding. The browser performs keyframe discovery and stream copy in WebAssembly. The desktop app additionally supports lossless audio-track removal, prefers MP4 before a validated source container, and offers Lossless Trim from a size-based compression estimate when the selected segment is likely to fit. Keyframe discovery failure blocks the selected lossless export; incompatible desktop stream-copy inputs fall back to normal compression.
 
-GIF Mode removes audio, generates an FFmpeg color palette, and creates animated GIFs for the 20 MB Free or 50 MB Nitro Basic target at 15, 30, or Discord-safe maximum 50 FPS. Higher selected frame rates begin with lower spatial detail, and oversized GIF results retry with reduced dimensions and palette complexity while preserving the selected FPS.
+GIF Mode removes audio, generates an FFmpeg color palette, and creates animated GIFs for the 5 MB, 10 MB, or 20 MB target at 15, 30, or Discord-safe maximum 50 FPS. Higher selected frame rates begin with lower spatial detail, and oversized GIF results retry with reduced dimensions and palette complexity while preserving the selected FPS.
 
 Full-resolution PNG snapshots are available from the preview. The desktop snapshot follows the configured native output destination and completion action. The browser snapshot downloads through the browser.
 
@@ -126,7 +126,7 @@ Yes. Browser Batch accepts Browse or drag-and-drop selections, applies one share
 
 ### Which Discord size targets are supported?
 
-Both editions provide 20 MB, 50 MB, 100 MB, and 500 MB video targets. Advanced adds custom size, resolution, and typed FPS. GIF Mode provides 20 MB Free and 50 MB Nitro Basic GIF targets at 15, 30, or 50 FPS.
+Both editions provide 20 MB, 50 MB, 100 MB, and 500 MB video targets. Advanced adds custom size, resolution, and typed FPS. GIF Mode provides 5 MB, 10 MB, and 20 MB GIF targets at 15, 30, or 50 FPS.
 
 ### What is desktop-only?
 
