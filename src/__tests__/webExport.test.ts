@@ -182,7 +182,38 @@ describe("browser export planning", () => {
     const filter = buildVideoFilter(oddSource, settingsWithSquareCrop, null, "compress");
 
     expect(filter).toContain("crop=trunc(min(iw\\,ih)/2)*2:trunc(min(iw\\,ih)/2)*2");
-    expect(filter).toContain("scale=trunc(iw/2)*2:trunc(ih/2)*2");
+    expect(filter).not.toContain("scale=trunc(iw/2)*2:trunc(ih/2)*2");
+  });
+
+  it("plans bitrate for the single audio stream the browser output keeps", () => {
+    const multiTrackMetadata = { ...metadata, audioTrackCount: 2, sourceBitrateKbps: 8_000 };
+    const plan = createExportPlan(
+      multiTrackMetadata,
+      normalizeBrowserSettings({ qualityIndex: 0 }),
+      "compress",
+      0,
+      30
+    );
+
+    expect(plan.bitrateKbps).toBe(targetBitrateKbps(20, 30, false, 1, 8_000));
+  });
+
+  it("omits audio mapping when metadata confirms the source has no audio", () => {
+    const silentMetadata = { ...metadata, hasAudio: false, audioTrackCount: 0 };
+    const settings = normalizeBrowserSettings({ qualityIndex: 0 });
+    const plan = createExportPlan(silentMetadata, settings, "compress", 0, 30);
+    const args = buildCompressionArgs(
+      "input.mp4",
+      "output.mp4",
+      silentMetadata,
+      settings,
+      plan,
+      plan.bitrateKbps
+    );
+
+    expect(args).toContain("-an");
+    expect(args).not.toContain("0:a:0?");
+    expect(args).not.toContain("-c:a");
   });
 
   it("matches the native GIF quality tradeoff across FPS and retries", () => {
@@ -355,6 +386,29 @@ describe("browser export planning", () => {
     expect(result.wasOversized).toBe(true);
   });
 
+  it("does not repeat an impossible target once bitrate reaches the floor", async () => {
+    let transcodeCount = 0;
+    const engine = {
+      transcode: async () => {
+        transcodeCount += 1;
+        return new Uint8Array(200_000);
+      },
+    } as unknown as BrowserFfmpegEngine;
+
+    const result = await exportBrowserFile({
+      engine,
+      file: { name: "capture.mp4" } as File,
+      metadata,
+      settings: normalizeBrowserSettings({ mode: "advanced", advancedTargetSize: "0.0001" }),
+      mode: "advanced",
+      startTime: 0,
+      endTime: 30,
+    });
+
+    expect(transcodeCount).toBe(1);
+    expect(result.wasOversized).toBe(true);
+  });
+
   it("corrects oversized target encodes and sanitizes browser downloads", () => {
     expect(getRetryBitrate(4000, 30 * 1024 * 1024, 20)).toBe(2400);
     expect(outputFileName("my capture (final).mov", "mp4", 0)).toBe(
@@ -375,13 +429,13 @@ describe("browser export planning", () => {
       ) => {
         transcodeCount += 1;
         onProgress?.({ progress: 0.5, time: 15_000_000 });
-        return new Uint8Array(200_000);
+        return new Uint8Array(30 * 1024 * 1024 + 1);
       },
     } as unknown as BrowserFfmpegEngine;
 
     const advanced = normalizeBrowserSettings({
       mode: "advanced",
-      advancedTargetSize: "0.1",
+      advancedTargetSize: "20",
     });
     const result = await exportBrowserFile({
       engine,
@@ -427,6 +481,45 @@ describe("browser export planning", () => {
     });
 
     expect(progress[1]).toBeCloseTo(0.1);
+  });
+
+  it("reuses one prepared input across audio analysis and adaptive passes", async () => {
+    const inputNames: string[] = [];
+    let sessionTranscodes = 0;
+    const engine = {
+      createSession: async () => ({
+        run: async (argsForInput: (inputName: string) => string[]) => {
+          inputNames.push(
+            argsForInput("input-1.mp4")[argsForInput("input-1.mp4").indexOf("-i") + 1]
+          );
+          return "[volumedetect] max_volume: -6.0 dB";
+        },
+        transcode: async (argsForInput: (inputName: string) => string[], _outputName: string) => {
+          const args = argsForInput("input-1.mp4");
+          inputNames.push(args[args.indexOf("-i") + 1]);
+          sessionTranscodes += 1;
+          return new Uint8Array(30 * 1024 * 1024 + 1);
+        },
+        dispose: async () => undefined,
+      }),
+    } as unknown as BrowserFfmpegEngine;
+
+    await exportBrowserFile({
+      engine,
+      file: { name: "capture.mp4" } as File,
+      metadata,
+      settings: normalizeBrowserSettings({
+        mode: "advanced",
+        advancedTargetSize: "20",
+        audioNormalize: true,
+      }),
+      mode: "advanced",
+      startTime: 0,
+      endTime: 30,
+    });
+
+    expect(sessionTranscodes).toBe(3);
+    expect(new Set(inputNames)).toEqual(new Set(["input-1.mp4"]));
   });
 
   it("accepts bounded custom advanced FPS values and rejects unsafe settings", () => {

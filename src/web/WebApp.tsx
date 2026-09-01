@@ -55,6 +55,13 @@ import "./WebApp.css";
 
 type Notice = { type: "success" | "error" | "warning" | "info"; message: string };
 
+const MAX_BROWSER_BATCH_FILES = 12;
+const MAX_METADATA_CACHE_ENTRIES = 24;
+
+function browserFileCacheKey(file: Pick<File, "name" | "size" | "lastModified" | "type">): string {
+  return `${file.name}\0${file.size}\0${file.lastModified}\0${file.type}`;
+}
+
 type IconName = "video" | "snapshot" | "check" | "play" | "stop";
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
@@ -175,6 +182,7 @@ function AudioIcon({ type, active }: { type: AudioIconType; active: boolean }) {
 type WebAudioActionsProps = {
   removeAudio: boolean;
   audioNormalize: boolean;
+  audioAvailable?: boolean;
   disabled?: boolean;
   onRemoveAudioChange: (value: boolean) => void;
   onAudioNormalizeChange: (value: boolean) => void;
@@ -183,37 +191,47 @@ type WebAudioActionsProps = {
 function WebAudioActions({
   removeAudio,
   audioNormalize,
+  audioAvailable = true,
   disabled = false,
   onRemoveAudioChange,
   onAudioNormalizeChange,
 }: WebAudioActionsProps) {
+  const audioMuted = audioAvailable && removeAudio;
+  const audioNormalized = audioAvailable && audioNormalize && !removeAudio;
+
   return (
     <div className="web-audio-actions" role="group" aria-label="Audio controls">
       <button
         type="button"
-        className={`web-audio-button web-mute-button${removeAudio ? " active" : ""}`}
-        title={removeAudio ? "Unmute audio" : "Mute audio"}
-        aria-label={removeAudio ? "Unmute audio" : "Mute audio"}
-        aria-pressed={removeAudio}
-        disabled={disabled}
+        className={`web-audio-button web-mute-button${audioMuted ? " active" : ""}`}
+        title={
+          audioAvailable ? (removeAudio ? "Unmute audio" : "Mute audio") : "No audio track detected"
+        }
+        aria-label={
+          audioAvailable ? (removeAudio ? "Unmute audio" : "Mute audio") : "No audio track detected"
+        }
+        aria-pressed={audioMuted}
+        disabled={disabled || !audioAvailable}
         onClick={() => onRemoveAudioChange(!removeAudio)}
       >
-        <AudioIcon type="mute" active={removeAudio} />
+        <AudioIcon type="mute" active={audioMuted} />
       </button>
       <button
         type="button"
-        className={`web-audio-button web-normalize-button${audioNormalize && !removeAudio ? " active" : ""}`}
+        className={`web-audio-button web-normalize-button${audioNormalized ? " active" : ""}`}
         title={
-          removeAudio
-            ? "Audio is muted"
-            : "Peak-normalize audio so its highest sample peak reaches 0 dB"
+          !audioAvailable
+            ? "No audio track detected"
+            : removeAudio
+              ? "Audio is muted"
+              : "Peak-normalize audio so its highest sample peak reaches 0 dB"
         }
-        aria-label="Peak-normalize audio to 0 dB"
-        aria-pressed={audioNormalize && !removeAudio}
-        disabled={disabled || removeAudio}
+        aria-label={audioAvailable ? "Peak-normalize audio to 0 dB" : "No audio track detected"}
+        aria-pressed={audioNormalized}
+        disabled={disabled || removeAudio || !audioAvailable}
         onClick={() => onAudioNormalizeChange(!audioNormalize)}
       >
-        <AudioIcon type="normalize" active={audioNormalize && !removeAudio} />
+        <AudioIcon type="normalize" active={audioNormalized} />
       </button>
     </div>
   );
@@ -270,6 +288,7 @@ function WebApp() {
   const [files, setFiles] = useState<File[]>([]);
   const [activeFileIndex, setActiveFileIndex] = useState(0);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [metadata, setMetadata] = useState<BrowserVideoMetadata | null>(null);
   const [metadataLoading, setMetadataLoading] = useState(false);
   const [startTime, setStartTime] = useState(0);
@@ -293,8 +312,11 @@ function WebApp() {
   const loadGenerationRef = useRef(0);
   const keyframeProbeGenerationRef = useRef(0);
   const keyframeCacheRef = useRef<Map<string, number[]>>(new Map());
+  const metadataCacheRef = useRef<Map<string, BrowserVideoMetadata>>(new Map());
   const exportCancelledRef = useRef(false);
   const exportProgressRef = useRef(0);
+  const exportUiUpdatedAtRef = useRef(0);
+  const exportUiStatusRef = useRef("");
   const exportStartedAtRef = useRef<number | null>(null);
   const engineRef = useRef<BrowserFfmpegEngine | null>(null);
 
@@ -327,6 +349,21 @@ function WebApp() {
   );
   const showNotice = useCallback((type: Notice["type"], message: string) => {
     setNotice({ type, message });
+  }, []);
+
+  const readCachedMetadata = useCallback(async (file: File): Promise<BrowserVideoMetadata> => {
+    const cacheKey = browserFileCacheKey(file);
+    const cached = metadataCacheRef.current.get(cacheKey);
+    if (cached) return cached;
+
+    const nextMetadata = await readVideoMetadata(file);
+    const cache = metadataCacheRef.current;
+    if (cache.size >= MAX_METADATA_CACHE_ENTRIES && !cache.has(cacheKey)) {
+      const oldestKey = cache.keys().next().value;
+      if (oldestKey !== undefined) cache.delete(oldestKey);
+    }
+    cache.set(cacheKey, nextMetadata);
+    return nextMetadata;
   }, []);
 
   useEffect(() => {
@@ -364,6 +401,7 @@ function WebApp() {
     const generation = ++loadGenerationRef.current;
     if (!file) {
       setPreviewUrl(null);
+      setPreviewError(null);
       setMetadata(null);
       setMetadataLoading(false);
       setStartTime(0);
@@ -375,11 +413,12 @@ function WebApp() {
 
     const url = getPreviewUrl(file);
     setPreviewUrl(url);
+    setPreviewError(null);
     setMetadata(null);
     setMetadataLoading(true);
     setCurrentTime(0);
     setPreviewPlaying(false);
-    void readVideoMetadata(file)
+    void readCachedMetadata(file)
       .then((nextMetadata) => {
         if (generation !== loadGenerationRef.current) return;
         setMetadata(nextMetadata);
@@ -388,7 +427,9 @@ function WebApp() {
       })
       .catch((error: unknown) => {
         if (generation === loadGenerationRef.current) {
-          showNotice("error", String(error));
+          const message = String(error);
+          setPreviewError(message);
+          showNotice("error", message);
           setEndTime(0);
         }
       })
@@ -397,7 +438,7 @@ function WebApp() {
       });
 
     return () => URL.revokeObjectURL(url);
-  }, [activeFile, showNotice]);
+  }, [activeFile, readCachedMetadata, showNotice]);
 
   const patchSettings = useCallback((patch: Partial<BrowserSettings>) => {
     const next = { ...settingsRef.current, ...patch };
@@ -511,7 +552,8 @@ function WebApp() {
   const acceptFiles = useCallback(
     (candidateFiles: readonly File[]) => {
       const videoCandidates = candidateFiles.filter(isVideoFile);
-      const nextFiles = videoCandidates.filter(isBrowserFileSizeSupported).slice(0, 12);
+      const supportedVideoCandidates = videoCandidates.filter(isBrowserFileSizeSupported);
+      const nextFiles = supportedVideoCandidates.slice(0, MAX_BROWSER_BATCH_FILES);
       if (nextFiles.length === 0) {
         showNotice(
           "warning",
@@ -521,19 +563,27 @@ function WebApp() {
         );
         return;
       }
-      if (candidateFiles.length > nextFiles.length) {
-        const skippedLargeFile = videoCandidates.some((file) => !isBrowserFileSizeSupported(file));
-        showNotice(
-          "warning",
-          skippedLargeFile
-            ? `Some selections were skipped because browser exports support files up to ${MAX_BROWSER_INPUT_LABEL}.`
-            : "Some selections were skipped because they are not video files."
+      const skippedReasons: string[] = [];
+      if (videoCandidates.some((file) => !isBrowserFileSizeSupported(file))) {
+        skippedReasons.push(
+          `some files exceed the ${MAX_BROWSER_INPUT_LABEL} browser export limit`
         );
+      }
+      if (candidateFiles.some((file) => !isVideoFile(file))) {
+        skippedReasons.push("some selections are not video files");
+      }
+      if (supportedVideoCandidates.length > nextFiles.length) {
+        skippedReasons.push(`only the first ${MAX_BROWSER_BATCH_FILES} videos can be queued`);
+      }
+      if (skippedReasons.length > 0) {
+        showNotice("warning", `Some selections were skipped because ${skippedReasons.join("; ")}.`);
       }
       setFiles(nextFiles);
       setActiveFileIndex(0);
       setLastExport(null);
       exportProgressRef.current = 0;
+      exportUiUpdatedAtRef.current = 0;
+      exportUiStatusRef.current = "Ready";
       exportStartedAtRef.current = null;
       setProgress(0);
       setExportStatus("Ready");
@@ -573,6 +623,8 @@ function WebApp() {
       });
       setLastExport(null);
       exportProgressRef.current = 0;
+      exportUiUpdatedAtRef.current = 0;
+      exportUiStatusRef.current = "Ready";
       exportStartedAtRef.current = null;
       setProgress(0);
       setExportStatus("Ready");
@@ -723,6 +775,8 @@ function WebApp() {
     setIsExporting(true);
     setWasmLoading(true);
     exportProgressRef.current = 0;
+    exportUiUpdatedAtRef.current = 0;
+    exportUiStatusRef.current = "";
     exportStartedAtRef.current = Date.now();
     setProgress(0);
     setExportStatus("Loading the local browser encoder…");
@@ -732,6 +786,7 @@ function WebApp() {
       batchMode && !standardFpsOptions.some((option) => option.value === settings.fps)
         ? { ...settings, fps: "off" }
         : settings;
+    let downloadedCount = 0;
 
     try {
       await engine.load();
@@ -745,7 +800,7 @@ function WebApp() {
         if (exportCancelledRef.current) throw new Error("Export cancelled.");
         const file = files[index];
         const fileMetadata =
-          index === activeFileIndex && metadata ? metadata : await readVideoMetadata(file);
+          index === activeFileIndex && metadata ? metadata : await readCachedMetadata(file);
         const fileStart = batchMode ? 0 : startTime;
         const fileEnd = batchMode ? fileMetadata.duration : endTime;
         setExportStatus(
@@ -769,17 +824,29 @@ function WebApp() {
               ((completed + fileProgress) / files.length) * 100
             );
             exportProgressRef.current = nextProgress;
-            setProgress(nextProgress);
-            const startedAt = exportStartedAtRef.current;
-            if (startedAt !== null) setEta(formatBrowserEta(nextProgress, Date.now() - startedAt));
-            setExportStatus(files.length > 1 ? `${status} · ${index + 1}/${files.length}` : status);
+            const nextStatus =
+              files.length > 1 ? `${status} · ${index + 1}/${files.length}` : status;
+            const now = Date.now();
+            if (
+              nextStatus !== exportUiStatusRef.current ||
+              now - exportUiUpdatedAtRef.current >= 100 ||
+              fileProgress >= 1
+            ) {
+              exportUiUpdatedAtRef.current = now;
+              exportUiStatusRef.current = nextStatus;
+              setProgress(nextProgress);
+              setExportStatus(nextStatus);
+            }
           },
         });
+        if (exportCancelledRef.current) throw new Error("Export cancelled.");
         downloadBlob(result.blob, result.fileName);
+        downloadedCount += 1;
         if (shouldCopyBrowserExport(exportMode, batchMode)) {
           const copied = await tryCopyBlobToClipboard(result.blob);
           if (copied) setExportStatus("Downloaded and copied to clipboard");
         }
+        if (exportCancelledRef.current) throw new Error("Export cancelled.");
         setLastExport({ name: result.fileName, bytes: result.bytes });
         oversized = oversized || result.wasOversized;
         normalizationSkipped = normalizationSkipped || result.normalizationSkipped;
@@ -821,7 +888,12 @@ function WebApp() {
       if (exportCancelledRef.current) {
         setExportStatus("Cancelled");
         setEta("Cancelled");
-        showNotice("info", "Export cancelled. No upload was made.");
+        showNotice(
+          "info",
+          downloadedCount > 0
+            ? `Export cancelled. ${downloadedCount} ${downloadedCount === 1 ? "file was" : "files were"} downloaded before cancellation.`
+            : "Export cancelled. No files were downloaded."
+        );
       } else {
         setExportStatus("Export failed");
         setEta("Unavailable");
@@ -842,6 +914,7 @@ function WebApp() {
     losslessKeyframes,
     losslessKeyframesLoading,
     metadata,
+    readCachedMetadata,
     settings,
     showNotice,
     standardFpsOptions,
@@ -1084,6 +1157,7 @@ function WebApp() {
                     <WebAudioActions
                       removeAudio={settings.removeAudio}
                       audioNormalize={settings.audioNormalize}
+                      audioAvailable={metadata?.hasAudio}
                       disabled={isExporting}
                       onRemoveAudioChange={setBrowserRemoveAudio}
                       onAudioNormalizeChange={setBrowserAudioNormalize}
@@ -1156,6 +1230,7 @@ function WebApp() {
                     <WebAudioActions
                       removeAudio={settings.removeAudio}
                       audioNormalize={settings.audioNormalize}
+                      audioAvailable={metadata?.hasAudio}
                       disabled={isExporting}
                       onRemoveAudioChange={setBrowserRemoveAudio}
                       onAudioNormalizeChange={setBrowserAudioNormalize}
@@ -1223,15 +1298,36 @@ function WebApp() {
                     </span>
                     <button
                       type="button"
-                      className={`web-lossless-audio-toggle${settings.removeAudio ? " active" : ""}`}
-                      title={settings.removeAudio ? "Keep audio" : "Remove audio tracks"}
-                      aria-label={settings.removeAudio ? "Keep audio" : "Remove audio tracks"}
-                      aria-pressed={settings.removeAudio}
-                      disabled={isExporting}
+                      className={`web-lossless-audio-toggle${settings.removeAudio && metadata?.hasAudio !== false ? " active" : ""}`}
+                      title={
+                        metadata?.hasAudio === false
+                          ? "No audio track detected"
+                          : settings.removeAudio
+                            ? "Keep audio"
+                            : "Remove audio tracks"
+                      }
+                      aria-label={
+                        metadata?.hasAudio === false
+                          ? "No audio track detected"
+                          : settings.removeAudio
+                            ? "Keep audio"
+                            : "Remove audio tracks"
+                      }
+                      aria-pressed={settings.removeAudio && metadata?.hasAudio !== false}
+                      disabled={isExporting || metadata?.hasAudio === false}
                       onClick={() => setBrowserRemoveAudio(!settings.removeAudio)}
                     >
-                      <AudioIcon type="mute" active={settings.removeAudio} />
-                      <span>{settings.removeAudio ? "Audio removed" : "Keep audio"}</span>
+                      <AudioIcon
+                        type="mute"
+                        active={settings.removeAudio && metadata?.hasAudio !== false}
+                      />
+                      <span>
+                        {metadata?.hasAudio === false
+                          ? "No audio track"
+                          : settings.removeAudio
+                            ? "Audio removed"
+                            : "Keep audio"}
+                      </span>
                     </button>
                   </div>
                 )}
@@ -1254,6 +1350,7 @@ function WebApp() {
                           <button
                             type="button"
                             className="web-queue-item"
+                            disabled={isExporting}
                             onClick={() => setActiveFileIndex(index)}
                           >
                             <span className="web-queue-index">{index + 1}</span>
@@ -1279,7 +1376,7 @@ function WebApp() {
                 ) : (
                   <section className="web-preview-panel" aria-label="Video preview">
                     <div className="web-preview-frame">
-                      {previewUrl ? (
+                      {previewUrl && !previewError ? (
                         <>
                           <video
                             ref={videoRef}
@@ -1353,7 +1450,9 @@ function WebApp() {
                             {activeFile
                               ? metadataLoading
                                 ? "Reading video…"
-                                : "Preview"
+                                : previewError
+                                  ? "Preview unavailable"
+                                  : "Preview"
                               : "No file selected"}
                           </span>
                         </span>

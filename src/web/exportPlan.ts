@@ -161,7 +161,10 @@ export function createExportPlan(
     ? resolutionToHeight(settings.resolution)
     : (QUALITY_PRESETS[settings.qualityIndex] ?? QUALITY_PRESETS[0]).targetHeight;
   const exportFps = getExportFps(metadata, settings, mode);
-  const audioTrackCount = metadata.audioTrackCount ?? (metadata.hasAudio ? 1 : 0);
+  // Browser exports intentionally keep only the first source audio stream.
+  // Size planning must reserve bitrate for what the output actually maps,
+  // rather than for every track a browser may report.
+  const outputAudioTrackCount = metadata.hasAudio && !settings.removeAudio ? 1 : 0;
   const bitrateKbps =
     targetSizeMb === null
       ? Number.isFinite(sourceBitrateKbps) && sourceBitrateKbps > 0
@@ -171,7 +174,7 @@ export function createExportPlan(
           targetSizeMb,
           duration,
           settings.removeAudio,
-          audioTrackCount,
+          outputAudioTrackCount,
           sourceBitrateKbps
         );
 
@@ -284,10 +287,7 @@ export function buildVideoFilter(
   const fps = normalizedFps !== "off" ? Number(normalizedFps) : 0;
   if (Number.isFinite(fps) && fps > 0) filters.push(`fps=${fps}`);
   if (scale) filters.push(scale);
-  if (
-    (!crop && !scale && (metadata.width % 2 !== 0 || metadata.height % 2 !== 0)) ||
-    (crop && !scale)
-  ) {
+  if (!crop && !scale && (metadata.width % 2 !== 0 || metadata.height % 2 !== 0)) {
     filters.push("scale=trunc(iw/2)*2:trunc(ih/2)*2");
   }
   return filters.length > 0 ? filters.join(",") : null;
@@ -370,7 +370,7 @@ export function buildCompressionArgs(
   } else {
     args.push("-crf", "23");
   }
-  if (settings.removeAudio) {
+  if (settings.removeAudio || !metadata.hasAudio) {
     args.push("-an");
   } else {
     args.push("-map", "0:a:0?", "-c:a", "aac", "-b:a", "128k");

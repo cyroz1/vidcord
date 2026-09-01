@@ -11,6 +11,20 @@ export type FfmpegProgressEvent = {
 
 export type FfmpegProgressHandler = (event: FfmpegProgressEvent) => void;
 
+export type BrowserFfmpegSession = {
+  transcode: (
+    argsForInput: (inputName: string) => string[],
+    outputName: string,
+    onProgress?: FfmpegProgressHandler
+  ) => Promise<Uint8Array<ArrayBuffer>>;
+  run: (
+    argsForInput: (inputName: string) => string[],
+    onProgress?: FfmpegProgressHandler,
+    onLog?: (message: string) => void
+  ) => Promise<string>;
+  dispose: () => Promise<void>;
+};
+
 type WasmSource = {
   url: string;
   cleanup: () => void;
@@ -67,9 +81,15 @@ async function resolveWasmSource(): Promise<WasmSource> {
 }
 
 function readBytes(data: Uint8Array | string): Uint8Array<ArrayBuffer> {
-  const source = typeof data === "string" ? new TextEncoder().encode(data) : data;
-  const copy = new Uint8Array(source.byteLength);
-  copy.set(source);
+  if (typeof data === "string") return new TextEncoder().encode(data);
+  if (data.buffer instanceof ArrayBuffer) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  }
+
+  // FFmpeg normally transfers an ArrayBuffer from its worker. Keep a safe
+  // fallback for runtimes backed by SharedArrayBuffer-like memory.
+  const copy = new Uint8Array(data.byteLength);
+  copy.set(data);
   return copy;
 }
 
@@ -144,12 +164,7 @@ export class BrowserFfmpegEngine {
     return this.loading;
   }
 
-  async transcode(
-    file: File,
-    argsForInput: (inputName: string) => string[],
-    outputName: string,
-    onProgress?: FfmpegProgressHandler
-  ): Promise<Uint8Array<ArrayBuffer>> {
+  async createSession(file: File): Promise<BrowserFfmpegSession> {
     if (!isBrowserFileSizeSupported(file)) {
       throw new Error(`Browser exports support video files up to ${MAX_BROWSER_INPUT_LABEL}.`);
     }
@@ -157,27 +172,102 @@ export class BrowserFfmpegEngine {
     const ffmpeg = this.ffmpeg;
     if (!ffmpeg) throw new Error("The browser encoder is not available.");
 
+    const operationGeneration = this.loadGeneration;
     const sequence = ++this.sequence;
     const inputName = inputFileName(file, sequence);
     const inputData = await fetchFile(file);
-    this.lastLog = "";
-    this.logBuffer = "";
-    this.runLogHandler = null;
-    await ffmpeg.writeFile(inputName, inputData);
-
     try {
-      this.operationProgressHandler = onProgress ?? null;
-      const exitCode = await ffmpeg.exec(argsForInput(inputName));
-      if (exitCode !== 0) {
-        const detail = this.lastLog ? ` ${this.lastLog}` : "";
-        throw new Error(`FFmpeg stopped with exit code ${exitCode}.${detail}`);
+      this.assertActive(ffmpeg, operationGeneration);
+      await ffmpeg.writeFile(inputName, inputData);
+      this.assertActive(ffmpeg, operationGeneration);
+    } catch (error: unknown) {
+      await ffmpeg.deleteFile(inputName).catch(() => false);
+      throw error;
+    }
+
+    let disposed = false;
+    const ensureActive = () => {
+      if (disposed) throw new Error("Export session closed.");
+      this.assertActive(ffmpeg, operationGeneration);
+    };
+
+    const transcode = async (
+      argsForInput: (inputName: string) => string[],
+      outputName: string,
+      onProgress?: FfmpegProgressHandler
+    ): Promise<Uint8Array<ArrayBuffer>> => {
+      ensureActive();
+      this.lastLog = "";
+      this.logBuffer = "";
+      this.runLogHandler = null;
+      try {
+        this.operationProgressHandler = onProgress ?? null;
+        const exitCode = await ffmpeg.exec(argsForInput(inputName));
+        ensureActive();
+        if (exitCode !== 0) {
+          const detail = this.lastLog ? ` ${this.lastLog}` : "";
+          throw new Error(`FFmpeg stopped with exit code ${exitCode}.${detail}`);
+        }
+        return readBytes(await ffmpeg.readFile(outputName));
+      } catch (error: unknown) {
+        ensureActive();
+        throw error;
+      } finally {
+        this.operationProgressHandler = null;
+        this.runLogHandler = null;
+        await ffmpeg.deleteFile(outputName).catch(() => false);
       }
-      return readBytes(await ffmpeg.readFile(outputName));
-    } finally {
+    };
+
+    const run = async (
+      argsForInput: (inputName: string) => string[],
+      onProgress?: FfmpegProgressHandler,
+      onLog?: (message: string) => void
+    ): Promise<string> => {
+      ensureActive();
+      this.lastLog = "";
+      this.logBuffer = "";
+      try {
+        this.runLogHandler = onLog ?? null;
+        this.operationProgressHandler = onProgress ?? null;
+        const exitCode = await ffmpeg.exec(argsForInput(inputName));
+        ensureActive();
+        if (exitCode !== 0) {
+          const detail = this.lastLog ? ` ${this.lastLog}` : "";
+          throw new Error(`FFmpeg stopped with exit code ${exitCode}.${detail}`);
+        }
+        return this.logBuffer;
+      } catch (error: unknown) {
+        ensureActive();
+        throw error;
+      } finally {
+        this.operationProgressHandler = null;
+        this.runLogHandler = null;
+      }
+    };
+
+    const dispose = async () => {
+      if (disposed) return;
+      disposed = true;
       this.operationProgressHandler = null;
       this.runLogHandler = null;
       await ffmpeg.deleteFile(inputName).catch(() => false);
-      await ffmpeg.deleteFile(outputName).catch(() => false);
+    };
+
+    return { transcode, run, dispose };
+  }
+
+  async transcode(
+    file: File,
+    argsForInput: (inputName: string) => string[],
+    outputName: string,
+    onProgress?: FfmpegProgressHandler
+  ): Promise<Uint8Array<ArrayBuffer>> {
+    const session = await this.createSession(file);
+    try {
+      return await session.transcode(argsForInput, outputName, onProgress);
+    } finally {
+      await session.dispose();
     }
   }
 
@@ -187,40 +277,17 @@ export class BrowserFfmpegEngine {
     onProgress?: FfmpegProgressHandler,
     onLog?: (message: string) => void
   ): Promise<string> {
-    if (!isBrowserFileSizeSupported(file)) {
-      throw new Error(`Browser exports support video files up to ${MAX_BROWSER_INPUT_LABEL}.`);
-    }
-    await this.load();
-    const ffmpeg = this.ffmpeg;
-    if (!ffmpeg) throw new Error("The browser encoder is not available.");
-
-    const sequence = ++this.sequence;
-    const inputName = inputFileName(file, sequence);
-    const inputData = await fetchFile(file);
-    this.lastLog = "";
-    this.logBuffer = "";
-    const operationGeneration = this.loadGeneration;
-    await ffmpeg.writeFile(inputName, inputData);
-
+    const session = await this.createSession(file);
     try {
-      this.runLogHandler = onLog ?? null;
-      this.operationProgressHandler = onProgress ?? null;
-      const exitCode = await ffmpeg.exec(argsForInput(inputName));
-      if (this.loadGeneration !== operationGeneration) {
-        throw new Error("Export cancelled.");
-      }
-      if (exitCode !== 0) {
-        const detail = this.lastLog ? ` ${this.lastLog}` : "";
-        throw new Error(`FFmpeg stopped with exit code ${exitCode}.${detail}`);
-      }
-      return this.logBuffer;
-    } catch (error: unknown) {
-      if (this.loadGeneration !== operationGeneration) throw new Error("Export cancelled.");
-      throw error;
+      return await session.run(argsForInput, onProgress, onLog);
     } finally {
-      this.operationProgressHandler = null;
-      this.runLogHandler = null;
-      await ffmpeg.deleteFile(inputName).catch(() => false);
+      await session.dispose();
+    }
+  }
+
+  private assertActive(ffmpeg: FFmpeg, operationGeneration: number): void {
+    if (this.loadGeneration !== operationGeneration || this.ffmpeg !== ffmpeg || !ffmpeg.loaded) {
+      throw new Error("Export cancelled.");
     }
   }
 
