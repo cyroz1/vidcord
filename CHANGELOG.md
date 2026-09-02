@@ -7,36 +7,24 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ### Browser edition
 
-- Added a client-side browser demo to `/` beneath the desktop app headline and download CTA. It
-  processes selected videos locally with FFmpeg WebAssembly and exports the result through browser
-  downloads, with Compress, Advanced, Lossless Trim, GIF, trim, crop, audio normalization, audio
-  removal for re-encoded exports, standard FPS controls, typed Advanced FPS, snapshots, and
-  same-profile batches.
+- Added a client-side browser editor at `/` beneath the desktop app headline and download CTA. It
+  processes selected videos locally with FFmpeg WebAssembly and exports through browser downloads,
+  with Compress, Advanced, Lossless Trim, GIF, trim, crop, audio controls, FPS controls,
+  snapshots, and same-profile batches.
 - Browser Batch mode applies one standard Compress profile to each full-duration file, reports
   per-file progress and aggregate ETA, and allows queued files to be removed before export. It
-  does not include per-file batch trims, saved settings presets, native output destinations, or
-  desktop file-manager integrations.
-- Removed desktop-only encoder selection, save-location controls, after-export actions, and saved
-  settings presets from the browser UI. Browser re-encodes use a fixed `libx264` WebAssembly
-  encoder; the native desktop app remains the optional upgrade for system FFmpeg, GPU encoders,
-  faster native encoding, native folders, Open With, notifications, taskbar/Dock progress, and
-  installer updates.
-- Rebuilt the root page around the desktop app's original headline and moved the browser demo
-  directly below the desktop hero. The page keeps the site's branding, desktop screenshots,
-  feature tour, FFmpeg setup, FAQ, and platform-aware download section.
-- Matched the embedded browser editor to the desktop app's light-mode surface, controls, timeline,
-  and native dropdown appearance for a consistent product and screenshot language.
-- Updated the README, FFmpeg setup guide, root metadata/structured data, public crawler files,
-  and deployment notes to document the browser/desktop capability boundary and local-only
-  processing model.
-- Changed GIF size presets in both editions to 5 MB, 10 MB, and 20 MB targets.
-- Migrated GIF settings to semantic size targets so existing 20/50 MB-era saved choices do not
-  silently become the new 5 MB option; legacy values are capped safely at the new 20 MB maximum.
-- Added browser Lossless Trim audio removal, bounded browser inputs to 512 MB per file, and aligned
-  browser crop/scaling, FPS safeguards, bitrate planning, GIF retries, and audio-error fallbacks
-  with the native export policy.
-- Added browser trim snap intervals plus zoom and pan controls, and expanded automated coverage for
-  browser settings migration, export planning, batch completion behavior, and rendered controls.
+  keeps desktop-only encoder selection, native output destinations, completion actions, saved
+  presets, and file-manager integrations out of the browser edition.
+- Fixed browser settings, mode, and queue changes so feedback from a previous export cannot remain
+  attached to a newly selected video or profile. Added browser Lossless Trim audio removal,
+  512 MB input bounds, trim snapping, zoom and pan controls, and aligned crop/scaling, FPS,
+  bitrate, GIF retry, and audio-error safeguards with the native export policy.
+- Changed GIF size presets in both editions to 5 MB, 10 MB, and 20 MB targets, with semantic
+  migration for existing saved settings and safe handling of legacy values.
+- Rebuilt the root page around the desktop app's original headline, followed by the browser demo,
+  feature tour, FFmpeg setup, FAQ, responsive screenshots, and platform-aware download section.
+- Updated product documentation, metadata, structured data, crawler files, and deployment notes to
+  document the browser/desktop capability boundary and local-only processing model.
 
 ### Performance and UX
 
@@ -48,6 +36,12 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   retries at the minimum viable bitrate.
 - Improved browser batch locking, cancellation reporting, silent-source audio controls, and preview
   failure states so long-running exports remain responsive and explain partial results clearly.
+- Added a static critical marketing stylesheet link and prioritized the hero screenshot to reduce
+  first-paint layout movement. Added bundle and hosted-site size checks, gzip publication for the
+  browser WebAssembly asset, and baseline security headers for the deployed site.
+- Hardened platform download selection to accept only expected GitHub release assets, require a
+  universal macOS build, and fall back cleanly when release metadata or architecture detection is
+  unavailable.
 
 ## v7.3
 

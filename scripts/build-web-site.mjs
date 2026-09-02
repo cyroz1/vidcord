@@ -50,10 +50,18 @@ function compressWasmAssets(directory) {
 async function formatGeneratedIndex(directory) {
   const entryPath = path.join(directory, "index.html");
   const source = fs.readFileSync(entryPath, "utf8");
+  const marketingStylesheet =
+    '    <link rel="stylesheet" href="/marketing.css" data-vidcord-marketing-styles="true" />';
+  const sourceWithMarketingStylesheet = source.includes('href="/marketing.css"')
+    ? source
+    : source.replace("  </head>", `${marketingStylesheet}\n  </head>`);
   const config = (await prettier.resolveConfig(entryPath)) ?? {};
-  const formatted = await prettier.format(source, { ...config, filepath: entryPath });
+  const formatted = await prettier.format(sourceWithMarketingStylesheet, {
+    ...config,
+    filepath: entryPath,
+  });
 
-  if (formatted !== source) {
+  if (formatted !== sourceWithMarketingStylesheet) {
     fs.writeFileSync(entryPath, formatted);
   }
 }

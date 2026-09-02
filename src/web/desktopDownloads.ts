@@ -19,6 +19,9 @@ export type LatestRelease = {
 
 export const LATEST_RELEASE_URL = "https://github.com/cyroz1/vidcord/releases/latest";
 const RELEASE_API_URL = "https://api.github.com/repos/cyroz1/vidcord/releases/latest";
+const RELEASE_DOWNLOAD_ORIGIN = "https://github.com";
+const RELEASE_DOWNLOAD_PATH = "/cyroz1/vidcord/releases/download/";
+const RELEASE_ASSET_NAME = /^vidcord_[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 const PLATFORM_NAMES: Record<DownloadPlatform, string> = {
   windows: "Windows",
@@ -49,6 +52,26 @@ type NavigatorWithUserAgentData = Navigator & {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isTrustedReleaseAsset(asset: ReleaseAsset): boolean {
+  if (!RELEASE_ASSET_NAME.test(asset.name)) return false;
+
+  try {
+    const url = new URL(asset.browser_download_url);
+    const fileName = url.pathname.slice(url.pathname.lastIndexOf("/") + 1);
+    return (
+      url.origin === RELEASE_DOWNLOAD_ORIGIN &&
+      url.username === "" &&
+      url.password === "" &&
+      url.pathname.startsWith(RELEASE_DOWNLOAD_PATH) &&
+      fileName === asset.name &&
+      url.search === "" &&
+      url.hash === ""
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function normalizeDownloadPlatform(value: unknown): DownloadPlatform {
@@ -190,16 +213,16 @@ export function selectBestDownloadAsset(
     return null;
   }
 
-  const candidates = assets.filter((asset) => asset.name.toLowerCase().endsWith(extension));
+  const candidates = assets.filter(
+    (asset) => isTrustedReleaseAsset(asset) && asset.name.toLowerCase().endsWith(extension)
+  );
 
   if (!candidates.length) {
     return null;
   }
 
   if (platform === "macos") {
-    return (
-      candidates.find((asset) => asset.name.toLowerCase().includes("universal")) ?? candidates[0]
-    );
+    return candidates.find((asset) => asset.name.toLowerCase().includes("universal")) ?? null;
   }
 
   return (
@@ -233,7 +256,11 @@ export function parseLatestRelease(value: unknown): LatestRelease {
         return (
           isRecord(asset) &&
           typeof asset.name === "string" &&
-          typeof asset.browser_download_url === "string"
+          typeof asset.browser_download_url === "string" &&
+          isTrustedReleaseAsset({
+            name: asset.name,
+            browser_download_url: asset.browser_download_url,
+          })
         );
       })
     : [];

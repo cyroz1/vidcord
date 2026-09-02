@@ -221,6 +221,7 @@ function Screenshot({ fallback, variants, width, height, alt, sizes, loading }: 
         width={width}
         height={height}
         loading={loading ?? "lazy"}
+        fetchPriority={loading === "eager" ? "high" : undefined}
         decoding="async"
         alt={alt}
       />
@@ -453,7 +454,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
         }
       })
       .catch(() => {
-        if (active && !controller.signal.aborted) {
+        if (active) {
           setReleaseError(true);
         }
       })

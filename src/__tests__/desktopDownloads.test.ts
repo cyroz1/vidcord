@@ -12,27 +12,33 @@ import {
 const assets: ReleaseAsset[] = [
   {
     name: "vidcord_windows_x86_64.exe",
-    browser_download_url: "https://example.test/windows-x64.exe",
+    browser_download_url:
+      "https://github.com/cyroz1/vidcord/releases/download/v7.3/vidcord_windows_x86_64.exe",
   },
   {
     name: "vidcord_windows_arm64.exe",
-    browser_download_url: "https://example.test/windows-arm64.exe",
+    browser_download_url:
+      "https://github.com/cyroz1/vidcord/releases/download/v7.3/vidcord_windows_arm64.exe",
   },
   {
     name: "vidcord_macos_x64.dmg",
-    browser_download_url: "https://example.test/macos-x64.dmg",
+    browser_download_url:
+      "https://github.com/cyroz1/vidcord/releases/download/v7.3/vidcord_macos_x64.dmg",
   },
   {
     name: "vidcord_macos_universal.dmg",
-    browser_download_url: "https://example.test/macos-universal.dmg",
+    browser_download_url:
+      "https://github.com/cyroz1/vidcord/releases/download/v7.3/vidcord_macos_universal.dmg",
   },
   {
     name: "vidcord_linux_x86_64.AppImage",
-    browser_download_url: "https://example.test/linux-x64.AppImage",
+    browser_download_url:
+      "https://github.com/cyroz1/vidcord/releases/download/v7.3/vidcord_linux_x86_64.AppImage",
   },
   {
     name: "vidcord_linux_aarch64.AppImage",
-    browser_download_url: "https://example.test/linux-arm64.AppImage",
+    browser_download_url:
+      "https://github.com/cyroz1/vidcord/releases/download/v7.3/vidcord_linux_aarch64.AppImage",
   },
 ];
 
@@ -73,11 +79,45 @@ describe("desktop download detection", () => {
     expect(downloadLabel("linux", "arm64")).toBe("Download for Linux ARM64");
   });
 
+  it("requires a universal macOS asset instead of guessing an architecture", () => {
+    expect(
+      selectBestDownloadAsset(
+        "macos",
+        "unknown",
+        assets.filter((asset) => !asset.name.includes("universal"))
+      )
+    ).toBeNull();
+  });
+
   it("drops malformed release assets while keeping a valid release", () => {
     expect(
       parseLatestRelease({
         tag_name: "v7.4.0",
         assets: [assets[0], { name: "missing-url" }, null],
+      })
+    ).toEqual({ tag_name: "v7.4.0", assets: [assets[0]] });
+  });
+
+  it("drops release assets outside the expected GitHub download path", () => {
+    expect(
+      parseLatestRelease({
+        tag_name: "v7.4.0",
+        assets: [
+          assets[0],
+          {
+            name: "vidcord_7.4.0_x64-setup.exe",
+            browser_download_url: "https://downloads.example.test/installer.exe",
+          },
+          {
+            name: "vidcord_7.4.0_x64-setup.exe",
+            browser_download_url: "javascript:alert(1)",
+          },
+          {
+            name: "other_7.4.0_x64-setup.exe",
+            browser_download_url:
+              "https://github.com/cyroz1/vidcord/releases/download/v7.4/other_7.4.0_x64-setup.exe",
+          },
+        ],
       })
     ).toEqual({ tag_name: "v7.4.0", assets: [assets[0]] });
   });

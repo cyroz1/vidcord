@@ -1,8 +1,4 @@
-import {
-  migrateLegacyGifQualityIndex,
-  normalizeGifTarget,
-  type GifTargetMb,
-} from "../gifPresets";
+import { migrateLegacyGifQualityIndex, normalizeGifTarget, type GifTargetMb } from "../gifPresets";
 
 export type BrowserMode = "compress" | "advanced" | "lossless" | "gif";
 

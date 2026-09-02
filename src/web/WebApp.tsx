@@ -356,6 +356,17 @@ function WebApp() {
     setNotice({ type, message });
   }, []);
 
+  const resetExportFeedback = useCallback(() => {
+    setLastExport(null);
+    exportProgressRef.current = 0;
+    exportUiUpdatedAtRef.current = 0;
+    exportUiStatusRef.current = "Ready";
+    exportStartedAtRef.current = null;
+    setProgress(0);
+    setExportStatus("Ready");
+    setEta("Ready");
+  }, []);
+
   const readCachedMetadata = useCallback(async (file: File): Promise<BrowserVideoMetadata> => {
     const cacheKey = browserFileCacheKey(file);
     const cached = metadataCacheRef.current.get(cacheKey);
@@ -445,11 +456,15 @@ function WebApp() {
     return () => URL.revokeObjectURL(url);
   }, [activeFile, readCachedMetadata, showNotice]);
 
-  const patchSettings = useCallback((patch: Partial<BrowserSettings>) => {
-    const next = { ...settingsRef.current, ...patch };
-    settingsRef.current = next;
-    setSettings(next);
-  }, []);
+  const patchSettings = useCallback(
+    (patch: Partial<BrowserSettings>) => {
+      const next = { ...settingsRef.current, ...patch };
+      settingsRef.current = next;
+      setSettings(next);
+      resetExportFeedback();
+    },
+    [resetExportFeedback]
+  );
 
   const setBrowserRemoveAudio = useCallback(
     (removeAudio: boolean) => {
@@ -591,16 +606,9 @@ function WebApp() {
       }
       setFiles(nextFiles);
       setActiveFileIndex(0);
-      setLastExport(null);
-      exportProgressRef.current = 0;
-      exportUiUpdatedAtRef.current = 0;
-      exportUiStatusRef.current = "Ready";
-      exportStartedAtRef.current = null;
-      setProgress(0);
-      setExportStatus("Ready");
-      setEta("Ready");
+      resetExportFeedback();
     },
-    [showNotice]
+    [resetExportFeedback, showNotice]
   );
 
   const handleFileInput = useCallback(
@@ -632,16 +640,9 @@ function WebApp() {
         if (fileIndex === currentIndex) return Math.min(currentIndex, nextFiles.length - 1);
         return currentIndex;
       });
-      setLastExport(null);
-      exportProgressRef.current = 0;
-      exportUiUpdatedAtRef.current = 0;
-      exportUiStatusRef.current = "Ready";
-      exportStartedAtRef.current = null;
-      setProgress(0);
-      setExportStatus("Ready");
-      setEta("Ready");
+      resetExportFeedback();
     },
-    [files, isExporting]
+    [files, isExporting, resetExportFeedback]
   );
 
   const seekTo = useCallback(
@@ -1368,7 +1369,10 @@ function WebApp() {
                               type="button"
                               className="web-queue-item"
                               disabled={isExporting}
-                              onClick={() => setActiveFileIndex(index)}
+                              onClick={() => {
+                                setActiveFileIndex(index);
+                                resetExportFeedback();
+                              }}
                             >
                               <span className="web-queue-index">{index + 1}</span>
                               <span className="web-queue-name" title={file.name}>

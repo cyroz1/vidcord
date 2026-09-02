@@ -15,8 +15,7 @@ export type BrowserVideoMetadata = {
 };
 
 const VIDEO_EXTENSION = /\.(mp4|avi|mov|mkv|flv|wmv|webm|m4v|mpeg|mpg|ogv)$/i;
-export const VIDEO_FILE_ACCEPT =
-  "video/*,.mp4,.avi,.mov,.mkv,.flv,.wmv,.webm,.m4v,.mpeg,.mpg,.ogv";
+export const VIDEO_FILE_ACCEPT = "video/*,.mp4,.avi,.mov,.mkv,.flv,.wmv,.webm,.m4v,.mpeg,.mpg,.ogv";
 export const MAX_BROWSER_INPUT_BYTES = 512 * 1024 * 1024;
 export const MAX_BROWSER_INPUT_LABEL = "512 MB";
 
@@ -133,75 +132,77 @@ export async function readVideoMetadata(file: File): Promise<BrowserVideoMetadat
 
   try {
     const metadata = await new Promise<
-      Pick<BrowserVideoMetadata, "duration" | "width" | "height" | "frameRate" | "hasAudio" | "audioTrackCount">
+      Pick<
+        BrowserVideoMetadata,
+        "duration" | "width" | "height" | "frameRate" | "hasAudio" | "audioTrackCount"
+      >
     >((resolve, reject) => {
-        const video = document.createElement("video");
-        const extendedVideo = video as HTMLVideoElement & {
-          audioTracks?: { length: number };
-          frameRate?: number;
-          mozHasAudio?: boolean;
-        };
-        video.preload = "metadata";
-        video.muted = true;
-        video.playsInline = true;
-        let timeoutId: number | null = null;
+      const video = document.createElement("video");
+      const extendedVideo = video as HTMLVideoElement & {
+        audioTracks?: { length: number };
+        frameRate?: number;
+        mozHasAudio?: boolean;
+      };
+      video.preload = "metadata";
+      video.muted = true;
+      video.playsInline = true;
+      let timeoutId: number | null = null;
 
-        const cleanup = () => {
-          if (timeoutId !== null) window.clearTimeout(timeoutId);
-          video.removeAttribute("src");
-          video.load();
-        };
-
-        video.addEventListener(
-          "loadedmetadata",
-          () => {
-            const duration = Number.isFinite(video.duration) ? video.duration : 0;
-            const width = video.videoWidth;
-            const height = video.videoHeight;
-            if (duration <= 0 || width <= 0 || height <= 0) {
-              cleanup();
-              reject(new Error("The browser could not read this video's dimensions or duration."));
-              return;
-            }
-            const audioTrackCount =
-              extendedVideo.audioTracks &&
-              Number.isInteger(extendedVideo.audioTracks.length) &&
-              extendedVideo.audioTracks.length >= 0
-                ? extendedVideo.audioTracks.length
-                : undefined;
-            const hasAudio =
-              typeof extendedVideo.mozHasAudio === "boolean"
-                ? extendedVideo.mozHasAudio
-                : audioTrackCount === undefined
-                  ? true
-                  : audioTrackCount > 0;
-            const frameRate =
-              typeof extendedVideo.frameRate === "number" &&
-              Number.isFinite(extendedVideo.frameRate) &&
-              extendedVideo.frameRate > 0
-                ? extendedVideo.frameRate
-                : null;
-            cleanup();
-            resolve({ duration, width, height, frameRate, hasAudio, audioTrackCount });
-          },
-          { once: true }
-        );
-        video.addEventListener(
-          "error",
-          () => {
-            cleanup();
-            reject(new Error("This browser cannot preview the selected video format."));
-          },
-          { once: true }
-        );
-        timeoutId = window.setTimeout(() => {
-          cleanup();
-          reject(new Error("The browser took too long to read this video's metadata."));
-        }, 10_000);
-        video.src = url;
+      const cleanup = () => {
+        if (timeoutId !== null) window.clearTimeout(timeoutId);
+        video.removeAttribute("src");
         video.load();
-      }
-    );
+      };
+
+      video.addEventListener(
+        "loadedmetadata",
+        () => {
+          const duration = Number.isFinite(video.duration) ? video.duration : 0;
+          const width = video.videoWidth;
+          const height = video.videoHeight;
+          if (duration <= 0 || width <= 0 || height <= 0) {
+            cleanup();
+            reject(new Error("The browser could not read this video's dimensions or duration."));
+            return;
+          }
+          const audioTrackCount =
+            extendedVideo.audioTracks &&
+            Number.isInteger(extendedVideo.audioTracks.length) &&
+            extendedVideo.audioTracks.length >= 0
+              ? extendedVideo.audioTracks.length
+              : undefined;
+          const hasAudio =
+            typeof extendedVideo.mozHasAudio === "boolean"
+              ? extendedVideo.mozHasAudio
+              : audioTrackCount === undefined
+                ? true
+                : audioTrackCount > 0;
+          const frameRate =
+            typeof extendedVideo.frameRate === "number" &&
+            Number.isFinite(extendedVideo.frameRate) &&
+            extendedVideo.frameRate > 0
+              ? extendedVideo.frameRate
+              : null;
+          cleanup();
+          resolve({ duration, width, height, frameRate, hasAudio, audioTrackCount });
+        },
+        { once: true }
+      );
+      video.addEventListener(
+        "error",
+        () => {
+          cleanup();
+          reject(new Error("This browser cannot preview the selected video format."));
+        },
+        { once: true }
+      );
+      timeoutId = window.setTimeout(() => {
+        cleanup();
+        reject(new Error("The browser took too long to read this video's metadata."));
+      }, 10_000);
+      video.src = url;
+      video.load();
+    });
 
     return {
       name: file.name,
