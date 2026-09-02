@@ -24,11 +24,10 @@ import {
   createExportPlan,
   type ExportPlan,
 } from "./exportPlan";
-import { BrowserFfmpegEngine } from "./ffmpegEngine";
+import type { BrowserFfmpegEngine } from "./ffmpegEngine";
 import { buildKeyframeProbeArgs, parseKeyframeTimes } from "./keyframes";
 import DesktopUpgrade from "./DesktopUpgrade";
 import { formatBrowserEta } from "./browserProgress";
-import { exportBrowserFile } from "./webExporter";
 import { effectiveBrowserExportMode, shouldCopyBrowserExport } from "./webExportState";
 import {
   loadBrowserSettings,
@@ -57,6 +56,11 @@ type Notice = { type: "success" | "error" | "warning" | "info"; message: string 
 
 const MAX_BROWSER_BATCH_FILES = 12;
 const MAX_METADATA_CACHE_ENTRIES = 24;
+
+type BrowserExportModule = typeof import("./browserExport");
+function loadBrowserExportModule(): Promise<BrowserExportModule> {
+  return import("./browserExport");
+}
 
 function browserFileCacheKey(file: Pick<File, "name" | "size" | "lastModified" | "type">): string {
   return `${file.name}\0${file.size}\0${file.lastModified}\0${file.type}`;
@@ -491,20 +495,26 @@ function WebApp() {
     }
 
     const file = activeFile;
-    const engine = engineRef.current ?? new BrowserFfmpegEngine();
-    engineRef.current = engine;
     const discoveredKeyframes: number[] = [];
+    let engine: BrowserFfmpegEngine | null = null;
     let probeRunning = true;
     setLosslessKeyframes([]);
     setLosslessKeyframesLoading(true);
     setLosslessKeyframeError(null);
     setWasmLoading(true);
 
-    void engine
-      .run(file, buildKeyframeProbeArgs, undefined, (message) => {
-        discoveredKeyframes.push(...parseKeyframeTimes(message, duration));
+    void loadBrowserExportModule()
+      .then(({ BrowserFfmpegEngine }) => {
+        if (generation !== keyframeProbeGenerationRef.current) return null;
+        const nextEngine = engineRef.current ?? new BrowserFfmpegEngine();
+        engine = nextEngine;
+        engineRef.current = nextEngine;
+        return nextEngine.run(file, buildKeyframeProbeArgs, undefined, (message) => {
+          discoveredKeyframes.push(...parseKeyframeTimes(message, duration));
+        });
       })
-      .then(() => {
+      .then((result) => {
+        if (result === null) return;
         if (generation !== keyframeProbeGenerationRef.current) return;
         const keyframes = normalizeLosslessKeyframes(discoveredKeyframes, duration);
         if (keyframes.length === 0) {
@@ -531,7 +541,7 @@ function WebApp() {
     return () => {
       if (generation === keyframeProbeGenerationRef.current) {
         keyframeProbeGenerationRef.current += 1;
-        if (probeRunning) engine.cancel();
+        if (probeRunning) engine?.cancel();
       }
     };
   }, [activeFile, batchMode, duration, losslessKeyframeCacheKey, settings.mode, showNotice]);
@@ -769,8 +779,6 @@ function WebApp() {
       }
     }
 
-    const engine = engineRef.current ?? new BrowserFfmpegEngine();
-    engineRef.current = engine;
     exportCancelledRef.current = false;
     setIsExporting(true);
     setWasmLoading(true);
@@ -789,6 +797,10 @@ function WebApp() {
     let downloadedCount = 0;
 
     try {
+      const { BrowserFfmpegEngine, exportBrowserFile } = await loadBrowserExportModule();
+      if (exportCancelledRef.current) throw new Error("Export cancelled.");
+      const engine = engineRef.current ?? new BrowserFfmpegEngine();
+      engineRef.current = engine;
       await engine.load();
       setWasmLoading(false);
       exportStartedAtRef.current = Date.now();

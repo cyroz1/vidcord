@@ -25,6 +25,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Export modes in both editions: Compress, Advanced, Lossless Trim, and GIF
 - Browser controls: Discord targets, custom Advanced size/resolution/FPS when source-rate metadata permits, crop, audio normalization, audio removal for re-encoded exports, lossless audio removal, single-video trim/preview, trim snap/zoom/pan, snapshots, and same-profile multi-file batches
 - Browser encoder: fixed `libx264` in FFmpeg WebAssembly; browser exports use browser downloads
+- Browser loading: the editor renders before requesting the FFmpeg WebAssembly runtime; normal exports load it on demand, while Lossless Trim may request it during local keyframe discovery
 - Browser Batch: applies one standard Compress profile to each selected full-duration file, shows per-file progress and aggregate ETA, and allows queued files to be removed before export; it has no per-file trim fields
 - Browser omissions: no encoder picker, source audio-track mixer, saved settings presets, native output destinations, native completion actions, Open With, OS notifications, taskbar/Dock progress, or desktop updater
 - Desktop Batch: multi-selection through Browse, drag-and-drop, Open With, command-line file arguments, or a second-instance launch; supports shared standard controls, separate start/end trims, up to two native workers, collision-safe MP4 outputs, and grouped completion actions
@@ -47,7 +48,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 
 - Does vidcord upload videos? No. The browser processes selected files with FFmpeg WebAssembly in the page; the desktop app uses system FFmpeg. Neither sends video to a server.
 - Can I use vidcord in a browser? Yes. Open https://vidcord.app/ for the no-install client-side editor. It keeps selected files in the browser and downloads finished exports.
-- Does the browser edition require FFmpeg? No system install is required. The browser loads the site's FFmpeg WebAssembly asset. The native desktop app separately requires `ffmpeg` and `ffprobe` on PATH.
+- Does the browser edition require FFmpeg? No system install is required. The browser loads the site's FFmpeg WebAssembly asset on demand for export work. The native desktop app separately requires `ffmpeg` and `ffprobe` on PATH.
 - What is desktop-only? GPU encoder discovery and selection, system-FFmpeg format coverage, source audio-track mixing, named settings presets, native output destinations, Open With, OS notifications, taskbar/Dock progress, and desktop updater flows.
 - Can vidcord compress multiple videos? Yes. Browser Batch accepts Browse or drag-and-drop selections and applies one shared full-duration Compress profile. Desktop Batch also accepts Open With, command-line arguments, and second-instance selections and adds per-file trims and native workers.
 - Which Discord size targets are supported? Both editions provide 20 MB, 50 MB, 100 MB, and 500 MB video targets. Advanced adds custom size, resolution, and typed FPS; GIF Mode provides 5 MB, 10 MB, and 20 MB GIF targets.

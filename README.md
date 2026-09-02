@@ -267,9 +267,11 @@ FFmpeg build can read.
 ## Browser edition
 
 Use the hosted [browser editor](https://vidcord.app/) when you want to
-compress a video without installing the desktop app. It runs FFmpeg compiled
-to WebAssembly in the page, keeps selected files in the browser, and triggers
-normal browser downloads for videos and PNG frame snapshots.
+compress a video without installing the desktop app. The page renders the editor
+first and loads FFmpeg compiled to WebAssembly on demand when export work starts;
+Lossless Trim may load it earlier for local keyframe discovery. Selected files
+stay in the browser, and videos and PNG frame snapshots use normal browser
+downloads.
 
 The browser editor includes Compress, Advanced, Lossless Trim, GIF, single-file
 trim and preview, crop, audio normalization, audio removal for re-encoded
@@ -315,8 +317,8 @@ npm run web:build
 ```
 
 This writes the deployable browser bundle to the root of `site/` while preserving
-`site/legacy/` and the crawler files. The first export loads the local WebAssembly
-encoder in the browser; no selected video is sent to a server. The build stores
+`site/legacy/` and the crawler files. The first export loads the deferred local
+WebAssembly encoder in the browser; no selected video is sent to a server. The build stores
 the WebAssembly binary as a gzip-compressed asset so the static deployment stays
 within Cloudflare's per-file size limit, then decompresses it in the browser
 before starting FFmpeg. The original marketing and desktop download page remains

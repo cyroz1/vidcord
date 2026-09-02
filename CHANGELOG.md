@@ -36,6 +36,17 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Added browser trim snap intervals plus zoom and pan controls, and expanded automated coverage for
   browser settings migration, export planning, batch completion behavior, and rendered controls.
 
+### Performance and UX
+
+- Deferred the browser FFmpeg/WebAssembly runtime until export work needs it, so the editor can
+  render before the large encoder assets are fetched. Lossless Trim loads the runtime when local
+  keyframe discovery is requested.
+- Reused one prepared input across audio analysis and adaptive size passes, reduced output-buffer
+  copying, cached recently read browser metadata, throttled progress updates, and stopped futile
+  retries at the minimum viable bitrate.
+- Improved browser batch locking, cancellation reporting, silent-source audio controls, and preview
+  failure states so long-running exports remain responsive and explain partial results clearly.
+
 ## v7.3
 
 ### Batch Processing

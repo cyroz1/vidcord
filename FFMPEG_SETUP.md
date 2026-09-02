@@ -1,10 +1,11 @@
 # FFmpeg Setup for the Native Desktop App
 
 This guide is for the native desktop app. The browser editor at
-[vidcord.app](https://vidcord.app/) does not require a system FFmpeg install: it
-loads a fixed FFmpeg WebAssembly encoder in the page, keeps selected files in
-the browser, and downloads finished exports through the browser. Browser input
-support depends on the browser's media decoder.
+[vidcord.app](https://vidcord.app/) does not require a system FFmpeg install: the
+editor renders first and loads its fixed FFmpeg WebAssembly encoder on demand
+when export work starts. Lossless Trim may load it during local keyframe
+discovery. Selected files stay in the browser, and finished exports download
+through the browser. Browser input support depends on the browser's media decoder.
 
 The desktop app requires FFmpeg to be installed and available on your system
 `PATH`. Follow the steps for your platform below.

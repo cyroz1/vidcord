@@ -11,8 +11,9 @@ const limits = {
   // The root page includes the complete legacy-compatible desktop story below the browser
   // editor, so its copy and comparison details are intentionally part of the hosted bundle.
   // 7.4 adds browser GIF parity, semantic settings migration, and snap/zoom/pan trim controls;
-  // keep a small explicit allowance for those user-visible capabilities.
-  javascriptRaw: 482 * 1024,
+  // keep a small explicit allowance for those user-visible capabilities and the deferred
+  // browser-export module boundary.
+  javascriptRaw: 483 * 1024,
   javascriptGzip: 150 * 1024,
   // The browser editor also carries the integrated desktop feature story, responsive layout,
   // and the legacy-matched platform download/architecture-choice surfaces.
@@ -26,6 +27,13 @@ if (!fs.existsSync(assetDir)) {
 const files = fs
   .readdirSync(assetDir)
   .filter((name) => name.endsWith(".js") || name.endsWith(".css"));
+
+const browserEntry = files.find((name) => /^WebApp-.*\.js$/.test(name));
+if (!browserEntry) throw new Error("the browser editor chunk is missing");
+const browserEntrySource = fs.readFileSync(path.join(assetDir, browserEntry), "utf8");
+if (/@ffmpeg\/|ffmpeg-core|\.wasm/.test(browserEntrySource)) {
+  throw new Error("the initial browser editor chunk contains deferred FFmpeg/WASM assets");
+}
 
 function totalSize(extension, gzip) {
   return files

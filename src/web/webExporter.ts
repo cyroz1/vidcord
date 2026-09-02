@@ -1,7 +1,7 @@
-import {
+import type {
   BrowserFfmpegEngine,
-  type BrowserFfmpegSession,
-  type FfmpegProgressHandler,
+  BrowserFfmpegSession,
+  FfmpegProgressHandler,
 } from "./ffmpegEngine";
 import {
   buildCompressionArgs,

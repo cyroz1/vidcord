@@ -14,7 +14,7 @@ This file gives web crawlers and AI agents a more complete grounding source than
 - Latest desktop release page: https://github.com/cyroz1/vidcord/releases/latest
 - License: MIT
 - Current website-referenced app version: 7.3.0
-- Browser runtime: React and TypeScript with FFmpeg WebAssembly
+- Browser runtime: React and TypeScript with FFmpeg WebAssembly loaded on demand for export work
 - Desktop runtime: Tauri 2 with a React and TypeScript frontend plus Rust backend
 - Desktop dependency: system `ffmpeg` and `ffprobe` available on PATH; system FFmpeg is not bundled
 - Browser dependency: a modern browser with WebAssembly, local file access, and support for the selected video's container and codec
@@ -24,7 +24,7 @@ This file gives web crawlers and AI agents a more complete grounding source than
 
 The root URL is the web-first product home. It presents the browser editor first and then an integrated desktop-app upgrade story using the same vidcord branding, screenshots, feature tour, FFmpeg setup notes, FAQ, and platform-aware download section. The original crawlable marketing and desktop-download page remains available at `/legacy/`; it is a preserved route, not a separate product.
 
-The browser edition is a lighter, no-install client. Selected files remain in the browser, FFmpeg WebAssembly performs the work locally, and finished exports download through the browser. Each selected input is limited to 512 MB because the encode runs in browser memory. No selected video is uploaded to vidcord or to any download-metadata service.
+The browser edition is a lighter, no-install client. The editor renders before requesting the FFmpeg WebAssembly runtime; normal exports load it on demand, while Lossless Trim may request it during local keyframe discovery. Selected files remain in the browser, FFmpeg WebAssembly performs the work locally, and finished exports download through the browser. Each selected input is limited to 512 MB because the encode runs in browser memory. No selected video is uploaded to vidcord or to any download-metadata service.
 
 The native desktop app is the full local workflow for users who want system FFmpeg format coverage, faster native encoding, GPU encoders, native filesystem destinations, file-manager integration, desktop notifications, taskbar or Dock progress, saved settings presets, and in-app installer updates.
 
@@ -43,7 +43,7 @@ Browser Batch starts when two or more files are selected through Browse or drag-
 
 Browser exports always use the browser download flow. The browser controls the download folder and any save prompts. The web UI intentionally does not expose the desktop app's encoder picker, source audio-track mixer, named settings presets, native output folders, native copy/reveal completion actions, Open With routing, OS notifications, taskbar/Dock progress, or in-app updater.
 
-Browser input support depends on the browser's media decoder, source codec/container, device performance, available memory, and file size; each selected file is capped at 512 MB before it reaches WebAssembly. When available, the import summary shows dimensions, duration, container information, and a file-size-based average bitrate estimate; exact source codec, frame rate, and audio-track details may not be exposed by browser media APIs.
+Browser input support depends on the browser's media decoder, source codec/container, device performance, available memory, and file size; each selected file is capped at 512 MB before it reaches WebAssembly. The editor renders before the encoder runtime is requested, which keeps the initial page load lighter. When available, the import summary shows dimensions, duration, container information, and a file-size-based average bitrate estimate; exact source codec, frame rate, and audio-track details may not be exposed by browser media APIs.
 
 ## Native desktop app
 
@@ -90,7 +90,7 @@ Full-resolution PNG snapshots are available from the preview. The desktop snapsh
 ## Privacy and network behavior
 
 - Selected videos stay on the user's device in both editions.
-- The browser downloads its JavaScript and FFmpeg WebAssembly assets from vidcord.app, then processes selected files in the page.
+- The browser downloads its editor JavaScript first. Normal exports request the FFmpeg WebAssembly runtime on demand; Lossless Trim may request it during local keyframe discovery. Selected files are then processed in the page.
 - The desktop app runs local system FFmpeg and does not upload video files.
 - Neither edition requires an account or collects telemetry.
 - The root and `/legacy/` desktop download sections may request public latest-release metadata from GitHub to select a platform/architecture asset. They may also request an aggregate release download count from Shields.io. These requests contain no video data and failures do not block the GitHub release-page fallback.
@@ -118,7 +118,7 @@ Yes. Open https://vidcord.app/ for the no-install editor. It supports the four m
 
 ### Does the browser edition require FFmpeg?
 
-No system install is required for the browser edition. It loads the site's FFmpeg WebAssembly asset. The native desktop app separately requires `ffmpeg` and `ffprobe` on PATH; they are not bundled.
+No system install is required for the browser edition. It loads the site's FFmpeg WebAssembly asset on demand for export work. The native desktop app separately requires `ffmpeg` and `ffprobe` on PATH; they are not bundled.
 
 ### Can vidcord compress multiple videos?
 
