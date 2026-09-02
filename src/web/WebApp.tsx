@@ -56,6 +56,7 @@ type Notice = { type: "success" | "error" | "warning" | "info"; message: string 
 
 const MAX_BROWSER_BATCH_FILES = 12;
 const MAX_METADATA_CACHE_ENTRIES = 24;
+const MARKETING_ASSET_BASE = import.meta.env.DEV ? "/site/marketing-assets" : "/marketing-assets";
 
 type BrowserExportModule = typeof import("./browserExport");
 function loadBrowserExportModule(): Promise<BrowserExportModule> {
@@ -247,7 +248,7 @@ function Logo() {
       <picture>
         <source
           type="image/webp"
-          srcSet="/legacy/assets/icon-64.webp 64w, /legacy/assets/icon-128.webp 128w"
+          srcSet={`${MARKETING_ASSET_BASE}/icon-64.webp 64w, ${MARKETING_ASSET_BASE}/icon-128.webp 128w`}
           sizes="34px"
         />
         <img className="web-logo-mark" src="/icon.png" alt="" width={34} height={34} />
@@ -1573,10 +1574,10 @@ function WebApp() {
             <picture>
               <source
                 type="image/webp"
-                srcSet="/legacy/assets/icon-64.webp 64w, /legacy/assets/icon-128.webp 128w"
+                srcSet={`${MARKETING_ASSET_BASE}/icon-64.webp 64w, ${MARKETING_ASSET_BASE}/icon-128.webp 128w`}
                 sizes="34px"
               />
-              <img src="/legacy/assets/icon.png" width="128" height="128" alt="" />
+              <img src={`${MARKETING_ASSET_BASE}/icon.png`} width="128" height="128" alt="" />
             </picture>
             <span>vidcord</span>
           </a>

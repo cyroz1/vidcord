@@ -1,7 +1,7 @@
 # vidcord - Free Discord Video Compressor for Web, Windows, macOS, and Linux
 
 <p>
-  <img src="site/legacy/assets/icon.png" height="64" alt="vidcord app icon">
+  <img src="site/marketing-assets/icon.png" height="64" alt="vidcord app icon">
 </p>
 
 **vidcord** is a free, open-source **Discord video compressor** with a native
@@ -43,7 +43,7 @@ the same React frontend paired with FFmpeg WebAssembly.
   <img alt="License"      src="https://img.shields.io/badge/license-MIT-blue">
 </p>
 
-![vidcord native desktop Compress mode with video preview, trim timeline, and Discord target controls](site/legacy/assets/window.png)
+![vidcord native desktop Compress mode with video preview, trim timeline, and Discord target controls](site/marketing-assets/window.png)
 
 > **At a glance** — Native desktop app at [vidcord.app](https://vidcord.app/) ·
 > Windows 10/11, macOS 11+, and Linux · x86_64 + aarch64 · Native installers ·
@@ -317,13 +317,13 @@ To build the static browser bundle locally:
 npm run web:build
 ```
 
-This writes the deployable browser bundle to the root of `site/` while preserving
-`site/legacy/` and the crawler files. The first export loads the deferred local
+This writes the deployable browser bundle to the root of `site/` alongside the
+crawler files. The first export loads the deferred local
 WebAssembly encoder in the browser; no selected video is sent to a server. The build stores
 the WebAssembly binary as a gzip-compressed asset so the static deployment stays
 within Cloudflare's per-file size limit, then decompresses it in the browser
-before starting FFmpeg. The original marketing and desktop download page remains
-available at [`/legacy/`](https://vidcord.app/legacy/).
+before starting FFmpeg. The root page combines the desktop download story with the quick
+browser demo.
 
 ## Screenshots
 
@@ -334,11 +334,11 @@ desktop-only controls listed in the capability matrix removed.
 
 | Compress mode                                                                                                      | Advanced mode                                                                                                                     | Lossless Trim                                                                                                                   | GIF mode                                                                                                                       | Batch mode                                                                                                          |
 | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| ![vidcord Compress mode with Discord target, crop, FPS, encoder, and trim controls](site/legacy/assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/legacy/assets/advancedmode.png) | ![vidcord Lossless Trim mode with keyframe-aligned trim controls and no video re-encoding](site/legacy/assets/losslesstrim.png) | ![vidcord GIF mode with Discord size target, FPS picker, trim timeline, and Create GIF button](site/legacy/assets/gifmode.png) | ![vidcord Batch mode with a multi-video queue and aggregate compression progress](site/legacy/assets/batchmode.png) |
+| ![vidcord Compress mode with Discord target, crop, FPS, encoder, and trim controls](site/marketing-assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/marketing-assets/advancedmode.png) | ![vidcord Lossless Trim mode with keyframe-aligned trim controls and no video re-encoding](site/marketing-assets/losslesstrim.png) | ![vidcord GIF mode with Discord size target, FPS picker, trim timeline, and Create GIF button](site/marketing-assets/gifmode.png) | ![vidcord Batch mode with a multi-video queue and aggregate compression progress](site/marketing-assets/batchmode.png) |
 
 | Output file                                                                                        | Windows context menu                                                                                                   | macOS Finder                                                                                                 |
 | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| ![Compressed video saved to the Downloads folder as name-vidcord.mp4](site/legacy/assets/file.png) | ![Windows File Explorer right-click menu with Open with vidcord entry on a video file](site/legacy/assets/context.png) | ![macOS Finder right-click menu with Open with vidcord entry on a video file](site/legacy/assets/finder.png) |
+| ![Compressed video saved to the Downloads folder as name-vidcord.mp4](site/marketing-assets/file.png) | ![Windows File Explorer right-click menu with Open with vidcord entry on a video file](site/marketing-assets/context.png) | ![macOS Finder right-click menu with Open with vidcord entry on a video file](site/marketing-assets/finder.png) |
 
 ## Download vidcord
 
@@ -370,8 +370,7 @@ The website detects the operating system and, when it can identify the
 architecture, links directly to the matching asset from the latest GitHub
 release. If x86_64 versus ARM64 is uncertain, it asks you to choose an
 architecture. If release metadata cannot be fetched, it falls back to the
-GitHub release page. The original marketing/download page is preserved at
-[`vidcord.app/legacy/`](https://vidcord.app/legacy/).
+GitHub release page.
 
 ## FFmpeg setup for the desktop app
 
@@ -561,8 +560,7 @@ hot-reload.
 
 To preview the browser edition through Vite, run `npm run dev` and open
 `http://localhost:5173/`; the entry point selects the browser UI outside the
-Tauri runtime. Use `npm run web:build` to produce the static root bundle; the previous marketing
-site remains available at [`/legacy/`](https://vidcord.app/legacy/).
+Tauri runtime. Use `npm run web:build` to produce the static root bundle.
 
 ### Produce a release binary
 
@@ -579,7 +577,7 @@ npm run lint                                            # eslint src
 npm run typecheck                                       # tsc --noEmit
 npm test                                                # vitest
 npm run web:build                                       # build the static browser edition into site/
-npm run site:check                                      # validate generated browser and legacy site files
+npm run site:check                                      # validate generated root site files
 npm run format                                          # prettier --write src
 cargo fmt   --check --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings
@@ -590,7 +588,7 @@ cargo test  --manifest-path src-tauri/Cargo.toml
 CI treats any clippy warning as an error and also runs npm/Rust audit, version,
 asset, lint, typecheck, test, build-tool integrity, artifact provenance, and
 build checks. The separate Site Checks workflow rebuilds the browser bundle,
-verifies that generated root assets are committed, and validates the legacy
+verifies that generated root assets are committed, and validates the root
 HTML, JSON-LD, sitemap, asset layout, and Cloudflare size limits. Keep new Rust
 code warning-clean.
 
@@ -638,7 +636,7 @@ src-tauri/                 Rust backend
 
 .github/workflows/         App build/release workflow plus site validation workflow
 scripts/                   Version, asset, and site structured-data checks
-site/                      Generated browser bundle at the domain root; legacy marketing site at site/legacy/
+site/                      Generated browser bundle, desktop marketing assets, metadata, and crawler files
 ```
 
 A deeper architectural tour — IPC boundary, file-open race conditions,
@@ -647,8 +645,7 @@ cache layout, settings migration — lives in [AGENTS.md](AGENTS.md).
 The deployed site is a Cloudflare Worker static-assets project configured by
 [`wrangler.jsonc`](wrangler.jsonc). Push committed site changes to `main` for
 the GitHub-connected deployment; normal site work does not require running
-Wrangler locally. The browser build publishes at `/`, while the original
-marketing and desktop-download page remains at `/legacy/`.
+Wrangler locally. The desktop-first product home and browser editor both publish at `/`.
 
 ## Troubleshooting
 

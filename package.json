@@ -17,7 +17,7 @@
     "format": "prettier --write src",
     "version:check": "node scripts/check-version.mjs",
     "assets:check": "node scripts/check-assets.mjs",
-    "site:check": "prettier --check site/legacy/index.html site/legacy/styles.css site/legacy/script.js site/legacy/site.webmanifest wrangler.jsonc && prettier --check --parser markdown site/llms.txt site/llms-full.txt && node --check site/legacy/script.js && node scripts/check-site-structured-data.mjs && node scripts/check-sitemap.mjs && node scripts/check-assets.mjs && node scripts/check-site-size.mjs && node scripts/check-version.mjs",
+    "site:check": "prettier --check index.html site/index.html site/marketing.css site/site.webmanifest wrangler.jsonc && prettier --check --parser markdown site/llms.txt site/llms-full.txt && node scripts/check-site-structured-data.mjs && node scripts/check-sitemap.mjs && node scripts/check-assets.mjs && node scripts/check-site-size.mjs && node scripts/check-version.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "tauri": "tauri"

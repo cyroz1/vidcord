@@ -9,7 +9,6 @@ This file gives web crawlers and AI agents a more complete grounding source than
 - Product name: vidcord
 - Website and browser editor: https://vidcord.app/
 - Native desktop upgrade and downloads: https://vidcord.app/#download
-- Original marketing/download page: https://vidcord.app/legacy/
 - Source repository: https://github.com/cyroz1/vidcord
 - Latest desktop release page: https://github.com/cyroz1/vidcord/releases/latest
 - License: MIT
@@ -18,11 +17,11 @@ This file gives web crawlers and AI agents a more complete grounding source than
 - Desktop runtime: Tauri 2 with a React and TypeScript frontend plus Rust backend
 - Desktop dependency: system `ffmpeg` and `ffprobe` available on PATH; system FFmpeg is not bundled
 - Browser dependency: a modern browser with WebAssembly, local file access, and support for the selected video's container and codec
-- Website deployment: Cloudflare Worker `vidcord-site` serves generated `site/` assets; the browser editor is at `/` and the preserved original page is at `/legacy/`
+- Website deployment: Cloudflare Worker `vidcord-site` serves generated `site/` assets; the desktop-first product home and browser editor are at `/`
 
 ## Product split
 
-The root URL is the desktop-first product home. It presents the native desktop app headline, feature story, FFmpeg setup notes, FAQ, and platform-aware download section. Directly beneath the primary download action it offers the browser demo for people who only need to compress a file quickly. The original crawlable marketing and desktop-download page remains available at `/legacy/`; it is a preserved route, not a separate product.
+The root URL is the desktop-first product home. It presents the native desktop app headline, feature story, FFmpeg setup notes, FAQ, and platform-aware download section. Directly beneath the primary download action it offers the browser demo for people who only need to compress a file quickly. The root page is the only public website route.
 
 The browser edition is a lighter, no-install client. The editor renders before requesting the FFmpeg WebAssembly runtime; normal exports load it on demand, while Lossless Trim may request it during local keyframe discovery. Selected files remain in the browser, FFmpeg WebAssembly performs the work locally, and finished exports download through the browser. Each selected input is limited to 512 MB because the encode runs in browser memory. No selected video is uploaded to vidcord or to any download-metadata service.
 
@@ -93,7 +92,7 @@ Full-resolution PNG snapshots are available from the preview. The desktop snapsh
 - The browser downloads its editor JavaScript first. Normal exports request the FFmpeg WebAssembly runtime on demand; Lossless Trim may request it during local keyframe discovery. Selected files are then processed in the page.
 - The desktop app runs local system FFmpeg and does not upload video files.
 - Neither edition requires an account or collects telemetry.
-- The root and `/legacy/` desktop download sections may request public latest-release metadata from GitHub to select a platform/architecture asset. They may also request an aggregate release download count from Shields.io. These requests contain no video data and failures do not block the GitHub release-page fallback.
+- The desktop download section may request public latest-release metadata from GitHub to select a platform/architecture asset. It may also request an aggregate release download count from Shields.io. These requests contain no video data and failures do not block the GitHub release-page fallback.
 - The browser editor is local client-side processing, not a hosted/cloud compression service.
 
 ## Platform and download behavior
@@ -104,7 +103,7 @@ vidcord's native installers support Windows, macOS, and Linux:
 - macOS: a universal `.dmg` for Intel and Apple Silicon
 - Linux: `.AppImage` builds for x86_64 and aarch64 on modern glibc desktop distributions
 
-The root desktop download section and `/legacy/` page detect the operating system and fetch the latest GitHub release metadata. When the platform and architecture are known, buttons link directly to the matching binary. macOS uses the universal DMG. Windows and Linux use architecture-specific assets; if x64 versus ARM64 cannot be determined confidently, the site asks the user to choose, and each choice links directly to the matching asset. If release metadata cannot be fetched, the page falls back to https://github.com/cyroz1/vidcord/releases/latest. The original page at `/legacy/` also displays the aggregate release download count when Shields.io is available.
+The desktop download section detects the operating system and fetches the latest GitHub release metadata. When the platform and architecture are known, buttons link directly to the matching binary. macOS uses the universal DMG. Windows and Linux use architecture-specific assets; if x64 versus ARM64 cannot be determined confidently, the site asks the user to choose, and each choice links directly to the matching asset. If release metadata cannot be fetched, the page falls back to https://github.com/cyroz1/vidcord/releases/latest. The section also displays the aggregate release download count when Shields.io is available.
 
 ## Common questions and grounded answers
 
@@ -134,7 +133,7 @@ System FFmpeg format coverage, GPU encoder discovery and selection, source audio
 
 ### How does the desktop download work?
 
-The root download section and `/legacy/` page detect the operating system and link directly to the matching latest-release binary when metadata is available. If x64 versus ARM64 is unclear, they ask the user to choose. If the lookup fails, they link to the latest GitHub release page.
+The root download section detects the operating system and links directly to the matching latest-release binary when metadata is available. If x64 versus ARM64 is unclear, it asks the user to choose. If the lookup fails, it links to the latest GitHub release page.
 
 ### How do desktop updates work?
 
@@ -153,7 +152,6 @@ Yes. vidcord is free and open-source under the MIT license.
 - [Desktop-first product home](https://vidcord.app/): Native application headline, setup notes, platform downloads, and the quick client-side WebAssembly demo.
 - [Browser editor demo](https://vidcord.app/#web-editor): Client-side WebAssembly video editor with local processing and browser downloads.
 - [Desktop app download section](https://vidcord.app/#download): Native application download CTA, setup notes, and platform downloads.
-- [Original marketing/download page](https://vidcord.app/legacy/)
 - [Latest desktop release](https://github.com/cyroz1/vidcord/releases/latest)
 - [Source code](https://github.com/cyroz1/vidcord)
 - [FFmpeg setup guide](https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md)

@@ -8,8 +8,8 @@ const limits = {
   // export UI while keeping the desktop app in lazy chunks.
   // The hosted editor mirrors the native trim controls, including editable time labels,
   // history, loop playback, and the lossless-trim status affordance.
-  // The root page includes the complete legacy-compatible desktop story below the browser
-  // editor, so its copy and comparison details are intentionally part of the hosted bundle.
+  // The root page includes the complete desktop story below the browser editor,
+  // so its copy and comparison details are intentionally part of the hosted bundle.
   // 7.4 adds browser GIF parity, semantic settings migration, and snap/zoom/pan trim controls;
   // keep a small explicit allowance for those user-visible capabilities and the deferred
   // browser-export module boundary.
@@ -18,7 +18,7 @@ const limits = {
   // Keep a small cross-runtime margin while retaining the tight raw-byte guard above.
   javascriptGzip: 151 * 1024,
   // The browser editor also carries the integrated desktop feature story, responsive layout,
-  // and the legacy-matched platform download/architecture-choice surfaces.
+  // and the platform-aware download/architecture-choice surfaces.
   cssGzip: 18.5 * 1024,
 };
 

@@ -15,7 +15,8 @@ import {
   type LatestRelease,
 } from "./desktopDownloads";
 
-const ASSET_BASE = "/legacy/assets";
+const ASSET_BASE = import.meta.env.DEV ? "/site/marketing-assets" : "/marketing-assets";
+const MARKETING_STYLESHEET = import.meta.env.DEV ? "/site/marketing.css?direct" : "/marketing.css";
 
 const DOWNLOAD_PLATFORMS = [
   {
@@ -415,7 +416,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
 
   useEffect(() => {
     const existingLink = document.querySelector<HTMLLinkElement>(
-      'link[data-vidcord-legacy-styles="true"]'
+      'link[data-vidcord-marketing-styles="true"]'
     );
 
     if (existingLink) {
@@ -424,8 +425,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
 
     const link = document.createElement("link");
     link.rel = "stylesheet";
-    link.href = "/legacy/styles.css";
-    link.dataset.vidcordLegacyStyles = "true";
+    link.href = MARKETING_STYLESHEET;
+    link.dataset.vidcordMarketingStyles = "true";
     document.head.appendChild(link);
 
     return () => link.remove();
@@ -555,7 +556,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
   };
 
   return (
-    <div className="web-legacy-marketing">
+    <div className="web-marketing">
       <section className="hero" id="desktop-app" aria-labelledby="desktop-app-title">
         <div className="hero-copy">
           <h1 id="desktop-app-title">vidcord</h1>

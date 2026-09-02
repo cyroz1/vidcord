@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      - "index.html"
       - "src/main.tsx"
       - "src/web/**"
       - "src/index.css"
@@ -23,6 +24,7 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      - "index.html"
       - "src/main.tsx"
       - "src/web/**"
       - "src/index.css"

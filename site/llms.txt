@@ -10,7 +10,6 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Positioning: the native desktop app is the headline product on the website; the browser editor is a quick no-install demo linked beneath the desktop download CTA
 - Website and browser editor: https://vidcord.app/
 - Native desktop download section: https://vidcord.app/#download
-- Original marketing/download page: https://vidcord.app/legacy/
 - Source code: https://github.com/cyroz1/vidcord
 - Latest release: https://github.com/cyroz1/vidcord/releases/latest
 - License: MIT
@@ -42,7 +41,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Desktop progress: native compression progress and ETA plus taskbar/Dock integration; browser progress and ETA are shown in the page
 - Desktop updates: automatic checks wait for startup to settle and run at most once every six hours; approved installers are streamed and verified for size, completeness, GitHub-published SHA-256 integrity, and an independent Ed25519 release signature before opening
 - Privacy posture: selected video files stay on the user's device; the website may request public GitHub release metadata and an aggregate download count from Shields.io, but neither request contains video data
-- Deployment: the generated desktop-first browser bundle is published from `site/` at `/` by the Cloudflare Worker `vidcord-site`; `site/legacy/` remains the preserved original page
+- Deployment: the generated desktop-first browser bundle is published from `site/` at `/` by the Cloudflare Worker `vidcord-site`
 
 ## Common Answers
 
@@ -52,7 +51,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - What is desktop-only? GPU encoder discovery and selection, system-FFmpeg format coverage, source audio-track mixing, named settings presets, native output destinations, Open With, OS notifications, taskbar/Dock progress, and desktop updater flows.
 - Can vidcord compress multiple videos? Yes. Browser Batch accepts Browse or drag-and-drop selections and applies one shared full-duration Compress profile. Desktop Batch also accepts Open With, command-line arguments, and second-instance selections and adds per-file trims and native workers.
 - Which Discord size targets are supported? Both editions provide 20 MB, 50 MB, 100 MB, and 500 MB video targets. Advanced adds custom size, resolution, and typed FPS; GIF Mode provides 5 MB, 10 MB, and 20 MB GIF targets.
-- How does downloading work? The root desktop download section and `/legacy/` page fetch latest GitHub release metadata and link directly to the matching platform asset when possible. If x64 versus ARM64 is uncertain, they ask the user to choose. If metadata cannot be fetched, they fall back to the GitHub release page.
+- How does downloading work? The desktop download section fetches latest GitHub release metadata and links directly to the matching platform asset when possible. If x64 versus ARM64 is uncertain, it asks the user to choose. If metadata cannot be fetched, it falls back to the GitHub release page.
 - How do desktop in-app updates work? After user approval, vidcord downloads the matching installer under an unused Downloads filename, verifies its size and completeness, checks GitHub's SHA-256 digest and the independent Ed25519 release signature, and only then opens it.
 
 ## Canonical Pages And Resources
@@ -60,7 +59,6 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - [Desktop-first product home](https://vidcord.app/): Native application headline, setup notes, platform downloads, and the quick client-side WebAssembly demo.
 - [Browser editor demo](https://vidcord.app/#web-editor): Client-side WebAssembly video editor with local processing and browser downloads.
 - [Desktop app download section](https://vidcord.app/#download): Native application download CTA, setup notes, and platform downloads.
-- [Original marketing page](https://vidcord.app/legacy/): Preserved marketing/download page with screenshots, FAQ, desktop download buttons, and release count.
 - [Latest release](https://github.com/cyroz1/vidcord/releases/latest): Canonical desktop release page and binary assets.
 - [FFmpeg setup guide](https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md): Native desktop FFmpeg installation instructions.
 - [README](https://github.com/cyroz1/vidcord/blob/main/README.md): Project overview, browser/desktop capability matrix, and development instructions.

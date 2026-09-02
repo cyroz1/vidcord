@@ -4,11 +4,157 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta
+      name="googlebot"
+      content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"
+    />
+    <meta name="application-name" content="vidcord" />
+    <meta name="apple-mobile-web-app-title" content="vidcord" />
     <meta
       name="description"
-      content="vidcord is a local desktop video compressor for Discord with a quick browser demo. Download the native app for system FFmpeg, GPU encoders, and OS integrations, or compress selected files locally with FFmpeg WebAssembly."
+      content="vidcord is a local desktop video compressor for Discord. Download the native app for system FFmpeg, GPU encoders, and OS integrations, or use the quick browser demo with local FFmpeg WebAssembly."
     />
-    <title>vidcord — Desktop video compression for Discord</title>
+    <link rel="canonical" href="https://vidcord.app/" />
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
+    <link
+      rel="alternate"
+      type="text/plain"
+      href="/llms.txt"
+      title="vidcord LLM and agent summary"
+    />
+    <link
+      rel="alternate"
+      type="text/plain"
+      href="/llms-full.txt"
+      title="vidcord full LLM and agent context"
+    />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta
+      property="og:title"
+      content="vidcord — Native Discord Video Compressor for Windows, macOS, and Linux"
+    />
+    <meta
+      property="og:description"
+      content="Download vidcord's native desktop app for local FFmpeg compression, or use the quick no-install browser demo. No uploads, accounts, or telemetry."
+    />
+    <meta property="og:site_name" content="vidcord" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://vidcord.app/" />
+    <meta property="og:image" content="https://vidcord.app/icon.png" />
+    <meta property="og:image:alt" content="vidcord app logo" />
+    <meta property="og:image:width" content="256" />
+    <meta property="og:image:height" content="256" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="vidcord — Native Discord Video Compressor for Windows, macOS, and Linux"
+    />
+    <meta
+      name="twitter:description"
+      content="Native desktop Discord video compression with system FFmpeg, plus a quick no-install browser demo. Free, open-source, no uploads, no telemetry."
+    />
+    <meta name="twitter:image" content="https://vidcord.app/icon.png" />
+    <meta name="twitter:image:alt" content="vidcord app logo" />
+    <meta name="theme-color" content="#041326" />
+    <title>vidcord — Native Discord Video Compressor for Windows, macOS, and Linux</title>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://vidcord.app/#website",
+            "url": "https://vidcord.app/",
+            "name": "vidcord",
+            "alternateName": "vidcord video compressor",
+            "description": "Desktop-first local video compression for Discord with a quick no-install browser demo.",
+            "inLanguage": "en-US"
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://vidcord.app/#software",
+            "name": "vidcord",
+            "alternateName": "vidcord video compressor",
+            "url": "https://vidcord.app/",
+            "codeRepository": "https://github.com/cyroz1/vidcord",
+            "downloadUrl": "https://github.com/cyroz1/vidcord/releases/latest",
+            "softwareVersion": "7.3.0",
+            "applicationCategory": "MultimediaApplication",
+            "operatingSystem": ["Windows", "macOS", "Linux"],
+            "license": "https://github.com/cyroz1/vidcord/blob/main/LICENSE",
+            "softwareRequirements": "The desktop edition requires FFmpeg and ffprobe on PATH; the browser edition requires a modern browser with WebAssembly and browser-readable input.",
+            "description": "vidcord is a local desktop video compressor for Discord with system FFmpeg, GPU encoder support, OS integrations, and a quick local browser demo.",
+            "featureList": [
+              "Local video compression in the browser with FFmpeg WebAssembly or in the desktop app with system FFmpeg",
+              "Discord upload targets of 20 MB, 50 MB, 100 MB, and 500 MB",
+              "Lossless Trim stream-copy exports with keyframe-aligned boundaries",
+              "Animated GIF exports with 5 MB, 10 MB, or 20 MB size targets",
+              "Desktop GPU encoder detection for NVENC, AMF, QSV, VAAPI, and VideoToolbox",
+              "Desktop Open With integration, native output locations, notifications, and taskbar or Dock progress",
+              "Browser trim, crop, audio normalization, snapshots, and same-profile batches",
+              "No uploads, accounts, or telemetry"
+            ],
+            "image": [
+              "https://vidcord.app/icon.png",
+              "https://vidcord.app/marketing-assets/window.png",
+              "https://vidcord.app/marketing-assets/advancedmode.png",
+              "https://vidcord.app/marketing-assets/losslesstrim.png",
+              "https://vidcord.app/marketing-assets/gifmode.png",
+              "https://vidcord.app/marketing-assets/batchmode.png"
+            ],
+            "screenshot": "https://vidcord.app/marketing-assets/window.png",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD",
+              "availability": "https://schema.org/InStock",
+              "url": "https://github.com/cyroz1/vidcord/releases/latest"
+            },
+            "sameAs": ["https://github.com/cyroz1/vidcord"]
+          },
+          {
+            "@type": "FAQPage",
+            "@id": "https://vidcord.app/#faq",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "Does vidcord upload videos?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No. The browser edition keeps selected files in the page while FFmpeg WebAssembly runs locally, and the desktop edition runs system FFmpeg locally. Neither edition uploads video, requires an account, or uses telemetry."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can I use vidcord in a browser?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. The quick browser demo at https://vidcord.app/#web-editor runs FFmpeg WebAssembly on your device, keeps selected videos in the browser, and downloads the result through the browser."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Which Discord upload limits are supported?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Both editions provide 20 MB, 50 MB, 100 MB, and 500 MB video targets. GIF Mode supports 5 MB, 10 MB, and 20 MB exports."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Does vidcord include FFmpeg?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "The desktop edition does not bundle system FFmpeg: install ffmpeg and ffprobe and make them available on PATH. The browser edition loads a fixed FFmpeg WebAssembly build and does not require a system FFmpeg install."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

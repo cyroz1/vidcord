@@ -23,17 +23,17 @@ for (const file of [
   "losslesstrim.png",
   "window.png",
 ]) {
-  if (!fs.existsSync(`site/legacy/assets/${file}`)) {
-    throw new Error(`Missing canonical site/legacy/assets/${file}`);
+  if (!fs.existsSync(`site/marketing-assets/${file}`)) {
+    throw new Error(`Missing canonical site/marketing-assets/${file}`);
   }
   if (fs.existsSync(`screenshots/${file}`)) {
     throw new Error(
-      `screenshots/${file} duplicates site/legacy/assets/${file}; use site/legacy/assets as canonical`
+      `screenshots/${file} duplicates site/marketing-assets/${file}; use site/marketing-assets as canonical`
     );
   }
 }
 
-expectSame("public/icon.png", "site/legacy/assets/icon.png");
+expectSame("public/icon.png", "site/marketing-assets/icon.png");
 expectSame("public/icon.png", "site/icon.png");
 
 console.log("asset organization ok");

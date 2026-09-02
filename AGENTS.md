@@ -72,18 +72,15 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   ├── index.html             # Generated browser editor entry point at the domain root
 │   ├── icon.png               # Generated browser editor app icon
 │   ├── assets/                # Generated browser JavaScript, CSS, and FFmpeg WebAssembly assets
-│   ├── legacy/                # Original crawlable marketing/download website at /legacy/
-│   │   ├── index.html         # Marketing page, metadata, JSON-LD, and app download UI
-│   │   ├── styles.css         # Dark blue responsive site styling
-│   │   ├── script.js          # Platform detection + latest GitHub release asset selection
-│   │   ├── site.webmanifest    # Legacy marketing-site manifest
-│   │   └── assets/            # Canonical logo and uncropped product / file-manager screenshots
+│   ├── marketing.css          # Shared desktop marketing story styling loaded by the root app
+│   ├── marketing-assets/      # Canonical logo and uncropped product / file-manager screenshots
+│   ├── site.webmanifest       # Root-site install manifest
 │   ├── robots.txt             # Allows search crawlers and AI agents
-│   ├── sitemap.xml            # Canonical sitemap for vidcord.app, including /legacy/
+│   ├── sitemap.xml            # Canonical sitemap for vidcord.app
 │   ├── llms.txt               # Short AI-agent grounding summary
 │   ├── llms-full.txt          # Expanded AI-agent grounding context
 │   ├── _headers                # Static response headers for crawler grounding files
-│   └── _redirects              # Static redirects for legacy entry-point aliases
+│   └── _redirects              # Static redirects for historical entry-point aliases
 ├── wrangler.jsonc             # Cloudflare Worker static-assets deployment config
 ├── .github/workflows/build.yml# Multi-platform CI + release workflow
 ├── .github/workflows/site.yml # Site-only validation workflow
@@ -154,11 +151,10 @@ The public website lives in `site/` and deploys from GitHub when changes are pus
 Do not run Wrangler for normal site deploys.
 
 The hosted browser edition is built with `npm run web:build` and published at `/` from the generated
-site root. The home page is browser-first: the local editor is the first experience, followed by an
-integrated desktop-app upgrade story with the native-only feature tour, setup notes, and download
-links. The original marketing/download website remains available at `/legacy/` from
-`site/legacy/`. The build stages the browser output separately so it preserves the legacy site and
-the root crawler files. The browser edition uses FFmpeg WebAssembly, keeps selected videos local,
+site root. The home page is desktop-first: the native desktop app is the headline experience with
+its feature tour, setup notes, and download links, followed by the integrated browser demo for
+quick no-install exports. The build stages the browser output separately so it preserves the root
+crawler files and shared desktop marketing assets. The browser edition uses FFmpeg WebAssembly, keeps selected videos local,
 and downloads exports through the browser. It is intentionally a lighter alternative to the desktop
 app: browser input support and performance depend on the user's browser, encoding is fixed to
 `libx264` in WASM, browser Batch uses one shared full-duration Compress profile, and native folders,
@@ -174,7 +170,7 @@ fallback. `npm run site:check` enforces the same per-file limit for future gener
 - **Production domain**: `https://vidcord.app/`
 - **Workers.dev URL**: `https://vidcord-site.cyrz.workers.dev/`
 - **Cloudflare Worker name**: `vidcord-site`
-- **Legacy/manual deployment config**: `wrangler.jsonc` → `assets.directory = "./site"`,
+- **Deployment config**: `wrangler.jsonc` → `assets.directory = "./site"`,
   `workers_dev = true`
 - **Custom domain route**: `vidcord.app`
 - **Deployment trigger**: push the committed site changes to `origin/main`; the
@@ -182,8 +178,10 @@ fallback. `npm run site:check` enforces the same per-file limit for future gener
 
 Site behavior and content:
 
-- `site/legacy/index.html` is the static, crawlable marketing page. Keep important product claims visible in HTML, not only in JavaScript.
-- `site/legacy/script.js` detects Windows/macOS/Linux, calls GitHub's latest-release API, and
+- The generated `site/index.html` carries the static title, canonical URL, social metadata, and
+  JSON-LD for `WebSite`, `SoftwareApplication`, and `FAQPage`. Keep important product claims
+  visible in HTML metadata/structured data as well as in the React-rendered page.
+- `src/web/DesktopUpgrade.tsx` detects Windows/macOS/Linux, calls GitHub's latest-release API, and
   links download buttons directly to matching binary assets when the platform and architecture are
   known. If x64 vs ARM64 cannot be determined with high confidence, prompt the user to choose an
   architecture; each architecture option should link directly to the matching latest-release
@@ -191,21 +189,24 @@ Site behavior and content:
   metadata cannot be fetched. It also fetches the aggregate release download count from Shields.io
   with a bounded timeout and strict response validation; failure must leave the count unavailable
   without affecting download links.
-- The legacy social/link embed image intentionally uses the logo: `https://vidcord.app/legacy/assets/icon.png` via `og:image` and `twitter:image`.
+- The root social/link embed image uses the app logo at `https://vidcord.app/icon.png` via
+  `og:image` and `twitter:image`.
 - Discord and other chat clients may cache old embeds. Use a temporary query string such as `https://vidcord.app/?v=2` when checking a changed preview image.
 - Product screenshots should not be cropped in CSS. Keep `width: 100%` and `height: auto` for screenshot images unless the user explicitly asks for a cropped composition.
-- The root site documents browser-local WebAssembly processing and browser downloads. The legacy
-  page documents the desktop app's system FFmpeg dependency, Discord target sizes, Open With
-  integration, and selectable native output destinations (Downloads by default).
+- The root site documents browser-local WebAssembly processing and browser downloads alongside the
+  desktop app's system FFmpeg dependency, Discord target sizes, Open With integration, and
+  selectable native output destinations (Downloads by default).
 
 SEO and crawler/agent files:
 
 - `robots.txt` should allow normal web crawlers and AI agents, and point at `https://vidcord.app/sitemap.xml`.
-- `sitemap.xml` should include the browser home page, `/legacy/`, `llms.txt`, and `llms-full.txt`.
+- `sitemap.xml` should include the root home page, `llms.txt`, and `llms-full.txt`.
   Update each changed public URL's `lastmod` date when its page or grounding content changes.
 - `llms.txt` is the concise grounding file for AI agents.
 - `llms-full.txt` is the expanded grounding context. Keep it factual and aligned with the app and README; do not invent hosted compression, bundled FFmpeg, accounts, or telemetry.
-- `site/legacy/index.html` contains JSON-LD for `WebSite`, `SoftwareApplication`, and `FAQPage`. If site facts change, update visible copy, JSON-LD, `llms.txt`, and `llms-full.txt` together.
+- `index.html` contains the source JSON-LD for `WebSite`, `SoftwareApplication`, and `FAQPage`,
+  and `site/index.html` is its generated deployment copy. If site facts change, update visible
+  copy, JSON-LD, `llms.txt`, and `llms-full.txt` together.
 
 Local website preview:
 
@@ -237,13 +238,12 @@ Post-deploy checks:
 ```sh
 curl -I https://vidcord.app/
 curl -I https://vidcord.app/icon.png
-curl -I https://vidcord.app/legacy/
-curl -I https://vidcord.app/legacy/assets/icon.png
+curl -I https://vidcord.app/marketing-assets/window.png
 curl -L https://vidcord.app/robots.txt
 curl -L https://vidcord.app/sitemap.xml
 curl -L https://vidcord.app/llms.txt
 curl -L https://vidcord.app/llms-full.txt
-curl -L https://vidcord.app/legacy/site.webmanifest
+curl -L https://vidcord.app/site.webmanifest
 ```
 
 For browser QA, use the in-app browser when available and check:
@@ -251,8 +251,8 @@ For browser QA, use the in-app browser when available and check:
 - page title and canonical URL
 - no blank page or framework overlay
 - no relevant console warnings/errors
-- the browser editor loads at `/` and the legacy marketing page loads at `/legacy/`
-- JSON-LD types are present on `/legacy/`
+- the desktop-first root page and browser editor load at `/`
+- JSON-LD types are present in the root document
 - FAQ and download sections render on desktop and mobile
 - screenshot aspect ratios remain uncropped
 
@@ -506,7 +506,7 @@ The app re-renders on every trim-slider move. Established patterns:
   and version references are aligned. This keeps application WIP commits isolated while allowing
   the GitHub-connected site deployment to continue from `main`.
 - **Run the relevant quality gates before every commit.** If Rust changed: `cargo fmt --check --manifest-path src-tauri/Cargo.toml`, `cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings`, `cargo test --manifest-path src-tauri/Cargo.toml`. If frontend changed: `npm run lint`, `npm run typecheck`, `npm test`. Fix failures before committing — never push and let CI catch it.
-- Document significant changes where future users and agents will look for them. Update `AGENTS.md` for workflow, architecture, release, or repository-practice changes; update `README.md` for public product behavior, install/setup, supported-platform, or development changes; and update the website (`site/legacy/index.html`, JSON-LD, `llms.txt`, `llms-full.txt`, and related site assets) when public-facing product facts or download behavior change.
+- Document significant changes where future users and agents will look for them. Update `AGENTS.md` for workflow, architecture, release, or repository-practice changes; update `README.md` for public product behavior, install/setup, supported-platform, or development changes; and update the root website (`index.html`, generated `site/index.html`, JSON-LD, `llms.txt`, `llms-full.txt`, and related site assets) when public-facing product facts or download behavior change.
 - Keep a WIP changelog in `CHANGELOG.md` for meaningful user-visible changes made after the latest release. Use the latest `vX.Y` tag as the baseline, keep notes concise and release-note-ready, and exclude pure refactors, tests, chores, internal-only work, and iterative refinements of an already-documented change within the current WIP version. Consolidate those iterations into the broader release note when appropriate.
 - Don't bump the version casually. A version bump implies a release; only do it when explicitly requested. Follow the "Bumping the version" steps below — partial bumps cause CI/release mismatches.
 - Add CHANGELOG entries under a new `## vX.Y` heading — the release workflow extracts that section as the GitHub release body.

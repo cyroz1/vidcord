@@ -22,12 +22,11 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   faster native encoding, native folders, Open With, notifications, taskbar/Dock progress, and
   installer updates.
 - Rebuilt the root page around the desktop app's original headline and moved the browser demo
-  directly below the desktop hero. The page keeps the original site's branding, desktop
-  screenshots, feature tour, FFmpeg setup, FAQ, and platform-aware download section; the original
-  marketing/download page remains available at `/legacy/`.
+  directly below the desktop hero. The page keeps the site's branding, desktop screenshots,
+  feature tour, FFmpeg setup, FAQ, and platform-aware download section.
 - Matched the embedded browser editor to the desktop app's light-mode surface, controls, timeline,
   and native dropdown appearance for a consistent product and screenshot language.
-- Updated the README, FFmpeg setup guide, legacy metadata/structured data, public crawler files,
+- Updated the README, FFmpeg setup guide, root metadata/structured data, public crawler files,
   and deployment notes to document the browser/desktop capability boundary and local-only
   processing model.
 - Changed GIF size presets in both editions to 5 MB, 10 MB, and 20 MB targets.

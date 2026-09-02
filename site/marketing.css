@@ -634,20 +634,6 @@ main {
   line-height: 1.65;
 }
 
-.browser-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 18px;
-  margin-top: 24px;
-}
-
-.browser-actions .button {
-  min-height: 46px;
-  padding: 0 18px;
-  font-size: 14px;
-}
-
 .browser-points {
   display: grid;
   align-content: center;

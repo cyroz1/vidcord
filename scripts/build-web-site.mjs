@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
+import * as prettier from "prettier";
 
 const siteDirectory = path.resolve("site");
 const stagingDirectory = path.join(siteDirectory, ".browser-build");
@@ -46,6 +47,17 @@ function compressWasmAssets(directory) {
   return compressedCount;
 }
 
+async function formatGeneratedIndex(directory) {
+  const entryPath = path.join(directory, "index.html");
+  const source = fs.readFileSync(entryPath, "utf8");
+  const config = (await prettier.resolveConfig(entryPath)) ?? {};
+  const formatted = await prettier.format(source, { ...config, filepath: entryPath });
+
+  if (formatted !== source) {
+    fs.writeFileSync(entryPath, formatted);
+  }
+}
+
 fs.rmSync(stagingDirectory, { recursive: true, force: true });
 
 try {
@@ -55,6 +67,7 @@ try {
     { stdio: "inherit" }
   );
   normalizeGeneratedText(stagingDirectory);
+  await formatGeneratedIndex(stagingDirectory);
   if (compressWasmAssets(stagingDirectory) === 0) {
     throw new Error("Browser build did not produce a WebAssembly encoder asset");
   }
