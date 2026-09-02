@@ -14,7 +14,9 @@ const limits = {
   // keep a small explicit allowance for those user-visible capabilities and the deferred
   // browser-export module boundary.
   javascriptRaw: 483 * 1024,
-  javascriptGzip: 150 * 1024,
+  // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
+  // Keep a small cross-runtime margin while retaining the tight raw-byte guard above.
+  javascriptGzip: 151 * 1024,
   // The browser editor also carries the integrated desktop feature story, responsive layout,
   // and the legacy-matched platform download/architecture-choice surfaces.
   cssGzip: 18.5 * 1024,
