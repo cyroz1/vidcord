@@ -683,6 +683,36 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
 
       {children}
 
+      <section className="browser-section" id="browser" aria-labelledby="browser-title">
+        <div className="browser-copy">
+          <span className="eyebrow">Browser edition</span>
+          <h2 id="browser-title">Compress locally from a website.</h2>
+          <p>
+            Open the no-install editor when you need a quick export. Your selected files stay in the
+            browser while local FFmpeg WebAssembly handles the encode; finished videos and PNG frame
+            snapshots are downloaded by the browser.
+          </p>
+        </div>
+        <div className="browser-points">
+          <div>
+            <strong>Included</strong>
+            <span>
+              Compress, Advanced, Lossless Trim, GIF, trim, crop, audio normalization, audio removal
+              for re-encoded exports, lossless audio removal, FPS, trim snap/zoom/pan, snapshots,
+              and same-profile batches.
+            </span>
+          </div>
+          <div>
+            <strong>Browser constraints</strong>
+            <span>
+              Browser-readable inputs up to 512 MB each, a fixed libx264 WASM encoder, and browser
+              downloads; encoder selection, audio-track mixing, saved presets, native folders, GPU
+              encoder discovery, and Open With stay in the desktop app.
+            </span>
+          </div>
+        </div>
+      </section>
+
       <section className="feature-band" id="features" aria-label="Features">
         <article>
           <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -724,44 +754,6 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
             WebAssembly encoder.
           </p>
         </article>
-      </section>
-
-      <section className="browser-section" id="browser" aria-labelledby="browser-title">
-        <div className="browser-copy">
-          <span className="eyebrow">Browser edition</span>
-          <h2 id="browser-title">Compress locally from a website.</h2>
-          <p>
-            Open the no-install editor when you need a quick export. Your selected files stay in the
-            browser while local FFmpeg WebAssembly handles the encode; finished videos and PNG frame
-            snapshots are downloaded by the browser.
-          </p>
-          <div className="browser-actions">
-            <a className="button button-primary" href="#web-editor">
-              Open browser editor
-            </a>
-            <a className="text-link" href="#download">
-              Download the desktop app
-            </a>
-          </div>
-        </div>
-        <div className="browser-points">
-          <div>
-            <strong>Included</strong>
-            <span>
-              Compress, Advanced, Lossless Trim, GIF, trim, crop, audio normalization, audio removal
-              for re-encoded exports, lossless audio removal, FPS, trim snap/zoom/pan, snapshots,
-              and same-profile batches.
-            </span>
-          </div>
-          <div>
-            <strong>Browser constraints</strong>
-            <span>
-              Browser-readable inputs up to 512 MB each, a fixed libx264 WASM encoder, and browser
-              downloads; encoder selection, audio-track mixing, saved presets, native folders, GPU
-              encoder discovery, and Open With stay in the desktop app.
-            </span>
-          </div>
-        </div>
       </section>
 
       <section className="workflow-section" id="workflow" aria-labelledby="workflow-title">
