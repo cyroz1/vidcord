@@ -2400,7 +2400,12 @@
 }
 
 .web-editor-column .web-gif-grid {
-  grid-template-columns: minmax(0, 1fr) 68px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 76px minmax(0, 1fr);
+}
+
+.web-editor-column .web-gif-grid .web-field:nth-child(2) select {
+  padding-right: 16px;
+  padding-left: 8px;
 }
 
 .web-editor-column .web-field {
