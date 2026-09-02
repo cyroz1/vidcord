@@ -4,19 +4,19 @@
   <img src="site/legacy/assets/icon.png" height="64" alt="vidcord app icon">
 </p>
 
-**vidcord** is a free, open-source, browser-first **Discord video compressor**.
-Open [vidcord.app](https://vidcord.app/) to compress selected videos locally in
-your browser with FFmpeg WebAssembly: choose a **20 MB, 50 MB, 100 MB, or
-500 MB** target, trim the clip, or choose **Lossless Trim** to cut on source
-keyframes without re-encoding. Finished files download through the browser;
-selected videos never leave the device. GIF Mode creates animated `.gif`
-exports with **5 MB**, **10 MB**, or **20 MB** size targets.
+**vidcord** is a free, open-source **Discord video compressor** with a native
+desktop app and a quick browser demo. Open [vidcord.app](https://vidcord.app/)
+to see the desktop workflow first and download the Windows, macOS, or Linux app
+for faster system encoding, GPU encoders, native folders, Open With,
+notifications, and the complete desktop workflow. The web demo is linked under
+the download button when you only need a quick local export.
 
-Download the optional [native desktop app](https://vidcord.app/#download) when
-you want faster system encoding, GPU encoders, native folders, Open With,
-notifications, and the complete desktop workflow. The browser editor remains
-the no-install product home, while Windows, macOS, and Linux installers add
-OS-level features.
+The browser demo processes selected videos locally with FFmpeg WebAssembly:
+choose a **20 MB, 50 MB, 100 MB, or 500 MB** target, trim the clip, or choose
+**Lossless Trim** to cut on source keyframes without re-encoding. Finished files
+download through the browser; selected videos never leave the device. GIF Mode
+creates animated `.gif` exports with **5 MB**, **10 MB**, or **20 MB** size
+targets.
 
 Select multiple videos through the browser's file picker or drag-and-drop to
 enter browser **Batch mode** automatically. The browser queue applies the same
@@ -45,12 +45,12 @@ the same React frontend paired with FFmpeg WebAssembly.
 
 ![vidcord native desktop Compress mode with video preview, trim timeline, and Discord target controls](site/legacy/assets/window.png)
 
-> **At a glance** — Browser editor at [vidcord.app](https://vidcord.app/) · No
-> install, no uploads, local FFmpeg WebAssembly, browser downloads · Optional
-> desktop app for Windows 10/11, macOS 11+, and Linux · x86_64 + aarch64 ·
-> Native installers · Discord targets 20 / 50 / 100 / 500 MB · Hardware
-> acceleration and OS integrations on desktop · Desktop requires system FFmpeg
-> on `PATH` · MIT licensed.
+> **At a glance** — Native desktop app at [vidcord.app](https://vidcord.app/) ·
+> Windows 10/11, macOS 11+, and Linux · x86_64 + aarch64 · Native installers ·
+> Discord targets 20 / 50 / 100 / 500 MB · Hardware acceleration and OS
+> integrations on desktop · Desktop requires system FFmpeg on `PATH` · Quick
+> browser demo with no install, no uploads, local FFmpeg WebAssembly, and browser
+> downloads · MIT licensed.
 
 ---
 
@@ -107,7 +107,7 @@ and retry oversized results with safer bitrates and CPU fallback.
 | Turn a video clip into a Discord GIF                    | Enable GIF Mode and choose the 5 MB, 10 MB, or 20 MB target.                                                                 |
 | Make a video fit Discord Nitro or boosted server limits | Pick the 50 MB, 100 MB, or 500 MB target without calculating bitrates by hand.                                               |
 | Keep video compression private                          | Everything runs locally on your computer; no web upload step.                                                                |
-| Compress without installing the desktop app             | Use the browser edition for local WebAssembly processing and browser downloads.                                              |
+| Compress without installing the desktop app             | Use the browser demo for local WebAssembly processing and browser downloads.                                              |
 | Use GPU video encoding from a simple GUI                | vidcord auto-detects NVENC, AMF, QSV, VAAPI, and VideoToolbox encoders.                                                      |
 | Cap output frame rate for smaller files                 | Leave FPS unchanged, or choose a lower output FPS when Discord size is tight.                                                |
 
@@ -266,12 +266,13 @@ FFmpeg build can read.
 
 ## Browser edition
 
-Use the hosted [browser editor](https://vidcord.app/) when you want to
-compress a video without installing the desktop app. The page renders the editor
-first and loads FFmpeg compiled to WebAssembly on demand when export work starts;
-Lossless Trim may load it earlier for local keyframe discovery. Selected files
-stay in the browser, and videos and PNG frame snapshots use normal browser
-downloads.
+Use the hosted [browser editor](https://vidcord.app/#web-editor) when you want a
+quick local export without installing the desktop app. The site leads with the
+desktop app and links this demo directly under the primary download button. The
+editor renders before requesting FFmpeg compiled to WebAssembly on demand when
+export work starts; Lossless Trim may load it earlier for local keyframe
+discovery. Selected files stay in the browser, and videos and PNG frame
+snapshots use normal browser downloads.
 
 The browser editor includes Compress, Advanced, Lossless Trim, GIF, single-file
 trim and preview, crop, audio normalization, audio removal for re-encoded
@@ -298,7 +299,7 @@ the browser controls its download location and any download prompts.
 
 ### Browser and desktop capability matrix
 
-| Capability             | Browser editor at `/`                                                  | Native desktop app                                       |
+| Capability             | Browser demo at `/#web-editor`                                         | Native desktop app                                       |
 | ---------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------- |
 | Processing engine      | Local FFmpeg WebAssembly                                               | Local system `ffmpeg` and `ffprobe`                      |
 | Video encoder          | Fixed `libx264`                                                        | CPU and detected GPU encoders, selectable on desktop     |
@@ -326,10 +327,10 @@ available at [`/legacy/`](https://vidcord.app/legacy/).
 
 ## Screenshots
 
-The screenshots below show the native desktop app. The browser editor at
-[vidcord.app](https://vidcord.app/) uses the same visual language and supported
-core workflow, with the desktop-only controls listed in the capability matrix
-removed.
+The screenshots below show the native desktop app that headlines the website.
+The browser demo at [vidcord.app/#web-editor](https://vidcord.app/#web-editor)
+uses the same light editor visual language and supported core workflow, with the
+desktop-only controls listed in the capability matrix removed.
 
 | Compress mode                                                                                                      | Advanced mode                                                                                                                     | Lossless Trim                                                                                                                   | GIF mode                                                                                                                       | Batch mode                                                                                                          |
 | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
@@ -341,9 +342,12 @@ removed.
 
 ## Download vidcord
 
-The [browser editor](https://vidcord.app/) is the primary no-install entry
-point. For native speed, GPU encoders, OS integrations, or the full desktop
-workflow, use the desktop download section at
+The [native desktop app](https://vidcord.app/#download) is the primary website
+entry point for native speed, GPU encoders, OS integrations, or the full desktop
+workflow. For a quick no-install export, use the browser demo linked directly
+under the download button or open
+[vidcord.app/#web-editor](https://vidcord.app/#web-editor). For installers, use
+the desktop download section at
 [`vidcord.app/#download`](https://vidcord.app/#download) or grab the latest
 installer from GitHub:
 
@@ -723,9 +727,10 @@ assets, then can process selected files without uploading them.
 
 ### Can I use vidcord in a browser?
 
-Yes. Open the [browser edition](https://vidcord.app/) for a no-install
+Yes. Open the [browser demo](https://vidcord.app/#web-editor) for a no-install
 workflow. It runs FFmpeg WebAssembly locally, keeps selected files in the
-browser, and downloads finished exports. It includes the four export modes,
+browser, and downloads finished exports. It is linked under the desktop
+download button and includes the four export modes,
 trim, crop, audio normalization, audio removal for re-encoded exports, lossless
 audio removal, typed Advanced FPS when source metadata permits, snapshots, and
 same-profile Batch mode. Each selected browser input is limited to 512 MB. It is a lighter

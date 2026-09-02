@@ -1,13 +1,13 @@
 # vidcord
 
-> vidcord is a free, open-source browser-first video compressor for Discord upload limits with an optional native desktop app for faster encoding, GPU support, and OS integrations. Both editions process selected videos locally and do not upload them, require accounts, or collect telemetry.
+> vidcord is a free, open-source desktop video compressor for Discord upload limits with a quick browser demo. The website leads with the native app for faster encoding, GPU support, and OS integrations, then links the no-install demo beneath the download CTA. Both editions process selected videos locally and do not upload them, require accounts, or collect telemetry.
 
 Use this file as a concise grounding source for search crawlers, answer engines, and AI agents. The canonical website is https://vidcord.app/ and the canonical source repository is https://github.com/cyroz1/vidcord.
 
 ## Key Facts
 
 - Product: vidcord
-- Positioning: the browser editor is the web-first product home; the native desktop app is an optional upgrade for faster encoding and OS integrations
+- Positioning: the native desktop app is the headline product on the website; the browser editor is a quick no-install demo linked beneath the desktop download CTA
 - Website and browser editor: https://vidcord.app/
 - Native desktop download section: https://vidcord.app/#download
 - Original marketing/download page: https://vidcord.app/legacy/
@@ -42,12 +42,12 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Desktop progress: native compression progress and ETA plus taskbar/Dock integration; browser progress and ETA are shown in the page
 - Desktop updates: automatic checks wait for startup to settle and run at most once every six hours; approved installers are streamed and verified for size, completeness, GitHub-published SHA-256 integrity, and an independent Ed25519 release signature before opening
 - Privacy posture: selected video files stay on the user's device; the website may request public GitHub release metadata and an aggregate download count from Shields.io, but neither request contains video data
-- Deployment: the generated browser bundle is published from `site/` at `/` by the Cloudflare Worker `vidcord-site`; `site/legacy/` remains the original page
+- Deployment: the generated desktop-first browser bundle is published from `site/` at `/` by the Cloudflare Worker `vidcord-site`; `site/legacy/` remains the preserved original page
 
 ## Common Answers
 
 - Does vidcord upload videos? No. The browser processes selected files with FFmpeg WebAssembly in the page; the desktop app uses system FFmpeg. Neither sends video to a server.
-- Can I use vidcord in a browser? Yes. Open https://vidcord.app/ for the no-install client-side editor. It keeps selected files in the browser and downloads finished exports.
+- Can I use vidcord in a browser? Yes. Open https://vidcord.app/#web-editor for the no-install client-side editor. It keeps selected files in the browser and downloads finished exports.
 - Does the browser edition require FFmpeg? No system install is required. The browser loads the site's FFmpeg WebAssembly asset on demand for export work. The native desktop app separately requires `ffmpeg` and `ffprobe` on PATH.
 - What is desktop-only? GPU encoder discovery and selection, system-FFmpeg format coverage, source audio-track mixing, named settings presets, native output destinations, Open With, OS notifications, taskbar/Dock progress, and desktop updater flows.
 - Can vidcord compress multiple videos? Yes. Browser Batch accepts Browse or drag-and-drop selections and applies one shared full-duration Compress profile. Desktop Batch also accepts Open With, command-line arguments, and second-instance selections and adds per-file trims and native workers.
@@ -57,8 +57,9 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 
 ## Canonical Pages And Resources
 
-- [Browser editor and product home](https://vidcord.app/): Client-side WebAssembly video editor with local processing and browser downloads.
-- [Desktop app download section](https://vidcord.app/#download): Native application upgrade story, setup notes, and platform downloads.
+- [Desktop-first product home](https://vidcord.app/): Native application headline, setup notes, platform downloads, and the quick client-side WebAssembly demo.
+- [Browser editor demo](https://vidcord.app/#web-editor): Client-side WebAssembly video editor with local processing and browser downloads.
+- [Desktop app download section](https://vidcord.app/#download): Native application download CTA, setup notes, and platform downloads.
 - [Original marketing page](https://vidcord.app/legacy/): Preserved marketing/download page with screenshots, FAQ, desktop download buttons, and release count.
 - [Latest release](https://github.com/cyroz1/vidcord/releases/latest): Canonical desktop release page and binary assets.
 - [FFmpeg setup guide](https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md): Native desktop FFmpeg installation instructions.

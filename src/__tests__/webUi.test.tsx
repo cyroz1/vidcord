@@ -4,7 +4,9 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 
-vi.mock("../web/DesktopUpgrade", () => ({ default: () => null }));
+vi.mock("../web/DesktopUpgrade", () => ({
+  default: ({ children }: { children?: unknown }) => children,
+}));
 
 import WebApp from "../web/WebApp";
 import WebTrimTimeline from "../web/WebTrimTimeline";

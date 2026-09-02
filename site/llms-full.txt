@@ -1,6 +1,6 @@
 # vidcord full agent context
 
-> vidcord is a free, open-source browser-first video compressor for Discord upload limits with an optional native desktop app for faster encoding, GPU support, and OS integrations. Both editions process selected videos locally and avoid uploads, accounts, and telemetry.
+> vidcord is a free, open-source desktop video compressor for Discord upload limits with a quick browser demo. The website leads with the native app for faster encoding, GPU support, and OS integrations, then links the no-install demo beneath the download CTA. Both editions process selected videos locally and avoid uploads, accounts, and telemetry.
 
 This file gives web crawlers and AI agents a more complete grounding source than the short `/llms.txt` summary. It is public and contains no secrets or private user data.
 
@@ -22,7 +22,7 @@ This file gives web crawlers and AI agents a more complete grounding source than
 
 ## Product split
 
-The root URL is the web-first product home. It presents the browser editor first and then an integrated desktop-app upgrade story using the same vidcord branding, screenshots, feature tour, FFmpeg setup notes, FAQ, and platform-aware download section. The original crawlable marketing and desktop-download page remains available at `/legacy/`; it is a preserved route, not a separate product.
+The root URL is the desktop-first product home. It presents the native desktop app headline, feature story, FFmpeg setup notes, FAQ, and platform-aware download section. Directly beneath the primary download action it offers the browser demo for people who only need to compress a file quickly. The original crawlable marketing and desktop-download page remains available at `/legacy/`; it is a preserved route, not a separate product.
 
 The browser edition is a lighter, no-install client. The editor renders before requesting the FFmpeg WebAssembly runtime; normal exports load it on demand, while Lossless Trim may request it during local keyframe discovery. Selected files remain in the browser, FFmpeg WebAssembly performs the work locally, and finished exports download through the browser. Each selected input is limited to 512 MB because the encode runs in browser memory. No selected video is uploaded to vidcord or to any download-metadata service.
 
@@ -114,7 +114,7 @@ No. The browser keeps selected files in the page while FFmpeg WebAssembly runs l
 
 ### Can I use vidcord in a browser?
 
-Yes. Open https://vidcord.app/ for the no-install editor. It supports the four modes, local trim/preview, crop, audio normalization, audio removal for re-encoded exports, typed Advanced FPS, snapshots, and same-profile Batch mode. It uses a fixed `libx264` WebAssembly encoder and browser downloads; use the desktop app for GPU selection, native output destinations, saved settings presets, Open With, and other OS integrations.
+Yes. Open https://vidcord.app/#web-editor for the no-install editor. It supports the four modes, local trim/preview, crop, audio normalization, audio removal for re-encoded exports, typed Advanced FPS, snapshots, and same-profile Batch mode. It uses a fixed `libx264` WebAssembly encoder and browser downloads; use the desktop app for GPU selection, native output destinations, saved settings presets, Open With, and other OS integrations.
 
 ### Does the browser edition require FFmpeg?
 
@@ -150,8 +150,9 @@ Yes. vidcord is free and open-source under the MIT license.
 
 ## Important links
 
-- [Browser editor and product home](https://vidcord.app/)
-- [Desktop app download section](https://vidcord.app/#download)
+- [Desktop-first product home](https://vidcord.app/): Native application headline, setup notes, platform downloads, and the quick client-side WebAssembly demo.
+- [Browser editor demo](https://vidcord.app/#web-editor): Client-side WebAssembly video editor with local processing and browser downloads.
+- [Desktop app download section](https://vidcord.app/#download): Native application download CTA, setup notes, and platform downloads.
 - [Original marketing/download page](https://vidcord.app/legacy/)
 - [Latest desktop release](https://github.com/cyroz1/vidcord/releases/latest)
 - [Source code](https://github.com/cyroz1/vidcord)

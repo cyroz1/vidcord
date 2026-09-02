@@ -7,11 +7,11 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ### Browser edition
 
-- Added a client-side browser build at `/` as the web-first product home. It processes selected
-  videos locally with FFmpeg WebAssembly and exports the result through browser downloads, with
-  Compress, Advanced, Lossless Trim, GIF, trim, crop, audio normalization, audio removal for
-  re-encoded exports, standard FPS controls, typed Advanced FPS, snapshots, and same-profile
-  batches.
+- Added a client-side browser demo to `/` beneath the desktop app headline and download CTA. It
+  processes selected videos locally with FFmpeg WebAssembly and exports the result through browser
+  downloads, with Compress, Advanced, Lossless Trim, GIF, trim, crop, audio normalization, audio
+  removal for re-encoded exports, standard FPS controls, typed Advanced FPS, snapshots, and
+  same-profile batches.
 - Browser Batch mode applies one standard Compress profile to each full-duration file, reports
   per-file progress and aggregate ETA, and allows queued files to be removed before export. It
   does not include per-file batch trims, saved settings presets, native output destinations, or
@@ -21,9 +21,12 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   encoder; the native desktop app remains the optional upgrade for system FFmpeg, GPU encoders,
   faster native encoding, native folders, Open With, notifications, taskbar/Dock progress, and
   installer updates.
-- Rebuilt the root page around the browser editor and moved the original marketing/download page
-  to `/legacy/`. The root page keeps the original site's branding, desktop screenshots, feature
-  tour, FFmpeg setup, FAQ, and platform-aware download section below the web editor.
+- Rebuilt the root page around the desktop app's original headline and moved the browser demo
+  directly below the desktop hero. The page keeps the original site's branding, desktop
+  screenshots, feature tour, FFmpeg setup, FAQ, and platform-aware download section; the original
+  marketing/download page remains available at `/legacy/`.
+- Matched the embedded browser editor to the desktop app's light-mode surface, controls, timeline,
+  and native dropdown appearance for a consistent product and screenshot language.
 - Updated the README, FFmpeg setup guide, legacy metadata/structured data, public crawler files,
   and deployment notes to document the browser/desktop capability boundary and local-only
   processing model.

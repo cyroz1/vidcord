@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import {
   DEFAULT_ENVIRONMENT,
   LATEST_RELEASE_URL,
@@ -402,7 +402,7 @@ function DetailSection({ title, copy, items, image, reverse = false }: DetailSec
   );
 }
 
-function DesktopUpgrade() {
+function DesktopUpgrade({ children }: { children?: ReactNode }) {
   const [environment, setEnvironment] = useState<DownloadEnvironment>(DEFAULT_ENVIRONMENT);
   const [release, setRelease] = useState<LatestRelease | null>(null);
   const [releaseError, setReleaseError] = useState(false);
@@ -563,48 +563,40 @@ function DesktopUpgrade() {
           <p className="hero-body">
             Compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord&apos;s 20, 50, 100,
             or 500 MB limits using system FFmpeg locally. Lossless Trim cuts on keyframes without
-            re-encoding. GIF Mode creates Discord-ready GIFs with 5 MB, 10 MB, or 20 MB size
-            targets at 15, 30, or up to 50 FPS.
+            re-encoding. GIF Mode creates Discord-ready GIFs with 5 MB, 10 MB, or 20 MB size targets
+            at 15, 30, or up to 50 FPS.
           </p>
           <p className="hero-body">
-            The browser editor above is the fast, no-install option. Download the native app for
-            faster encoding, GPU acceleration, Open With integration, native output locations, and
-            the complete desktop workflow.
-          </p>
-          <p className="hero-body">
-            Want to stay in the browser? The{" "}
-            <a className="hero-inline-link" href="#web-editor">
-              web edition
-            </a>{" "}
-            keeps selected files local with FFmpeg WebAssembly and sends finished exports to your
-            browser downloads.
+            Download the native app for faster encoding, GPU acceleration, Open With integration,
+            native output locations, and the complete desktop workflow.
           </p>
 
           <div className="hero-actions">
-            <a
-              className="button button-primary"
-              id="primaryDownload"
-              href={desktopAction.href}
-              aria-label={desktopAction.label}
-              aria-disabled={desktopAction.pending ? "true" : undefined}
-              onClick={(event) => {
-                if (selectedPlatform !== "unknown") {
-                  handleDownloadClick(event, selectedPlatform, desktopAction);
-                }
-              }}
-            >
-              <DownloadIcon />
-              <span>
-                {desktopAction.needsArchChoice ? desktopAction.label : "Download for your platform"}
-              </span>
-            </a>
-            <a className="button button-secondary" href="#web-editor">
-              <svg aria-hidden="true" viewBox="0 0 24 24">
-                <path d="M4 5.5h16v11H4z" />
-                <path d="M8 20h8M12 16.5V20" />
-              </svg>
-              <span>Try the browser edition</span>
-            </a>
+            <div className="desktop-download-primary">
+              <a
+                className="button button-primary"
+                id="primaryDownload"
+                href={desktopAction.href}
+                aria-label={desktopAction.label}
+                aria-disabled={desktopAction.pending ? "true" : undefined}
+                onClick={(event) => {
+                  if (selectedPlatform !== "unknown") {
+                    handleDownloadClick(event, selectedPlatform, desktopAction);
+                  }
+                }}
+              >
+                <DownloadIcon />
+                <span>
+                  {desktopAction.needsArchChoice
+                    ? desktopAction.label
+                    : "Download for your platform"}
+                </span>
+              </a>
+              <p className="web-demo-callout">
+                Don&apos;t need the full workflow, just want to compress a file quickly?{" "}
+                <a href="#web-editor">Try the web demo</a>
+              </p>
+            </div>
             <a
               className="button button-secondary"
               href="https://github.com/cyroz1/vidcord"
@@ -688,6 +680,8 @@ function DesktopUpgrade() {
           </div>
         </div>
       </section>
+
+      {children}
 
       <section className="feature-band" id="features" aria-label="Features">
         <article>

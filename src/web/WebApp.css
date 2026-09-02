@@ -1287,6 +1287,11 @@
   padding: clamp(58px, 8vw, 112px) 0 clamp(70px, 9vw, 120px);
 }
 
+.web-demo-section {
+  min-height: 0;
+  border-top: 1px solid rgba(139, 177, 222, 0.16);
+}
+
 .web-hero-copy {
   width: 100%;
   max-width: 510px;
@@ -1302,7 +1307,8 @@
   text-transform: uppercase;
 }
 
-.web-hero-copy h1 {
+.web-hero-copy h1,
+.web-hero-copy h2 {
   max-width: 640px;
   overflow-wrap: anywhere;
   margin: 17px 0 23px;
@@ -1677,25 +1683,26 @@
   color: var(--web-error);
 }
 
-/* Native editor surface: keep the hosted workflow compact and use the same
-   liquid-glass tokens as the Tauri app while the surrounding page carries the
+/* Hosted editor surface: keep the browser workflow compact and use the
+   desktop app's light-mode tokens while the surrounding page carries the
    marketing story. */
 .web-editor-column {
-  --web-bg: rgb(16, 16, 20);
-  --web-surface: rgba(255, 255, 255, 0.07);
-  --web-surface-solid: rgba(255, 255, 255, 0.09);
-  --web-surface-muted: rgba(255, 255, 255, 0.05);
-  --web-border: rgba(255, 255, 255, 0.13);
-  --web-border-strong: rgba(255, 255, 255, 0.2);
-  --web-text: rgba(255, 255, 255, 0.92);
-  --web-muted: rgba(255, 255, 255, 0.52);
-  --web-subtle: rgba(255, 255, 255, 0.34);
-  --web-accent: #0a84ff;
-  --web-accent-soft: rgba(10, 132, 255, 0.08);
-  --web-accent-line: #409cff;
-  --web-success: #30d158;
-  --web-warning: #ff9f0a;
-  --web-error: #ff453a;
+  --web-bg: rgb(236, 236, 240);
+  --web-surface: rgba(255, 255, 255, 0.55);
+  --web-surface-solid: rgba(255, 255, 255, 0.72);
+  --web-surface-muted: rgba(0, 0, 0, 0.04);
+  --web-border: rgba(0, 0, 0, 0.09);
+  --web-border-strong: rgba(0, 0, 0, 0.16);
+  --web-text: rgba(0, 0, 0, 0.88);
+  --web-muted: rgba(0, 0, 0, 0.62);
+  --web-subtle: rgba(0, 0, 0, 0.44);
+  --web-accent: #007aff;
+  --web-accent-soft: rgba(0, 122, 255, 0.12);
+  --web-accent-line: #0071e3;
+  --web-success: #28cd41;
+  --web-warning: #ff9500;
+  --web-error: #ff3b30;
+  --web-card-top: inset 0 1px 0 rgba(255, 255, 255, 0.92), inset 0 -1px 0 rgba(0, 0, 0, 0.04);
   width: 100%;
   max-width: 460px;
   justify-self: center;
@@ -1705,8 +1712,9 @@
   border-radius: 12px;
   background: var(--web-bg);
   box-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    0 2px 10px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
   color: var(--web-text);
 }
 
@@ -1736,8 +1744,9 @@
   border-color: var(--web-border);
   background: var(--web-surface);
   box-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    0 2px 10px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
 .web-editor-column .web-file-row {
@@ -1782,7 +1791,7 @@
   padding: 2px;
   border-radius: 8px;
   background: var(--web-surface);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  box-shadow: var(--web-card-top);
 }
 
 .web-editor-column .web-mode-tabs button {
@@ -1794,10 +1803,10 @@
 
 .web-editor-column .web-mode-tabs button:hover:not(:disabled),
 .web-editor-column .web-mode-tabs button.active {
-  border-color: rgba(10, 132, 255, 0.38);
+  border-color: rgba(0, 122, 255, 0.38);
   color: var(--web-accent);
-  background: rgba(10, 132, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  background: rgba(0, 122, 255, 0.1);
+  box-shadow: var(--web-card-top);
 }
 
 .web-editor-column .web-settings-grid {
@@ -1818,7 +1827,7 @@
   border-radius: 6px;
   background-color: var(--web-surface);
   color: var(--web-text);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  box-shadow: var(--web-card-top);
   font-size: 13px;
 }
 
@@ -1835,7 +1844,7 @@
 .web-editor-column .web-field select:focus,
 .web-editor-column .web-field input:focus {
   border-color: var(--web-accent-line);
-  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.32);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.28);
 }
 
 .web-editor-column .web-field > span small,
@@ -1858,8 +1867,9 @@
   border-color: var(--web-border);
   background: var(--web-surface);
   box-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    0 2px 10px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
 .web-editor-column .web-preview-panel {
@@ -1981,15 +1991,15 @@
 .web-editor-column .web-timeline-track {
   background: linear-gradient(
     to right,
-    rgba(255, 255, 255, 0.12) 0 var(--trim-start),
+    rgba(0, 0, 0, 0.12) 0 var(--trim-start),
     var(--web-accent) var(--trim-start) var(--trim-end),
-    rgba(255, 255, 255, 0.12) var(--trim-end) 100%
+    rgba(0, 0, 0, 0.12) var(--trim-end) 100%
   );
 }
 
 .web-editor-column .web-timeline-playhead {
   background: var(--web-text);
-  box-shadow: 0 0 0 2px rgba(16, 16, 20, 0.75);
+  box-shadow: 0 0 0 2px rgba(236, 236, 240, 0.88);
 }
 
 .web-editor-column .web-range::-webkit-slider-thumb {
@@ -2049,7 +2059,7 @@
 }
 
 .web-editor-column .web-progress-track {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.12);
 }
 
 .web-editor-column .web-progress-track span {
@@ -2073,6 +2083,34 @@
 
 .web-marketing-text-link:hover {
   color: #bceaff;
+}
+
+.desktop-download-primary {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.web-demo-callout {
+  max-width: 310px;
+  margin: 0;
+  color: var(--web-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.web-demo-callout a {
+  color: var(--web-accent-line);
+  font-weight: 760;
+  text-decoration: underline;
+  text-decoration-color: rgba(89, 181, 255, 0.5);
+  text-underline-offset: 3px;
+}
+
+.web-demo-callout a:hover {
+  color: var(--web-text);
 }
 
 @media (max-width: 560px) {
@@ -2144,7 +2182,8 @@
     padding: 48px 0 65px;
   }
 
-  .web-hero-copy h1 {
+  .web-hero-copy h1,
+  .web-hero-copy h2 {
     width: 100%;
     font-size: clamp(42px, 12vw, 62px);
   }
@@ -2177,11 +2216,11 @@
   }
 }
 
-/* Hosted editor parity: these values mirror the native editor in App.css.
-   The browser surface keeps only controls that can be implemented locally. */
+/* Hosted editor parity: these values mirror the desktop app's light appearance
+   in App.css. The browser surface keeps only controls that can be implemented locally. */
 .web-editor-column {
   padding: 8px 13px 14px;
-  --web-border-subtle: rgba(255, 255, 255, 0.07);
+  --web-border-subtle: rgba(0, 0, 0, 0.05);
 }
 
 .web-editor-column .web-import-bar {
@@ -2212,8 +2251,9 @@
   border: 1px dashed var(--web-border);
   background: var(--web-surface);
   box-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    0 2px 10px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
   color: var(--web-muted);
 }
 
@@ -2239,7 +2279,7 @@
   border: 1px solid var(--web-border);
   border-radius: 6px;
   background: var(--web-surface-solid);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  box-shadow: var(--web-card-top);
   color: var(--web-text);
   padding: 6px 16px;
   font-size: 13px;
@@ -2250,8 +2290,9 @@
   border: 1px solid var(--web-border-subtle);
   background: var(--web-surface);
   box-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    0 2px 10px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
   color: var(--web-text);
   cursor: pointer;
 }
@@ -2295,7 +2336,7 @@
   padding: 2px;
   border-radius: 8px;
   background: var(--web-surface);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  box-shadow: var(--web-card-top);
 }
 
 .web-editor-column .web-mode-tabs button {
@@ -2314,10 +2355,10 @@
 
 .web-editor-column .web-mode-tabs button:hover:not(:disabled),
 .web-editor-column .web-mode-tabs button.active {
-  border-color: rgba(10, 132, 255, 0.38);
+  border-color: rgba(0, 122, 255, 0.38);
   color: var(--web-accent);
-  background: rgba(10, 132, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  background: rgba(0, 122, 255, 0.1);
+  box-shadow: var(--web-card-top);
 }
 
 .web-editor-column .web-settings-grid {
@@ -2380,7 +2421,7 @@
   border-color: var(--web-border);
   border-radius: 6px;
   background-color: var(--web-surface);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  box-shadow: var(--web-card-top);
   color: var(--web-text);
   font-size: 13px;
 }
@@ -2415,7 +2456,7 @@
   padding: 0;
   border-radius: 6px;
   background: var(--web-surface);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  box-shadow: var(--web-card-top);
 }
 
 .web-editor-column .web-audio-button:hover:not(:disabled) {
@@ -2474,8 +2515,9 @@
   border-radius: 12px;
   background: var(--web-surface);
   box-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    0 2px 10px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
 .web-editor-column .web-preview-frame {
@@ -2546,8 +2588,9 @@
   border-radius: 12px;
   background: var(--web-surface);
   box-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    0 2px 10px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
   contain: layout style;
   display: flex;
   flex-direction: column;
@@ -2632,7 +2675,7 @@
   border: 1px solid var(--web-border);
   border-radius: 6px;
   background: var(--web-surface-solid);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  box-shadow: var(--web-card-top);
   color: var(--web-muted);
   font-size: 11px;
   line-height: 1;
@@ -2641,7 +2684,7 @@
 .web-trim-mini-btn:hover:not(:disabled),
 .web-trim-loop-toggle:hover:not(:disabled),
 .web-trim-time-format-toggle:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.16);
+  background: var(--web-surface-solid);
   color: var(--web-text);
 }
 
@@ -2677,7 +2720,7 @@
   border: 1px solid var(--web-border);
   border-radius: 6px;
   background: var(--web-surface-solid);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  box-shadow: var(--web-card-top);
   color: var(--web-muted);
 }
 
@@ -2713,10 +2756,10 @@
   padding: 8px;
   border: 1px solid var(--web-border);
   border-radius: 8px;
-  background: rgba(28, 28, 32, 0.98);
+  background: rgba(248, 248, 250, 0.98);
   box-shadow:
-    0 16px 48px rgba(0, 0, 0, 0.7),
-    0 4px 12px rgba(0, 0, 0, 0.4);
+    0 8px 40px rgba(0, 0, 0, 0.18),
+    0 2px 8px rgba(0, 0, 0, 0.1);
   color: var(--web-muted);
   font-size: 11px;
   line-height: 1.3;
@@ -2783,7 +2826,7 @@
   border-radius: 6px;
   outline: none;
   background: var(--web-surface-solid);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  box-shadow: var(--web-card-top);
   color: var(--web-text);
   font-family: inherit;
   font-size: 11px;
@@ -2829,7 +2872,7 @@
 
 .web-trim-dual-track {
   z-index: 0;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.12);
 }
 
 .web-trim-dual-range {
@@ -2874,8 +2917,8 @@
   left: 0;
   width: 2px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+  background: rgba(26, 32, 41, 0.92);
+  box-shadow: 0 0 0 2px rgba(236, 236, 240, 0.88);
   cursor: ew-resize;
   pointer-events: auto;
   transform: translateX(-50%);
@@ -2888,7 +2931,7 @@
   border-right: 5px solid transparent;
   border-bottom: 0;
   border-left: 5px solid transparent;
-  border-top: 6px solid rgba(255, 255, 255, 0.9);
+  border-top: 6px solid rgba(26, 32, 41, 0.92);
   content: "";
   transform: translateX(-50%);
 }
@@ -2961,7 +3004,7 @@
 .web-editor-column .web-export-button {
   min-height: 0;
   padding: 8px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 12px;
   background: linear-gradient(180deg, #409cff 0%, #0a84ff 100%);
   box-shadow:
@@ -2978,11 +3021,15 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
-/* Keep Chromium's native option popup on the same dark surface as the
+/* Keep Chromium's native option popup on the same light surface as the
    hosted editor. The Tauri surface has this in index/App.css, but the web
    entry point owns its own theme variables and needs the equivalent rule. */
 .web-app select {
   color-scheme: dark;
+}
+
+.web-editor-column select {
+  color-scheme: light;
 }
 
 .web-app select option {
@@ -3024,5 +3071,31 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+}
+
+.web-editor-column select option {
+  background-color: rgb(248, 248, 250);
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.web-editor-column select optgroup {
+  background-color: rgb(248, 248, 250);
+  color: rgba(0, 0, 0, 0.58);
+}
+
+.web-editor-column select option:checked {
+  background-color: #007aff;
+  color: #fff;
+}
+
+@media (max-width: 760px) {
+  .desktop-download-primary {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .web-demo-callout {
+    max-width: none;
   }
 }
