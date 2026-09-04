@@ -158,8 +158,12 @@ fn show_files_in_file_explorer_windows(files: &[std::path::PathBuf]) -> Result<(
     use windows_sys::Win32::UI::Shell::{ILCreateFromPathW, SHOpenFolderAndSelectItems};
 
     let _com = WindowsComGuard::initialize();
+    let files = files
+        .iter()
+        .map(normalize_windows_shell_path)
+        .collect::<Vec<_>>();
     let mut grouped = HashMap::<std::path::PathBuf, Vec<&std::path::Path>>::new();
-    for file in files {
+    for file in &files {
         let parent = file.parent().ok_or_else(|| {
             format!(
                 "Could not determine the output folder for {}.",
@@ -221,6 +225,18 @@ fn show_files_in_file_explorer_windows(files: &[std::path::PathBuf]) -> Result<(
         }
     }
     Ok(())
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn normalize_windows_shell_path(path: &std::path::Path) -> std::path::PathBuf {
+    let path = path.to_string_lossy();
+    if let Some(unc_path) = path.strip_prefix(r"\\?\UNC\") {
+        return std::path::PathBuf::from(format!(r"\\{unc_path}"));
+    }
+    if let Some(path) = path.strip_prefix(r"\\?\") {
+        return std::path::PathBuf::from(path);
+    }
+    path.into_owned().into()
 }
 
 #[cfg(target_os = "macos")]
@@ -1219,9 +1235,9 @@ mod tests {
     use super::{
         deliver_notification_if_unfocused, escape_xdg_notification_markup,
         is_cargo_target_profile_directory, macos_clipboard_filename, macos_notification_arguments,
-        notification_response_requests_focus, output_path_key, publish_staged_output_blocking,
-        publish_staged_output_without_replacing_blocking, publish_to_temporary,
-        resolve_output_path_blocking, staging_directory, unique_output_path,
+        normalize_windows_shell_path, notification_response_requests_focus, output_path_key,
+        publish_staged_output_blocking, publish_staged_output_without_replacing_blocking,
+        publish_to_temporary, resolve_output_path_blocking, staging_directory, unique_output_path,
         unique_output_path_with_reserved, validated_clipboard_file, without_appimage_library_paths,
     };
 
@@ -1531,5 +1547,31 @@ mod tests {
         assert!(!is_cargo_target_profile_directory(std::path::Path::new(
             "/Applications/vidcord"
         )));
+    }
+
+    #[test]
+    fn windows_shell_paths_remove_extended_length_drive_prefixes() {
+        assert_eq!(
+            normalize_windows_shell_path(std::path::Path::new(
+                r"\\?\C:\Users\andy\Videos\clip-vidcord.mp4"
+            )),
+            std::path::PathBuf::from(r"C:\Users\andy\Videos\clip-vidcord.mp4")
+        );
+    }
+
+    #[test]
+    fn windows_shell_paths_convert_extended_length_unc_prefixes() {
+        assert_eq!(
+            normalize_windows_shell_path(std::path::Path::new(
+                r"\\?\UNC\server\share\clip-vidcord.mp4"
+            )),
+            std::path::PathBuf::from(r"\\server\share\clip-vidcord.mp4")
+        );
+    }
+
+    #[test]
+    fn windows_shell_paths_leave_normal_paths_unchanged() {
+        let path = std::path::Path::new(r"D:\Videos\clip-vidcord.mp4");
+        assert_eq!(normalize_windows_shell_path(path), path);
     }
 }

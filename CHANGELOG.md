@@ -31,6 +31,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Deferred the browser FFmpeg/WebAssembly runtime until export work needs it, so the editor can
   render before the large encoder assets are fetched. Lossless Trim loads the runtime when local
   keyframe discovery is requested.
+- Fixed Windows completion-action reveals so File Explorer receives usable paths after canonical
+  path resolution instead of rejecting the `\\?\` extended-length prefix.
 - Reused one prepared input across audio analysis and adaptive size passes, reduced output-buffer
   copying, cached recently read browser metadata, throttled progress updates, and stopped futile
   retries at the minimum viable bitrate.
