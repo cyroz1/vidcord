@@ -160,7 +160,7 @@ fn show_files_in_file_explorer_windows(files: &[std::path::PathBuf]) -> Result<(
     let _com = WindowsComGuard::initialize();
     let files = files
         .iter()
-        .map(normalize_windows_shell_path)
+        .map(|file| normalize_windows_shell_path(file.as_path()))
         .collect::<Vec<_>>();
     let mut grouped = HashMap::<std::path::PathBuf, Vec<&std::path::Path>>::new();
     for file in &files {
