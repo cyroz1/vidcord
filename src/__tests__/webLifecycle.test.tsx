@@ -11,10 +11,14 @@ const mocks = vi.hoisted(() => ({
   readMetadata: vi.fn(),
   download: vi.fn(),
   exportFile: vi.fn(),
+  marketingRender: vi.fn(),
 }));
 
 vi.mock("../web/DesktopUpgrade", () => ({
-  default: ({ children }: { children?: unknown }) => children,
+  default: ({ children }: { children?: unknown }) => {
+    mocks.marketingRender();
+    return children;
+  },
 }));
 vi.mock("../web/browserExport", () => ({
   BrowserFfmpegEngine: class {
@@ -92,6 +96,24 @@ async function exportVideo() {
 }
 
 describe("browser export lifecycle", () => {
+  it("keeps marketing outside editor updates while accepting drops elsewhere on the page", async () => {
+    const initialMarketingRenders = mocks.marketingRender.mock.calls.length;
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: { files: [file()] } });
+    await act(async () => container.querySelector(".web-header")!.dispatchEvent(drop));
+    const video = container.querySelector<HTMLVideoElement>("video")!;
+    for (let time = 1; time <= 5; time += 1) {
+      await act(async () => {
+        video.currentTime = time;
+        video.dispatchEvent(new Event("timeupdate", { bubbles: true }));
+      });
+    }
+    await exportVideo();
+    expect(mocks.readMetadata).toHaveBeenCalledOnce();
+    expect(mocks.exportFile).toHaveBeenCalledOnce();
+    expect(mocks.marketingRender).toHaveBeenCalledTimes(initialMarketingRenders);
+  });
+
   it("continues a batch after an unreadable file and shows each outcome", async () => {
     await selectFiles([file("first.mp4"), file("broken.mp4"), file("last.mp4")]);
     mocks.readMetadata.mockRejectedValueOnce(new Error("Unreadable video"));

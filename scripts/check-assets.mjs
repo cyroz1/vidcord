@@ -36,4 +36,12 @@ for (const file of [
 expectSame("public/icon.png", "site/marketing-assets/icon.png");
 expectSame("public/icon.png", "site/icon.png");
 
+// The hosted /assets/ directory is immutable-cached. Unversioned marketing
+// files belong in marketing-assets so updates cannot remain stale for a year.
+for (const name of fs.readdirSync("site/assets")) {
+  if (!/-[A-Za-z0-9_-]{8}\.(?:js|css|wasm(?:\.gz)?)$/.test(name)) {
+    throw new Error(`site/assets/${name} needs a content-hashed filename for immutable caching`);
+  }
+}
+
 console.log("asset organization ok");
