@@ -13,10 +13,12 @@ const limits = {
   // 7.4 adds browser GIF parity, semantic settings migration, and snap/zoom/pan trim controls;
   // keep a small explicit allowance for those user-visible capabilities and the deferred
   // browser-export module boundary.
-  javascriptRaw: 483 * 1024,
+  // Abortable loading, read-only file mounts, separate GIF palette passes, and
+  // batch failure recovery add a small amount of code while bounding runtime memory/work.
+  javascriptRaw: 488 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
   // Keep a small cross-runtime margin while retaining the tight raw-byte guard above.
-  javascriptGzip: 151 * 1024,
+  javascriptGzip: 152 * 1024,
   // The browser editor also carries the integrated desktop feature story, responsive layout,
   // and the platform-aware download/architecture-choice surfaces.
   cssGzip: 18.5 * 1024,

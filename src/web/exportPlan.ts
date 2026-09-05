@@ -391,15 +391,13 @@ export function buildCompressionArgs(
   return args;
 }
 
-export function buildGifArgs(
-  inputName: string,
-  outputName: string,
+function gifFilters(
   metadata: BrowserVideoMetadata,
   settings: BrowserSettings,
   plan: ExportPlan,
   targetHeight: number,
   qualityBitrateKbps: number | null = plan.bitrateKbps
-): string[] {
+): { visual: string; colors: number } {
   const initialBitrate = Math.max(plan.bitrateKbps ?? 100, 1);
   const retryQuality = Math.sqrt(
     Math.max(0.04, Math.min(1, (qualityBitrateKbps ?? initialBitrate) / initialBitrate))
@@ -413,7 +411,24 @@ export function buildGifArgs(
     `fps=${fps}`,
     gifScaleFilter(metadata, settings.crop, targetHeight, dimensionScale),
   ].filter((value): value is string => Boolean(value));
-  const filter = `${visualFilters.join(",")},split[gif_source][palette_source];[palette_source]palettegen=max_colors=${colors}:stats_mode=diff[palette];[gif_source][palette]paletteuse=dither=sierra2_4a:diff_mode=rectangle[gif]`;
+  return { visual: visualFilters.join(","), colors };
+}
+
+export function buildGifPaletteArgs(
+  inputName: string,
+  paletteName: string,
+  metadata: BrowserVideoMetadata,
+  settings: BrowserSettings,
+  plan: ExportPlan,
+  qualityBitrateKbps: number | null
+): string[] {
+  const { visual, colors } = gifFilters(
+    metadata,
+    settings,
+    plan,
+    plan.targetHeight ?? 480,
+    qualityBitrateKbps
+  );
   return [
     "-ss",
     plan.startTime.toFixed(3),
@@ -421,6 +436,36 @@ export function buildGifArgs(
     plan.selectedDuration.toFixed(3),
     "-i",
     inputName,
+    "-vf",
+    `${visual},palettegen=max_colors=${colors}:stats_mode=diff`,
+    "-frames:v",
+    "1",
+    paletteName,
+  ];
+}
+
+export function buildGifArgs(
+  inputName: string,
+  outputName: string,
+  metadata: BrowserVideoMetadata,
+  settings: BrowserSettings,
+  plan: ExportPlan,
+  targetHeight: number,
+  qualityBitrateKbps: number | null = plan.bitrateKbps,
+  paletteName?: string
+): string[] {
+  const { visual, colors } = gifFilters(metadata, settings, plan, targetHeight, qualityBitrateKbps);
+  const filter = paletteName
+    ? `[0:v]${visual}[gif_source];[gif_source][1:v]paletteuse=dither=sierra2_4a:diff_mode=rectangle[gif]`
+    : `${visual},split[gif_source][palette_source];[palette_source]palettegen=max_colors=${colors}:stats_mode=diff[palette];[gif_source][palette]paletteuse=dither=sierra2_4a:diff_mode=rectangle[gif]`;
+  return [
+    "-ss",
+    plan.startTime.toFixed(3),
+    "-t",
+    plan.selectedDuration.toFixed(3),
+    "-i",
+    inputName,
+    ...(paletteName ? ["-i", paletteName] : []),
     "-filter_complex",
     filter,
     "-map",
@@ -478,7 +523,8 @@ export function outputFileName(name: string, extension: string, index = 0): stri
       .replace(/-+/g, "-")
       .replace(/\s*-\s*/g, " - ")
       .replace(/\s+-\s*$/, "")
-      .trim() || "video";
+      .trim()
+      .slice(0, 180) || "video";
   const suffix = index > 0 ? `-${index + 1}` : "";
   return `${stem}-vidcord${suffix}.${extension}`;
 }

@@ -77,12 +77,13 @@ function isTrustedReleaseAsset(asset: ReleaseAsset): boolean {
 export function normalizeDownloadPlatform(value: unknown): DownloadPlatform {
   const text = String(value ?? "").toLowerCase();
 
-  if (text.includes("win")) {
-    return "windows";
-  }
-
+  if (/android|iphone|ipad|ipod|cros/.test(text)) return "unknown";
   if (text.includes("mac") || text.includes("darwin")) {
     return "macos";
+  }
+
+  if (text.includes("win")) {
+    return "windows";
   }
 
   if (text.includes("linux") || text.includes("x11")) {
@@ -123,6 +124,12 @@ export async function detectDownloadEnvironment(): Promise<DownloadEnvironment> 
   }
 
   const navigatorWithUserAgentData = navigator as NavigatorWithUserAgentData;
+  if (
+    /android|iphone|ipad|ipod/i.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  ) {
+    return DEFAULT_ENVIRONMENT;
+  }
   const userAgentData = navigatorWithUserAgentData.userAgentData;
   let platformSource =
     userAgentData?.platform || navigatorWithUserAgentData.platform || navigator.userAgent;
@@ -130,12 +137,16 @@ export async function detectDownloadEnvironment(): Promise<DownloadEnvironment> 
   let archCertain = false;
 
   if (userAgentData && typeof userAgentData.getHighEntropyValues === "function") {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      const values = await userAgentData.getHighEntropyValues([
-        "architecture",
-        "bitness",
-        "platform",
+      const values = await Promise.race([
+        userAgentData.getHighEntropyValues(["architecture", "bitness", "platform"]),
+        new Promise<null>((resolve) => {
+          timeout = setTimeout(() => resolve(null), 1500);
+        }),
       ]);
+      if (!values)
+        return { platform: normalizeDownloadPlatform(platformSource), arch, archCertain };
       const detectedArch = normalizeDownloadArch(
         `${values.architecture ?? ""} ${values.bitness ?? ""}`
       );
@@ -148,6 +159,8 @@ export async function detectDownloadEnvironment(): Promise<DownloadEnvironment> 
     } catch {
       arch = "unknown";
       archCertain = false;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 

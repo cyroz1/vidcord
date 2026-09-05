@@ -34,16 +34,20 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Fixed Windows completion-action reveals so File Explorer receives usable paths after canonical
   path resolution instead of rejecting the `\\?\` extended-length prefix.
 - Reused one prepared input across audio analysis and adaptive size passes, reduced output-buffer
-  copying, cached recently read browser metadata, throttled progress updates, and stopped futile
-  retries at the minimum viable bitrate.
+  copying, read browser inputs directly through read-only worker mounts, cached metadata by file
+  identity, throttled progress updates, and stopped futile retries at the minimum viable bitrate.
+  GIF exports build their palette in a separate pass to avoid retaining the entire decoded clip.
 - Improved browser batch locking, cancellation reporting, silent-source audio controls, and preview
   failure states so long-running exports remain responsive and explain partial results clearly.
+  Encoder downloads and metadata reads can be cancelled, failed batch items no longer stop the
+  remaining queue, and trim history stays locked during export. Fixed trim shortcuts, scroll
+  handling, stale export feedback, and Lossless Trim exports for unusual filenames.
 - Added a static critical marketing stylesheet link and prioritized the hero screenshot to reduce
   first-paint layout movement. Added bundle and hosted-site size checks, gzip publication for the
   browser WebAssembly asset, and baseline security headers for the deployed site.
 - Hardened platform download selection to accept only expected GitHub release assets, require a
   universal macOS build, and fall back cleanly when release metadata or architecture detection is
-  unavailable.
+  unavailable or an asset is missing. Mobile devices no longer select desktop installers.
 
 ## v7.3
 

@@ -167,6 +167,16 @@ therefore publishes the generated `.wasm` as `.wasm.gz`, and `src/web/ffmpegEngi
 it in the browser before loading FFmpeg. Desktop builds keep the uncompressed asset and use it as a
 fallback. `npm run site:check` enforces the same per-file limit for future generated output.
 
+Browser encoder loads are abortable and bounded to two minutes. Each session mounts its input
+read-only with WORKERFS, keeps generated filenames independent of user filenames, and unmounts
+inputs and removes intermediate palettes on disposal. GIF palette generation and rendering use
+separate passes to avoid retaining a whole decoded clip. Keep session ownership across cancellation
+so stale cleanup cannot unlock or clear callbacks for a newer operation. Keyframe discovery is
+bounded to 60 seconds and 100,000 keyframes; metadata/keyframe caches use File identity and weak
+references so different selections with identical names, sizes, and timestamps never share data.
+Browser batch failures are isolated per file; cancellation aborts metadata work before another
+encoder can start. Trim controls and history remain locked for the whole export.
+
 - **Production domain**: `https://vidcord.app/`
 - **Workers.dev URL**: `https://vidcord-site.cyrz.workers.dev/`
 - **Cloudflare Worker name**: `vidcord-site`
@@ -185,8 +195,9 @@ Site behavior and content:
   links download buttons directly to matching binary assets when the platform and architecture are
   known. If x64 vs ARM64 cannot be determined with high confidence, prompt the user to choose an
   architecture; each architecture option should link directly to the matching latest-release
-  binary. It falls back to `https://github.com/cyroz1/vidcord/releases/latest` only when release
-  metadata cannot be fetched. It also fetches the aggregate release download count from Shields.io
+  binary. It falls back to `https://github.com/cyroz1/vidcord/releases/latest` when release
+  metadata cannot be fetched or the expected asset is missing. Mobile devices must not receive a
+  desktop installer recommendation. It also fetches the aggregate release download count from Shields.io
   with a bounded timeout and strict response validation; failure must leave the count unavailable
   without affecting download links.
 - The root social/link embed image uses the app logo at `https://vidcord.app/icon.png` via
@@ -570,4 +581,4 @@ separate Site Checks workflow.
 - Linux live `<video>` scrubbing and Play/Stop trim controls are deliberately disabled because WebKitGTK's GStreamer playback path can crash the renderer on systems without a usable audio sink. Keep the `get_os` guard and FFmpeg-generated filmstrip/frame fallback unless live playback is validated across the supported Linux desktop environments and AppImage packaging.
 - CSP also gates drive roots on Windows (`C:/**` … `Z:/**`). If a user reports a path refused by the asset protocol, check `assetProtocol.scope`.
 - EncodersDialog is `React.lazy` + `Suspense` — don't import it eagerly in `App.tsx`, that re-grows the entry bundle.
-- Tests run in a **Node** environment, and the Tauri runtime APIs are mocked in `src/__mocks__/@tauri-apps/api/*`. Write tests against pure helpers (`useCompression.ts`, `ffmpegErrors.ts`, `losslessTrim.ts`, `previewScrub.ts`, `settingsPresets.ts`, `timelineZoom.ts`, `videoMetadata.ts`) or as Rust unit tests. Component integration tests are not currently wired up; don't invent a jsdom setup unless asked.
+- Tests default to a **Node** environment, and the Tauri runtime APIs are mocked in `src/__mocks__/@tauri-apps/api/*`. Browser component tests opt into the existing **happy-dom** environment; mock metadata, encoder, and external download requests at their boundaries. Keep pure helpers in Node and native behavior in Rust unit tests; do not add another DOM test environment.

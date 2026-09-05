@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
 } from "react";
 import {
   formatTimelineTime,
@@ -159,6 +158,7 @@ type TimelineTimeInputProps = {
   disabled: boolean;
   onFocus: () => void;
   onCommit: (time: number) => void;
+  onFinish: () => void;
 };
 
 const TimelineTimeInput = memo(function TimelineTimeInput({
@@ -168,6 +168,7 @@ const TimelineTimeInput = memo(function TimelineTimeInput({
   disabled,
   onFocus,
   onCommit,
+  onFinish,
 }: TimelineTimeInputProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const cancelCommitRef = useRef(false);
@@ -192,11 +193,13 @@ const TimelineTimeInput = memo(function TimelineTimeInput({
         if (cancelCommitRef.current) {
           cancelCommitRef.current = false;
           setDraft(null);
+          onFinish();
           return;
         }
         const parsed = parseTimelineTimeInput(event.currentTarget.value);
         if (parsed !== null) onCommit(parsed);
         setDraft(null);
+        onFinish();
       }}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
@@ -268,8 +271,8 @@ function WebTrimTimeline({
   const trimReady = !disabled && duration > 0;
   const canSetInPoint = trimReady && currentTime < safeEnd - MIN_TRIM_GAP;
   const canSetOutPoint = trimReady && currentTime > safeStart + MIN_TRIM_GAP;
-  const canUndoTrim = historyRef.current.past.length > 0;
-  const canRedoTrim = historyRef.current.future.length > 0;
+  const canUndoTrim = trimReady && historyRef.current.past.length > 0;
+  const canRedoTrim = trimReady && historyRef.current.future.length > 0;
 
   useEffect(() => {
     rangeRef.current = { start: safeStart, end: safeEnd };
@@ -420,6 +423,7 @@ function WebTrimTimeline({
   }, [applyRange, canSetOutPoint, currentTime, safeDuration, safeStart]);
 
   const undoTrim = useCallback(() => {
+    if (!trimReady) return;
     const previous = historyRef.current.past[historyRef.current.past.length - 1];
     if (!previous) return;
     const current = rangeRef.current;
@@ -430,9 +434,10 @@ function WebTrimTimeline({
     rangeRef.current = previous;
     bumpHistory();
     onRangeChange(previous.start, previous.end, previous.start);
-  }, [bumpHistory, onRangeChange]);
+  }, [bumpHistory, onRangeChange, trimReady]);
 
   const redoTrim = useCallback(() => {
+    if (!trimReady) return;
     const next = historyRef.current.future[historyRef.current.future.length - 1];
     if (!next) return;
     const current = rangeRef.current;
@@ -443,7 +448,7 @@ function WebTrimTimeline({
     rangeRef.current = next;
     bumpHistory();
     onRangeChange(next.start, next.end, next.start);
-  }, [bumpHistory, onRangeChange]);
+  }, [bumpHistory, onRangeChange, trimReady]);
 
   const seekFromPointer = useCallback(
     (clientX: number) => {
@@ -475,11 +480,11 @@ function WebTrimTimeline({
   }, [centerTimelineOnSelection]);
 
   const handleTimelineWheel = useCallback(
-    (event: ReactWheelEvent<HTMLDivElement>) => {
-      if (!trimReady) return;
+    (event: WheelEvent) => {
+      if (!trimReady || (!event.ctrlKey && !event.metaKey && timelineZoom <= 1)) return;
       event.preventDefault();
-      const bounds = event.currentTarget.getBoundingClientRect();
-      if (bounds.width <= 0) return;
+      const bounds = trackRef.current?.getBoundingClientRect();
+      if (!bounds || bounds.width <= 0) return;
 
       if (event.ctrlKey || event.metaKey) {
         const fraction = clamp((event.clientX - bounds.left) / bounds.width, 0, 1);
@@ -509,6 +514,13 @@ function WebTrimTimeline({
     [safeDuration, timelineZoom, trimReady, viewSpan, viewStart]
   );
 
+  useEffect(() => {
+    const track = trackRef.current;
+    // React's root wheel listener is passive and cannot suppress page zoom.
+    track?.addEventListener("wheel", handleTimelineWheel, { passive: false });
+    return () => track?.removeEventListener("wheel", handleTimelineWheel);
+  }, [handleTimelineWheel]);
+
   const handlePlayheadPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (!trimReady) return;
@@ -537,6 +549,31 @@ function WebTrimTimeline({
     <section
       className={`web-timeline${trimOptionsOpen ? " options-open" : ""}`}
       aria-labelledby="web-timeline-title"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (
+          event.defaultPrevented ||
+          !trimReady ||
+          (event.target instanceof HTMLElement &&
+            event.target.closest("input, textarea, select, [contenteditable=true]"))
+        )
+          return;
+        const key = event.key.toLowerCase();
+        if ((event.ctrlKey || event.metaKey) && key === "z") {
+          event.preventDefault();
+          if (event.shiftKey) redoTrim();
+          else undoTrim();
+        } else if (
+          !event.ctrlKey &&
+          !event.metaKey &&
+          !event.altKey &&
+          (key === "i" || key === "o")
+        ) {
+          event.preventDefault();
+          if (key === "i") setInPoint();
+          else setOutPoint();
+        }
+      }}
     >
       <div className="web-trim-heading-row">
         <div className="web-trim-heading-copy">
@@ -737,10 +774,8 @@ function WebTrimTimeline({
             clockFormat={clockTimeFormat}
             disabled={!trimReady}
             onFocus={beginInteraction}
-            onCommit={(value) => {
-              commitTime("start", value);
-              finishInteraction();
-            }}
+            onCommit={(value) => commitTime("start", value)}
+            onFinish={finishInteraction}
           />
         ) : (
           <span
@@ -753,7 +788,6 @@ function WebTrimTimeline({
         <div
           ref={trackRef}
           className={`web-trim-dual-wrap${trimReady ? "" : " disabled"}`}
-          onWheel={trimReady ? handleTimelineWheel : undefined}
           title={trimReady ? "Click to seek | Wheel to pan | Ctrl/⌘+Wheel to zoom" : undefined}
         >
           <button
@@ -801,6 +835,8 @@ function WebTrimTimeline({
               }}
               onPointerUp={finishInteraction}
               onPointerCancel={finishInteraction}
+              onKeyUp={finishInteraction}
+              onBlur={finishInteraction}
               onChange={(event) => handleStartChange(Number(event.target.value))}
             />
           )}
@@ -821,6 +857,8 @@ function WebTrimTimeline({
               }}
               onPointerUp={finishInteraction}
               onPointerCancel={finishInteraction}
+              onKeyUp={finishInteraction}
+              onBlur={finishInteraction}
               onChange={(event) => handleEndChange(Number(event.target.value))}
             />
           )}
@@ -833,10 +871,8 @@ function WebTrimTimeline({
             clockFormat={clockTimeFormat}
             disabled={!trimReady}
             onFocus={beginInteraction}
-            onCommit={(value) => {
-              commitTime("end", value);
-              finishInteraction();
-            }}
+            onCommit={(value) => commitTime("end", value)}
+            onFinish={finishInteraction}
           />
         ) : (
           <span

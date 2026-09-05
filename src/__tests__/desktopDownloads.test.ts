@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   downloadLabel,
+  detectDownloadEnvironment,
   needsArchitectureChoice,
   normalizeDownloadArch,
   normalizeDownloadPlatform,
@@ -43,6 +44,33 @@ const assets: ReleaseAsset[] = [
 ];
 
 describe("desktop download detection", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("does not offer desktop binaries to mobile devices or misread Darwin as Windows", async () => {
+    expect(normalizeDownloadPlatform("Darwin")).toBe("macos");
+    expect(normalizeDownloadPlatform("Android Linux aarch64")).toBe("unknown");
+    expect(normalizeDownloadPlatform("iPhone")).toBe("unknown");
+    vi.stubGlobal("navigator", { platform: "MacIntel", userAgent: "Macintosh", maxTouchPoints: 5 });
+    expect((await detectDownloadEnvironment()).platform).toBe("unknown");
+  });
+
+  it("falls back to an architecture choice when client hints stall", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("navigator", {
+      platform: "Win32",
+      userAgent: "Windows",
+      userAgentData: {
+        platform: "Windows",
+        getHighEntropyValues: () => new Promise(() => undefined),
+      },
+    });
+    const environment = detectDownloadEnvironment();
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(await environment).toEqual({ platform: "windows", arch: "unknown", archCertain: false });
+  });
   it("normalizes legacy platform and architecture signals", () => {
     expect(normalizeDownloadPlatform("Win32")).toBe("windows");
     expect(normalizeDownloadPlatform("MacIntel")).toBe("macos");

@@ -281,13 +281,16 @@ the source rate is known, snapshots, and same-profile multi-file batches. Each
 selected browser input is capped at 512 MB because FFmpeg WebAssembly processes
 the file in browser memory. Browser Batch applies one standard Compress profile
 to each selected file at full duration, reports per-file progress and aggregate
-ETA, and allows queued files to be removed before export. It does not expose
+ETA, continues after individual failures, and allows queued files to be removed
+before export. Cancellation also stops encoder loading and metadata reads. It does not expose
 per-file batch trim fields or a batch preview timeline.
 
 The browser encoder is intentionally fixed to `libx264` in WebAssembly. Advanced
 mode can set a custom target size, resolution, and FPS, but cannot select a
 different encoder or source audio tracks. Lossless Trim copies the source
 streams at locally discovered keyframes and can omit audio streams with `-an`.
+Keyframe discovery is limited to 60 seconds and 100,000 keyframes; if it exceeds
+either limit, use Compress or the desktop app for that file.
 Its trim panel supports snap intervals, zoom, and pan. Browser input support and
 performance depend on the browser, device, available memory, and source format.
 
@@ -369,8 +372,9 @@ installer from GitHub:
 The website detects the operating system and, when it can identify the
 architecture, links directly to the matching asset from the latest GitHub
 release. If x86_64 versus ARM64 is uncertain, it asks you to choose an
-architecture. If release metadata cannot be fetched, it falls back to the
-GitHub release page.
+architecture. If release metadata cannot be fetched or the matching installer
+is missing, it falls back to the GitHub release page. Mobile devices show the
+desktop platform choices without recommending an installer for the device.
 
 ## FFmpeg setup for the desktop app
 

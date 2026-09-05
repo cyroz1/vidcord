@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 
@@ -40,6 +40,78 @@ afterEach(() => {
 });
 
 describe("browser UI", () => {
+  it("locks trim history during exports and supports the advertised shortcuts", async () => {
+    function TimelineHarness({ disabled = false }: { disabled?: boolean }) {
+      const [range, setRange] = useState({ start: 10, end: 50 });
+      return (
+        <WebTrimTimeline
+          duration={60}
+          startTime={range.start}
+          endTime={range.end}
+          currentTime={20}
+          disabled={disabled}
+          editableTimes
+          losslessTrim={false}
+          losslessInfoLoading={false}
+          losslessInfoError={null}
+          historyKey="clip"
+          loopPlayback={false}
+          onLoopPlaybackChange={vi.fn()}
+          onRangeChange={(start, end) => setRange({ start, end })}
+          onSeek={vi.fn()}
+        />
+      );
+    }
+    await act(async () => root.render(<TimelineHarness />));
+    const timeline = container.querySelector(".web-timeline")!;
+    await act(async () =>
+      timeline.dispatchEvent(new KeyboardEvent("keydown", { key: "i", bubbles: true }))
+    );
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="Trim start"]')?.value).toBe(
+      "20"
+    );
+    expect(
+      container.querySelector<HTMLButtonElement>('button[aria-label="Undo trim"]')?.disabled
+    ).toBe(false);
+    await act(async () => root.render(<TimelineHarness disabled />));
+    expect(
+      container.querySelector<HTMLButtonElement>('button[aria-label="Undo trim"]')?.disabled
+    ).toBe(true);
+    await act(async () =>
+      timeline.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true })
+      )
+    );
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="Trim start"]')?.value).toBe(
+      "20"
+    );
+    await act(async () => root.render(<TimelineHarness />));
+    await act(async () =>
+      timeline.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true })
+      )
+    );
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="Trim start"]')?.value).toBe(
+      "10"
+    );
+    await act(async () =>
+      timeline.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "z", ctrlKey: true, shiftKey: true, bubbles: true })
+      )
+    );
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="Trim start"]')?.value).toBe(
+      "20"
+    );
+    const track = container.querySelector(".web-trim-dual-wrap")!;
+    const normalScroll = new WheelEvent("wheel", { deltaY: 10, cancelable: true });
+    await act(async () => track.dispatchEvent(normalScroll));
+    expect(normalScroll.defaultPrevented).toBe(false);
+    const zoom = new WheelEvent("wheel", { deltaY: -10, ctrlKey: true, cancelable: true });
+    // happy-dom's WheelEvent currently omits the MouseEvent modifier fields.
+    Object.defineProperty(zoom, "ctrlKey", { value: true });
+    await act(async () => track.dispatchEvent(zoom));
+    expect(zoom.defaultPrevented).toBe(true);
+  });
   it("renders the shared GIF targets when GIF mode is selected", async () => {
     await act(async () => {
       root.render(<WebApp />);

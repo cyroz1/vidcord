@@ -127,7 +127,11 @@ export function getPreviewUrl(file: File): string {
   return URL.createObjectURL(file);
 }
 
-export async function readVideoMetadata(file: File): Promise<BrowserVideoMetadata> {
+export async function readVideoMetadata(
+  file: File,
+  signal?: AbortSignal
+): Promise<BrowserVideoMetadata> {
+  signal?.throwIfAborted();
   const url = getPreviewUrl(file);
 
   try {
@@ -150,52 +154,54 @@ export async function readVideoMetadata(file: File): Promise<BrowserVideoMetadat
 
       const cleanup = () => {
         if (timeoutId !== null) window.clearTimeout(timeoutId);
+        video.removeEventListener("loadedmetadata", onLoadedMetadata);
+        video.removeEventListener("error", onError);
+        signal?.removeEventListener("abort", onAbort);
         video.removeAttribute("src");
         video.load();
       };
 
-      video.addEventListener(
-        "loadedmetadata",
-        () => {
-          const duration = Number.isFinite(video.duration) ? video.duration : 0;
-          const width = video.videoWidth;
-          const height = video.videoHeight;
-          if (duration <= 0 || width <= 0 || height <= 0) {
-            cleanup();
-            reject(new Error("The browser could not read this video's dimensions or duration."));
-            return;
-          }
-          const audioTrackCount =
-            extendedVideo.audioTracks &&
-            Number.isInteger(extendedVideo.audioTracks.length) &&
-            extendedVideo.audioTracks.length >= 0
-              ? extendedVideo.audioTracks.length
-              : undefined;
-          const hasAudio =
-            typeof extendedVideo.mozHasAudio === "boolean"
-              ? extendedVideo.mozHasAudio
-              : audioTrackCount === undefined
-                ? true
-                : audioTrackCount > 0;
-          const frameRate =
-            typeof extendedVideo.frameRate === "number" &&
-            Number.isFinite(extendedVideo.frameRate) &&
-            extendedVideo.frameRate > 0
-              ? extendedVideo.frameRate
-              : null;
+      const onLoadedMetadata = () => {
+        const duration = Number.isFinite(video.duration) ? video.duration : 0;
+        const width = video.videoWidth;
+        const height = video.videoHeight;
+        if (duration <= 0 || width <= 0 || height <= 0) {
           cleanup();
-          resolve({ duration, width, height, frameRate, hasAudio, audioTrackCount });
-        },
-        { once: true }
-      );
-      video.addEventListener(
-        "error",
-        () => {
-          cleanup();
-          reject(new Error("This browser cannot preview the selected video format."));
-        },
-        { once: true }
-      );
+          reject(new Error("The browser could not read this video's dimensions or duration."));
+          return;
+        }
+        const audioTrackCount =
+          extendedVideo.audioTracks &&
+          Number.isInteger(extendedVideo.audioTracks.length) &&
+          extendedVideo.audioTracks.length >= 0
+            ? extendedVideo.audioTracks.length
+            : undefined;
+        const hasAudio =
+          typeof extendedVideo.mozHasAudio === "boolean"
+            ? extendedVideo.mozHasAudio
+            : audioTrackCount === undefined
+              ? true
+              : audioTrackCount > 0;
+        const frameRate =
+          typeof extendedVideo.frameRate === "number" &&
+          Number.isFinite(extendedVideo.frameRate) &&
+          extendedVideo.frameRate > 0
+            ? extendedVideo.frameRate
+            : null;
+        cleanup();
+        resolve({ duration, width, height, frameRate, hasAudio, audioTrackCount });
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error("This browser cannot preview the selected video format."));
+      };
+      const onAbort = () => {
+        cleanup();
+        reject(signal?.reason ?? new Error("Video metadata loading cancelled."));
+      };
+      video.addEventListener("loadedmetadata", onLoadedMetadata, { once: true });
+      video.addEventListener("error", onError, { once: true });
+      signal?.addEventListener("abort", onAbort, { once: true });
       timeoutId = window.setTimeout(() => {
         cleanup();
         reject(new Error("The browser took too long to read this video's metadata."));

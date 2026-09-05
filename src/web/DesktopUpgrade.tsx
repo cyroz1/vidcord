@@ -115,7 +115,7 @@ function createDownloadAction(
   }
 
   return {
-    href: releaseError ? LATEST_RELEASE_URL : "#download",
+    href: release || releaseError ? LATEST_RELEASE_URL : "#download",
     label,
     direct: false,
     pending: !release && !releaseError,
@@ -173,7 +173,7 @@ function createArchitectureAction(
   }
 
   return {
-    href: releaseError ? LATEST_RELEASE_URL : "#download",
+    href: release || releaseError ? LATEST_RELEASE_URL : "#download",
     label: `${platformDisplayName(platform)} ${archDisplayName(arch)}`,
     direct: false,
     pending: !release && !releaseError,
@@ -550,6 +550,10 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
     platform: Exclude<DownloadPlatform, "unknown">,
     action: DownloadAction
   ) => {
+    if (action.pending) {
+      event.preventDefault();
+      return;
+    }
     if (action.needsArchChoice) {
       event.preventDefault();
       setArchitectureChoice(platform);

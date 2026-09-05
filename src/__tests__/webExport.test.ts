@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildAudioPeakAnalysisArgs,
   buildCompressionArgs,
@@ -352,6 +352,15 @@ describe("browser export planning", () => {
     expect(transcodeCount).toBe(1);
     expect(isAudioCompatibilityError("filter graph failed while allocating frames")).toBe(false);
     expect(isAudioCompatibilityError("audio filter failed")).toBe(true);
+    expect(
+      isAudioCompatibilityError(
+        "Stream #0:1: Audio: aac\n[libx264] Error opening encoder\nConversion failed!\nAborted()"
+      )
+    ).toBe(false);
+    expect(
+      isAudioCompatibilityError("[aac] Unsupported channel layout\nConversion failed!\nAborted()")
+    ).toBe(true);
+    expect(isAudioCompatibilityError("Invalid stream specifier: 0:v")).toBe(false);
   });
 
   it("gives browser GIF exports the same four bounded adaptive attempts", async () => {
@@ -415,6 +424,63 @@ describe("browser export planning", () => {
       "my capture - final-vidcord.mp4"
     );
     expect(outputFileName("capture.mp4", "mp4", 2)).toBe("capture-vidcord-3.mp4");
+    expect(outputFileName(`${"x".repeat(255)}.mp4`, "mp4").length).toBeLessThan(255);
+  });
+
+  it("uses safe internal filenames for Lossless Trim", async () => {
+    const transcode = vi.fn(async (args: (input: string) => string[], output: string) => {
+      expect(output).toBe("output.mp4");
+      const command = args("input.mp4");
+      expect(command[command.length - 1]).toBe("output.mp4");
+      return new Uint8Array(100);
+    });
+    const engine = {
+      createSession: async () => ({ transcode, dispose: async () => undefined }),
+    } as unknown as BrowserFfmpegEngine;
+    const result = await exportBrowserFile({
+      engine,
+      file: { name: "-clip.mp4" } as File,
+      metadata,
+      settings: normalizeBrowserSettings({}),
+      mode: "lossless",
+      startTime: 0,
+      endTime: 10,
+    });
+    expect(result.fileName).toContain("clip");
+    expect(transcode).toHaveBeenCalledOnce();
+  });
+
+  it("builds a separate GIF palette without buffering the whole clip in a split graph", async () => {
+    const operations: string[][] = [];
+    const dispose = vi.fn(async () => undefined);
+    const engine = {
+      createSession: async () => ({
+        prepareFile: async (args: (input: string) => string[]) => {
+          operations.push(args("input.mp4"));
+        },
+        transcode: async (args: (input: string) => string[]) => {
+          operations.push(args("input.mp4"));
+          return new Uint8Array(100);
+        },
+        dispose,
+      }),
+    } as unknown as BrowserFfmpegEngine;
+    await exportBrowserFile({
+      engine,
+      file: { name: "clip.mp4" } as File,
+      metadata,
+      settings: normalizeBrowserSettings({ crop: "1:1" }),
+      mode: "gif",
+      startTime: 0,
+      endTime: 10,
+    });
+    expect(operations).toHaveLength(2);
+    expect(operations[0].join(" ")).toContain("palettegen");
+    expect(operations[0][operations[0].length - 1]).toBe("palette-0.png");
+    expect(operations[1]).toContain("palette-0.png");
+    expect(operations[1].join(" ")).toContain("paletteuse");
+    expect(operations[1].join(" ")).not.toContain("split[");
+    expect(dispose).toHaveBeenCalledOnce();
   });
 
   it("maps FFmpeg progress across every adaptive browser encode pass", async () => {

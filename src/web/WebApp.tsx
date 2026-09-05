@@ -55,16 +55,13 @@ import "./WebApp.css";
 type Notice = { type: "success" | "error" | "warning" | "info"; message: string };
 
 const MAX_BROWSER_BATCH_FILES = 12;
-const MAX_METADATA_CACHE_ENTRIES = 24;
+const KEYFRAME_PROBE_TIMEOUT_MS = 60_000;
+const MAX_BROWSER_KEYFRAMES = 100_000;
 const MARKETING_ASSET_BASE = import.meta.env.DEV ? "/site/marketing-assets" : "/marketing-assets";
 
 type BrowserExportModule = typeof import("./browserExport");
 function loadBrowserExportModule(): Promise<BrowserExportModule> {
   return import("./browserExport");
-}
-
-function browserFileCacheKey(file: Pick<File, "name" | "size" | "lastModified" | "type">): string {
-  return `${file.name}\0${file.size}\0${file.lastModified}\0${file.type}`;
 }
 
 type IconName = "video" | "snapshot" | "check" | "play" | "stop";
@@ -292,6 +289,7 @@ function WebApp() {
   const settingsRef = useRef(settings);
   const [files, setFiles] = useState<File[]>([]);
   const [activeFileIndex, setActiveFileIndex] = useState(0);
+  const [queueStatuses, setQueueStatuses] = useState<Record<number, string>>({});
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [metadata, setMetadata] = useState<BrowserVideoMetadata | null>(null);
@@ -316,9 +314,10 @@ function WebApp() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const loadGenerationRef = useRef(0);
   const keyframeProbeGenerationRef = useRef(0);
-  const keyframeCacheRef = useRef<Map<string, number[]>>(new Map());
-  const metadataCacheRef = useRef<Map<string, BrowserVideoMetadata>>(new Map());
+  const keyframeCacheRef = useRef(new WeakMap<File, number[]>());
+  const metadataCacheRef = useRef(new WeakMap<File, BrowserVideoMetadata>());
   const exportCancelledRef = useRef(false);
+  const exportControllerRef = useRef<AbortController | null>(null);
   const exportProgressRef = useRef(0);
   const exportUiUpdatedAtRef = useRef(0);
   const exportUiStatusRef = useRef("");
@@ -330,16 +329,13 @@ function WebApp() {
   const activeMode: BrowserMode | "batch" = batchMode ? "batch" : settings.mode;
   const exportMode = effectiveBrowserExportMode(activeMode);
   const duration = metadata?.duration ?? 0;
-  const losslessKeyframeCacheKey = activeFile
-    ? `${activeFile.name}\0${activeFile.size}\0${activeFile.lastModified}\0${duration}`
-    : "";
   const cropOptions = useMemo(
     () =>
       getAvailableCropOptions(
-        metadata?.displayWidth ?? metadata?.width,
-        metadata?.displayHeight ?? metadata?.height
+        batchMode ? undefined : (metadata?.displayWidth ?? metadata?.width),
+        batchMode ? undefined : (metadata?.displayHeight ?? metadata?.height)
       ),
-    [metadata?.displayHeight, metadata?.displayWidth, metadata?.height, metadata?.width]
+    [batchMode, metadata?.displayHeight, metadata?.displayWidth, metadata?.height, metadata?.width]
   );
   const standardFpsOptions = useMemo(
     () => getAvailableFpsOptions(metadata?.frameRate),
@@ -358,6 +354,7 @@ function WebApp() {
 
   const resetExportFeedback = useCallback(() => {
     setLastExport(null);
+    setQueueStatuses({});
     exportProgressRef.current = 0;
     exportUiUpdatedAtRef.current = 0;
     exportUiStatusRef.current = "Ready";
@@ -367,20 +364,19 @@ function WebApp() {
     setEta("Ready");
   }, []);
 
-  const readCachedMetadata = useCallback(async (file: File): Promise<BrowserVideoMetadata> => {
-    const cacheKey = browserFileCacheKey(file);
-    const cached = metadataCacheRef.current.get(cacheKey);
-    if (cached) return cached;
+  const readCachedMetadata = useCallback(
+    async (file: File, signal?: AbortSignal): Promise<BrowserVideoMetadata> => {
+      signal?.throwIfAborted();
+      const cached = metadataCacheRef.current.get(file);
+      if (cached) return cached;
 
-    const nextMetadata = await readVideoMetadata(file);
-    const cache = metadataCacheRef.current;
-    if (cache.size >= MAX_METADATA_CACHE_ENTRIES && !cache.has(cacheKey)) {
-      const oldestKey = cache.keys().next().value;
-      if (oldestKey !== undefined) cache.delete(oldestKey);
-    }
-    cache.set(cacheKey, nextMetadata);
-    return nextMetadata;
-  }, []);
+      const nextMetadata = await readVideoMetadata(file, signal);
+      signal?.throwIfAborted();
+      metadataCacheRef.current.set(file, nextMetadata);
+      return nextMetadata;
+    },
+    []
+  );
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -409,7 +405,11 @@ function WebApp() {
   }, [isExporting]);
 
   useEffect(() => {
-    return () => engineRef.current?.dispose();
+    return () => {
+      exportCancelledRef.current = true;
+      exportControllerRef.current?.abort();
+      engineRef.current?.dispose();
+    };
   }, []);
 
   useEffect(() => {
@@ -428,13 +428,14 @@ function WebApp() {
     }
 
     const url = getPreviewUrl(file);
+    const controller = new AbortController();
     setPreviewUrl(url);
     setPreviewError(null);
     setMetadata(null);
     setMetadataLoading(true);
     setCurrentTime(0);
     setPreviewPlaying(false);
-    void readCachedMetadata(file)
+    void readCachedMetadata(file, controller.signal)
       .then((nextMetadata) => {
         if (generation !== loadGenerationRef.current) return;
         setMetadata(nextMetadata);
@@ -453,7 +454,11 @@ function WebApp() {
         if (generation === loadGenerationRef.current) setMetadataLoading(false);
       });
 
-    return () => URL.revokeObjectURL(url);
+    return () => {
+      loadGenerationRef.current += 1;
+      controller.abort();
+      URL.revokeObjectURL(url);
+    };
   }, [activeFile, readCachedMetadata, showNotice]);
 
   const patchSettings = useCallback(
@@ -484,10 +489,11 @@ function WebApp() {
   );
 
   useEffect(() => {
+    if (!batchMode && settings.mode === "lossless") return;
     if (settings.crop !== "off" && !cropOptions.some((option) => option.value === settings.crop)) {
       patchSettings({ crop: "off" });
     }
-  }, [cropOptions, patchSettings, settings.crop]);
+  }, [batchMode, cropOptions, patchSettings, settings.crop, settings.mode]);
 
   useEffect(() => {
     const generation = ++keyframeProbeGenerationRef.current;
@@ -501,7 +507,7 @@ function WebApp() {
       return;
     }
 
-    const cached = keyframeCacheRef.current.get(losslessKeyframeCacheKey);
+    const cached = keyframeCacheRef.current.get(activeFile);
     if (cached) {
       setLosslessKeyframes(cached);
       setLosslessKeyframesLoading(false);
@@ -514,6 +520,7 @@ function WebApp() {
     const discoveredKeyframes: number[] = [];
     let engine: BrowserFfmpegEngine | null = null;
     let probeRunning = true;
+    let probeLimitError: string | null = null;
     setLosslessKeyframes([]);
     setLosslessKeyframesLoading(true);
     setLosslessKeyframeError(null);
@@ -525,9 +532,20 @@ function WebApp() {
         const nextEngine = engineRef.current ?? new BrowserFfmpegEngine();
         engine = nextEngine;
         engineRef.current = nextEngine;
-        return nextEngine.run(file, buildKeyframeProbeArgs, undefined, (message) => {
-          discoveredKeyframes.push(...parseKeyframeTimes(message, duration));
-        });
+        return nextEngine.run(
+          file,
+          buildKeyframeProbeArgs,
+          undefined,
+          (message) => {
+            discoveredKeyframes.push(...parseKeyframeTimes(message, duration));
+            if (discoveredKeyframes.length > MAX_BROWSER_KEYFRAMES) {
+              probeLimitError =
+                "This video has too many keyframes for browser Lossless Trim. Use the desktop app.";
+              nextEngine.cancel();
+            }
+          },
+          KEYFRAME_PROBE_TIMEOUT_MS
+        );
       })
       .then((result) => {
         if (result === null) return;
@@ -536,14 +554,14 @@ function WebApp() {
         if (keyframes.length === 0) {
           throw new Error("The browser could not find any source keyframes.");
         }
-        keyframeCacheRef.current.set(losslessKeyframeCacheKey, keyframes);
+        keyframeCacheRef.current.set(file, keyframes);
         setLosslessKeyframes(keyframes);
         setLosslessKeyframesLoading(false);
         setLosslessKeyframeError(null);
       })
       .catch((error: unknown) => {
         if (generation !== keyframeProbeGenerationRef.current) return;
-        const message = String(error);
+        const message = probeLimitError ?? String(error);
         setLosslessKeyframes([]);
         setLosslessKeyframesLoading(false);
         setLosslessKeyframeError(message);
@@ -560,7 +578,7 @@ function WebApp() {
         if (probeRunning) engine?.cancel();
       }
     };
-  }, [activeFile, batchMode, duration, losslessKeyframeCacheKey, settings.mode, showNotice]);
+  }, [activeFile, batchMode, duration, settings.mode, showNotice]);
 
   const selectMode = useCallback(
     (mode: BrowserMode) => {
@@ -622,8 +640,9 @@ function WebApp() {
   const handleDrop = useCallback(
     (event: DragEvent<HTMLElement>) => {
       event.preventDefault();
-      if (isExporting) return;
+      event.stopPropagation();
       setDragging(false);
+      if (isExporting) return;
       acceptFiles(Array.from(event.dataTransfer.files));
     },
     [acceptFiles, isExporting]
@@ -681,6 +700,7 @@ function WebApp() {
       const safeStart = Math.max(0, Math.min(requestedStart, safeDuration));
       const safeEnd = Math.max(safeStart, Math.min(requestedEnd, safeDuration));
       const nextRange = snapTrimRange(safeStart, safeEnd);
+      resetExportFeedback();
       setStartTime(nextRange.start);
       setEndTime(nextRange.end);
 
@@ -693,7 +713,7 @@ function WebApp() {
         );
       }
     },
-    [duration, seekTo, snapTrimRange]
+    [duration, resetExportFeedback, seekTo, snapTrimRange]
   );
 
   useEffect(() => {
@@ -762,7 +782,7 @@ function WebApp() {
   }, [endTime, loopPlayback, metadata, startTime]);
 
   const startExport = useCallback(async () => {
-    if (files.length === 0 || isExporting) return;
+    if (files.length === 0 || exportControllerRef.current) return;
     if (!batchMode && !metadata) {
       showNotice("warning", "Wait for the video details to finish loading.");
       return;
@@ -782,6 +802,9 @@ function WebApp() {
     }
 
     exportCancelledRef.current = false;
+    const controller = new AbortController();
+    exportControllerRef.current = controller;
+    videoRef.current?.pause();
     setIsExporting(true);
     setWasmLoading(true);
     exportProgressRef.current = 0;
@@ -796,6 +819,7 @@ function WebApp() {
       batchMode && !standardFpsOptions.some((option) => option.value === settings.fps)
         ? { ...settings, fps: "off" }
         : settings;
+    setQueueStatuses({});
     let downloadedCount = 0;
 
     try {
@@ -804,72 +828,88 @@ function WebApp() {
       const engine = engineRef.current ?? new BrowserFfmpegEngine();
       engineRef.current = engine;
       await engine.load();
+      controller.signal.throwIfAborted();
       setWasmLoading(false);
       exportStartedAtRef.current = Date.now();
       let completed = 0;
+      let failed = 0;
       let oversized = false;
       let normalizationSkipped = false;
       let audioRemovedForCompatibility = false;
       for (let index = 0; index < files.length; index += 1) {
         if (exportCancelledRef.current) throw new Error("Export cancelled.");
         const file = files[index];
-        const fileMetadata =
-          index === activeFileIndex && metadata ? metadata : await readCachedMetadata(file);
-        const fileStart = batchMode ? 0 : startTime;
-        const fileEnd = batchMode ? fileMetadata.duration : endTime;
-        setExportStatus(
-          files.length > 1
-            ? `Encoding ${index + 1} of ${files.length} · ${file.name}`
-            : `Encoding ${file.name}`
-        );
-        const result = await exportBrowserFile({
-          engine,
-          file,
-          metadata: fileMetadata,
-          settings: exportSettings,
-          mode: exportMode,
-          startTime: fileStart,
-          endTime: fileEnd,
-          fileIndex: index,
-          onProgress: (value, status) => {
-            const fileProgress = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
-            const nextProgress = Math.max(
-              exportProgressRef.current,
-              ((completed + fileProgress) / files.length) * 100
-            );
-            exportProgressRef.current = nextProgress;
-            const nextStatus =
-              files.length > 1 ? `${status} · ${index + 1}/${files.length}` : status;
-            const now = Date.now();
-            if (
-              nextStatus !== exportUiStatusRef.current ||
-              now - exportUiUpdatedAtRef.current >= 100 ||
-              fileProgress >= 1
-            ) {
-              exportUiUpdatedAtRef.current = now;
-              exportUiStatusRef.current = nextStatus;
-              setProgress(nextProgress);
-              setExportStatus(nextStatus);
-            }
-          },
-        });
-        if (exportCancelledRef.current) throw new Error("Export cancelled.");
-        downloadBlob(result.blob, result.fileName);
-        downloadedCount += 1;
-        if (shouldCopyBrowserExport(exportMode, batchMode)) {
-          const copied = await tryCopyBlobToClipboard(result.blob);
-          if (copied) setExportStatus("Downloaded and copied to clipboard");
+        setQueueStatuses((current) => ({ ...current, [index]: "Encoding" }));
+        try {
+          const fileMetadata =
+            index === activeFileIndex && metadata
+              ? metadata
+              : await readCachedMetadata(file, controller.signal);
+          controller.signal.throwIfAborted();
+          const fileStart = batchMode ? 0 : startTime;
+          const fileEnd = batchMode ? fileMetadata.duration : endTime;
+          setExportStatus(
+            files.length > 1
+              ? `Encoding ${index + 1} of ${files.length} · ${file.name}`
+              : `Encoding ${file.name}`
+          );
+          const result = await exportBrowserFile({
+            engine,
+            file,
+            metadata: fileMetadata,
+            settings: exportSettings,
+            mode: exportMode,
+            startTime: fileStart,
+            endTime: fileEnd,
+            fileIndex: index,
+            onProgress: (value, status) => {
+              const fileProgress = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+              const nextProgress = Math.max(
+                exportProgressRef.current,
+                ((index + fileProgress) / files.length) * 100
+              );
+              exportProgressRef.current = nextProgress;
+              const nextStatus =
+                files.length > 1 ? `${status} · ${index + 1}/${files.length}` : status;
+              const now = Date.now();
+              if (
+                nextStatus !== exportUiStatusRef.current ||
+                now - exportUiUpdatedAtRef.current >= 100 ||
+                fileProgress >= 1
+              ) {
+                exportUiUpdatedAtRef.current = now;
+                exportUiStatusRef.current = nextStatus;
+                setProgress(nextProgress);
+                setExportStatus(nextStatus);
+              }
+            },
+          });
+          if (exportCancelledRef.current) throw new Error("Export cancelled.");
+          downloadBlob(result.blob, result.fileName);
+          downloadedCount += 1;
+          if (shouldCopyBrowserExport(exportMode, batchMode)) {
+            const copied = await tryCopyBlobToClipboard(result.blob);
+            if (copied) setExportStatus("Downloaded and copied to clipboard");
+          }
+          if (exportCancelledRef.current) throw new Error("Export cancelled.");
+          setLastExport({ name: result.fileName, bytes: result.bytes });
+          oversized = oversized || result.wasOversized;
+          normalizationSkipped = normalizationSkipped || result.normalizationSkipped;
+          audioRemovedForCompatibility =
+            audioRemovedForCompatibility || result.audioRemovedForCompatibility;
+          completed += 1;
+          setQueueStatuses((current) => ({
+            ...current,
+            [index]: result.wasOversized ? "Above target" : "Downloaded",
+          }));
+        } catch (error: unknown) {
+          if (controller.signal.aborted || !batchMode) throw error;
+          failed += 1;
+          setQueueStatuses((current) => ({ ...current, [index]: "Failed" }));
         }
-        if (exportCancelledRef.current) throw new Error("Export cancelled.");
-        setLastExport({ name: result.fileName, bytes: result.bytes });
-        oversized = oversized || result.wasOversized;
-        normalizationSkipped = normalizationSkipped || result.normalizationSkipped;
-        audioRemovedForCompatibility =
-          audioRemovedForCompatibility || result.audioRemovedForCompatibility;
-        completed += 1;
         exportProgressRef.current = Math.max(
           exportProgressRef.current,
-          (completed / files.length) * 100
+          ((index + 1) / files.length) * 100
         );
         setProgress(exportProgressRef.current);
         const startedAt = exportStartedAtRef.current;
@@ -880,27 +920,42 @@ function WebApp() {
       setProgress(100);
       setEta("Complete");
       setExportStatus(
-        oversized
-          ? "Downloaded · target could not be reached"
-          : audioRemovedForCompatibility
-            ? "Downloaded · audio removed for compatibility"
-            : normalizationSkipped
-              ? "Downloaded · audio normalization skipped"
-              : "Downloaded successfully"
+        failed > 0
+          ? `${completed} downloaded · ${failed} failed`
+          : oversized
+            ? "Downloaded · target could not be reached"
+            : audioRemovedForCompatibility
+              ? "Downloaded · audio removed for compatibility"
+              : normalizationSkipped
+                ? "Downloaded · audio normalization skipped"
+                : "Downloaded successfully"
       );
+      const warnings = [
+        failed > 0 &&
+          `${failed} could not be exported. Check the failed items or try them in the desktop app.`,
+        oversized && "Some outputs are still above the selected size target.",
+        audioRemovedForCompatibility &&
+          "Audio was removed from exports whose source audio could not be encoded in the browser.",
+        normalizationSkipped &&
+          "Audio normalization was skipped where the source audio filter was unavailable.",
+      ]
+        .filter(Boolean)
+        .join(" ");
       showNotice(
-        oversized || normalizationSkipped || audioRemovedForCompatibility ? "warning" : "success",
-        oversized
-          ? "The result was downloaded, but it is still above the selected size target."
-          : audioRemovedForCompatibility
-            ? `${completed} ${completed === 1 ? "file" : "files"} downloaded. The source audio could not be encoded in the browser, so the export contains video only.`
-            : normalizationSkipped
-              ? `${completed} ${completed === 1 ? "file" : "files"} downloaded. Audio normalization was skipped because this file's audio filter was unavailable.`
-              : `${completed} ${completed === 1 ? "file" : "files"} downloaded. Processing stayed on this device.`
+        completed === 0 ? "error" : warnings ? "warning" : "success",
+        `${completed} ${completed === 1 ? "file" : "files"} downloaded. ${warnings || "Processing stayed on this device."}`
       );
     } catch (error: unknown) {
       if (exportCancelledRef.current) {
         setExportStatus("Cancelled");
+        setQueueStatuses((current) =>
+          Object.fromEntries(
+            files.map((_, index) => [
+              index,
+              !current[index] || current[index] === "Encoding" ? "Cancelled" : current[index],
+            ])
+          )
+        );
         setEta("Cancelled");
         showNotice(
           "info",
@@ -914,6 +969,7 @@ function WebApp() {
         showNotice("error", String(error));
       }
     } finally {
+      exportControllerRef.current = null;
       setIsExporting(false);
       setWasmLoading(false);
     }
@@ -923,7 +979,6 @@ function WebApp() {
     endTime,
     exportMode,
     files,
-    isExporting,
     losslessKeyframeError,
     losslessKeyframes,
     losslessKeyframesLoading,
@@ -938,6 +993,7 @@ function WebApp() {
   const cancelExport = useCallback(() => {
     if (!isExporting) return;
     exportCancelledRef.current = true;
+    exportControllerRef.current?.abort(new Error("Export cancelled."));
     setExportStatus("Cancelling…");
     engineRef.current?.cancel();
   }, [isExporting]);
@@ -971,7 +1027,7 @@ function WebApp() {
       : activeMode === "lossless"
         ? "Trim without re-encoding"
         : plan?.targetSizeMb
-          ? `${activeMode === "advanced" ? "Compress" : "Compress"} to ${plan.targetSizeMb} MB`
+          ? `Compress to ${plan.targetSizeMb} MB`
           : "Export video";
   const outputSummary = batchMode
     ? `${files.length} videos · ${selectedQuality.label}`
@@ -1073,7 +1129,7 @@ function WebApp() {
                       </strong>
                       <span>
                         {batchMode
-                          ? "Batch mode · trims and encodes each video independently"
+                          ? "Batch mode · one profile for every full-duration video"
                           : metadata
                             ? formatMetadata(metadata)
                             : metadataLoading
@@ -1173,7 +1229,7 @@ function WebApp() {
                       <WebAudioActions
                         removeAudio={settings.removeAudio}
                         audioNormalize={settings.audioNormalize}
-                        audioAvailable={metadata?.hasAudio}
+                        audioAvailable={batchMode ? undefined : metadata?.hasAudio}
                         disabled={isExporting}
                         onRemoveAudioChange={setBrowserRemoveAudio}
                         onAudioNormalizeChange={setBrowserAudioNormalize}
@@ -1246,7 +1302,7 @@ function WebApp() {
                       <WebAudioActions
                         removeAudio={settings.removeAudio}
                         audioNormalize={settings.audioNormalize}
-                        audioAvailable={metadata?.hasAudio}
+                        audioAvailable={batchMode ? undefined : metadata?.hasAudio}
                         disabled={isExporting}
                         onRemoveAudioChange={setBrowserRemoveAudio}
                         onAudioNormalizeChange={setBrowserAudioNormalize}
@@ -1378,7 +1434,9 @@ function WebApp() {
                               <span className="web-queue-name" title={file.name}>
                                 {file.name}
                               </span>
-                              <span className="web-queue-size">{formatFileSize(file.size)}</span>
+                              <span className="web-queue-size">
+                                {queueStatuses[index] ?? formatFileSize(file.size)}
+                              </span>
                             </button>
                             <button
                               type="button"
@@ -1408,6 +1466,9 @@ function WebApp() {
                               onPlay={() => setPreviewPlaying(true)}
                               onPause={() => setPreviewPlaying(false)}
                               onEnded={handleVideoEnded}
+                              onError={() =>
+                                setPreviewError("The browser could not play this video.")
+                              }
                               onLoadedMetadata={(event) => {
                                 if (!metadata && Number.isFinite(event.currentTarget.duration)) {
                                   setEndTime(event.currentTarget.duration);
@@ -1510,7 +1571,7 @@ function WebApp() {
                       losslessTrim={activeMode === "lossless"}
                       losslessInfoLoading={losslessKeyframesLoading}
                       losslessInfoError={losslessKeyframeError}
-                      historyKey={`${activeFile?.name ?? ""}\0${activeFile?.lastModified ?? 0}\0${activeMode}`}
+                      historyKey={`${loadGenerationRef.current}\0${activeMode}`}
                       loopPlayback={loopPlayback}
                       onLoopPlaybackChange={setLoopPlayback}
                       onRangeChange={applyTrimRange}
@@ -1526,13 +1587,14 @@ function WebApp() {
                     className={`web-export-button${isExporting ? " cancel" : ""}`}
                     type="button"
                     disabled={
-                      (!batchMode && !metadata) ||
-                      metadataLoading ||
-                      wasmLoading ||
-                      (activeMode === "lossless" &&
-                        (losslessKeyframesLoading ||
-                          losslessKeyframes.length === 0 ||
-                          Boolean(losslessKeyframeError)))
+                      !isExporting &&
+                      ((!batchMode && !metadata) ||
+                        metadataLoading ||
+                        wasmLoading ||
+                        (activeMode === "lossless" &&
+                          (losslessKeyframesLoading ||
+                            losslessKeyframes.length === 0 ||
+                            Boolean(losslessKeyframeError))))
                     }
                     onClick={isExporting ? cancelExport : () => void startExport()}
                   >

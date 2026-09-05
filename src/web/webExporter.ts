@@ -7,6 +7,7 @@ import {
   buildCompressionArgs,
   buildAudioPeakAnalysisArgs,
   buildGifArgs,
+  buildGifPaletteArgs,
   buildLosslessArgs,
   createExportPlan,
   getRetryBitrate,
@@ -41,13 +42,18 @@ function isTargetMet(bytes: number, targetSizeMb: number | null): boolean {
 }
 
 export function isAudioCompatibilityError(message: string): boolean {
-  const normalized = message.toLowerCase();
-  return (
-    /audio|aac|loudnorm|volumedetect|0:a|channel|sample.?fmt|stream.?specifier/.test(normalized) &&
-    /error|failed|fail|invalid|unsupported|unknown|missing|unavailable|could not|cannot|not found/.test(
-      normalized
-    )
-  );
+  // Match the failing audio line, not an unrelated video failure next to the
+  // input's ordinary audio-stream description in the diagnostic log.
+  return message
+    .toLowerCase()
+    .split("\n")
+    .some(
+      (line) =>
+        /audio|aac|loudnorm|volumedetect|0:a|channel|sample.?fmt/.test(line) &&
+        /error|failed|fail|invalid|unsupported|unknown|missing|unavailable|could not|cannot|not found|no such filter/.test(
+          line
+        )
+    );
 }
 
 function operationProgressHandler(
@@ -89,6 +95,8 @@ export async function exportBrowserFile({
 }): Promise<BrowserExportResult> {
   const plan = createExportPlan(metadata, settings, mode, startTime, endTime);
   const baseName = outputFileName(file.name, plan.outputExtension, fileIndex);
+  // Keep user-facing filenames out of FFmpeg's option parser and virtual FS.
+  const encodedName = `output.${plan.outputExtension}`;
 
   const engineWithSession = engine as BrowserFfmpegEngine & {
     createSession?: (file: File) => Promise<BrowserFfmpegSession>;
@@ -124,12 +132,12 @@ export async function exportBrowserFile({
         (inputName) =>
           buildLosslessArgs(
             inputName,
-            baseName,
+            encodedName,
             plan.startTime,
             plan.endTime,
             settings.removeAudio
           ),
-        baseName,
+        encodedName,
         operationProgressHandler(onProgress, 0, 1, "Encoding lossless trim…", plan.selectedDuration)
       );
       onProgress?.(1, "Finishing export…");
@@ -181,13 +189,35 @@ export async function exportBrowserFile({
     }
 
     for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
+      // A rejected large output must not stay alive during the next encode.
+      lastBytes = new Uint8Array();
       const attemptLabel = maximumAttempts > 1 ? ` · pass ${attempt + 1}/${maximumAttempts}` : "";
       const attemptStart = analysisEnd + (encodingSpan * attempt) / maximumAttempts;
       const attemptEnd = analysisEnd + (encodingSpan * (attempt + 1)) / maximumAttempts;
       const encodingStatus =
         mode === "gif" ? `Rendering GIF${attemptLabel}` : `Encoding${attemptLabel}`;
       onProgress?.(attemptStart, encodingStatus);
-      const outputName = `${attempt}-${baseName}`;
+      const outputName = `${attempt}-${encodedName}`;
+      let paletteName: string | undefined;
+      let renderStart = attemptStart;
+      if (mode === "gif" && session?.prepareFile) {
+        paletteName = `palette-${attempt}.png`;
+        renderStart = attemptStart + (attemptEnd - attemptStart) * 0.4;
+        // A separate palette pass avoids buffering the entire decoded clip
+        // behind palettegen's end-of-stream output in a split filter graph.
+        await session.prepareFile(
+          (inputName) =>
+            buildGifPaletteArgs(inputName, paletteName!, metadata, settings, plan, bitrate),
+          paletteName,
+          operationProgressHandler(
+            onProgress,
+            attemptStart,
+            renderStart,
+            `Building GIF palette${attemptLabel}`,
+            plan.selectedDuration
+          )
+        );
+      }
       const transcode = (encodeSettings: BrowserSettings, gainDb: number | null) =>
         transcodeFile(
           (inputName) =>
@@ -199,7 +229,8 @@ export async function exportBrowserFile({
                   encodeSettings,
                   plan,
                   plan.targetHeight ?? 480,
-                  bitrate
+                  bitrate,
+                  paletteName
                 )
               : buildCompressionArgs(
                   inputName,
@@ -213,7 +244,7 @@ export async function exportBrowserFile({
           outputName,
           operationProgressHandler(
             onProgress,
-            attemptStart,
+            renderStart,
             attemptEnd,
             encodingStatus,
             plan.selectedDuration
