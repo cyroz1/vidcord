@@ -28,6 +28,9 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ### Performance and UX
 
+- Isolated browser editor updates from the marketing page, added hosted-only resource hints for
+  the browser root and responsive hero image, enabled immutable caching for content-hashed assets,
+  and replaced the hosted favicon's full app logo with the existing 32px icon.
 - Deferred the browser FFmpeg/WebAssembly runtime until export work needs it, so the editor can
   render before the large encoder assets are fetched. Lossless Trim loads the runtime when local
   keyframe discovery is requested.

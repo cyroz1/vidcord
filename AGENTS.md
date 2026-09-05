@@ -177,6 +177,14 @@ references so different selections with identical names, sizes, and timestamps n
 Browser batch failures are isolated per file; cancellation aborts metadata work before another
 encoder can start. Trim controls and history remain locked for the whole export.
 
+Keep browser editor state in `WebEditor`, below the page shell and `DesktopUpgrade`, so playback
+and export progress do not re-render the marketing page. The page-wide drop handler is forwarded
+through a ref without lifting editor state into the shell.
+The hosted build uses Vite's manifest to preload only the browser root's static JS/CSS dependencies
+and its responsive hero image. Never traverse dynamic imports here: FFmpeg and the native app must
+remain deferred. Only content-hashed `/assets/` files receive immutable cache headers; HTML and
+unversioned marketing files must stay revalidatable.
+
 - **Production domain**: `https://vidcord.app/`
 - **Workers.dev URL**: `https://vidcord-site.cyrz.workers.dev/`
 - **Cloudflare Worker name**: `vidcord-site`
