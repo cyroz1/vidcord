@@ -7,7 +7,10 @@ import * as prettier from "prettier";
 const siteDirectory = path.resolve("site");
 const stagingDirectory = path.join(siteDirectory, ".browser-build");
 const staleAppDirectory = path.join(siteDirectory, "app");
-const viteCommand = process.platform === "win32" ? "vite.cmd" : "vite";
+// Invoke Vite through Node so the build also works on Windows with Node 26,
+// where execFileSync cannot launch npm's .cmd shim directly.
+const viteCommand = process.execPath;
+const viteEntry = path.resolve("node_modules/vite/bin/vite.js");
 const publishedEntries = ["assets", "icon.png", "index.html"];
 
 function normalizeGeneratedText(directory) {
@@ -71,7 +74,7 @@ fs.rmSync(stagingDirectory, { recursive: true, force: true });
 try {
   execFileSync(
     viteCommand,
-    ["build", "--outDir", "site/.browser-build", "--base", "/", "--emptyOutDir"],
+    [viteEntry, "build", "--outDir", "site/.browser-build", "--base", "/", "--emptyOutDir"],
     { stdio: "inherit" }
   );
   normalizeGeneratedText(stagingDirectory);

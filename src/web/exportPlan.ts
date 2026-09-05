@@ -319,13 +319,15 @@ export function parsePeakNormalizationGain(log: string): number | null {
 }
 
 export function buildAudioPeakAnalysisArgs(inputName: string, plan: ExportPlan): string[] {
+  // Re-encoded browser passes open the source before applying the selected range.
+  // Input-side seeking can hand the AV1 decoder a packet without its sequence header.
   return [
+    "-i",
+    inputName,
     "-ss",
     plan.startTime.toFixed(3),
     "-t",
     plan.selectedDuration.toFixed(3),
-    "-i",
-    inputName,
     "-vn",
     "-sn",
     "-dn",
@@ -349,12 +351,12 @@ export function buildCompressionArgs(
   audioGainDb: number | null = null
 ): string[] {
   const args = [
+    "-i",
+    inputName,
     "-ss",
     plan.startTime.toFixed(3),
     "-t",
     plan.selectedDuration.toFixed(3),
-    "-i",
-    inputName,
     "-sn",
     "-map",
     "0:v:0",
@@ -430,12 +432,12 @@ export function buildGifPaletteArgs(
     qualityBitrateKbps
   );
   return [
+    "-i",
+    inputName,
     "-ss",
     plan.startTime.toFixed(3),
     "-t",
     plan.selectedDuration.toFixed(3),
-    "-i",
-    inputName,
     "-vf",
     `${visual},palettegen=max_colors=${colors}:stats_mode=diff`,
     "-frames:v",
@@ -459,13 +461,13 @@ export function buildGifArgs(
     ? `[0:v]${visual}[gif_source];[gif_source][1:v]paletteuse=dither=sierra2_4a:diff_mode=rectangle[gif]`
     : `${visual},split[gif_source][palette_source];[palette_source]palettegen=max_colors=${colors}:stats_mode=diff[palette];[gif_source][palette]paletteuse=dither=sierra2_4a:diff_mode=rectangle[gif]`;
   return [
+    "-i",
+    inputName,
+    ...(paletteName ? ["-i", paletteName] : []),
     "-ss",
     plan.startTime.toFixed(3),
     "-t",
     plan.selectedDuration.toFixed(3),
-    "-i",
-    inputName,
-    ...(paletteName ? ["-i", paletteName] : []),
     "-filter_complex",
     filter,
     "-map",

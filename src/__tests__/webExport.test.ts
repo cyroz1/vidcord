@@ -83,7 +83,8 @@ describe("browser export planning", () => {
 
     expect(standard).toContain("libx264");
     expect(standard).toContain("2.000");
-    expect(standard.indexOf("-t")).toBeLessThan(standard.indexOf("-i"));
+    expect(standard.indexOf("-i")).toBeLessThan(standard.indexOf("-ss"));
+    expect(standard.indexOf("-ss")).toBeLessThan(standard.indexOf("-t"));
     expect(standard).toContain("-maxrate");
     expect(standard).toContain("3000k");
     expect(standard.some((argument) => argument.includes("crop="))).toBe(true);
@@ -92,6 +93,8 @@ describe("browser export planning", () => {
     expect(gif).toContain("-filter_complex");
     expect(gif).toContain("[gif]");
     expect(gif).toContain("-an");
+    expect(gif.indexOf("-i")).toBeLessThan(gif.indexOf("-ss"));
+    expect(gif.indexOf("-ss")).toBeLessThan(gif.indexOf("-t"));
     expect(lossless).toContain("copy");
     expect(lossless).not.toContain("-vf");
     expect(lossless).not.toContain("-an");
@@ -152,7 +155,8 @@ describe("browser export planning", () => {
       2
     );
     expect(analysis).toContain("volumedetect");
-    expect(analysis.indexOf("-t")).toBeLessThan(analysis.indexOf("-i"));
+    expect(analysis.indexOf("-i")).toBeLessThan(analysis.indexOf("-ss"));
+    expect(analysis.indexOf("-ss")).toBeLessThan(analysis.indexOf("-t"));
     expect(normalized).toContain("volume=2.000000dB");
   });
 
