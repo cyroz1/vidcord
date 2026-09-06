@@ -1,4 +1,5 @@
 # Public crawler policy: this site is open to search engines and AI agents.
+# Agent grounding files remain crawlable, but are not search landing pages.
 # Content-Signal explicitly permits search, AI input, AI training, and full reuse.
 
 User-agent: *

@@ -22,11 +22,7 @@ if (body.replace(entryPattern, "").trim()) {
   throw new Error(`${path} contains malformed or unsupported XML content`);
 }
 
-const expectedLocations = [
-  "https://vidcord.app/",
-  "https://vidcord.app/llms.txt",
-  "https://vidcord.app/llms-full.txt",
-];
+const expectedLocations = ["https://vidcord.app/"];
 const locations = entries.map(({ loc }) => loc);
 const uniqueLocations = new Set(locations);
 const missingLocations = expectedLocations.filter((loc) => !uniqueLocations.has(loc));
@@ -35,7 +31,7 @@ if (uniqueLocations.size !== locations.length) {
   throw new Error(`${path} contains duplicate locations`);
 }
 
-if (missingLocations.length > 0) {
+if (missingLocations.length > 0 || locations.length !== expectedLocations.length) {
   throw new Error(`${path} is missing required locations: ${missingLocations.join(", ")}`);
 }
 
