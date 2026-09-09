@@ -1,3 +1,4 @@
+import PreviewCrop from "./PreviewCrop";
 import {
   forwardRef,
   memo,
@@ -142,6 +143,7 @@ const snapshotBtnStyle: React.CSSProperties = {
 };
 
 type Props = {
+  cropAspectRatio: string;
   filePath: string | null;
   sourceGeneration: number;
   loadingVideo: boolean;
@@ -204,6 +206,7 @@ function splitJpegStream(data: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer>
 
 const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   {
+    cropAspectRatio,
     filePath,
     sourceGeneration,
     loadingVideo,
@@ -1128,64 +1131,66 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       style={containerStyle}
       aria-busy={loadingVideo || loading}
     >
-      {/* Static frame preview */}
-      {!loadingVideo && displayUrl && !playing && !showDirectPreviewVideo ? (
-        <img src={displayUrl} alt="Video frame preview" style={imgStyle} />
-      ) : !playing && !showDirectPreviewVideo ? (
-        <span className="preview-placeholder" role="status" aria-live="polite">
-          {!filePath && (
-            <svg
-              className="preview-placeholder-icon"
-              width="28"
-              height="28"
-              viewBox="0 0 28 28"
-              fill="none"
-              aria-hidden="true"
-            >
-              <rect x="4.5" y="5.5" width="19" height="17" rx="2.5" stroke="currentColor" />
-              <path
-                d="M8 5.5v17M20 5.5v17M4.5 10h3.5M4.5 18h3.5M20 10h3.5M20 18h3.5"
-                stroke="currentColor"
-                strokeLinecap="round"
-              />
-              <path d="m11.5 10.5 6 3.5-6 3.5v-7Z" stroke="currentColor" strokeLinejoin="round" />
-            </svg>
-          )}
-          <span>
-            {loadingVideo
-              ? "Reading video…"
-              : loading && filmstripUrlsRef.current.length === 0
-                ? "Loading preview…"
-                : filePath
-                  ? "Preview"
-                  : "No file selected"}
+      <PreviewCrop crop={cropAspectRatio}>
+        {/* Static frame preview */}
+        {!loadingVideo && displayUrl && !playing && !showDirectPreviewVideo ? (
+          <img src={displayUrl} alt="Video frame preview" style={imgStyle} />
+        ) : !playing && !showDirectPreviewVideo ? (
+          <span className="preview-placeholder" role="status" aria-live="polite">
+            {!filePath && (
+              <svg
+                className="preview-placeholder-icon"
+                width="28"
+                height="28"
+                viewBox="0 0 28 28"
+                fill="none"
+                aria-hidden="true"
+              >
+                <rect x="4.5" y="5.5" width="19" height="17" rx="2.5" stroke="currentColor" />
+                <path
+                  d="M8 5.5v17M20 5.5v17M4.5 10h3.5M4.5 18h3.5M20 10h3.5M20 18h3.5"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                />
+                <path d="m11.5 10.5 6 3.5-6 3.5v-7Z" stroke="currentColor" strokeLinejoin="round" />
+              </svg>
+            )}
+            <span>
+              {loadingVideo
+                ? "Reading video…"
+                : loading && filmstripUrlsRef.current.length === 0
+                  ? "Loading preview…"
+                  : filePath
+                    ? "Preview"
+                    : "No file selected"}
+            </span>
           </span>
-        </span>
-      ) : null}
+        ) : null}
 
-      {/* Video element for playback */}
-      <video
-        ref={videoRef}
-        muted={removeAudio}
-        playsInline
-        preload="metadata"
-        style={playing || showDirectPreviewVideo ? videoVisibleStyle : videoHiddenStyle}
-        onLoadedMetadata={handleVideoReady}
-        onCanPlay={handleVideoReady}
-        onError={(event) => {
-          setScrubVideoReady(false);
-          if (
-            filePath &&
-            supportsLiveScrubPreview &&
-            scrubVideoSrcRef.current !== null &&
-            event.currentTarget.src === scrubVideoSrcRef.current &&
-            !usingGeneratedClipRef.current
-          ) {
-            setDirectPreviewFailed(true);
-          }
-        }}
-        onEnded={handleVideoEnded}
-      />
+        {/* Video element for playback */}
+        <video
+          ref={videoRef}
+          muted={removeAudio}
+          playsInline
+          preload="metadata"
+          style={playing || showDirectPreviewVideo ? videoVisibleStyle : videoHiddenStyle}
+          onLoadedMetadata={handleVideoReady}
+          onCanPlay={handleVideoReady}
+          onError={(event) => {
+            setScrubVideoReady(false);
+            if (
+              filePath &&
+              supportsLiveScrubPreview &&
+              scrubVideoSrcRef.current !== null &&
+              event.currentTarget.src === scrubVideoSrcRef.current &&
+              !usingGeneratedClipRef.current
+            ) {
+              setDirectPreviewFailed(true);
+            }
+          }}
+          onEnded={handleVideoEnded}
+        />
+      </PreviewCrop>
 
       {/* Play/Stop overlay — shown on hover; disabled on Linux (GStreamer crash) */}
       {canPlay && !isLinux && (

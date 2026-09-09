@@ -153,3 +153,9 @@ input[type="checkbox"] {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(128, 128, 128, 0.5);
 }
+
+/* Crop both native playback and generated still frames inside the fitted viewport. */
+.preview-crop-active > video,
+.preview-crop-active > img {
+  object-fit: cover !important;
+}

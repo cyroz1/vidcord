@@ -4104,6 +4104,7 @@ export default function App() {
             <>
               {/* Preview and trim editor */}
               <PreviewPane
+                cropAspectRatio={losslessTrim ? "off" : cropAspectRatio}
                 ref={previewRef}
                 filePath={filePath}
                 sourceGeneration={fileLoadGeneration}

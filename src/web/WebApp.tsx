@@ -1,3 +1,4 @@
+import PreviewCrop from "../components/PreviewCrop";
 import {
   useCallback,
   useEffect,
@@ -1443,22 +1444,26 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
                   <div className="web-preview-frame">
                     {previewUrl && !previewError ? (
                       <>
-                        <video
-                          ref={videoRef}
-                          src={previewUrl}
-                          playsInline
-                          preload="metadata"
-                          onTimeUpdate={handleVideoTimeUpdate}
-                          onPlay={() => setPreviewPlaying(true)}
-                          onPause={() => setPreviewPlaying(false)}
-                          onEnded={handleVideoEnded}
-                          onError={() => setPreviewError("The browser could not play this video.")}
-                          onLoadedMetadata={(event) => {
-                            if (!metadata && Number.isFinite(event.currentTarget.duration)) {
-                              setEndTime(event.currentTarget.duration);
+                        <PreviewCrop crop={settings.mode === "lossless" ? "off" : settings.crop}>
+                          <video
+                            ref={videoRef}
+                            src={previewUrl}
+                            playsInline
+                            preload="metadata"
+                            onTimeUpdate={handleVideoTimeUpdate}
+                            onPlay={() => setPreviewPlaying(true)}
+                            onPause={() => setPreviewPlaying(false)}
+                            onEnded={handleVideoEnded}
+                            onError={() =>
+                              setPreviewError("The browser could not play this video.")
                             }
-                          }}
-                        />
+                            onLoadedMetadata={(event) => {
+                              if (!metadata && Number.isFinite(event.currentTarget.duration)) {
+                                setEndTime(event.currentTarget.duration);
+                              }
+                            }}
+                          />
+                        </PreviewCrop>
                         {metadata && (
                           <button
                             className="web-preview-play-button"
