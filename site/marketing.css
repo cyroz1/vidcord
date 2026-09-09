@@ -957,6 +957,28 @@ main {
   margin: 16px 0;
 }
 
+.ffmpeg-linux-commands {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.ffmpeg-linux-command {
+  display: grid;
+  gap: 5px;
+}
+
+.ffmpeg-linux-command > span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.ffmpeg-linux-command .command-block {
+  width: 100%;
+  margin: 0;
+}
+
 .download-section {
   padding-top: 54px;
   padding-bottom: 38px;

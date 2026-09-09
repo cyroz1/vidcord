@@ -607,7 +607,7 @@ function WebTrimTimeline({
             className="web-trim-mini-btn web-trim-labeled-btn"
             onClick={setInPoint}
             disabled={!canSetInPoint}
-            title="Set in point to playhead (I)"
+            title="Set in point to playhead"
           >
             <TrimIcon name="mark-in" />
             <span>In</span>
@@ -617,7 +617,7 @@ function WebTrimTimeline({
             className="web-trim-mini-btn web-trim-labeled-btn"
             onClick={setOutPoint}
             disabled={!canSetOutPoint}
-            title="Set out point to playhead (O)"
+            title="Set out point to playhead"
           >
             <TrimIcon name="mark-out" />
             <span>Out</span>
@@ -631,7 +631,7 @@ function WebTrimTimeline({
               className="web-trim-mini-btn web-trim-icon-btn"
               onClick={undoTrim}
               aria-label="Undo trim"
-              title="Undo trim (Cmd/Ctrl+Z)"
+              title="Undo trim"
               disabled={!canUndoTrim}
             >
               <TrimIcon name="undo" />
@@ -641,7 +641,7 @@ function WebTrimTimeline({
               className="web-trim-mini-btn web-trim-icon-btn"
               onClick={redoTrim}
               aria-label="Redo trim"
-              title="Redo trim (Cmd/Ctrl+Shift+Z)"
+              title="Redo trim"
               disabled={!canRedoTrim}
             >
               <TrimIcon name="redo" />

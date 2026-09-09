@@ -40,6 +40,7 @@ import WebApp from "../web/WebApp";
 
 let root: Root;
 let container: HTMLDivElement;
+const fallbackStorageValues = new Map<string, string>();
 const metadata = {
   duration: 20,
   width: 640,
@@ -52,8 +53,23 @@ const metadata = {
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+function ensureLocalStorage(): void {
+  if (window.localStorage) return;
+
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => fallbackStorageValues.get(key) ?? null,
+      setItem: (key: string, value: string) => fallbackStorageValues.set(key, value),
+      removeItem: (key: string) => fallbackStorageValues.delete(key),
+      clear: () => fallbackStorageValues.clear(),
+    },
+  });
+}
+
 beforeEach(async () => {
   vi.resetAllMocks();
+  ensureLocalStorage();
   window.localStorage.clear();
   mocks.load.mockResolvedValue(undefined);
   mocks.readMetadata.mockImplementation(async (file: File) => ({

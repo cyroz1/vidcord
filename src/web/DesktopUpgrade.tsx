@@ -1113,10 +1113,21 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           >
             <span className="detected-pill">Detected platform</span>
             <h3>Linux</h3>
-            <p>Install FFmpeg with your distribution package manager:</p>
-            <CopyCommand
-              command={"sudo apt install ffmpeg\nsudo dnf install ffmpeg\nsudo pacman -S ffmpeg"}
-            />
+            <p>Choose the command for your distribution:</p>
+            <div className="ffmpeg-linux-commands">
+              <div className="ffmpeg-linux-command">
+                <span>Debian / Ubuntu</span>
+                <CopyCommand command="sudo apt install ffmpeg" />
+              </div>
+              <div className="ffmpeg-linux-command">
+                <span>Fedora</span>
+                <CopyCommand command="sudo dnf install ffmpeg" />
+              </div>
+              <div className="ffmpeg-linux-command">
+                <span>Arch / Manjaro</span>
+                <CopyCommand command="sudo pacman -S ffmpeg" />
+              </div>
+            </div>
             <p>
               Use the command for your distro, then launch vidcord normally. The app uses the system
               <code>ffmpeg</code> and <code>ffprobe</code> binaries.

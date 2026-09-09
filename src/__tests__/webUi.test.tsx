@@ -181,4 +181,38 @@ describe("browser UI", () => {
       container.querySelector('button[aria-label="Reset timeline zoom to 1x"]')?.textContent
     ).toBe("1.3x");
   });
+
+  it("does not advertise desktop-only keyboard shortcuts in the browser timeline", async () => {
+    await act(async () => {
+      root.render(
+        <WebTrimTimeline
+          duration={60}
+          startTime={10}
+          endTime={50}
+          currentTime={20}
+          editableTimes={false}
+          losslessTrim={false}
+          losslessInfoLoading={false}
+          losslessInfoError={null}
+          historyKey="clip-shortcuts"
+          loopPlayback={false}
+          onLoopPlaybackChange={vi.fn()}
+          onRangeChange={vi.fn()}
+          onSeek={vi.fn()}
+        />
+      );
+    });
+
+    const labeledButtons = container.querySelectorAll<HTMLButtonElement>(
+      "button.web-trim-labeled-btn"
+    );
+    expect(labeledButtons[0]?.title).toBe("Set in point to playhead");
+    expect(labeledButtons[1]?.title).toBe("Set out point to playhead");
+    expect(
+      container.querySelector<HTMLButtonElement>('button[aria-label="Undo trim"]')?.title
+    ).toBe("Undo trim");
+    expect(
+      container.querySelector<HTMLButtonElement>('button[aria-label="Redo trim"]')?.title
+    ).toBe("Redo trim");
+  });
 });
