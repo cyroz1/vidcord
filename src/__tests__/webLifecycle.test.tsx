@@ -111,6 +111,20 @@ async function exportVideo() {
   });
 }
 
+function queueNames(): string[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(".web-queue-name"),
+    (node) => node.textContent?.trim() ?? ""
+  );
+}
+
+function queueStatuses(): string[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(".web-queue-size"),
+    (node) => node.textContent?.trim() ?? ""
+  );
+}
+
 describe("browser export lifecycle", () => {
   it("keeps marketing outside editor updates while accepting drops elsewhere on the page", async () => {
     const initialMarketingRenders = mocks.marketingRender.mock.calls.length;
@@ -140,6 +154,73 @@ describe("browser export lifecycle", () => {
       Array.from(container.querySelectorAll(".web-queue-size"), (node) => node.textContent?.trim())
     ).toEqual(["Downloaded", "Failed", "Downloaded"]);
     expect(container.textContent).toContain("2 downloaded · 1 failed");
+  });
+
+  it("reorders browser batch items and keeps retry state attached to each file", async () => {
+    await selectFiles([file("first.mp4"), file("second.mp4"), file("third.mp4")]);
+    mocks.exportFile.mockRejectedValueOnce(new Error("Encoder failed"));
+    await exportVideo();
+
+    expect(queueStatuses()).toEqual(["Failed", "Downloaded", "Downloaded"]);
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Move first.mp4 down in queue"]')
+        ?.click()
+    );
+    expect(queueNames()).toEqual(["second.mp4", "first.mp4", "third.mp4"]);
+    expect(queueStatuses()).toEqual(["Downloaded", "Failed", "Downloaded"]);
+
+    const rows = container.querySelectorAll(".web-queue-list li");
+    await act(async () => rows[2]?.dispatchEvent(new Event("dragstart", { bubbles: true })));
+    await act(async () =>
+      rows[1]?.dispatchEvent(new Event("drop", { bubbles: true, cancelable: true }))
+    );
+    expect(queueNames()).toEqual(["second.mp4", "third.mp4", "first.mp4"]);
+    expect(queueStatuses()).toEqual(["Downloaded", "Downloaded", "Failed"]);
+
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('button[aria-label="Retry first.mp4"]')?.click()
+    );
+    expect(mocks.exportFile).toHaveBeenCalledTimes(4);
+    expect(mocks.exportFile.mock.calls.map((call) => call[0].file.name)).toEqual([
+      "first.mp4",
+      "second.mp4",
+      "third.mp4",
+      "first.mp4",
+    ]);
+    expect(queueStatuses()).toEqual(["Downloaded", "Downloaded", "Downloaded"]);
+  });
+
+  it("retries all failed browser batch items without re-exporting completed files", async () => {
+    await selectFiles([file("first.mp4"), file("second.mp4"), file("third.mp4")]);
+    mocks.exportFile
+      .mockRejectedValueOnce(new Error("First failed"))
+      .mockResolvedValueOnce({
+        blob: new Blob(["result"], { type: "video/mp4" }),
+        fileName: "second-vidcord.mp4",
+        bytes: 6,
+      })
+      .mockRejectedValueOnce(new Error("Third failed"));
+    await exportVideo();
+
+    expect(queueStatuses()).toEqual(["Failed", "Downloaded", "Failed"]);
+    const retryAll = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Retry 2 unsuccessful browser batch items"]'
+    );
+    expect(retryAll).not.toBeNull();
+
+    await act(async () => retryAll?.click());
+
+    expect(mocks.exportFile).toHaveBeenCalledTimes(5);
+    expect(mocks.exportFile.mock.calls.map((call) => call[0].file.name)).toEqual([
+      "first.mp4",
+      "second.mp4",
+      "third.mp4",
+      "first.mp4",
+      "third.mp4",
+    ]);
+    expect(queueStatuses()).toEqual(["Downloaded", "Downloaded", "Downloaded"]);
   });
 
   it("keeps shared batch crop and audio controls independent of the selected file", async () => {

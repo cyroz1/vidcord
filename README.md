@@ -21,6 +21,8 @@ targets.
 Select multiple videos through the browser's file picker or drag-and-drop to
 enter browser **Batch mode** automatically. The browser queue applies the same
 standard Compress profile to each full-duration video and downloads each MP4.
+Reorder the queue with drag-and-drop or arrow controls, and retry failed or
+cancelled files without rerunning completed downloads.
 The desktop app additionally supports Open With, command-line file arguments,
 second-instance forwarding, per-video batch trims, native output handling, and
 native parallel workers.
@@ -102,7 +104,7 @@ and retry oversized results with safer bitrates and CPU fallback.
 | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | Compress a video for Discord free upload limits         | Use the 20 MB target, trim the clip, and remove audio if needed.                                                             |
 | Compress large MP4, MOV, MKV, AVI, or WebM files        | The desktop app uses system FFmpeg; the browser edition accepts formats its browser can decode.                              |
-| Compress several videos in one pass                     | Browser Batch applies shared settings to full-duration files; desktop Batch adds trims, native workers, and output handling. |
+| Compress several videos in one pass                     | Browser Batch applies shared settings to full-duration files with reorder/retry controls; desktop Batch adds trims, native workers, and output handling. |
 | Preserve original video quality while trimming          | Use Lossless Trim for keyframe-aligned stream-copy output without re-encoding.                                               |
 | Turn a video clip into a Discord GIF                    | Enable GIF Mode and choose the 5 MB, 10 MB, or 20 MB target.                                                                 |
 | Make a video fit Discord Nitro or boosted server limits | Pick the 50 MB, 100 MB, or 500 MB target without calculating bitrates by hand.                                               |
@@ -123,8 +125,10 @@ and retry oversized results with safer bitrates and CPU fallback.
   workflows automatically. The queue probes and shows each file's resolution, frame rate, codec,
   bitrate, and duration, with per-file queued, encoding, completed, failed, or cancelled states.
   Batch uses standard Compress controls only, always writes MP4 output, and provides separate
-  start-trim and end-trim seconds that default to `0`. Remove queued items before export; when a
-  trim would leave less than one second, the two trim values are reduced proportionally.
+  start-trim and end-trim seconds that default to `0`. Reorder items with drag-and-drop or the
+  keyboard arrow controls, remove queued items before export, and retry failed or cancelled items
+  individually or together without rerunning completed outputs. When a trim would leave less than
+  one second, the two trim values are reduced proportionally.
 - **Desktop parallel batch encoding** — up to two videos encode concurrently by default. If the selected
   encoder reports a device, session, or resource-contention error, remaining work continues one
   video at a time. Individual probe or encode failures do not stop the queue, and aggregate
@@ -281,8 +285,9 @@ the source rate is known, snapshots, and same-profile multi-file batches. Each
 selected browser input is capped at 512 MB because FFmpeg WebAssembly processes
 the file in browser memory. Browser Batch applies one standard Compress profile
 to each selected file at full duration, reports per-file progress and aggregate
-ETA, continues after individual failures, and allows queued files to be removed
-before export. Cancellation also stops encoder loading and metadata reads. It does not expose
+ETA, continues after individual failures, and supports queue reordering, removal,
+and retrying failed or cancelled files without rerunning completed downloads.
+Cancellation also stops encoder loading and metadata reads. It does not expose
 per-file batch trim fields or a batch preview timeline.
 
 The browser encoder is intentionally fixed to `libx264` in WebAssembly. Advanced
@@ -434,7 +439,8 @@ For more distros, manual installs, or troubleshooting, read
 
 Selecting multiple files enters browser Batch mode. The same standard Compress
 profile is applied to each full-duration file; the queue shows per-file progress,
-aggregate progress, and ETA, and lets you remove queued videos before export.
+aggregate progress, and ETA, lets you reorder/remove videos, and can retry failed
+or cancelled items without rerunning completed downloads.
 Browser Batch does not offer per-file trim fields or desktop output destinations.
 
 ### Native desktop app
@@ -476,6 +482,9 @@ separate start/end trim settings. Up to two encodes run in parallel by default;
 resource contention switches the remaining queue to one-at-a-time processing.
 The queue continues after individual probe or encode failures, reports an
 aggregate ETA for the remaining work, and skips queued items when cancelled.
+Drag items or use the per-row arrows to choose the execution order before starting. After a run,
+Retry reprocesses only failed or cancelled entries; completed items and their outputs remain in
+place.
 
 The desktop footer preset selector starts at **Autosave**. Save the current
 compression and mode settings as a named preset, restore it later, or delete it;
@@ -780,9 +789,9 @@ limit, and export a smaller `.mp4` ready to upload.
 ### Can vidcord compress multiple videos at once?
 
 Yes. In the browser, select two or more files through Browse or drag-and-drop;
-the removable queue applies the same standard Compress target, crop, FPS, and
-audio settings to each full-duration file and reports per-file progress plus
-an aggregate ETA. The desktop app also accepts Open With, command-line file
+the reorderable queue applies the same standard Compress target, crop, FPS, and
+audio settings to each full-duration file, reports per-file progress plus an
+aggregate ETA, and can retry failed or cancelled items. The desktop app also accepts Open With, command-line file
 arguments, and second-instance launches; its Batch mode adds separate
 start/end trims, up to two native workers, and native output handling.
 

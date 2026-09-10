@@ -8,8 +8,11 @@ import {
   formatBatchVideoDetails,
   formatBatchCompletionSummary,
   groupOutputPathsByFolder,
+  isBatchItemRetryable,
+  moveBatchQueueItem,
   normalizeBatchTrimRange,
   normalizeVideoPaths,
+  reorderBatchQueueItem,
 } from "../batchProcessing";
 import { normalizePresetSettings } from "../settingsPresets";
 
@@ -92,6 +95,27 @@ describe("batch processing helpers", () => {
       cancelled: 0,
       pending: 1,
     });
+  });
+
+  it("reorders queue items without changing their identifiers or state", () => {
+    const items = [
+      { id: 10, inputPath: "one.mp4", status: "queued" as const, progress: 0 },
+      { id: 20, inputPath: "two.mp4", status: "failed" as const, progress: 100 },
+      { id: 30, inputPath: "three.mp4", status: "completed" as const, progress: 100 },
+    ];
+
+    expect(moveBatchQueueItem(items, 20, "up").map((item) => item.id)).toEqual([20, 10, 30]);
+    expect(moveBatchQueueItem(items, 10, "down").map((item) => item.id)).toEqual([20, 10, 30]);
+    expect(reorderBatchQueueItem(items, 30, 10).map((item) => item.id)).toEqual([30, 10, 20]);
+    expect(reorderBatchQueueItem(items, 999, 10).map((item) => item.id)).toEqual([10, 20, 30]);
+    expect(moveBatchQueueItem(items, 10, "up")[0]).toBe(items[0]);
+  });
+
+  it("marks failed and cancelled items as retryable", () => {
+    expect(isBatchItemRetryable("failed")).toBe(true);
+    expect(isBatchItemRetryable("cancelled")).toBe(true);
+    expect(isBatchItemRetryable("queued")).toBe(false);
+    expect(isBatchItemRetryable("completed")).toBe(false);
   });
 
   it("groups completion reveals by folder while preserving every output", () => {

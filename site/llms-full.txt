@@ -38,7 +38,7 @@ The browser editor at https://vidcord.app/ supports these modes:
 
 Browser controls also include single-video preview and trimming, crop presets, audio normalization in Compress and Advanced modes, audio removal for re-encoded exports, lossless audio removal, loop playback, trim history, snap intervals, timeline zoom and pan, full-resolution PNG snapshots, and multi-file Batch mode. The browser uses a fixed `libx264` encoder from FFmpeg WebAssembly. Advanced mode cannot select a different encoder or mix source audio tracks.
 
-Browser Batch starts when two or more files are selected through Browse or drag-and-drop. It applies one standard Compress profile to each full-duration file, downloads each MP4, displays per-file progress and outcomes, and reports aggregate progress and ETA for the queue. Individual failures do not stop the remaining queue. Queued videos can be removed before export, and cancellation also stops encoder loading and metadata reads. Browser Batch has no per-file trim fields, preview timeline, native output destination, or native completion-action controls.
+Browser Batch starts when two or more files are selected through Browse or drag-and-drop. It applies one standard Compress profile to each full-duration file, downloads each MP4, displays per-file progress and outcomes, and reports aggregate progress and ETA for the queue. Individual failures do not stop the remaining queue. Videos can be reordered or removed before export, and failed or cancelled items can be retried without rerunning completed downloads. Cancellation also stops encoder loading and metadata reads. Browser Batch has no per-file trim fields, preview timeline, native output destination, or native completion-action controls.
 
 Browser exports always use the browser download flow. The browser controls the download folder and any save prompts. The web UI intentionally does not expose the desktop app's encoder picker, source audio-track mixer, named settings presets, native output folders, native copy/reveal completion actions, Open With routing, OS notifications, taskbar/Dock progress, or in-app updater.
 
@@ -52,7 +52,7 @@ The desktop app compresses local video files under Discord upload limits with sy
 
 Selecting two or more supported videos through Browse, drag-and-drop, Open With, command-line file arguments, or a second-instance launch automatically switches the desktop app into Batch mode. One selected video keeps the normal single-video workflow. Desktop Batch uses shared standard Compress settings, supports separate start and end trim seconds for every source, runs up to two native encodes concurrently by default, and falls back to one at a time when device/session/resource contention is detected.
 
-The desktop queue probes each file and displays filename, resolution, frame rate, codec, average bitrate, duration, and status. Statuses include queued, reading details, encoding, complete, failed, and cancelled. Users can remove queued items before export. Individual probe or encode failures do not stop the queue. Aggregate progress and ETA cover the remaining batch, and cancellation terminates active children while skipping queued items.
+The desktop queue probes each file and displays filename, resolution, frame rate, codec, average bitrate, duration, and status. Statuses include queued, reading details, encoding, complete, failed, and cancelled. Users can reorder the queue with drag-and-drop or keyboard arrow controls, remove queued items before export, and retry failed or cancelled items individually or together. Individual probe or encode failures do not stop the queue. Aggregate progress and ETA cover the remaining batch, and cancellation terminates active children while skipping queued items.
 
 Desktop Batch outputs are collision-safe MP4 files. Direct destinations reserve one unique path per successful item. Ask when done stages successful outputs until one destination folder is chosen, then publishes them without overwriting existing files. Completion actions can copy successful outputs as one clipboard group or reveal each distinct output folder with its successful files selected.
 
@@ -121,7 +121,7 @@ No system install is required for the browser edition. It loads the site's FFmpe
 
 ### Can vidcord compress multiple videos?
 
-Yes. Browser Batch accepts Browse or drag-and-drop selections, applies one shared full-duration Compress profile, allows queued items to be removed, and reports per-file plus aggregate progress and ETA. Desktop Batch also accepts Open With, command-line arguments, and second-instance selections and adds separate trims, native workers, collision-safe outputs, and grouped completion actions.
+Yes. Browser Batch accepts Browse or drag-and-drop selections, applies one shared full-duration Compress profile, supports queue reordering/removal and retrying failed or cancelled items without rerunning completed downloads, and reports per-file plus aggregate progress and ETA. Desktop Batch also accepts Open With, command-line arguments, and second-instance selections and adds separate trims, native workers, collision-safe outputs, and grouped completion actions.
 
 ### Which Discord size targets are supported?
 

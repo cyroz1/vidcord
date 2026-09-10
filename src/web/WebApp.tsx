@@ -17,6 +17,7 @@ import {
   formatVideoDuration,
 } from "../videoMetadata";
 import { normalizeLosslessKeyframes, snapLosslessTrimRange } from "../losslessTrim";
+import { moveQueueItem, reorderQueueItem } from "../queueReordering";
 import WebTrimTimeline from "./WebTrimTimeline";
 import {
   GIF_PRESETS,
@@ -52,6 +53,12 @@ import {
   VIDEO_FILE_ACCEPT,
   type BrowserVideoMetadata,
 } from "./webMedia";
+import {
+  browserBatchStatusLabel,
+  isBrowserBatchItemRetryable,
+  type BrowserBatchItemStatus,
+  type BrowserBatchQueueItem,
+} from "./webBatchQueue";
 import "./WebApp.css";
 
 type Notice = { type: "success" | "error" | "warning" | "info"; message: string };
@@ -291,9 +298,9 @@ type PageDropHandler = ((event: DragEvent<HTMLElement>) => void) | null;
 function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDropHandler> }) {
   const [settings, setSettings] = useState<BrowserSettings>(() => loadBrowserSettings());
   const settingsRef = useRef(settings);
-  const [files, setFiles] = useState<File[]>([]);
+  const [queueItems, setQueueItems] = useState<BrowserBatchQueueItem[]>([]);
   const [activeFileIndex, setActiveFileIndex] = useState(0);
-  const [queueStatuses, setQueueStatuses] = useState<Record<number, string>>({});
+  const [queueStatuses, setQueueStatuses] = useState<Record<number, BrowserBatchItemStatus>>({});
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [metadata, setMetadata] = useState<BrowserVideoMetadata | null>(null);
@@ -327,7 +334,10 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
   const exportUiStatusRef = useRef("");
   const exportStartedAtRef = useRef<number | null>(null);
   const engineRef = useRef<BrowserFfmpegEngine | null>(null);
+  const [draggedQueueItemId, setDraggedQueueItemId] = useState<number | null>(null);
+  const [dragOverQueueItemId, setDragOverQueueItemId] = useState<number | null>(null);
 
+  const files = useMemo(() => queueItems.map((item) => item.file), [queueItems]);
   const activeFile = files[activeFileIndex] ?? null;
   const batchMode = files.length > 1;
   const activeMode: BrowserMode | "batch" = batchMode ? "batch" : settings.mode;
@@ -356,9 +366,9 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
     setNotice({ type, message });
   }, []);
 
-  const resetExportFeedback = useCallback(() => {
+  const resetExportFeedback = useCallback((clearQueue = true) => {
     setLastExport(null);
-    setQueueStatuses({});
+    if (clearQueue) setQueueStatuses({});
     exportProgressRef.current = 0;
     exportUiUpdatedAtRef.current = 0;
     exportUiStatusRef.current = "Ready";
@@ -626,7 +636,7 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
       if (skippedReasons.length > 0) {
         showNotice("warning", `Some selections were skipped because ${skippedReasons.join("; ")}.`);
       }
-      setFiles(nextFiles);
+      setQueueItems(nextFiles.map((file, id) => ({ id, file })));
       setActiveFileIndex(0);
       resetExportFeedback();
     },
@@ -661,19 +671,56 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
 
   const removeQueuedFile = useCallback(
     (fileIndex: number) => {
-      if (isExporting || fileIndex < 0 || fileIndex >= files.length) return;
-      const nextFiles = files.filter((_, index) => index !== fileIndex);
-      setFiles(nextFiles);
+      if (isExporting || fileIndex < 0 || fileIndex >= queueItems.length) return;
+      const nextItems = queueItems.filter((_, index) => index !== fileIndex);
+      setQueueItems(nextItems);
       setActiveFileIndex((currentIndex) => {
-        if (nextFiles.length === 0) return 0;
+        if (nextItems.length === 0) return 0;
         if (fileIndex < currentIndex) return currentIndex - 1;
-        if (fileIndex === currentIndex) return Math.min(currentIndex, nextFiles.length - 1);
+        if (fileIndex === currentIndex) return Math.min(currentIndex, nextItems.length - 1);
         return currentIndex;
       });
-      resetExportFeedback();
+      resetExportFeedback(false);
     },
-    [files, isExporting, resetExportFeedback]
+    [isExporting, queueItems, resetExportFeedback]
   );
+
+  const updateQueueOrder = useCallback(
+    (nextItems: BrowserBatchQueueItem[]) => {
+      const activeItem = queueItems[activeFileIndex];
+      setQueueItems(nextItems);
+      if (activeItem) {
+        const nextActiveIndex = nextItems.findIndex((item) => item.id === activeItem.id);
+        if (nextActiveIndex >= 0) setActiveFileIndex(nextActiveIndex);
+      }
+    },
+    [activeFileIndex, queueItems]
+  );
+
+  const moveQueuedFile = useCallback(
+    (itemId: number, direction: "up" | "down") => {
+      if (isExporting) return;
+      const nextItems = moveQueueItem(queueItems, itemId, direction);
+      if (nextItems.every((item, index) => item.id === queueItems[index]?.id)) return;
+      updateQueueOrder(nextItems);
+    },
+    [isExporting, queueItems, updateQueueOrder]
+  );
+
+  const reorderQueuedFile = useCallback(
+    (draggedItemId: number, targetItemId: number) => {
+      if (isExporting) return;
+      const nextItems = reorderQueueItem(queueItems, draggedItemId, targetItemId);
+      if (nextItems.every((item, index) => item.id === queueItems[index]?.id)) return;
+      updateQueueOrder(nextItems);
+    },
+    [isExporting, queueItems, updateQueueOrder]
+  );
+
+  const clearQueueDragState = useCallback(() => {
+    setDraggedQueueItemId(null);
+    setDragOverQueueItemId(null);
+  }, []);
 
   const seekTo = useCallback(
     (time: number) => {
@@ -792,8 +839,18 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
     setCurrentTime(startTime);
   }, [endTime, loopPlayback, metadata, startTime]);
 
-  const startExport = useCallback(async () => {
+  const startExport = useCallback(async (retryItemIds?: readonly number[]) => {
     if (files.length === 0 || exportControllerRef.current) return;
+    const retryIds = retryItemIds ? new Set(retryItemIds) : null;
+    const selectedItems = retryIds
+      ? queueItems.filter(
+          (item) => retryIds.has(item.id) && isBrowserBatchItemRetryable(queueStatuses[item.id])
+        )
+      : queueItems;
+    if (selectedItems.length === 0) {
+      showNotice("info", "There are no failed or cancelled browser batch items to retry.");
+      return;
+    }
     if (!batchMode && !metadata) {
       showNotice("warning", "Wait for the video details to finish loading.");
       return;
@@ -830,7 +887,12 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
       batchMode && !standardFpsOptions.some((option) => option.value === settings.fps)
         ? { ...settings, fps: "off" }
         : settings;
-    setQueueStatuses({});
+    setQueueStatuses((current) => {
+      if (!retryIds) return {};
+      const next = { ...current };
+      for (const item of selectedItems) next[item.id] = "queued";
+      return next;
+    });
     let downloadedCount = 0;
 
     try {
@@ -847,21 +909,23 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
       let oversized = false;
       let normalizationSkipped = false;
       let audioRemovedForCompatibility = false;
-      for (let index = 0; index < files.length; index += 1) {
+      const totalFiles = selectedItems.length;
+      for (let index = 0; index < totalFiles; index += 1) {
         if (exportCancelledRef.current) throw new Error("Export cancelled.");
-        const file = files[index];
-        setQueueStatuses((current) => ({ ...current, [index]: "Encoding" }));
+        const item = selectedItems[index];
+        const file = item.file;
+        setQueueStatuses((current) => ({ ...current, [item.id]: "encoding" }));
         try {
           const fileMetadata =
-            index === activeFileIndex && metadata
+            activeFile === file && metadata
               ? metadata
               : await readCachedMetadata(file, controller.signal);
           controller.signal.throwIfAborted();
           const fileStart = batchMode ? 0 : startTime;
           const fileEnd = batchMode ? fileMetadata.duration : endTime;
           setExportStatus(
-            files.length > 1
-              ? `Encoding ${index + 1} of ${files.length} · ${file.name}`
+            totalFiles > 1
+              ? `Encoding ${index + 1} of ${totalFiles} · ${file.name}`
               : `Encoding ${file.name}`
           );
           const result = await exportBrowserFile({
@@ -877,11 +941,11 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
               const fileProgress = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
               const nextProgress = Math.max(
                 exportProgressRef.current,
-                ((index + fileProgress) / files.length) * 100
+                ((index + fileProgress) / totalFiles) * 100
               );
               exportProgressRef.current = nextProgress;
               const nextStatus =
-                files.length > 1 ? `${status} · ${index + 1}/${files.length}` : status;
+                totalFiles > 1 ? `${status} · ${index + 1}/${totalFiles}` : status;
               const now = Date.now();
               if (
                 nextStatus !== exportUiStatusRef.current ||
@@ -911,16 +975,16 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
           completed += 1;
           setQueueStatuses((current) => ({
             ...current,
-            [index]: result.wasOversized ? "Above target" : "Downloaded",
+            [item.id]: result.wasOversized ? "above-target" : "downloaded",
           }));
         } catch (error: unknown) {
           if (controller.signal.aborted || !batchMode) throw error;
           failed += 1;
-          setQueueStatuses((current) => ({ ...current, [index]: "Failed" }));
+          setQueueStatuses((current) => ({ ...current, [item.id]: "failed" }));
         }
         exportProgressRef.current = Math.max(
           exportProgressRef.current,
-          ((index + 1) / files.length) * 100
+          ((index + 1) / totalFiles) * 100
         );
         setProgress(exportProgressRef.current);
         const startedAt = exportStartedAtRef.current;
@@ -943,7 +1007,7 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
       );
       const warnings = [
         failed > 0 &&
-          `${failed} could not be exported. Check the failed items or try them in the desktop app.`,
+          `${failed} could not be exported. Retry the failed items or try them in the desktop app.`,
         oversized && "Some outputs are still above the selected size target.",
         audioRemovedForCompatibility &&
           "Audio was removed from exports whose source audio could not be encoded in the browser.",
@@ -959,14 +1023,16 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
     } catch (error: unknown) {
       if (exportCancelledRef.current) {
         setExportStatus("Cancelled");
-        setQueueStatuses((current) =>
-          Object.fromEntries(
-            files.map((_, index) => [
-              index,
-              !current[index] || current[index] === "Encoding" ? "Cancelled" : current[index],
-            ])
-          )
-        );
+        setQueueStatuses((current) => {
+          const next = { ...current };
+          for (const item of selectedItems) {
+            const status = next[item.id];
+            if (!status || status === "queued" || status === "encoding") {
+              next[item.id] = "cancelled";
+            }
+          }
+          return next;
+        });
         setEta("Cancelled");
         showNotice(
           "info",
@@ -985,7 +1051,7 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
       setWasmLoading(false);
     }
   }, [
-    activeFileIndex,
+    activeFile,
     batchMode,
     endTime,
     exportMode,
@@ -994,12 +1060,32 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
     losslessKeyframes,
     losslessKeyframesLoading,
     metadata,
+    queueItems,
+    queueStatuses,
     readCachedMetadata,
     settings,
     showNotice,
     standardFpsOptions,
     startTime,
   ]);
+
+  const retryBrowserBatchItem = useCallback(
+    (itemId: number) => {
+      if (isExporting) return;
+      const item = queueItems.find((candidate) => candidate.id === itemId);
+      if (!item || !isBrowserBatchItemRetryable(queueStatuses[item.id])) return;
+      void startExport([itemId]);
+    },
+    [isExporting, queueItems, queueStatuses, startExport]
+  );
+
+  const retryFailedBrowserBatchItems = useCallback(() => {
+    if (isExporting) return;
+    const retryableIds = queueItems
+      .filter((item) => isBrowserBatchItemRetryable(queueStatuses[item.id]))
+      .map((item) => item.id);
+    if (retryableIds.length > 0) void startExport(retryableIds);
+  }, [isExporting, queueItems, queueStatuses, startExport]);
 
   const cancelExport = useCallback(() => {
     if (!isExporting) return;
@@ -1031,6 +1117,9 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
   const standardFps = standardFpsOptions.some((option) => option.value === settings.fps)
     ? settings.fps
     : "off";
+  const retryableBatchCount = batchMode
+    ? queueItems.filter((item) => isBrowserBatchItemRetryable(queueStatuses[item.id])).length
+    : 0;
   const actionLabel = batchMode
     ? `Export ${files.length} videos`
     : activeMode === "gif"
@@ -1400,43 +1489,133 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
                       <span className="web-section-label">Batch queue</span>
                       <strong id="web-queue-title">{files.length} videos</strong>
                     </div>
-                    <span className="web-queue-note">Same profile · full duration</span>
+                    <div className="web-queue-heading-actions">
+                      <span className="web-queue-note">Same profile · full duration</span>
+                      {retryableBatchCount > 0 && (
+                        <button
+                          type="button"
+                          className="web-queue-retry-all"
+                          onClick={retryFailedBrowserBatchItems}
+                          disabled={isExporting}
+                          aria-label={`Retry ${retryableBatchCount} unsuccessful browser batch item${retryableBatchCount === 1 ? "" : "s"}`}
+                        >
+                          Retry {retryableBatchCount === 1 ? "item" : `${retryableBatchCount} items`}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <ol className="web-queue-list">
-                    {files.map((file, index) => (
-                      <li
-                        key={`${file.name}-${file.lastModified}-${index}`}
-                        className={index === activeFileIndex ? "active" : ""}
-                      >
-                        <button
-                          type="button"
-                          className="web-queue-item"
-                          disabled={isExporting}
-                          onClick={() => {
-                            setActiveFileIndex(index);
-                            resetExportFeedback();
+                  <ol className="web-queue-list" aria-label="Browser batch queue">
+                    {queueItems.map((item, index) => {
+                      const file = item.file;
+                      const status = queueStatuses[item.id];
+                      const retryable = isBrowserBatchItemRetryable(status);
+                      return (
+                        <li
+                          key={item.id}
+                          className={`${index === activeFileIndex ? "active" : ""}${
+                            draggedQueueItemId === item.id ? " dragging" : ""
+                          }${dragOverQueueItemId === item.id ? " drag-over" : ""}`}
+                          draggable={!isExporting}
+                          onDragStart={(event) => {
+                            if (isExporting) return;
+                            setDraggedQueueItemId(item.id);
+                            if (event.dataTransfer) {
+                              event.dataTransfer.effectAllowed = "move";
+                              event.dataTransfer.setData("text/plain", String(item.id));
+                            }
                           }}
+                          onDragOver={(event) => {
+                            if (isExporting) return;
+                            event.preventDefault();
+                            if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+                            if (draggedQueueItemId !== item.id) setDragOverQueueItemId(item.id);
+                          }}
+                          onDrop={(event) => {
+                            if (isExporting) return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            const transferValue = event.dataTransfer?.getData("text/plain") ?? "";
+                            const dataTransferId = Number(transferValue);
+                            const sourceId =
+                              draggedQueueItemId ??
+                              (Number.isInteger(dataTransferId) ? dataTransferId : null);
+                            if (sourceId !== null && sourceId !== item.id) {
+                              reorderQueuedFile(sourceId, item.id);
+                            }
+                            clearQueueDragState();
+                          }}
+                          onDragEnd={clearQueueDragState}
                         >
-                          <span className="web-queue-index">{index + 1}</span>
-                          <span className="web-queue-name" title={file.name}>
-                            {file.name}
+                          <button
+                            type="button"
+                            className="web-queue-item"
+                            disabled={isExporting}
+                            onClick={() => {
+                              setActiveFileIndex(index);
+                            }}
+                          >
+                            <span className="web-queue-index">{index + 1}</span>
+                            <span
+                              className="web-queue-drag-handle"
+                              aria-hidden="true"
+                              title="Drag to reorder"
+                            >
+                              ⋮⋮
+                            </span>
+                            <span className="web-queue-name" title={file.name}>
+                              {file.name}
+                            </span>
+                            <span className="web-queue-size">
+                              {status ? browserBatchStatusLabel(status) : formatFileSize(file.size)}
+                            </span>
+                          </button>
+                          <span className="web-queue-controls">
+                            <button
+                              type="button"
+                              className="web-queue-move"
+                              onClick={() => moveQueuedFile(item.id, "up")}
+                              disabled={isExporting || index === 0}
+                              aria-label={`Move ${file.name} up in queue`}
+                              title="Move up"
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              className="web-queue-move"
+                              onClick={() => moveQueuedFile(item.id, "down")}
+                              disabled={isExporting || index === queueItems.length - 1}
+                              aria-label={`Move ${file.name} down in queue`}
+                              title="Move down"
+                            >
+                              ↓
+                            </button>
+                            {retryable && (
+                              <button
+                                type="button"
+                                className="web-queue-retry"
+                                onClick={() => retryBrowserBatchItem(item.id)}
+                                disabled={isExporting}
+                                aria-label={`Retry ${file.name}`}
+                                title="Retry this item"
+                              >
+                                Retry
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="web-queue-remove"
+                              onClick={() => removeQueuedFile(index)}
+                              disabled={isExporting}
+                              aria-label={`Remove ${file.name} from queue`}
+                              title="Remove from queue"
+                            >
+                              ×
+                            </button>
                           </span>
-                          <span className="web-queue-size">
-                            {queueStatuses[index] ?? formatFileSize(file.size)}
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          className="web-queue-remove"
-                          onClick={() => removeQueuedFile(index)}
-                          disabled={isExporting}
-                          aria-label={`Remove ${file.name} from queue`}
-                          title="Remove from queue"
-                        >
-                          ×
-                        </button>
-                      </li>
-                    ))}
+                        </li>
+                      );
+                    })}
                   </ol>
                 </section>
               ) : (

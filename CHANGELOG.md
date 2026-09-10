@@ -5,6 +5,13 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ## v7.4
 
+### Batch processing
+
+- Added drag-and-drop and keyboard arrow controls for setting the desktop Batch export order while
+  keeping per-file progress and results attached to the correct input.
+- Added per-item Retry actions plus a retry-all control for failed or cancelled items. Retrying a
+  subset leaves already completed outputs untouched.
+
 ### Browser edition
 
 - Added a client-side browser editor at `/` beneath the desktop app headline and download CTA. It
@@ -12,9 +19,10 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   with Compress, Advanced, Lossless Trim, GIF, trim, crop, audio controls, FPS controls,
   snapshots, and same-profile batches.
 - Browser Batch mode applies one standard Compress profile to each full-duration file, reports
-  per-file progress and aggregate ETA, and allows queued files to be removed before export. It
-  keeps desktop-only encoder selection, native output destinations, completion actions, saved
-  presets, and file-manager integrations out of the browser edition.
+  per-file progress and aggregate ETA, and supports queue reordering, removal, and retrying failed
+  or cancelled files without rerunning completed downloads. It keeps desktop-only encoder
+  selection, native output destinations, completion actions, saved presets, and file-manager
+  integrations out of the browser edition.
 - Fixed browser settings, mode, and queue changes so feedback from a previous export cannot remain
   attached to a newly selected video or profile. Added browser Lossless Trim audio removal,
   512 MB input bounds, trim snapping, zoom and pan controls, and aligned crop/scaling, FPS,
