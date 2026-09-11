@@ -7,6 +7,7 @@ import {
   useState,
   type ChangeEvent,
   type DragEvent,
+  type MouseEvent,
   type SyntheticEvent,
   type MutableRefObject,
 } from "react";
@@ -261,6 +262,49 @@ function Logo() {
       </picture>
       <span>vidcord</span>
     </a>
+  );
+}
+
+type SiteNavLink = {
+  href: string;
+  label: string;
+  external?: boolean;
+};
+
+const SITE_NAV_LINKS: readonly SiteNavLink[] = [
+  { href: "#desktop-app", label: "Desktop App" },
+  { href: "#web-editor", label: "Web Demo" },
+  { href: "#workflow", label: "How It Works" },
+  { href: "#integrations", label: "Open With" },
+  { href: "#faq", label: "FAQ" },
+  { href: "https://github.com/cyroz1/vidcord", label: "GitHub", external: true },
+] as const;
+
+function closeMobileNavigation(event: MouseEvent<HTMLAnchorElement>) {
+  const disclosure = event.currentTarget.closest("details");
+  if (disclosure) disclosure.open = false;
+}
+
+function SiteNavigation({ className }: { className: string }) {
+  return (
+    <nav className={className} aria-label="Site navigation">
+      {SITE_NAV_LINKS.map((link) => (
+        <a
+          key={link.href}
+          href={link.href}
+          rel={link.external ? "noreferrer" : undefined}
+          target={link.external ? "_blank" : undefined}
+          onClick={closeMobileNavigation}
+        >
+          {link.label}
+          {link.external && (
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M7 17 17 7m0 0H9m8 0v8" />
+            </svg>
+          )}
+        </a>
+      ))}
+    </nav>
   );
 }
 
@@ -863,7 +907,8 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
       if (losslessKeyframes.length === 0) {
         showNotice(
           "error",
-          losslessKeyframeError ?? "Lossless Trim is unavailable because keyframe discovery failed."
+          losslessKeyframeError ??
+            "Lossless Trim is unavailable because keyframe discovery failed."
         );
         return;
       }
@@ -1247,7 +1292,14 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
                     key={mode}
                     onClick={() => selectMode(mode)}
                   >
-                    {browserModeLabel(mode)}
+                    {mode === "lossless" ? (
+                      <>
+                        <span className="web-mode-tab-full">{browserModeLabel(mode)}</span>
+                        <span className="web-mode-tab-compact">Lossless</span>
+                      </>
+                    ) : (
+                      browserModeLabel(mode)
+                    )}
                   </button>
                 ))}
                 <button
@@ -1499,7 +1551,8 @@ function WebEditor({ dropHandlerRef }: { dropHandlerRef: MutableRefObject<PageDr
                           disabled={isExporting}
                           aria-label={`Retry ${retryableBatchCount} unsuccessful browser batch item${retryableBatchCount === 1 ? "" : "s"}`}
                         >
-                          Retry {retryableBatchCount === 1 ? "item" : `${retryableBatchCount} items`}
+                          Retry{" "}
+                          {retryableBatchCount === 1 ? "item" : `${retryableBatchCount} items`}
                         </button>
                       )}
                     </div>
@@ -1817,19 +1870,15 @@ function WebApp() {
     >
       <header className="web-header">
         <Logo />
-        <nav className="web-header-nav" aria-label="Main navigation">
-          <a href="#desktop-app">Desktop App</a>
-          <a href="#web-editor">Web Demo</a>
-          <a href="#workflow">How It Works</a>
-          <a href="#integrations">Open With</a>
-          <a href="#faq">FAQ</a>
-          <a href="https://github.com/cyroz1/vidcord" rel="noreferrer" target="_blank">
-            GitHub
+        <SiteNavigation className="web-header-nav" />
+        <details className="web-mobile-navigation">
+          <summary className="web-mobile-menu-button" aria-label="Open navigation">
             <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M7 17 17 7m0 0H9m8 0v8" />
+              <path d="M4 7h16M4 12h16M4 17h16" />
             </svg>
-          </a>
-        </nav>
+          </summary>
+          <SiteNavigation className="web-mobile-nav" />
+        </details>
       </header>
 
       <main className="web-main">

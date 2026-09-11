@@ -87,6 +87,7 @@ async function formatGeneratedIndex(directory) {
   };
   visit("src/web/WebApp.tsx");
   hints.push(`    <link rel="preload" as="image" type="image/webp" fetchpriority="high"
+    media="(min-width: 761px)"
     imagesrcset="/marketing-assets/window-480.webp 480w, /marketing-assets/window-720.webp 720w, /marketing-assets/window-960.webp 960w, /marketing-assets/window-1144.webp 1144w"
     imagesizes="(max-width: 760px) calc(100vw - 36px), (max-width: 1040px) 560px, 500px" />`);
   sourceWithMarketingStylesheet = sourceWithMarketingStylesheet.replace(

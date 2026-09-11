@@ -17,7 +17,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Added a client-side browser editor at `/` beneath the desktop app headline and download CTA. It
   processes selected videos locally with FFmpeg WebAssembly and exports through browser downloads,
   with Compress, Advanced, Lossless Trim, GIF, trim, crop, audio controls, FPS controls,
-  snapshots, and same-profile batches.
+  snapshots, and same-profile batches. It is clearly positioned as a quick no-install fallback for
+  in-a-pinch phone, tablet, or desktop-browser use rather than a replacement for the native app.
 - Browser Batch mode applies one standard Compress profile to each full-duration file, reports
   per-file progress and aggregate ETA, and supports queue reordering, removal, and retrying failed
   or cancelled files without rerunning completed downloads. It keeps desktop-only encoder
@@ -32,7 +33,9 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Rebuilt the root page around the desktop app's original headline, followed by the browser demo,
   feature tour, FFmpeg setup, FAQ, responsive screenshots, and platform-aware download section.
 - Updated product documentation, metadata, structured data, crawler files, and deployment notes to
-  document the browser/desktop capability boundary and local-only processing model.
+  document the browser/desktop capability boundary and local-only processing model, including the
+  browser's 512 MB-per-file input limit, 12-file Batch limit, browser-decoder and memory
+  constraints, fixed `libx264` encoder, browser download flow, and desktop-only capabilities.
 
 ### Performance and UX
 
@@ -55,7 +58,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   handling, stale export feedback, and Lossless Trim exports for unusual filenames.
 - Added a static critical marketing stylesheet link and prioritized the hero screenshot to reduce
   first-paint layout movement. Added bundle and hosted-site size checks, gzip publication for the
-  browser WebAssembly asset, and baseline security headers for the deployed site.
+  browser WebAssembly asset, a desktop-only hero preload with mobile-friendly lazy loading, and
+  baseline security headers for the deployed site.
 - Hardened platform download selection to accept only expected GitHub release assets, require a
   universal macOS build, and fall back cleanly when release metadata or architecture detection is
   unavailable or an asset is missing. Mobile devices no longer select desktop installers.

@@ -1,6 +1,6 @@
 # vidcord full agent context
 
-> vidcord is a free, open-source desktop video compressor for Discord upload limits with a quick browser demo. The website leads with the native app for faster encoding, GPU support, and OS integrations, then links the no-install demo beneath the download CTA. Both editions process selected videos locally and avoid uploads, accounts, and telemetry.
+> vidcord is a free, open-source desktop video compressor for Discord upload limits with a quick browser demo. The website leads with the native app for faster encoding, GPU support, and OS integrations, then links the no-install demo beneath the download CTA for in-a-pinch phone, tablet, or desktop-browser use. Both editions process selected videos locally and avoid uploads, accounts, and telemetry.
 
 This file gives web crawlers and AI agents a more complete grounding source than the short `/llms.txt` summary. It is public and contains no secrets or private user data.
 
@@ -12,7 +12,7 @@ This file gives web crawlers and AI agents a more complete grounding source than
 - Source repository: https://github.com/cyroz1/vidcord
 - Latest desktop release page: https://github.com/cyroz1/vidcord/releases/latest
 - License: MIT
-- Current website-referenced app version: 7.3.0
+- Current website-referenced app version: 7.4.0
 - Browser runtime: React and TypeScript with FFmpeg WebAssembly loaded on demand for export work
 - Desktop runtime: Tauri 2 with a React and TypeScript frontend plus Rust backend
 - Desktop dependency: system `ffmpeg` and `ffprobe` available on PATH; system FFmpeg is not bundled
@@ -21,9 +21,9 @@ This file gives web crawlers and AI agents a more complete grounding source than
 
 ## Product split
 
-The root URL is the desktop-first product home. It presents the native desktop app headline, feature story, FFmpeg setup notes, FAQ, and platform-aware download section. Directly beneath the primary download action it offers the browser demo for people who only need to compress a file quickly. The root page is the only public website route.
+The root URL is the desktop-first product home. It presents the native desktop app headline, feature story, FFmpeg setup notes, FAQ, and platform-aware download section. Directly beneath the primary download action it offers the browser demo for people who only need to compress a file quickly, including users on a phone or tablet who need a no-install fallback in a pinch. The root page is the only public website route.
 
-The browser edition is a lighter, no-install client. The editor renders before requesting the FFmpeg WebAssembly runtime; normal exports load it on demand, while Lossless Trim may request it during local keyframe discovery. Selected files remain in the browser, FFmpeg WebAssembly performs the work locally, and finished exports download through the browser. Each selected input is limited to 512 MB because the encode runs in browser memory. No selected video is uploaded to vidcord or to any download-metadata service.
+The browser edition is a lighter, no-install client for quick exports on a phone, tablet, or desktop browser. The editor renders before requesting the FFmpeg WebAssembly runtime; normal exports load it on demand, while Lossless Trim may request it during local keyframe discovery. Selected files remain in the browser, FFmpeg WebAssembly performs the work locally, and finished exports download through the browser. Each selected input is limited to 512 MB because the encode runs in browser memory. Browser support, memory use, and speed depend on the browser, device, available memory, and source format. No selected video is uploaded to vidcord or to any download-metadata service.
 
 The native desktop app is the full local workflow for users who want system FFmpeg format coverage, faster native encoding, GPU encoders, native filesystem destinations, file-manager integration, desktop notifications, taskbar or Dock progress, saved settings presets, and in-app installer updates.
 
@@ -38,9 +38,9 @@ The browser editor at https://vidcord.app/ supports these modes:
 
 Browser controls also include single-video preview and trimming, crop presets, audio normalization in Compress and Advanced modes, audio removal for re-encoded exports, lossless audio removal, loop playback, trim history, snap intervals, timeline zoom and pan, full-resolution PNG snapshots, and multi-file Batch mode. The browser uses a fixed `libx264` encoder from FFmpeg WebAssembly. Advanced mode cannot select a different encoder or mix source audio tracks.
 
-Browser Batch starts when two or more files are selected through Browse or drag-and-drop. It applies one standard Compress profile to each full-duration file, downloads each MP4, displays per-file progress and outcomes, and reports aggregate progress and ETA for the queue. Individual failures do not stop the remaining queue. Videos can be reordered or removed before export, and failed or cancelled items can be retried without rerunning completed downloads. Cancellation also stops encoder loading and metadata reads. Browser Batch has no per-file trim fields, preview timeline, native output destination, or native completion-action controls.
+Browser Batch starts when two or more files are selected through Browse or drag-and-drop, up to 12 files per selection. It applies one standard Compress profile to each full-duration file, downloads each MP4, displays per-file progress and outcomes, and reports aggregate progress and ETA for the queue. Individual failures do not stop the remaining queue. Videos can be reordered or removed before export, and failed or cancelled items can be retried without rerunning completed downloads. Cancellation also stops encoder loading and metadata reads. Browser Batch has no per-file trim fields, preview timeline, native output destination, or native completion-action controls.
 
-Browser exports always use the browser download flow. The browser controls the download folder and any save prompts. The web UI intentionally does not expose the desktop app's encoder picker, source audio-track mixer, named settings presets, native output folders, native copy/reveal completion actions, Open With routing, OS notifications, taskbar/Dock progress, or in-app updater.
+Browser exports always use the browser download flow. The browser controls the download folder and any save prompts. The web UI intentionally uses a fixed `libx264` encoder, keeps the first browser-exposed audio stream for re-encoded exports, and does not expose the desktop app's encoder picker, source audio-track mixer, named settings presets, native output folders, native copy/reveal completion actions, Open With routing, OS notifications, taskbar/Dock progress, or in-app updater.
 
 Browser input support depends on the browser's media decoder, source codec/container, device performance, available memory, and file size; each selected file is capped at 512 MB before it reaches WebAssembly. The editor renders before the encoder runtime is requested, which keeps the initial page load lighter. When available, the import summary shows dimensions, duration, container information, and a file-size-based average bitrate estimate; exact source codec, frame rate, and audio-track details may not be exposed by browser media APIs.
 
@@ -113,7 +113,7 @@ No. The browser keeps selected files in the page while FFmpeg WebAssembly runs l
 
 ### Can I use vidcord in a browser?
 
-Yes. Open https://vidcord.app/#web-editor for the no-install editor. It supports the four modes, local trim/preview, crop, audio normalization, audio removal for re-encoded exports, typed Advanced FPS, snapshots, and same-profile Batch mode. It uses a fixed `libx264` WebAssembly encoder and browser downloads; use the desktop app for GPU selection, native output destinations, saved settings presets, Open With, and other OS integrations.
+Yes. Open https://vidcord.app/#web-editor for the no-install editor, including a quick fallback on a phone or tablet. It supports the four modes, local trim/preview, crop, audio normalization, audio removal for re-encoded exports, typed Advanced FPS, snapshots, and same-profile Batch mode. Inputs must be browser-readable and are limited to 512 MB each; it uses a fixed `libx264` WebAssembly encoder and browser downloads. Use the desktop app for GPU selection, native output destinations, saved settings presets, Open With, and other OS integrations.
 
 ### Does the browser edition require FFmpeg?
 
@@ -121,7 +121,11 @@ No system install is required for the browser edition. It loads the site's FFmpe
 
 ### Can vidcord compress multiple videos?
 
-Yes. Browser Batch accepts Browse or drag-and-drop selections, applies one shared full-duration Compress profile, supports queue reordering/removal and retrying failed or cancelled items without rerunning completed downloads, and reports per-file plus aggregate progress and ETA. Desktop Batch also accepts Open With, command-line arguments, and second-instance selections and adds separate trims, native workers, collision-safe outputs, and grouped completion actions.
+Yes. Browser Batch accepts up to 12 Browse or drag-and-drop selections, applies one shared full-duration Compress profile, supports queue reordering/removal and retrying failed or cancelled items without rerunning completed downloads, and reports per-file plus aggregate progress and ETA. Desktop Batch also accepts Open With, command-line arguments, and second-instance selections and adds separate trims, native workers, collision-safe outputs, and grouped completion actions.
+
+### Is the browser demo suitable for mobile?
+
+Yes, as a quick no-install fallback for a phone or tablet. It is best for browser-readable files up to 512 MB each; browser memory, device performance, source format, and download behavior vary. The browser encoder is fixed to `libx264`, Browser Batch uses one full-duration Compress profile for up to 12 files, and the browser controls the download location. Use desktop for large or difficult inputs, GPU encoding, per-file Batch trims, saved presets, native destinations, Open With, and OS integrations.
 
 ### Which Discord size targets are supported?
 

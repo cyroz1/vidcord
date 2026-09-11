@@ -1,7 +1,7 @@
 {
   "name": "vidcord",
   "short_name": "vidcord",
-  "description": "Free, open-source vidcord desktop video compressor with a quick local browser demo.",
+  "description": "Free, open-source vidcord desktop video compressor with a quick no-install browser fallback for mobile and desktop.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

@@ -13,7 +13,7 @@
     <meta name="apple-mobile-web-app-title" content="vidcord" />
     <meta
       name="description"
-      content="vidcord is a local desktop video compressor for Discord. Download the native app for system FFmpeg, GPU encoders, and OS integrations, or use the quick browser demo with local FFmpeg WebAssembly."
+      content="vidcord is a local desktop video compressor for Discord. Download the native app for system FFmpeg, GPU encoders, and OS integrations, or use the quick no-install browser demo on a phone, tablet, or desktop when you are in a pinch."
     />
     <link rel="canonical" href="https://vidcord.app/" />
     <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
@@ -36,7 +36,7 @@
     />
     <meta
       property="og:description"
-      content="Download vidcord's native desktop app for local FFmpeg compression, or use the quick no-install browser demo. No uploads, accounts, or telemetry."
+      content="Download vidcord's native desktop app for local FFmpeg compression, or use the quick no-install browser demo for in-a-pinch phone, tablet, or desktop use. No uploads, accounts, or telemetry."
     />
     <meta property="og:site_name" content="vidcord" />
     <meta property="og:locale" content="en_US" />
@@ -53,7 +53,7 @@
     />
     <meta
       name="twitter:description"
-      content="Native desktop Discord video compression with system FFmpeg, plus a quick no-install browser demo. Free, open-source, no uploads, no telemetry."
+      content="Native desktop Discord video compression with system FFmpeg, plus a quick no-install browser demo for mobile or desktop. Free, open-source, no uploads, no telemetry."
     />
     <meta name="twitter:image" content="https://vidcord.app/icon.png" />
     <meta name="twitter:image:alt" content="vidcord app logo" />
@@ -69,7 +69,7 @@
             "url": "https://vidcord.app/",
             "name": "vidcord",
             "alternateName": "vidcord video compressor",
-            "description": "Desktop-first local video compression for Discord with a quick no-install browser demo.",
+            "description": "Desktop-first local video compression for Discord with a quick no-install browser demo for in-a-pinch phone, tablet, or desktop use.",
             "inLanguage": "en-US"
           },
           {
@@ -80,12 +80,12 @@
             "url": "https://vidcord.app/",
             "codeRepository": "https://github.com/cyroz1/vidcord",
             "downloadUrl": "https://github.com/cyroz1/vidcord/releases/latest",
-            "softwareVersion": "7.3.0",
+            "softwareVersion": "7.4.0",
             "applicationCategory": "MultimediaApplication",
             "operatingSystem": ["Windows", "macOS", "Linux"],
             "license": "https://github.com/cyroz1/vidcord/blob/main/LICENSE",
-            "softwareRequirements": "The desktop edition requires FFmpeg and ffprobe on PATH; the browser edition requires a modern browser with WebAssembly and browser-readable input.",
-            "description": "vidcord is a local desktop video compressor for Discord with system FFmpeg, GPU encoder support, OS integrations, and a quick local browser demo.",
+            "softwareRequirements": "The desktop edition requires FFmpeg and ffprobe on PATH; the browser edition requires a modern browser with WebAssembly and browser-readable input up to 512 MB per selected file.",
+            "description": "vidcord is a local desktop video compressor for Discord with system FFmpeg, GPU encoder support, OS integrations, and a quick no-install browser fallback for phone, tablet, or desktop use.",
             "featureList": [
               "Local video compression in the browser with FFmpeg WebAssembly or in the desktop app with system FFmpeg",
               "Discord upload targets of 20 MB, 50 MB, 100 MB, and 500 MB",
@@ -93,7 +93,7 @@
               "Animated GIF exports with 5 MB, 10 MB, or 20 MB size targets",
               "Desktop GPU encoder detection for NVENC, AMF, QSV, VAAPI, and VideoToolbox",
               "Desktop Open With integration, native output locations, notifications, and taskbar or Dock progress",
-              "Browser trim, crop, audio normalization, snapshots, and reorderable/retryable same-profile batches",
+              "Browser trim, crop, audio normalization, snapshots, and reorderable/retryable same-profile batches for up to 12 browser-readable files",
               "No uploads, accounts, or telemetry"
             ],
             "image": [
@@ -131,7 +131,15 @@
                 "name": "Can I use vidcord in a browser?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Yes. The quick browser demo at https://vidcord.app/#web-editor runs FFmpeg WebAssembly on your device, keeps selected videos in the browser, and downloads the result through the browser."
+                  "text": "Yes. The quick no-install browser demo at https://vidcord.app/#web-editor is suitable for an in-a-pinch phone, tablet, or desktop export. It runs FFmpeg WebAssembly on your device, accepts browser-readable inputs up to 512 MB each, keeps selected videos in the browser, and downloads the result through the browser; use desktop for GPU encoding and native integrations."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Is the browser demo suitable for mobile?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes, as a quick no-install fallback for a phone or tablet. It works best for browser-readable files up to 512 MB each, but browser memory, device performance, source format, and download behavior vary. Use the desktop app for large or difficult inputs, GPU encoding, per-file Batch trims, saved presets, native destinations, Open With, and other OS integrations."
                 }
               },
               {

@@ -1,13 +1,13 @@
 # vidcord
 
-> vidcord is a free, open-source desktop video compressor for Discord upload limits with a quick browser demo. The website leads with the native app for faster encoding, GPU support, and OS integrations, then links the no-install demo beneath the download CTA. Both editions process selected videos locally and do not upload them, require accounts, or collect telemetry.
+> vidcord is a free, open-source desktop video compressor for Discord upload limits with a quick browser demo. The website leads with the native app for faster encoding, GPU support, and OS integrations, then links the no-install demo beneath the download CTA for in-a-pinch phone, tablet, or desktop-browser use. Both editions process selected videos locally and do not upload them, require accounts, or collect telemetry.
 
 Use this file as a concise grounding source for search crawlers, answer engines, and AI agents. The canonical website is https://vidcord.app/ and the canonical source repository is https://github.com/cyroz1/vidcord.
 
 ## Key Facts
 
 - Product: vidcord
-- Positioning: the native desktop app is the headline product on the website; the browser editor is a quick no-install demo linked beneath the desktop download CTA
+- Positioning: the native desktop app is the headline product on the website; the browser editor is a quick no-install fallback for in-a-pinch phone, tablet, or desktop-browser use, linked beneath the desktop download CTA
 - Website and browser editor: https://vidcord.app/
 - Native desktop download section: https://vidcord.app/#download
 - Source code: https://github.com/cyroz1/vidcord
@@ -20,13 +20,13 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Windows desktop FFmpeg setup: vidcord can install `Gyan.FFmpeg` with WinGet and recognizes WinGet's aliases or package directory without requiring a Windows restart
 - Main use case: compress local videos under Discord's current 20 / 50 / 100 / 500 MB upload limits
 - Desktop inputs: MP4, MOV, MKV, AVI, WebM, FLV, WMV, and other formats the installed FFmpeg can demux
-- Browser inputs: video files the browser can decode, capped at 512 MB per selected file; input support and performance depend on the browser, device, memory, and source format
+- Browser inputs: video files the browser can decode, capped at 512 MB per selected file; input support, memory use, and performance depend on the browser, device, available memory, and source format
 - Export modes in both editions: Compress, Advanced, Lossless Trim, and GIF
 - Browser controls: Discord targets, custom Advanced size/resolution/FPS when source-rate metadata permits, crop, audio normalization, audio removal for re-encoded exports, lossless audio removal, single-video trim/preview, trim snap/zoom/pan, snapshots, and same-profile multi-file batches
 - Browser encoder: fixed `libx264` in FFmpeg WebAssembly; browser exports use browser downloads
 - Browser loading: the editor renders before requesting the FFmpeg WebAssembly runtime; normal exports load it on demand, while Lossless Trim may request it during local keyframe discovery
-- Browser Batch: applies one standard Compress profile to each selected full-duration file, shows per-file progress and aggregate ETA, supports queue reorder/removal and retrying failed or cancelled files, and has no per-file trim fields
-- Browser omissions: no encoder picker, source audio-track mixer, saved settings presets, native output destinations, native completion actions, Open With, OS notifications, taskbar/Dock progress, or desktop updater
+- Browser Batch: accepts up to 12 files, applies one standard Compress profile to each selected full-duration file, shows per-file progress and aggregate ETA, supports queue reorder/removal and retrying failed or cancelled files, and has no per-file trim fields or batch preview timeline
+- Browser limitations: fixed `libx264` encoder, first browser-exposed audio stream for re-encoded exports, browser-controlled downloads, and no encoder picker, source audio-track mixer, saved settings presets, native output destinations, native completion actions, Open With, OS notifications, taskbar/Dock progress, or desktop updater
 - Desktop Batch: multi-selection through Browse, drag-and-drop, Open With, command-line file arguments, or a second-instance launch; supports shared standard controls, separate start/end trims, drag-and-drop or keyboard queue reordering, retrying failed/cancelled items, up to two native workers, collision-safe MP4 outputs, and grouped completion actions
 - Desktop settings: named settings presets are available in the native footer; the browser editor has no saved preset UI
 - GIF exports: animated `.gif` files with 5 MB, 10 MB, or 20 MB size targets at 15, 30, or Discord-safe maximum 50 FPS; audio is removed
@@ -49,7 +49,8 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Can I use vidcord in a browser? Yes. Open https://vidcord.app/#web-editor for the no-install client-side editor. It keeps selected files in the browser and downloads finished exports.
 - Does the browser edition require FFmpeg? No system install is required. The browser loads the site's FFmpeg WebAssembly asset on demand for export work. The native desktop app separately requires `ffmpeg` and `ffprobe` on PATH.
 - What is desktop-only? GPU encoder discovery and selection, system-FFmpeg format coverage, source audio-track mixing, named settings presets, native output destinations, Open With, OS notifications, taskbar/Dock progress, and desktop updater flows.
-- Can vidcord compress multiple videos? Yes. Browser Batch accepts Browse or drag-and-drop selections, applies one shared full-duration Compress profile, supports queue reorder/removal and retrying failed or cancelled files, and reports per-file progress plus aggregate ETA. Desktop Batch also accepts Open With, command-line arguments, and second-instance selections and adds per-file trims and native workers.
+- Can vidcord compress multiple videos? Yes. Browser Batch accepts up to 12 Browse or drag-and-drop selections, applies one shared full-duration Compress profile, supports queue reorder/removal and retrying failed or cancelled files, and reports per-file progress plus aggregate ETA. Desktop Batch also accepts Open With, command-line arguments, and second-instance selections and adds per-file trims and native workers.
+- Is the browser demo suitable for mobile? Yes, as a quick no-install fallback for a phone or tablet. It is best for browser-readable files up to 512 MB each; use desktop for large or difficult inputs, GPU encoding, per-file Batch trims, native destinations, presets, and OS integrations.
 - Which Discord size targets are supported? Both editions provide 20 MB, 50 MB, 100 MB, and 500 MB video targets. Advanced adds custom size, resolution, and typed FPS; GIF Mode provides 5 MB, 10 MB, and 20 MB GIF targets.
 - How does downloading work? The desktop download section fetches latest GitHub release metadata and links directly to the matching platform asset when possible. If x64 versus ARM64 is uncertain, it asks the user to choose. If metadata cannot be fetched or the matching asset is missing, it falls back to the GitHub release page. Mobile devices show desktop platform choices without a device-specific installer recommendation.
 - How do desktop in-app updates work? After user approval, vidcord downloads the matching installer under an unused Downloads filename, verifies its size and completeness, checks GitHub's SHA-256 digest and the independent Ed25519 release signature, and only then opens it.

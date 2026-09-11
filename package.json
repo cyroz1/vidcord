@@ -1,7 +1,7 @@
 {
   "name": "vidcord",
   "private": true,
-  "version": "7.3.0",
+  "version": "7.4.0",
   "type": "module",
   "engines": {
     "node": "^20.19.0 || >=22.13.0"
@@ -45,6 +45,6 @@
     "prettier": "^3",
     "typescript": "^5",
     "vite": "^8.0.8",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.11"
   }
 }

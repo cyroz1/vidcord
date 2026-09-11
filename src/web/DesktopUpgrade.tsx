@@ -599,8 +599,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
                 </span>
               </a>
               <p className="web-demo-callout">
-                Don&apos;t need the full workflow, just want to compress a file quickly?{" "}
-                <a href="#web-editor">Try the web demo</a>
+                In a pinch, or on a phone or tablet? Use the no-install browser editor for a quick
+                local export. <a href="#web-editor">Try the web demo</a>
               </p>
             </div>
             <a
@@ -679,7 +679,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
               ]}
               width={1144}
               height={1668}
-              loading="eager"
+              loading="lazy"
               alt="vidcord desktop app with Compress mode, video preview, trim timeline, and Discord target controls"
               sizes="(max-width: 760px) calc(100vw - 36px), (max-width: 1040px) 560px, 500px"
             />
@@ -692,16 +692,18 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
       <section className="browser-section" id="browser" aria-labelledby="browser-title">
         <div className="browser-copy">
           <span className="eyebrow">Browser edition</span>
-          <h2 id="browser-title">Compress locally from a website.</h2>
+          <h2 id="browser-title">A quick no-install option, when you&apos;re in a pinch.</h2>
           <p>
-            Open the no-install editor when you need a quick export. Your selected files stay in the
-            browser while local FFmpeg WebAssembly handles the encode; finished videos and PNG frame
-            snapshots are downloaded by the browser.
+            Open it on a phone, tablet, or desktop browser for a local export without installing the
+            app. Your selected files stay in the browser while local FFmpeg WebAssembly handles the
+            encode; finished videos and PNG frame snapshots are downloaded by the browser. It works
+            best for browser-readable files up to 512 MB each, and speed depends on your browser,
+            device, available memory, and source format.
           </p>
         </div>
         <div className="browser-points">
           <div>
-            <strong>Included</strong>
+            <strong>What works here</strong>
             <span>
               Compress, Advanced, Lossless Trim, GIF, trim, crop, audio normalization, audio removal
               for re-encoded exports, lossless audio removal, FPS, trim snap/zoom/pan, snapshots,
@@ -709,11 +711,15 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
             </span>
           </div>
           <div>
-            <strong>Browser constraints</strong>
+            <strong>Know the limits</strong>
             <span>
-              Browser-readable inputs up to 512 MB each, a fixed libx264 WASM encoder, and browser
-              downloads; encoder selection, audio-track mixing, saved presets, native folders, GPU
-              encoder discovery, and Open With stay in the desktop app.
+              Inputs must be browser-readable and stay under 512 MB each. The encoder is fixed to
+              libx264, re-encoded exports use the first browser audio stream, Batch supports up to
+              12 full-duration files with one shared Compress profile, and downloads are controlled
+              by the browser. Lossless keyframe discovery is bounded to 60 seconds and 100,000
+              keyframes. GPU or encoder selection, audio-track mixing, saved presets, native folders
+              and completion actions, Open With, notifications, taskbar/Dock progress, and updater
+              controls stay in the desktop app.
             </span>
           </div>
         </div>
@@ -995,6 +1001,16 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
               locally. Files stay in your browser and exports go to browser downloads. It is a
               lighter alternative with a fixed WASM encoder and no desktop-only GPU, Open With,
               native folder, or OS notification integrations.
+            </p>
+          </article>
+          <article>
+            <h3>Is the browser demo suitable for mobile?</h3>
+            <p>
+              It is the quick no-install fallback for a phone or tablet when you need an export in a
+              pinch. It works best for browser-readable files up to 512 MB each, but browser memory,
+              device performance, source format, and download behavior vary. Use the desktop app for
+              large or difficult inputs, GPU encoding, per-file Batch trims, saved presets, native
+              destinations, Open With, and other OS integrations.
             </p>
           </article>
           <article>

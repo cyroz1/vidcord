@@ -134,6 +134,56 @@ describe("browser UI", () => {
     ]);
   });
 
+  it("provides an accessible compact mobile navigation", async () => {
+    await act(async () => {
+      root.render(<WebApp />);
+    });
+
+    const menu = container.querySelector<HTMLDetailsElement>(".web-mobile-navigation");
+    const menuButton = container.querySelector<HTMLElement>(
+      'summary[aria-label="Open navigation"]'
+    );
+    const mobileNav = container.querySelector<HTMLElement>(".web-mobile-nav");
+    expect(menu).not.toBeNull();
+    expect(menuButton).not.toBeNull();
+    expect(menu?.open).toBe(false);
+
+    await act(async () => {
+      menuButton?.click();
+    });
+    expect(menu?.open).toBe(true);
+    expect(mobileNav?.parentElement).toBe(menu);
+
+    const webDemoLink = mobileNav?.querySelector<HTMLAnchorElement>('a[href="#web-editor"]');
+    await act(async () => {
+      webDemoLink?.click();
+    });
+    expect(menu?.open).toBe(false);
+
+    await act(async () => {
+      menuButton?.click();
+    });
+    expect(menu?.open).toBe(true);
+
+    await act(async () => {
+      menuButton?.click();
+    });
+    expect(menu?.open).toBe(false);
+  });
+
+  it("keeps the full Lossless Trim label available to assistive technology", async () => {
+    await act(async () => {
+      root.render(<WebApp />);
+    });
+
+    const losslessTab = container.querySelector<HTMLButtonElement>(
+      ".web-mode-tabs button:nth-child(3)"
+    );
+    expect(losslessTab?.textContent?.trim()).toBe("Lossless TrimLossless");
+    expect(losslessTab?.querySelector(".web-mode-tab-full")?.textContent).toBe("Lossless Trim");
+    expect(losslessTab?.querySelector(".web-mode-tab-compact")?.textContent).toBe("Lossless");
+  });
+
   it("exposes browser timeline snap and zoom controls", async () => {
     const onRangeChange = vi.fn();
     const onSeek = vi.fn();

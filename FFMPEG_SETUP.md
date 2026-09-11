@@ -5,7 +5,14 @@ This guide is for the native desktop app. The browser editor at
 editor renders first and loads its fixed FFmpeg WebAssembly encoder on demand
 when export work starts. Lossless Trim may load it during local keyframe
 discovery. Selected files stay in the browser, and finished exports download
-through the browser. Browser input support depends on the browser's media decoder.
+through the browser. It is the quick no-install fallback for a phone, tablet, or
+desktop browser when you need an export in a pinch. Browser inputs must be
+readable by the browser and are limited to 512 MB per file; performance depends
+on the browser, device, available memory, and source format. The browser encoder
+is fixed to `libx264`, Browser Batch uses one full-duration Compress profile for
+up to 12 files, and the browser controls the download location. See the
+[README browser capability matrix](README.md#browser-and-desktop-capability-matrix)
+for the complete browser/desktop boundary.
 
 The desktop app requires FFmpeg to be installed and available on your system
 `PATH`. Follow the steps for your platform below.
