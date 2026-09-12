@@ -6,7 +6,9 @@ import "./index.css";
 
 const systemDarkMode = window.matchMedia("(prefers-color-scheme: dark)");
 const isTauri = "__TAURI_INTERNALS__" in window;
-const RootApp = lazy(() => (isTauri ? import("./App") : import("./web/WebApp")));
+const NativeApp = lazy(() => import("./App"));
+const BrowserApp = lazy(() => import("./web/WebApp"));
+const RootApp = isTauri ? NativeApp : BrowserApp;
 
 function applyNativeWindowTheme(): void {
   if (!isTauri) return;
