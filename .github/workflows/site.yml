@@ -15,6 +15,7 @@ on:
       - "package-lock.json"
       - "scripts/check-assets.mjs"
       - "scripts/check-site-size.mjs"
+      - "scripts/check-site-generated.mjs"
       - "scripts/build-web-site.mjs"
       - "scripts/check-sitemap.mjs"
       - "scripts/check-site-structured-data.mjs"
@@ -34,6 +35,7 @@ on:
       - "package-lock.json"
       - "scripts/check-assets.mjs"
       - "scripts/check-site-size.mjs"
+      - "scripts/check-site-generated.mjs"
       - "scripts/build-web-site.mjs"
       - "scripts/check-sitemap.mjs"
       - "scripts/check-site-structured-data.mjs"
@@ -66,7 +68,9 @@ jobs:
         run: npm run web:build
 
       - name: Check browser bundle is current
-        run: git diff --exit-code -- site
+        run: |
+          git diff --exit-code -- site ':(exclude)site/assets/ffmpeg-core-*.wasm.gz'
+          node scripts/check-site-generated.mjs
 
       - name: Validate site
         run: npm run site:check
