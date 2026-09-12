@@ -219,8 +219,10 @@ Site behavior and content:
 SEO and crawler/agent files:
 
 - `robots.txt` should allow normal web crawlers and AI agents, and point at `https://vidcord.app/sitemap.xml`.
-- `sitemap.xml` should include the root home page, `llms.txt`, and `llms-full.txt`.
-  Update each changed public URL's `lastmod` date when its page or grounding content changes.
+- `sitemap.xml` should include the home page and any other canonical HTML pages intended for search;
+  do not list the plain-text `llms.txt` or `llms-full.txt` agent grounding files as search pages.
+  Keep those files crawlable for agents and update each changed public URL's `lastmod` date when its
+  page changes.
 - `llms.txt` is the concise grounding file for AI agents.
 - `llms-full.txt` is the expanded grounding context. Keep it factual and aligned with the app and README; do not invent hosted compression, bundled FFmpeg, accounts, or telemetry.
 - `index.html` contains the source JSON-LD for `WebSite`, `SoftwareApplication`, and `FAQPage`,
