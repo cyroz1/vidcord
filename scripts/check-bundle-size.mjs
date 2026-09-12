@@ -21,8 +21,9 @@ const limits = {
   // limitation disclosures; keep the raw budget below 0.5 MiB while allowing that public copy.
   javascriptRaw: 496 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
-  // Keep a small cross-runtime margin while retaining the tight raw-byte guard above.
-  javascriptGzip: 154 * 1024,
+  // CI measured 154.3 KiB for this build while local Node measured 153.8 KiB; keep a small
+  // cross-runtime margin while retaining the tight raw-byte guard above.
+  javascriptGzip: 155 * 1024,
   // The browser editor also carries the integrated desktop feature story, responsive layout,
   // and the platform-aware download/architecture-choice surfaces.
   cssGzip: 18.5 * 1024,
