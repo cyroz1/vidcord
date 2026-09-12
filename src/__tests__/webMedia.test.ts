@@ -3,6 +3,7 @@ import {
   browserContainerLabel,
   estimateAverageBitrateKbps,
   estimateVideoBitrateKbps,
+  inferBrowserAudioMetadata,
   isBrowserFileSizeSupported,
   MAX_BROWSER_INPUT_BYTES,
   VIDEO_FILE_ACCEPT,
@@ -30,5 +31,27 @@ describe("browser media metadata helpers", () => {
     expect(VIDEO_FILE_ACCEPT).toContain(".ogv");
     expect(isBrowserFileSizeSupported({ size: MAX_BROWSER_INPUT_BYTES })).toBe(true);
     expect(isBrowserFileSizeSupported({ size: MAX_BROWSER_INPUT_BYTES + 1 })).toBe(false);
+  });
+
+  it("keeps audio enabled when mobile browsers expose an empty track list", () => {
+    expect(inferBrowserAudioMetadata({ audioTracks: { length: 0 } })).toEqual({
+      hasAudio: true,
+      audioTrackCount: undefined,
+    });
+    expect(inferBrowserAudioMetadata({ audioTracks: { length: 2 } })).toEqual({
+      hasAudio: true,
+      audioTrackCount: 2,
+    });
+  });
+
+  it("honors Firefox's explicit audio-presence flag", () => {
+    expect(inferBrowserAudioMetadata({ mozHasAudio: false })).toEqual({
+      hasAudio: false,
+      audioTrackCount: 0,
+    });
+    expect(inferBrowserAudioMetadata({ mozHasAudio: true })).toEqual({
+      hasAudio: true,
+      audioTrackCount: 1,
+    });
   });
 });

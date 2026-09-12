@@ -127,6 +127,42 @@ export function getPreviewUrl(file: File): string {
   return URL.createObjectURL(file);
 }
 
+type BrowserAudioTrackInfo = {
+  audioTracks?: { length: number };
+  mozHasAudio?: boolean;
+};
+
+export function inferBrowserAudioMetadata(
+  media: BrowserAudioTrackInfo
+): Pick<BrowserVideoMetadata, "hasAudio" | "audioTrackCount"> {
+  const reportedTrackCount = media.audioTracks?.length;
+  const hasReportedTrackCount =
+    typeof reportedTrackCount === "number" &&
+    Number.isInteger(reportedTrackCount) &&
+    reportedTrackCount >= 0;
+
+  // Firefox exposes an explicit audio-presence flag. Other browsers expose
+  // audioTracks inconsistently: mobile WebKit can return an empty list for a
+  // playable audio stream. Treat that empty list as unknown so audio remains
+  // enabled and FFmpeg can preserve its optional first audio stream.
+  if (typeof media.mozHasAudio === "boolean") {
+    return {
+      hasAudio: media.mozHasAudio,
+      audioTrackCount: hasReportedTrackCount
+        ? reportedTrackCount
+        : media.mozHasAudio
+          ? 1
+          : 0,
+    };
+  }
+
+  if (hasReportedTrackCount && reportedTrackCount > 0) {
+    return { hasAudio: true, audioTrackCount: reportedTrackCount };
+  }
+
+  return { hasAudio: true, audioTrackCount: undefined };
+}
+
 export async function readVideoMetadata(
   file: File,
   signal?: AbortSignal
@@ -142,10 +178,8 @@ export async function readVideoMetadata(
       >
     >((resolve, reject) => {
       const video = document.createElement("video");
-      const extendedVideo = video as HTMLVideoElement & {
-        audioTracks?: { length: number };
+      const extendedVideo = video as HTMLVideoElement & BrowserAudioTrackInfo & {
         frameRate?: number;
-        mozHasAudio?: boolean;
       };
       video.preload = "metadata";
       video.muted = true;
@@ -170,18 +204,7 @@ export async function readVideoMetadata(
           reject(new Error("The browser could not read this video's dimensions or duration."));
           return;
         }
-        const audioTrackCount =
-          extendedVideo.audioTracks &&
-          Number.isInteger(extendedVideo.audioTracks.length) &&
-          extendedVideo.audioTracks.length >= 0
-            ? extendedVideo.audioTracks.length
-            : undefined;
-        const hasAudio =
-          typeof extendedVideo.mozHasAudio === "boolean"
-            ? extendedVideo.mozHasAudio
-            : audioTrackCount === undefined
-              ? true
-              : audioTrackCount > 0;
+        const { hasAudio, audioTrackCount } = inferBrowserAudioMetadata(extendedVideo);
         const frameRate =
           typeof extendedVideo.frameRate === "number" &&
           Number.isFinite(extendedVideo.frameRate) &&
