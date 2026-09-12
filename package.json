@@ -1,7 +1,7 @@
 {
   "name": "vidcord",
   "private": true,
-  "version": "7.3.0",
+  "version": "7.4.0",
   "type": "module",
   "engines": {
     "node": "^20.19.0 || >=22.13.0"
@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "web:build": "node scripts/build-web-site.mjs",
     "bundle:check": "node scripts/check-bundle-size.mjs",
     "build-tools:check": "node scripts/check-build-tools.mjs",
     "typecheck": "tsc --noEmit",
@@ -16,12 +17,14 @@
     "format": "prettier --write src",
     "version:check": "node scripts/check-version.mjs",
     "assets:check": "node scripts/check-assets.mjs",
-    "site:check": "prettier --check site/index.html site/styles.css site/script.js site/site.webmanifest wrangler.jsonc && prettier --check --parser markdown site/llms.txt site/llms-full.txt && node --check site/script.js && node scripts/check-site-structured-data.mjs && node scripts/check-sitemap.mjs && node scripts/check-assets.mjs && node scripts/check-version.mjs",
+    "site:check": "prettier --check index.html site/index.html site/marketing.css site/site.webmanifest wrangler.jsonc && prettier --check --parser markdown site/llms.txt site/llms-full.txt && node scripts/check-site-structured-data.mjs && node scripts/check-sitemap.mjs && node scripts/check-assets.mjs && node scripts/check-site-size.mjs && node scripts/check-version.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "tauri": "tauri"
   },
   "dependencies": {
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2",
     "@tauri-apps/plugin-opener": "^2",
@@ -38,9 +41,10 @@
     "esbuild": "^0.28.0",
     "eslint": "^10.8.0",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "happy-dom": "^20.12.0",
     "prettier": "^3",
     "typescript": "^5",
     "vite": "^8.0.8",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.11"
   }
 }

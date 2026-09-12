@@ -3,6 +3,67 @@
 Release dates are taken from the corresponding repository release tags. The duplicate
 numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
+## v7.4
+
+### Batch processing
+
+- Added drag-and-drop and keyboard arrow controls for setting the desktop Batch export order while
+  keeping per-file progress and results attached to the correct input.
+- Added per-item Retry actions plus a retry-all control for failed or cancelled items. Retrying a
+  subset leaves already completed outputs untouched.
+
+### Browser edition
+
+- Added a client-side browser editor at `/` beneath the desktop app headline and download CTA. It
+  processes selected videos locally with FFmpeg WebAssembly and exports through browser downloads,
+  with Compress, Advanced, Lossless Trim, GIF, trim, crop, audio controls, FPS controls,
+  snapshots, and same-profile batches. It is clearly positioned as a quick no-install fallback for
+  in-a-pinch phone, tablet, or desktop-browser use rather than a replacement for the native app.
+- Browser Batch mode applies one standard Compress profile to each full-duration file, reports
+  per-file progress and aggregate ETA, and supports queue reordering, removal, and retrying failed
+  or cancelled files without rerunning completed downloads. It keeps desktop-only encoder
+  selection, native output destinations, completion actions, saved presets, and file-manager
+  integrations out of the browser edition.
+- Fixed browser settings, mode, and queue changes so feedback from a previous export cannot remain
+  attached to a newly selected video or profile. Added browser Lossless Trim audio removal,
+  512 MB input bounds, trim snapping, zoom and pan controls, and aligned crop/scaling, FPS,
+  bitrate, GIF retry, and audio-error safeguards with the native export policy.
+- Changed GIF size presets in both editions to 5 MB, 10 MB, and 20 MB targets, with semantic
+  migration for existing saved settings and safe handling of legacy values.
+- Rebuilt the root page around the desktop app's original headline, followed by the browser demo,
+  feature tour, FFmpeg setup, FAQ, responsive screenshots, and platform-aware download section.
+- Updated product documentation, metadata, structured data, crawler files, and deployment notes to
+  document the browser/desktop capability boundary and local-only processing model, including the
+  browser's 512 MB-per-file input limit, 12-file Batch limit, browser-decoder and memory
+  constraints, fixed `libx264` encoder, browser download flow, and desktop-only capabilities.
+
+### Performance and UX
+
+- Isolated browser editor updates from the marketing page, added hosted-only resource hints for
+  the browser root and responsive hero image, enabled immutable caching for content-hashed assets,
+  and replaced the hosted favicon's full app logo with the existing 32px icon.
+- Deferred the browser FFmpeg/WebAssembly runtime until export work needs it, so the editor can
+  render before the large encoder assets are fetched. Lossless Trim loads the runtime when local
+  keyframe discovery is requested.
+- Fixed Windows completion-action reveals so File Explorer receives usable paths after canonical
+  path resolution instead of rejecting the `\\?\` extended-length prefix.
+- Reused one prepared input across audio analysis and adaptive size passes, reduced output-buffer
+  copying, read browser inputs directly through read-only worker mounts, cached metadata by file
+  identity, throttled progress updates, and stopped futile retries at the minimum viable bitrate.
+  GIF exports build their palette in a separate pass to avoid retaining the entire decoded clip.
+- Improved browser batch locking, cancellation reporting, silent-source audio controls, and preview
+  failure states so long-running exports remain responsive and explain partial results clearly.
+  Encoder downloads and metadata reads can be cancelled, failed batch items no longer stop the
+  remaining queue, and trim history stays locked during export. Fixed trim shortcuts, scroll
+  handling, stale export feedback, and Lossless Trim exports for unusual filenames.
+- Added a static critical marketing stylesheet link and prioritized the hero screenshot to reduce
+  first-paint layout movement. Added bundle and hosted-site size checks, gzip publication for the
+  browser WebAssembly asset, a desktop-only hero preload with mobile-friendly lazy loading, and
+  baseline security headers for the deployed site.
+- Hardened platform download selection to accept only expected GitHub release assets, require a
+  universal macOS build, and fall back cleanly when release metadata or architecture detection is
+  unavailable or an asset is missing. Mobile devices no longer select desktop installers.
+
 ## v7.3
 
 ### Batch Processing

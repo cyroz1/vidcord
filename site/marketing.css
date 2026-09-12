@@ -200,8 +200,20 @@ main {
   line-height: 1.68;
 }
 
+.hero-inline-link {
+  color: var(--accent-strong);
+  text-decoration: underline;
+  text-decoration-color: rgba(89, 181, 255, 0.5);
+  text-underline-offset: 3px;
+}
+
+.hero-inline-link:hover {
+  color: var(--text);
+}
+
 .hero-actions {
   display: flex;
+  align-items: flex-start;
   flex-wrap: wrap;
   gap: 14px;
   margin-top: 30px;
@@ -503,6 +515,7 @@ main {
 }
 
 .feature-band,
+.browser-section,
 .workflow-section,
 .detail-section,
 .integration-section,
@@ -516,6 +529,7 @@ main {
 }
 
 .workflow-section,
+.browser-section,
 .integration-section,
 .faq-section,
 .ffmpeg-section,
@@ -575,6 +589,72 @@ main {
 
 .feature-band p {
   margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.browser-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(300px, 0.95fr);
+  gap: 38px;
+  align-items: stretch;
+  margin-top: 28px;
+  padding-top: 42px;
+  padding-bottom: 42px;
+  border: 1px solid rgba(89, 181, 255, 0.28);
+  border-radius: var(--radius);
+  background: rgba(9, 30, 57, 0.76);
+}
+
+.eyebrow {
+  display: block;
+  margin-bottom: 12px;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.browser-copy h2 {
+  max-width: 540px;
+  margin: 0;
+  color: var(--text);
+  font-size: 34px;
+  font-weight: 810;
+  line-height: 1.1;
+}
+
+.browser-copy p {
+  max-width: 620px;
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+.browser-points {
+  display: grid;
+  align-content: center;
+  gap: 12px;
+}
+
+.browser-points div {
+  display: grid;
+  gap: 5px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(4, 19, 38, 0.54);
+}
+
+.browser-points strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.browser-points span {
   color: var(--muted);
   font-size: 14px;
   line-height: 1.5;
@@ -877,6 +957,28 @@ main {
   margin: 16px 0;
 }
 
+.ffmpeg-linux-commands {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.ffmpeg-linux-command {
+  display: grid;
+  gap: 5px;
+}
+
+.ffmpeg-linux-command > span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.ffmpeg-linux-command .command-block {
+  width: 100%;
+  margin: 0;
+}
+
 .download-section {
   padding-top: 54px;
   padding-bottom: 38px;
@@ -1162,6 +1264,10 @@ main {
     max-width: 560px;
   }
 
+  .browser-section {
+    grid-template-columns: 1fr;
+  }
+
   .feature-band,
   .workflow-grid,
   .faq-grid,
@@ -1218,6 +1324,7 @@ main {
 
   .hero,
   .feature-band,
+  .browser-section,
   .workflow-section,
   .detail-section,
   .integration-section,
@@ -1282,8 +1389,16 @@ main {
 
   .section-heading h2,
   .download-heading h2,
-  .detail-copy h2 {
+  .detail-copy h2,
+  .browser-copy h2 {
     font-size: 30px;
+  }
+
+  .browser-section {
+    gap: 26px;
+    margin-top: 18px;
+    padding-top: 30px;
+    padding-bottom: 30px;
   }
 
   .release-state {
@@ -1339,6 +1454,7 @@ main {
 
   .feature-band article,
   .workflow-grid article,
+  .browser-points div,
   .integration-panel,
   .faq-grid article,
   .ffmpeg-install-card,

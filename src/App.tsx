@@ -69,9 +69,13 @@ import {
   formatBatchVideoDetails,
   formatBatchCompletionSummary,
   groupOutputPathsByFolder,
+  isBatchItemRetryable,
+  moveBatchQueueItem,
   normalizeBatchTrimRange,
   normalizeVideoPaths,
+  reorderBatchQueueItem,
   type BatchQueueItem,
+  type BatchQueueMoveDirection,
   type VideoPathPlatform,
 } from "./batchProcessing";
 import {
@@ -97,6 +101,7 @@ import {
 } from "./videoMetadata";
 import { MAX_SETTINGS_PRESETS, type SettingsPreset } from "./settingsPresets";
 import { defaultAudioTrackIndices, normalizeAudioTrackIndices } from "./audioTracks";
+import { GIF_PRESETS } from "./gifPresets";
 import pkg from "../package.json";
 
 // EncodersDialog is only shown after an explicit user click from Advanced
@@ -169,10 +174,6 @@ const QUALITY_PRESETS_BY_INDEX = [
   QUALITY_PRESETS[3],
 ] as const;
 
-const GIF_PRESETS = [
-  { label: "20MB", size_mb: 20, target_h: 480 },
-  { label: "50MB", size_mb: 50, target_h: 720 },
-] as const;
 const GIF_FPS_OPTIONS = [15, 30, 50] as const;
 
 const RESOLUTION_OPTIONS = ["Native", "4K", "1440p", "1080p", "720p", "480p"];
@@ -467,7 +468,9 @@ export default function App() {
   const [losslessOfferTargetSize, setLosslessOfferTargetSize] = useState<number | null>(null);
   const skipLosslessOfferRef = useRef(false);
   const startCompressRef = useRef<() => Promise<void>>(async () => {});
-  const startBatchRef = useRef<() => Promise<void>>(async () => {});
+  const startBatchRef = useRef<(retryItemIds?: readonly number[]) => Promise<void>>(
+    async () => {}
+  );
   const batchCancelledRef = useRef(false);
   const singleModeBeforeBatchRef = useRef<{
     gifMode: boolean;
@@ -728,7 +731,7 @@ export default function App() {
         standardFpsValue === "off" ? "Keep source FPS" : `${standardFpsValue} fps`
       }`
     : gifMode
-      ? `GIF · up to ${selectedGifPreset.size_mb} MB · ${cropSummary} · ${gifFps} fps`
+      ? `GIF · up to ${selectedGifPreset.sizeMb} MB · ${cropSummary} · ${gifFps} fps`
       : losslessTrim
         ? "Original quality · keyframe-aligned trim"
         : advancedMode
@@ -745,7 +748,7 @@ export default function App() {
   const readyActionLabel = isBatchMode
     ? `Compress ${batchPaths.length} videos`
     : gifMode
-      ? `Create ${selectedGifPreset.size_mb} MB GIF`
+      ? `Create ${selectedGifPreset.sizeMb} MB GIF`
       : losslessTrim
         ? "Trim Without Re-encoding"
         : advancedMode && hasAdvancedTargetSize
@@ -1440,10 +1443,37 @@ export default function App() {
   const removeBatchItem = useCallback(
     async (itemId: number) => {
       if (loadingVideo || compressing || cancelling || finalizingOutput) return;
-      if (itemId < 0 || itemId >= batchPaths.length) return;
-      await loadSelection(batchPaths.filter((_, index) => index !== itemId));
+      if (!batchQueue.some((item) => item.id === itemId)) return;
+      await loadSelection(
+        batchQueue.filter((item) => item.id !== itemId).map((item) => item.inputPath)
+      );
     },
-    [batchPaths, cancelling, compressing, finalizingOutput, loadSelection, loadingVideo]
+    [batchQueue, cancelling, compressing, finalizingOutput, loadSelection, loadingVideo]
+  );
+
+  const updateBatchQueueOrder = useCallback((nextQueue: BatchQueueItem[]) => {
+    setBatchQueue(nextQueue);
+    setBatchPaths(nextQueue.map((item) => item.inputPath));
+  }, []);
+
+  const moveBatchItem = useCallback(
+    (itemId: number, direction: BatchQueueMoveDirection) => {
+      if (loadingVideo || compressing || cancelling || finalizingOutput) return;
+      const nextQueue = moveBatchQueueItem(batchQueue, itemId, direction);
+      if (nextQueue.every((item, index) => item.id === batchQueue[index]?.id)) return;
+      updateBatchQueueOrder(nextQueue);
+    },
+    [batchQueue, cancelling, compressing, finalizingOutput, loadingVideo, updateBatchQueueOrder]
+  );
+
+  const reorderBatchItem = useCallback(
+    (draggedItemId: number, targetItemId: number) => {
+      if (loadingVideo || compressing || cancelling || finalizingOutput) return;
+      const nextQueue = reorderBatchQueueItem(batchQueue, draggedItemId, targetItemId);
+      if (nextQueue.every((item, index) => item.id === batchQueue[index]?.id)) return;
+      updateBatchQueueOrder(nextQueue);
+    },
+    [batchQueue, cancelling, compressing, finalizingOutput, loadingVideo, updateBatchQueueOrder]
   );
 
   useEffect(() => {
@@ -1939,12 +1969,26 @@ export default function App() {
   }, [saveSettings, settingsLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Compression ---
-  const startBatch = useCallback(async () => {
+  const startBatch = useCallback(async (retryItemIds?: readonly number[]) => {
+    const retryIds = retryItemIds ? new Set(retryItemIds) : null;
+    const selectedItems = retryIds
+      ? batchQueue.filter((item) => retryIds.has(item.id) && isBatchItemRetryable(item.status))
+      : [...batchQueue];
+    if (selectedItems.length === 0) {
+      addToast(
+        "info",
+        retryIds ? "Nothing to Retry" : "Batch Not Ready",
+        retryIds
+          ? "There are no failed or cancelled items to retry."
+          : "Select at least two videos."
+      );
+      return;
+    }
+
     resetProgress();
     setCompressing(true);
     setLoadingVideo(true);
     batchCancelledRef.current = false;
-    const selectedPaths = [...batchPaths];
     const probeFailures = new Map<number, string>();
     const stagedOutputPaths: string[] = [];
     let publicationCancelled = false;
@@ -1963,6 +2007,7 @@ export default function App() {
       removeAudio: boolean;
       scaleFilter: string | null;
     }> = [];
+    const selectedIds = new Set(selectedItems.map((item) => item.id));
 
     try {
       if (ffmpegMissing) {
@@ -1970,13 +2015,28 @@ export default function App() {
         return;
       }
 
+      setBatchQueue((items) =>
+        items.map((item) =>
+          selectedIds.has(item.id)
+            ? {
+                ...item,
+                status: "queued",
+                progress: 0,
+                message: "Preparing…",
+                outputPath: undefined,
+              }
+            : item
+        )
+      );
+
       const preset = QUALITY_PRESETS_BY_INDEX[qualityIdx] ?? QUALITY_PRESETS_BY_INDEX[0];
       const encoderName = encoders[encoderIdx]?.name ?? "libx264";
       const requestedFps = FPS_OPTIONS.find((option) => option.value === fpsOption)?.fps ?? null;
 
-      for (let id = 0; id < selectedPaths.length; id += 1) {
+      for (const selectedItem of selectedItems) {
         if (batchCancelledRef.current) return;
-        const inputPath = selectedPaths[id];
+        const id = selectedItem.id;
+        const inputPath = selectedItem.inputPath;
         let data = batchProbeDataRef.current.get(id);
         if (!data) {
           setBatchQueue((items) =>
@@ -2218,7 +2278,9 @@ export default function App() {
       let successCount = 0;
       let failedCount = 0;
       let cancelledCount = 0;
-      for (const [id, inputPath] of selectedPaths.entries()) {
+      for (const selectedItem of selectedItems) {
+        const id = selectedItem.id;
+        const inputPath = selectedItem.inputPath;
         const existingItem = existingQueueById.get(id);
         const probedData = batchProbeDataRef.current.get(id);
         const item: BatchQueueItem = {
@@ -2307,7 +2369,7 @@ export default function App() {
         addToast("error", "Batch Failed", String(error));
         setBatchQueue((items) =>
           items.map((item) =>
-            item.status === "completed" || item.status === "failed"
+            !selectedIds.has(item.id)
               ? item
               : { ...item, status: "failed", progress: 100, message: String(error) }
           )
@@ -2321,7 +2383,6 @@ export default function App() {
     addToast,
     audioNormalize,
     batchQueue,
-    batchPaths,
     batchTrimEndSeconds,
     batchTrimStartSeconds,
     completeBatchOutputs,
@@ -2338,6 +2399,24 @@ export default function App() {
     resetProgress,
     setCompressing,
   ]);
+
+  const retryBatchItem = useCallback(
+    (itemId: number) => {
+      if (loadingVideo || compressing || cancelling || finalizingOutput) return;
+      const item = batchQueue.find((candidate) => candidate.id === itemId);
+      if (!item || !isBatchItemRetryable(item.status)) return;
+      void startBatchRef.current([itemId]);
+    },
+    [batchQueue, cancelling, compressing, finalizingOutput, loadingVideo]
+  );
+
+  const retryFailedBatchItems = useCallback(() => {
+    if (loadingVideo || compressing || cancelling || finalizingOutput) return;
+    const retryableIds = batchQueue
+      .filter((item) => isBatchItemRetryable(item.status))
+      .map((item) => item.id);
+    if (retryableIds.length > 0) void startBatchRef.current(retryableIds);
+  }, [batchQueue, cancelling, compressing, finalizingOutput, loadingVideo]);
 
   startBatchRef.current = startBatch;
 
@@ -2393,8 +2472,8 @@ export default function App() {
 
     if (gifMode) {
       const preset = GIF_PRESETS[gifQualityIdx] ?? GIF_PRESETS[0];
-      targetSize = preset.size_mb;
-      targetH = preset.target_h;
+      targetSize = preset.sizeMb;
+      targetH = preset.targetHeight;
       encoderName = "gif";
       outputFps = gifFps;
     } else if (losslessTrim) {
@@ -3595,11 +3674,14 @@ export default function App() {
                           onChange={(event) => {
                             const next = Number(event.target.value);
                             setGifQualityIdx(next);
-                            saveSettings({ gif_quality_index: next });
+                            saveSettings({
+                              gif_target_mb: GIF_PRESETS[next]?.sizeMb ?? GIF_PRESETS[0].sizeMb,
+                              gif_quality_index: undefined,
+                            });
                           }}
                         >
                           {GIF_PRESETS.map((preset, index) => (
-                            <option key={preset.size_mb} value={index}>
+                            <option key={preset.sizeMb} value={index}>
                               {preset.label}
                             </option>
                           ))}
@@ -4098,12 +4180,17 @@ export default function App() {
             <BatchQueue
               items={batchQueue}
               onRemoveItem={removeBatchItem}
-              removeDisabled={loadingVideo || compressing || cancelling || finalizingOutput}
+              onMoveItem={moveBatchItem}
+              onReorderItem={reorderBatchItem}
+              onRetryItem={retryBatchItem}
+              onRetryFailed={retryFailedBatchItems}
+              actionsDisabled={loadingVideo || compressing || cancelling || finalizingOutput}
             />
           ) : (
             <>
               {/* Preview and trim editor */}
               <PreviewPane
+                cropAspectRatio={losslessTrim ? "off" : cropAspectRatio}
                 ref={previewRef}
                 filePath={filePath}
                 sourceGeneration={fileLoadGeneration}

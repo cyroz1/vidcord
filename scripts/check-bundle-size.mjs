@@ -4,12 +4,29 @@ import zlib from "node:zlib";
 
 const assetDir = path.join("dist", "assets");
 const limits = {
-  // Advanced audio-track controls and the multi-file batch queue add compact
-  // user-gesture/event-driven export controls.
-  javascriptRaw: 275 * 1024,
-  javascriptGzip: 90 * 1024,
-  // The track popup and batch queue add compact list and status styles.
-  cssGzip: 8 * 1024,
+  // The browser edition adds the local FFmpeg WebAssembly loader and a separate
+  // export UI while keeping the desktop app in lazy chunks.
+  // The hosted editor mirrors the native trim controls, including editable time labels,
+  // history, loop playback, and the lossless-trim status affordance.
+  // The root page includes the complete desktop story below the browser editor,
+  // so its copy and comparison details are intentionally part of the hosted bundle.
+  // 7.4 adds browser GIF parity, semantic settings migration, and snap/zoom/pan trim controls;
+  // keep a small explicit allowance for those user-visible capabilities and the deferred
+  // browser-export module boundary.
+  // Abortable loading, read-only file mounts, separate GIF palette passes, and
+  // batch failure recovery add a small amount of code while bounding runtime memory/work.
+  // Reorderable queues and selective retry controls add a bounded amount of UI/runtime code
+  // to both the native and hosted batch workflows.
+  // The v7.4 hosted root also carries the explicit mobile/no-install positioning and browser
+  // limitation disclosures; keep the raw budget below 0.5 MiB while allowing that public copy.
+  javascriptRaw: 496 * 1024,
+  // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
+  // CI measured 154.3 KiB for this build while local Node measured 153.8 KiB; keep a small
+  // cross-runtime margin while retaining the tight raw-byte guard above.
+  javascriptGzip: 155 * 1024,
+  // The browser editor also carries the integrated desktop feature story, responsive layout,
+  // and the platform-aware download/architecture-choice surfaces.
+  cssGzip: 18.5 * 1024,
 };
 
 if (!fs.existsSync(assetDir)) {
@@ -19,6 +36,13 @@ if (!fs.existsSync(assetDir)) {
 const files = fs
   .readdirSync(assetDir)
   .filter((name) => name.endsWith(".js") || name.endsWith(".css"));
+
+const browserEntry = files.find((name) => /^WebApp-.*\.js$/.test(name));
+if (!browserEntry) throw new Error("the browser editor chunk is missing");
+const browserEntrySource = fs.readFileSync(path.join(assetDir, browserEntry), "utf8");
+if (/@ffmpeg\/|ffmpeg-core|\.wasm/.test(browserEntrySource)) {
+  throw new Error("the initial browser editor chunk contains deferred FFmpeg/WASM assets");
+}
 
 function totalSize(extension, gzip) {
   return files

@@ -30,8 +30,10 @@ pub struct Settings {
     pub quality_index: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gif_mode: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub gif_quality_index: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gif_target_mb: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gif_fps: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -76,6 +78,20 @@ pub struct Settings {
     pub update_last_check: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub update_dismissed_version: Option<String>,
+}
+
+impl Settings {
+    fn migrate_legacy_gif_target(mut self) -> Self {
+        if self.gif_target_mb.is_none() {
+            self.gif_target_mb = match self.gif_quality_index {
+                // Before 7.4 the two choices were 20 MB and 50 MB. The
+                // removed 50 MB choice is capped at the largest 7.4 target.
+                Some(0) | Some(1) => Some(20),
+                _ => None,
+            };
+        }
+        self
+    }
 }
 
 fn settings_path() -> &'static PathBuf {
@@ -161,7 +177,7 @@ impl SettingsManager {
             // Deserialize through the typed struct to silently drop unknown or
             // invalid keys, then re-serialize to plain JSON for the frontend.
             if let Ok(typed) = serde_json::from_str::<Settings>(&content) {
-                if let Ok(v) = serde_json::to_value(typed) {
+                if let Ok(v) = serde_json::to_value(typed.migrate_legacy_gif_target()) {
                     return v;
                 }
             }
@@ -195,7 +211,7 @@ impl SettingsManager {
     pub fn load_from(path: &std::path::Path) -> serde_json::Value {
         if let Ok(content) = std::fs::read_to_string(path) {
             if let Ok(typed) = serde_json::from_str::<Settings>(&content) {
-                if let Ok(v) = serde_json::to_value(typed) {
+                if let Ok(v) = serde_json::to_value(typed.migrate_legacy_gif_target()) {
                     return v;
                 }
             }
@@ -218,6 +234,7 @@ mod tests {
             "quality_index": 2,
             "gif_mode": true,
             "gif_quality_index": 1,
+            "gif_target_mb": 10,
             "gif_fps": 50,
             "advanced_mode": true,
             "lossless_mode": false,
@@ -255,7 +272,8 @@ mod tests {
 
         assert_eq!(loaded["quality_index"], 2);
         assert_eq!(loaded["gif_mode"], true);
-        assert_eq!(loaded["gif_quality_index"], 1);
+        assert_eq!(loaded["gif_target_mb"], 10);
+        assert!(loaded.get("gif_quality_index").is_none());
         assert_eq!(loaded["gif_fps"], 50);
         assert_eq!(loaded["advanced_mode"], true);
         assert_eq!(loaded["lossless_mode"], false);
@@ -278,6 +296,22 @@ mod tests {
         assert_eq!(loaded["encoder_capabilities"][1]["auto_selectable"], true);
         assert_eq!(loaded["presets"][0]["id"], "discord-mobile");
         assert_eq!(loaded["presets"][0]["settings"]["quality_index"], 1);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn legacy_gif_index_is_capped_to_the_new_largest_target() {
+        let dir =
+            std::env::temp_dir().join(format!("vidcord_test_gif_migration_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+
+        SettingsManager::save_to(&serde_json::json!({ "gif_quality_index": 1 }), &path).unwrap();
+        let loaded = SettingsManager::load_from(&path);
+
+        assert_eq!(loaded["gif_target_mb"], 20);
+        assert!(loaded.get("gif_quality_index").is_none());
 
         std::fs::remove_dir_all(&dir).ok();
     }

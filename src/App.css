@@ -584,6 +584,61 @@
   text-align: right;
 }
 
+.batch-queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.batch-queue-hint {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-queue-retry-all,
+.batch-queue-retry {
+  border: 1px solid color-mix(in srgb, var(--accent) 44%, var(--border));
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.batch-queue-retry-all {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 3px 7px;
+}
+
+.batch-queue-retry-all:hover:not(:disabled),
+.batch-queue-retry:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  border-color: var(--accent);
+}
+
+.batch-queue-retry-all:focus-visible,
+.batch-queue-retry:focus-visible,
+.batch-queue-move:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.batch-queue-retry-all:disabled,
+.batch-queue-retry:disabled,
+.batch-queue-move:disabled {
+  cursor: default;
+  opacity: 0.28;
+}
+
 .batch-queue-list {
   display: flex;
   flex-direction: column;
@@ -597,6 +652,7 @@
 }
 
 .batch-queue-item {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -605,6 +661,24 @@
   border: 1px solid transparent;
   border-radius: var(--radius-xs);
   background: var(--surface2);
+  transition:
+    border-color 0.15s,
+    background-color 0.15s,
+    opacity 0.15s;
+  cursor: grab;
+}
+
+.batch-queue-item:active {
+  cursor: grabbing;
+}
+
+.batch-queue-item.dragging {
+  opacity: 0.48;
+}
+
+.batch-queue-item.drag-over {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface2));
 }
 
 .batch-queue-item.encoding {
@@ -622,6 +696,16 @@
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   text-align: center;
+}
+
+.batch-queue-drag-handle {
+  flex: 0 0 12px;
+  margin-top: 1px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  letter-spacing: -3px;
+  line-height: 18px;
+  user-select: none;
 }
 
 .batch-queue-copy {
@@ -661,6 +745,10 @@
   color: #e9878c;
 }
 
+.batch-queue-item.cancelled .batch-queue-status {
+  color: color-mix(in srgb, var(--text-secondary) 78%, #e6b35f);
+}
+
 .batch-queue-progress {
   flex: 0 0 38px;
   margin-top: 2px;
@@ -668,6 +756,40 @@
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+.batch-queue-controls {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 2px;
+  margin-top: -1px;
+}
+
+.batch-queue-move {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 22px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.batch-queue-move:hover:not(:disabled) {
+  border-color: var(--border-subtle);
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.batch-queue-retry {
+  min-height: 22px;
+  padding: 2px 5px;
 }
 
 .batch-queue-remove {
