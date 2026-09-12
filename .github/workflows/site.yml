@@ -5,10 +5,17 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      - "index.html"
+      - "src/main.tsx"
+      - "src/web/**"
+      - "src/index.css"
+      - "vite.config.ts"
       - "wrangler.jsonc"
       - "package.json"
       - "package-lock.json"
       - "scripts/check-assets.mjs"
+      - "scripts/check-site-size.mjs"
+      - "scripts/build-web-site.mjs"
       - "scripts/check-sitemap.mjs"
       - "scripts/check-site-structured-data.mjs"
       - "scripts/check-version.mjs"
@@ -17,10 +24,17 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      - "index.html"
+      - "src/main.tsx"
+      - "src/web/**"
+      - "src/index.css"
+      - "vite.config.ts"
       - "wrangler.jsonc"
       - "package.json"
       - "package-lock.json"
       - "scripts/check-assets.mjs"
+      - "scripts/check-site-size.mjs"
+      - "scripts/build-web-site.mjs"
       - "scripts/check-sitemap.mjs"
       - "scripts/check-site-structured-data.mjs"
       - "scripts/check-version.mjs"
@@ -47,6 +61,12 @@ jobs:
 
       - name: Install locked npm dependencies
         run: npm ci --ignore-scripts --prefer-offline --no-audit --fund=false
+
+      - name: Build browser bundle
+        run: npm run web:build
+
+      - name: Check browser bundle is current
+        run: git diff --exit-code -- site
 
       - name: Validate site
         run: npm run site:check

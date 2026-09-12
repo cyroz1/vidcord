@@ -1,4 +1,13 @@
 # Keep the public agent grounding files crawlable for agents without treating them as search pages.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' blob: https://api.github.com https://img.shields.io
+
+# Generated asset names contain content hashes; new releases use new URLs.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
 /llms.txt
   X-Robots-Tag: noindex, follow
 

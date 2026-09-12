@@ -4,11 +4,11 @@ Guidance for AI assistants working in this repository. Read this before making c
 
 ## Project overview
 
-**vidcord** is a cross-platform desktop app that compresses video files under Discord's size limits. It is built with **Tauri 2** (Rust backend + React/TypeScript frontend) and shells out to the system **FFmpeg** binary for all video work. It does **not** bundle FFmpeg — the system `ffmpeg`/`ffprobe` must be on `PATH`.
+**vidcord** is a browser-first video compressor with an optional cross-platform desktop app for faster encoding and OS integrations. The desktop app is built with **Tauri 2** (Rust backend + React/TypeScript frontend) and shells out to the system **FFmpeg** binary for all native video work. It does **not** bundle system FFmpeg — the desktop app requires `ffmpeg`/`ffprobe` on `PATH`; the hosted browser edition uses its separate FFmpeg WebAssembly build instead.
 
 - **App version**: kept in sync across `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and any `vX.Y` references in source/docs (see "Bumping the version" below)
-- **Window**: fixed 460×690, user non-resizable/non-maximizable, opaque window background with macOS Tahoe "liquid glass" styling inside the app surface
-- **Supported OS/arch**: Windows (x86_64 + aarch64), macOS (universal), Linux (x86_64 + aarch64)
+- **Native window**: fixed 460×690, user non-resizable/non-maximizable, opaque window background with macOS Tahoe "liquid glass" styling inside the app surface
+- **Supported runtimes**: native desktop builds target Windows (x86_64 + aarch64), macOS (universal), and Linux (x86_64 + aarch64); the browser edition targets modern WebAssembly-capable browsers
 - **Node**: `^20.19.0 || >=22.13.0` (see `package.json` engines)
 - **Rust**: stable toolchain, edition 2021
 
@@ -23,6 +23,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   ├── ipc.ts                 # Typed wrappers around Tauri invoke() commands
 │   ├── main.tsx               # ReactDOM entry + native macOS title-bar theme sync
 │   ├── index.css              # Global CSS vars (--accent, --surface, --blur…)
+│   ├── web/                   # Browser editor, WebAssembly FFmpeg engine, and export helpers
 │   ├── ffmpegErrors.ts        # Shared FFmpeg-missing error detection/copy
 │   ├── previewScrub.ts        # Pure preview-seek and native-context-menu helpers
 │   ├── timelineZoom.ts        # Pure trim-timeline zoom/view calculations
@@ -67,16 +68,19 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   └── .cargo/audit.toml      # RUSTSEC ignore list for Tauri upstream advisories
 ├── public/
 │   └── icon.png               # Vite-served app logo
-├── site/                      # Static marketing/download website for vidcord.app
-│   ├── index.html             # Crawlable landing page, metadata, JSON-LD, app download UI
-│   ├── styles.css             # Dark blue responsive site styling
-│   ├── script.js              # Platform detection + latest GitHub release asset selection
+├── site/                      # Static deployment output for vidcord.app
+│   ├── index.html             # Generated browser editor entry point at the domain root
+│   ├── icon.png               # Generated browser editor app icon
+│   ├── assets/                # Generated browser JavaScript, CSS, and FFmpeg WebAssembly assets
+│   ├── marketing.css          # Shared desktop marketing story styling loaded by the root app
+│   ├── marketing-assets/      # Canonical logo and uncropped product / file-manager screenshots
+│   ├── site.webmanifest       # Root-site install manifest
 │   ├── robots.txt             # Allows search crawlers and AI agents
 │   ├── sitemap.xml            # Canonical sitemap for vidcord.app
 │   ├── llms.txt               # Short AI-agent grounding summary
 │   ├── llms-full.txt          # Expanded AI-agent grounding context
-│   ├── site.webmanifest       # Site/app manifest
-│   └── assets/                # Canonical logo and uncropped product / file-manager screenshots
+│   ├── _headers                # Static response headers for crawler grounding files
+│   └── _redirects              # Static redirects for historical entry-point aliases
 ├── wrangler.jsonc             # Cloudflare Worker static-assets deployment config
 ├── .github/workflows/build.yml# Multi-platform CI + release workflow
 ├── .github/workflows/site.yml # Site-only validation workflow
@@ -102,7 +106,7 @@ npm install
 npm run tauri dev          # starts Vite on :5173, launches the Tauri window
 ```
 
-FFmpeg must be on `PATH` for the app to probe videos or compress.
+System FFmpeg must be on `PATH` for the desktop app to probe videos or compress. The browser edition runs its fixed WebAssembly encoder in the page and does not use the host's FFmpeg installation.
 
 ### Quality gates
 
@@ -111,6 +115,7 @@ npm run lint               # eslint src
 npm run typecheck          # tsc --noEmit
 npm test                   # vitest run
 npm run build              # production frontend bundle
+npm run web:build          # build the hosted browser bundle into the site/ root
 npm run bundle:check       # enforce JS/CSS bundle-size budgets after build
 npm run version:check      # align package/locks/Tauri config/site version references
 npm run assets:check       # enforce canonical app/site asset organization
@@ -145,10 +150,45 @@ do not describe FFmpeg as bundled with vidcord.
 The public website lives in `site/` and deploys from GitHub when changes are pushed to `main`.
 Do not run Wrangler for normal site deploys.
 
+The hosted browser edition is built with `npm run web:build` and published at `/` from the generated
+site root. The home page is desktop-first: the native desktop app is the headline experience with
+its feature tour, setup notes, and download links, followed by the integrated browser demo for
+quick no-install exports. The build stages the browser output separately so it preserves the root
+crawler files and shared desktop marketing assets. The browser edition uses FFmpeg WebAssembly, keeps selected videos local,
+and downloads exports through the browser. It is intentionally a lighter alternative to the desktop
+app: browser input support and performance depend on the user's browser, encoding is fixed to
+`libx264` in WASM, browser Batch uses one shared full-duration Compress profile, and native folders,
+GPU encoder discovery, Open With, saved settings presets, native completion actions, OS
+notifications, taskbar or Dock progress, and desktop updater flows remain desktop-only. Keep the
+generated root entries in sync with the source browser code when publishing a browser change.
+
+The WebAssembly binary is larger than Cloudflare's 25 MiB per-file static-asset limit. `web:build`
+therefore publishes the generated `.wasm` as `.wasm.gz`, and `src/web/ffmpegEngine.ts` decompresses
+it in the browser before loading FFmpeg. Desktop builds keep the uncompressed asset and use it as a
+fallback. `npm run site:check` enforces the same per-file limit for future generated output.
+
+Browser encoder loads are abortable and bounded to two minutes. Each session mounts its input
+read-only with WORKERFS, keeps generated filenames independent of user filenames, and unmounts
+inputs and removes intermediate palettes on disposal. GIF palette generation and rendering use
+separate passes to avoid retaining a whole decoded clip. Keep session ownership across cancellation
+so stale cleanup cannot unlock or clear callbacks for a newer operation. Keyframe discovery is
+bounded to 60 seconds and 100,000 keyframes; metadata/keyframe caches use File identity and weak
+references so different selections with identical names, sizes, and timestamps never share data.
+Browser batch failures are isolated per file; cancellation aborts metadata work before another
+encoder can start. Trim controls and history remain locked for the whole export.
+
+Keep browser editor state in `WebEditor`, below the page shell and `DesktopUpgrade`, so playback
+and export progress do not re-render the marketing page. The page-wide drop handler is forwarded
+through a ref without lifting editor state into the shell.
+The hosted build uses Vite's manifest to preload only the browser root's static JS/CSS dependencies
+and its responsive hero image. Never traverse dynamic imports here: FFmpeg and the native app must
+remain deferred. Only content-hashed `/assets/` files receive immutable cache headers; HTML and
+unversioned marketing files must stay revalidatable.
+
 - **Production domain**: `https://vidcord.app/`
 - **Workers.dev URL**: `https://vidcord-site.cyrz.workers.dev/`
 - **Cloudflare Worker name**: `vidcord-site`
-- **Legacy/manual deployment config**: `wrangler.jsonc` → `assets.directory = "./site"`,
+- **Deployment config**: `wrangler.jsonc` → `assets.directory = "./site"`,
   `workers_dev = true`
 - **Custom domain route**: `vidcord.app`
 - **Deployment trigger**: push the committed site changes to `origin/main`; the
@@ -156,19 +196,25 @@ Do not run Wrangler for normal site deploys.
 
 Site behavior and content:
 
-- `site/index.html` is static, crawlable HTML. Keep important product claims visible in HTML, not only in JavaScript.
-- `site/script.js` detects Windows/macOS/Linux, calls GitHub's latest-release API, and
+- The generated `site/index.html` carries the static title, canonical URL, social metadata, and
+  JSON-LD for `WebSite`, `SoftwareApplication`, and `FAQPage`. Keep important product claims
+  visible in HTML metadata/structured data as well as in the React-rendered page.
+- `src/web/DesktopUpgrade.tsx` detects Windows/macOS/Linux, calls GitHub's latest-release API, and
   links download buttons directly to matching binary assets when the platform and architecture are
   known. If x64 vs ARM64 cannot be determined with high confidence, prompt the user to choose an
   architecture; each architecture option should link directly to the matching latest-release
-  binary. It falls back to `https://github.com/cyroz1/vidcord/releases/latest` only when release
-  metadata cannot be fetched. It also fetches the aggregate release download count from Shields.io
+  binary. It falls back to `https://github.com/cyroz1/vidcord/releases/latest` when release
+  metadata cannot be fetched or the expected asset is missing. Mobile devices must not receive a
+  desktop installer recommendation. It also fetches the aggregate release download count from Shields.io
   with a bounded timeout and strict response validation; failure must leave the count unavailable
   without affecting download links.
-- The social/link embed image intentionally uses the logo: `https://vidcord.app/assets/icon.png` via `og:image` and `twitter:image`.
+- The root social/link embed image uses the app logo at `https://vidcord.app/icon.png` via
+  `og:image` and `twitter:image`.
 - Discord and other chat clients may cache old embeds. Use a temporary query string such as `https://vidcord.app/?v=2` when checking a changed preview image.
 - Product screenshots should not be cropped in CSS. Keep `width: 100%` and `height: auto` for screenshot images unless the user explicitly asks for a cropped composition.
-- The website documents local processing, FFmpeg as a required system dependency, Discord target sizes, Open With integration, and selectable output destinations (Downloads by default).
+- The root site documents browser-local WebAssembly processing and browser downloads alongside the
+  desktop app's system FFmpeg dependency, Discord target sizes, Open With integration, and
+  selectable native output destinations (Downloads by default).
 
 SEO and crawler/agent files:
 
@@ -179,7 +225,9 @@ SEO and crawler/agent files:
   page changes.
 - `llms.txt` is the concise grounding file for AI agents.
 - `llms-full.txt` is the expanded grounding context. Keep it factual and aligned with the app and README; do not invent hosted compression, bundled FFmpeg, accounts, or telemetry.
-- `index.html` contains JSON-LD for `WebSite`, `SoftwareApplication`, and `FAQPage`. If site facts change, update visible copy, JSON-LD, `llms.txt`, and `llms-full.txt` together.
+- `index.html` contains the source JSON-LD for `WebSite`, `SoftwareApplication`, and `FAQPage`,
+  and `site/index.html` is its generated deployment copy. If site facts change, update visible
+  copy, JSON-LD, `llms.txt`, and `llms-full.txt` together.
 
 Local website preview:
 
@@ -210,7 +258,8 @@ Post-deploy checks:
 
 ```sh
 curl -I https://vidcord.app/
-curl -I https://vidcord.app/assets/icon.png
+curl -I https://vidcord.app/icon.png
+curl -I https://vidcord.app/marketing-assets/window.png
 curl -L https://vidcord.app/robots.txt
 curl -L https://vidcord.app/sitemap.xml
 curl -L https://vidcord.app/llms.txt
@@ -223,9 +272,16 @@ For browser QA, use the in-app browser when available and check:
 - page title and canonical URL
 - no blank page or framework overlay
 - no relevant console warnings/errors
-- JSON-LD types are present
+- the desktop-first root page and browser editor load at `/`
+- JSON-LD types are present in the root document
 - FAQ and download sections render on desktop and mobile
 - screenshot aspect ratios remain uncropped
+
+For browser-edition QA, also open `/`, select a local video, switch through each mode, and
+confirm the first export loads the local WebAssembly encoder, reports progress/ETA, and triggers a
+browser download. Confirm that the browser UI does not expose desktop-only encoder, native output,
+completion-action, or saved-preset controls. Do not describe the browser route as hosted/cloud
+compression: selected video files must not be uploaded.
 
 Site-only changes should not trigger the multi-platform app CI: `.github/workflows/build.yml` ignores `site/**`, `wrangler.jsonc`, the Site Checks workflow, and site-only validator scripts for `push` and `pull_request`.
 
@@ -416,7 +472,9 @@ ignores malformed or duplicate records on load. Presets capture compression and 
 including the selected encoder identity, but intentionally do not capture output destination,
 custom output folder, or completion action. The footer shows Autosave whenever the current captured
 settings no longer equal the selected preset; keep that comparison behavior when adding a new
-preset-backed setting.
+preset-backed setting. This is desktop-only: `src/web/webSettings.ts` persists the browser editor's
+current lightweight compression settings in browser storage but intentionally has no named preset
+controls or preset records.
 
 ### Native window theme
 
@@ -469,7 +527,7 @@ The app re-renders on every trim-slider move. Established patterns:
   and version references are aligned. This keeps application WIP commits isolated while allowing
   the GitHub-connected site deployment to continue from `main`.
 - **Run the relevant quality gates before every commit.** If Rust changed: `cargo fmt --check --manifest-path src-tauri/Cargo.toml`, `cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings`, `cargo test --manifest-path src-tauri/Cargo.toml`. If frontend changed: `npm run lint`, `npm run typecheck`, `npm test`. Fix failures before committing — never push and let CI catch it.
-- Document significant changes where future users and agents will look for them. Update `AGENTS.md` for workflow, architecture, release, or repository-practice changes; update `README.md` for public product behavior, install/setup, supported-platform, or development changes; and update the website (`site/index.html`, JSON-LD, `llms.txt`, `llms-full.txt`, and related site assets) when public-facing product facts or download behavior change.
+- Document significant changes where future users and agents will look for them. Update `AGENTS.md` for workflow, architecture, release, or repository-practice changes; update `README.md` for public product behavior, install/setup, supported-platform, or development changes; and update the root website (`index.html`, generated `site/index.html`, JSON-LD, `llms.txt`, `llms-full.txt`, and related site assets) when public-facing product facts or download behavior change.
 - Keep a WIP changelog in `CHANGELOG.md` for meaningful user-visible changes made after the latest release. Use the latest `vX.Y` tag as the baseline, keep notes concise and release-note-ready, and exclude pure refactors, tests, chores, internal-only work, and iterative refinements of an already-documented change within the current WIP version. Consolidate those iterations into the broader release note when appropriate.
 - Don't bump the version casually. A version bump implies a release; only do it when explicitly requested. Follow the "Bumping the version" steps below — partial bumps cause CI/release mismatches.
 - Add CHANGELOG entries under a new `## vX.Y` heading — the release workflow extracts that section as the GitHub release body.
@@ -533,4 +591,4 @@ separate Site Checks workflow.
 - Linux live `<video>` scrubbing and Play/Stop trim controls are deliberately disabled because WebKitGTK's GStreamer playback path can crash the renderer on systems without a usable audio sink. Keep the `get_os` guard and FFmpeg-generated filmstrip/frame fallback unless live playback is validated across the supported Linux desktop environments and AppImage packaging.
 - CSP also gates drive roots on Windows (`C:/**` … `Z:/**`). If a user reports a path refused by the asset protocol, check `assetProtocol.scope`.
 - EncodersDialog is `React.lazy` + `Suspense` — don't import it eagerly in `App.tsx`, that re-grows the entry bundle.
-- Tests run in a **Node** environment, and the Tauri runtime APIs are mocked in `src/__mocks__/@tauri-apps/api/*`. Write tests against pure helpers (`useCompression.ts`, `ffmpegErrors.ts`, `losslessTrim.ts`, `previewScrub.ts`, `settingsPresets.ts`, `timelineZoom.ts`, `videoMetadata.ts`) or as Rust unit tests. Component integration tests are not currently wired up; don't invent a jsdom setup unless asked.
+- Tests default to a **Node** environment, and the Tauri runtime APIs are mocked in `src/__mocks__/@tauri-apps/api/*`. Browser component tests opt into the existing **happy-dom** environment; mock metadata, encoder, and external download requests at their boundaries. Keep pure helpers in Node and native behavior in Rust unit tests; do not add another DOM test environment.

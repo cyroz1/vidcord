@@ -5,6 +5,11 @@ import {
   formatFrameRate,
   formatVideoDuration,
 } from "./videoMetadata";
+import type { QueueMoveDirection } from "./queueReordering";
+export {
+  moveQueueItem as moveBatchQueueItem,
+  reorderQueueItem as reorderBatchQueueItem,
+} from "./queueReordering";
 
 export const MIN_BATCH_CLIP_SECONDS = 1;
 
@@ -25,6 +30,12 @@ export type BatchQueueItem = {
   message?: string;
   outputPath?: string;
 };
+
+export type BatchQueueMoveDirection = QueueMoveDirection;
+
+export function isBatchItemRetryable(status: BatchItemStatus): boolean {
+  return status === "failed" || status === "cancelled";
+}
 
 export type VideoPathPlatform = "windows" | "macos" | "linux" | "unknown";
 

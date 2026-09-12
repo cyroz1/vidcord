@@ -1,5 +1,9 @@
 import fs from "node:fs";
 
+if (fs.existsSync("site/legacy")) {
+  throw new Error("site/legacy must not exist; the root site is the only public website route");
+}
+
 const html = fs.readFileSync("site/index.html", "utf8");
 const matches = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)];
 

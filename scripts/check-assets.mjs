@@ -23,16 +23,25 @@ for (const file of [
   "losslesstrim.png",
   "window.png",
 ]) {
-  if (!fs.existsSync(`site/assets/${file}`)) {
-    throw new Error(`Missing canonical site/assets/${file}`);
+  if (!fs.existsSync(`site/marketing-assets/${file}`)) {
+    throw new Error(`Missing canonical site/marketing-assets/${file}`);
   }
   if (fs.existsSync(`screenshots/${file}`)) {
     throw new Error(
-      `screenshots/${file} duplicates site/assets/${file}; use site/assets as canonical`
+      `screenshots/${file} duplicates site/marketing-assets/${file}; use site/marketing-assets as canonical`
     );
   }
 }
 
-expectSame("public/icon.png", "site/assets/icon.png");
+expectSame("public/icon.png", "site/marketing-assets/icon.png");
+expectSame("public/icon.png", "site/icon.png");
+
+// The hosted /assets/ directory is immutable-cached. Unversioned marketing
+// files belong in marketing-assets so updates cannot remain stale for a year.
+for (const name of fs.readdirSync("site/assets")) {
+  if (!/-[A-Za-z0-9_-]{8}\.(?:js|css|wasm(?:\.gz)?)$/.test(name)) {
+    throw new Error(`site/assets/${name} needs a content-hashed filename for immutable caching`);
+  }
+}
 
 console.log("asset organization ok");

@@ -1,9 +1,24 @@
-# FFmpeg Setup
+# FFmpeg Setup for the Native Desktop App
 
-vidcord requires FFmpeg to be installed and available on your system PATH. Follow the steps for your platform below.
+This guide is for the native desktop app. The browser editor at
+[vidcord.app](https://vidcord.app/) does not require a system FFmpeg install: the
+editor renders first and loads its fixed FFmpeg WebAssembly encoder on demand
+when export work starts. Lossless Trim may load it during local keyframe
+discovery. Selected files stay in the browser, and finished exports download
+through the browser. It is the quick no-install fallback for a phone, tablet, or
+desktop browser when you need an export in a pinch. Browser inputs must be
+readable by the browser and are limited to 512 MB per file; performance depends
+on the browser, device, available memory, and source format. The browser encoder
+is fixed to `libx264`, Browser Batch uses one full-duration Compress profile for
+up to 12 files, and the browser controls the download location. See the
+[README browser capability matrix](README.md#browser-and-desktop-capability-matrix)
+for the complete browser/desktop boundary.
 
-If FFmpeg is missing, vidcord can help install it without bundling FFmpeg
-binaries:
+The desktop app requires FFmpeg to be installed and available on your system
+`PATH`. Follow the steps for your platform below.
+
+If FFmpeg is missing, the desktop app can help install it without bundling
+FFmpeg binaries:
 
 - Windows: the installer and first launch can run `winget install Gyan.FFmpeg`
 - macOS: runs `brew install ffmpeg`
@@ -40,7 +55,7 @@ download the community build manually:
 3. Copy `ffmpeg.exe` and `ffprobe.exe` to a permanent folder, e.g. `C:\ffmpeg\`
 4. Add that folder to your PATH:
    - Open **Start** → search **"Edit the system environment variables"**
-   - Click **Environment Variables** → under *System variables*, select **Path** → **Edit**
+   - Click **Environment Variables** → under _System variables_, select **Path** → **Edit**
    - Click **New** and enter `C:\ffmpeg`
    - Click **OK** on all dialogs, then restart your PC
 
@@ -88,8 +103,12 @@ ffmpeg -version
 ffprobe -version
 ```
 
-vidcord requires both commands. If either one is missing, restart your shell or
-computer after the package manager updates PATH, then try again. On Windows,
-vidcord can also detect a standard `Gyan.FFmpeg` WinGet installation before that
-PATH update reaches other running programs. Once both commands work, launch
-vidcord normally and it will detect FFmpeg automatically.
+The desktop app requires both commands. If either one is missing, restart your
+shell or computer after the package manager updates `PATH`, then try again. On
+Windows, vidcord can also detect a standard `Gyan.FFmpeg` WinGet installation
+before that PATH update reaches other running programs. Once both commands
+work, launch the desktop app normally and it will detect FFmpeg automatically.
+
+If you only want the browser editor, return to
+[vidcord.app](https://vidcord.app/); do not install system FFmpeg just for the
+web workflow.

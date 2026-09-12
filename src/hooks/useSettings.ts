@@ -1,6 +1,13 @@
 import { startTransition, useEffect, useRef, useState, useCallback } from "react";
 import { loadSettings, saveSettings as persistSettings, type Settings } from "../ipc";
 import {
+  gifPresetIndexForTarget,
+  migrateLegacyGifQualityIndex,
+  normalizeGifTarget,
+  GIF_PRESETS,
+} from "../gifPresets";
+
+import {
   createSettingsPresetId,
   MAX_SETTINGS_PRESETS,
   normalizePresetName,
@@ -45,7 +52,21 @@ export function useSettings() {
   useEffect(() => {
     (async () => {
       const s = await loadSettings().catch((): Settings => ({}));
-      settingsRef.current = s;
+      const gifTargetMb = normalizeGifTarget(
+        s.gif_target_mb,
+        migrateLegacyGifQualityIndex(s.gif_quality_index) ?? 5
+      );
+      const migratedSettings = {
+        ...s,
+        gif_target_mb: gifTargetMb,
+        // The 7.4 schema is semantic. JSON serialization omits this undefined
+        // legacy field while the typed Rust loader still accepts old files.
+        gif_quality_index: undefined,
+      };
+      settingsRef.current = migratedSettings;
+      if (s.gif_target_mb !== gifTargetMb || s.gif_quality_index !== undefined) {
+        void persistSettings(migratedSettings).catch(() => {});
+      }
       const loadedPresets = parseSettingsPresets(s.presets);
       presetsRef.current = loadedPresets;
       const savedLosslessMode =
@@ -66,9 +87,7 @@ export function useSettings() {
           setQualityIdx(s.quality_index);
         }
         if (typeof s.gif_mode === "boolean") setGifMode(s.gif_mode);
-        if (s.gif_quality_index === 0 || s.gif_quality_index === 1) {
-          setGifQualityIdx(s.gif_quality_index);
-        }
+        setGifQualityIdx(gifPresetIndexForTarget(gifTargetMb));
         if (s.gif_fps === 15 || s.gif_fps === 30 || s.gif_fps === 50) {
           setGifFps(s.gif_fps);
         }
@@ -129,7 +148,7 @@ export function useSettings() {
     (encoderIndex = 0, encoderLabel = ""): PresetSettings => ({
       quality_index: qualityIdx,
       gif_mode: gifMode,
-      gif_quality_index: gifQualityIdx,
+      gif_target_mb: GIF_PRESETS[gifQualityIdx]?.sizeMb ?? GIF_PRESETS[0].sizeMb,
       gif_fps: gifFps,
       advanced_mode: advancedMode,
       lossless_mode: losslessMode,
@@ -170,7 +189,7 @@ export function useSettings() {
     const restored = normalizePresetSettings(value);
     setQualityIdx(restored.quality_index);
     setGifMode(restored.gif_mode);
-    setGifQualityIdx(restored.gif_quality_index);
+    setGifQualityIdx(gifPresetIndexForTarget(restored.gif_target_mb));
     setGifFps(restored.gif_fps);
     setAdvancedMode(restored.advanced_mode);
     setLosslessMode(restored.lossless_mode);

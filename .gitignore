@@ -4,6 +4,7 @@ dist/
 dist-ssr/
 .tsbuildinfo
 *.local
+/site/.browser-build/
 
 # Tauri / Rust Backend
 src-tauri/target/
