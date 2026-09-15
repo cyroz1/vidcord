@@ -2077,7 +2077,15 @@
 }
 
 .web-editor-column .web-preview-frame video {
+  /* Keep the normal web preview fitted to its fixed frame. The shared
+     crop rule is intentionally important for the native preview, so this
+     scoped rule owns the web editor's default media behavior. */
+  object-fit: contain !important;
   background: #000;
+}
+
+.web-editor-column .web-preview-frame .preview-crop-active > video {
+  object-fit: cover !important;
 }
 
 .web-preview-play-button {
