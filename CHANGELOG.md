@@ -3,6 +3,13 @@
 Release dates are taken from the corresponding repository release tags. The duplicate
 numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
+## v7.5
+
+### Windows
+
+- Improved FFmpeg discovery on Windows ARM64 by detecting a native build in `C:\ffmpeg` and
+  retrying encoder discovery when the initially resolved FFmpeg command fails.
+
 ## v7.4
 
 ### Batch processing

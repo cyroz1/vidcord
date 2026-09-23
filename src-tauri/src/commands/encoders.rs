@@ -5,14 +5,11 @@ use crate::ffmpeg::{
 use crate::gpu::spawn_captured_command;
 use crate::log::vidcord_log;
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "windows")]
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
-#[cfg(target_os = "windows")]
-use std::{
-    ffi::OsString,
-    path::{Path, PathBuf},
-};
 
 // Cached regex for the "show encoders" dialog — compiled once, reused on repeat calls.
 static LIST_ENCODER_RE: OnceLock<regex_lite::Regex> = OnceLock::new();
@@ -56,7 +53,8 @@ fn command_exists(cmd: &str) -> bool {
     )
 }
 
-fn ffmpeg_tool_probe(tool: &str) -> bool {
+fn ffmpeg_tool_probe(tool: impl AsRef<std::ffi::OsStr>) -> bool {
+    let tool = tool.as_ref();
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new(tool);
     cmd.arg("-version")
@@ -73,12 +71,18 @@ fn ffmpeg_tool_probe(tool: &str) -> bool {
     {
         Ok(Some(output)) => output.status.success(),
         Ok(None) => {
-            vidcord_log(&format!("FFmpeg tool probe timed out: {tool}"));
+            vidcord_log(&format!(
+                "FFmpeg tool probe timed out: {}",
+                tool.to_string_lossy()
+            ));
             false
         }
         Err(error) => {
             if error.kind() != std::io::ErrorKind::NotFound {
-                vidcord_log(&format!("FFmpeg tool probe failed for {tool}: {error}"));
+                vidcord_log(&format!(
+                    "FFmpeg tool probe failed for {}: {error}",
+                    tool.to_string_lossy()
+                ));
             }
             false
         }
@@ -149,6 +153,50 @@ fn find_winget_ffmpeg_bin(winget_roots: &[PathBuf]) -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "windows")]
+fn ffmpeg_tool_pair_available(directory: &Path) -> bool {
+    ffmpeg_tool_probe(directory.join("ffmpeg.exe"))
+        && ffmpeg_tool_probe(directory.join("ffprobe.exe"))
+}
+
+#[cfg(target_os = "windows")]
+fn find_windows_ffmpeg_bin() -> Option<PathBuf> {
+    let winget_roots = windows_winget_roots();
+    let mut manual_roots = Vec::new();
+    if let Some(system_drive) = std::env::var_os("SystemDrive") {
+        let mut drive_root = system_drive.to_string_lossy().into_owned();
+        if !drive_root.ends_with('\\') && !drive_root.ends_with('/') {
+            drive_root.push('\\');
+        }
+        manual_roots.push(PathBuf::from(format!("{drive_root}ffmpeg")));
+    }
+    // This is the documented location for the native Windows ARM64 build.
+    let documented_root = PathBuf::from(r"C:\ffmpeg");
+    if !manual_roots.iter().any(|root| root == &documented_root) {
+        manual_roots.push(documented_root);
+    }
+
+    let find_manual = || {
+        manual_roots.iter().find_map(|root| {
+            find_ffmpeg_bin_within(root, 3).filter(|bin| ffmpeg_tool_pair_available(bin))
+        })
+    };
+    let find_winget = || {
+        winget_roots
+            .iter()
+            .filter_map(|root| find_winget_ffmpeg_bin(std::slice::from_ref(root)))
+            .find(|bin| ffmpeg_tool_pair_available(bin))
+    };
+
+    // Prefer the manually installed location in ARM64 vidcord so a native
+    // build does not lose to an x64 package running through Windows emulation.
+    if cfg!(target_arch = "aarch64") {
+        find_manual().or_else(find_winget)
+    } else {
+        find_winget().or_else(find_manual)
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn windows_winget_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
@@ -171,24 +219,41 @@ fn windows_winget_roots() -> Vec<PathBuf> {
 
 #[cfg(target_os = "windows")]
 fn recover_windows_ffmpeg_path() -> bool {
-    let Some(bin) = find_winget_ffmpeg_bin(&windows_winget_roots()) else {
+    let Some(bin) = find_windows_ffmpeg_bin() else {
         return false;
     };
 
     let old_path = std::env::var_os("PATH").unwrap_or_default();
-    let already_present = std::env::split_paths(&old_path).any(|entry| {
+    let mut path_entries = std::env::split_paths(&old_path).collect::<Vec<_>>();
+    let already_first = path_entries.first().is_some_and(|entry| {
         entry
             .to_string_lossy()
             .eq_ignore_ascii_case(&bin.to_string_lossy())
     });
-    if !already_present {
-        let mut new_path = OsString::from(bin);
-        if !old_path.is_empty() {
-            new_path.push(";");
-            new_path.push(old_path);
+    if already_first {
+        return true;
+    }
+
+    path_entries.retain(|entry| {
+        !entry
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&bin.to_string_lossy())
+    });
+    path_entries.insert(0, bin.clone());
+    match std::env::join_paths(path_entries) {
+        Ok(new_path) => {
+            std::env::set_var("PATH", new_path);
+            vidcord_log(&format!(
+                "Recovered FFmpeg from a known install directory: {}",
+                bin.display()
+            ));
         }
-        std::env::set_var("PATH", new_path);
-        vidcord_log("Recovered FFmpeg from its WinGet installation directory.");
+        Err(error) => {
+            vidcord_log(&format!(
+                "Could not add the FFmpeg install directory to PATH: {error}"
+            ));
+            return false;
+        }
     }
     true
 }
@@ -276,11 +341,11 @@ pub async fn detect_encoders() -> Vec<serde_json::Value> {
         let detected = get_available_encoders();
 
         // WinGet updates the registry PATH but cannot update this running
-        // process. If normal discovery fails, recover its known package
-        // directory and retry so first-launch installation works without a
-        // reboot. A working custom FFmpeg earlier on PATH remains preferred.
+        // process. On ARM64, the native build is also commonly installed at
+        // C:\ffmpeg. If normal discovery fails, recover a known install
+        // directory and retry without requiring a reboot.
         #[cfg(target_os = "windows")]
-        let detected = if detected.ffmpeg_missing && recover_windows_ffmpeg_path() {
+        let detected = if detected.ffmpeg_discovery_failed && recover_windows_ffmpeg_path() {
             get_available_encoders()
         } else {
             detected
