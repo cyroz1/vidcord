@@ -18,12 +18,13 @@ const limits = {
   // Reorderable queues and selective retry controls add a bounded amount of UI/runtime code
   // to both the native and hosted batch workflows.
   // The v7.4 hosted root also carries the explicit mobile/no-install positioning and browser
-  // limitation disclosures; keep the raw budget below 0.5 MiB while allowing that public copy.
-  javascriptRaw: 496 * 1024,
+  // limitation disclosures. The deferred editor adds a small module-loader boundary, so keep
+  // the raw budget below 0.5 MiB while allowing that wrapper overhead.
+  javascriptRaw: 499 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
-  // CI measured 154.3 KiB for this build while local Node measured 153.8 KiB; keep a small
+  // The new lazy module boundary adds about 1 KiB of compressed wrapper overhead; keep a small
   // cross-runtime margin while retaining the tight raw-byte guard above.
-  javascriptGzip: 155 * 1024,
+  javascriptGzip: 156 * 1024,
   // The browser editor also carries the integrated desktop feature story, responsive layout,
   // and the platform-aware download/architecture-choice surfaces.
   cssGzip: 18.5 * 1024,
