@@ -110,7 +110,16 @@ jobs:
           # Keep this identical to the Linux build package set so its gated
           # x86_64 job restores the cache populated by these compile checks.
           packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
-          version: 1.0
+          version: 1.1
+
+      - name: Ensure GTK development dependencies are installed
+        run: |
+          if ! pkg-config --exists gdk-3.0; then
+            sudo apt-get update
+            sudo apt-get install --no-install-recommends -y \
+              libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+          fi
+          pkg-config --exists gdk-3.0
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
@@ -214,7 +223,7 @@ jobs:
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9
         with:
           packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
-          version: 1.0
+          version: 1.1
 
       - name: Set up Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
