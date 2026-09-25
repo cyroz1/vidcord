@@ -18,6 +18,12 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Improved FFmpeg discovery on Windows ARM64 by detecting a native build in `C:\ffmpeg` and
   retrying encoder discovery when the initially resolved FFmpeg command fails.
 
+### Browser
+
+- Fixed mobile browser exports silently dropping audio. Mobile WebKit can report an empty
+  audio track list for videos that do have playable audio; the browser edition now treats
+  that as unknown and keeps audio enabled so FFmpeg preserves it.
+
 ## v7.4
 
 ### Batch processing
