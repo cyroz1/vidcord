@@ -19,7 +19,9 @@ const limits = {
   // to both the native and hosted batch workflows.
   // The v7.5 hosted root also carries the explicit mobile/no-install positioning and browser
   // limitation disclosures; keep the raw budget below 0.5 MiB while allowing that public copy.
-  javascriptRaw: 496 * 1024,
+  // v7.5 also routes H.264/HEVC 4:2:2+ sources through the FFmpeg preview path on macOS
+  // (VideoToolbox corrupts those pixel formats instead of erroring); allow 1 KiB for it.
+  javascriptRaw: 497 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
   // CI measured 154.3 KiB for this build while local Node measured 153.8 KiB; keep a small
   // cross-runtime margin while retaining the tight raw-byte guard above.

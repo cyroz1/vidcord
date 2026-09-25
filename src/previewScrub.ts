@@ -35,14 +35,11 @@ export function shouldBypassNativePreview(
   pixFmt: string | null | undefined
 ): boolean {
   if (os !== "macos") return false;
-  const normalizedCodec = (codec ?? "").toLowerCase();
-  const videotoolboxBroken =
-    normalizedCodec === "h264" ||
-    normalizedCodec === "avc" ||
-    normalizedCodec === "hevc" ||
-    normalizedCodec === "h265";
-  if (!videotoolboxBroken) return false;
-  return /yuv4(22|44)/.test((pixFmt ?? "").toLowerCase());
+  const c = (codec ?? "").toLowerCase();
+  return (
+    (c === "h264" || c === "avc" || c === "hevc" || c === "h265") &&
+    /yuv4(22|44)/.test((pixFmt ?? "").toLowerCase())
+  );
 }
 
 export function shouldGenerateFilmstrip(
