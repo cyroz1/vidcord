@@ -13,6 +13,11 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   downconverts deep-color SDR sources to 8-bit, and tags normalized outputs as BT.709
   so players no longer interpret them as wide-gamut.
 
+### Windows
+
+- Improved FFmpeg discovery on Windows ARM64 by detecting a native build in `C:\ffmpeg` and
+  retrying encoder discovery when the initially resolved FFmpeg command fails.
+
 ## v7.4
 
 ### Batch processing

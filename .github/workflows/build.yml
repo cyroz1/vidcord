@@ -105,12 +105,20 @@ jobs:
           fetch-depth: 1
 
       - name: Install system dependencies
-        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9
-        with:
-          # Keep this identical to the Linux build package set so its gated
-          # x86_64 job restores the cache populated by these compile checks.
-          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
-          version: 1.0
+        run: |
+          packages=(libwebkit2gtk-4.1-dev libgtk-3-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils)
+          for attempt in 1 2 3; do
+            if sudo apt-get update -o Acquire::Retries=3 &&
+              sudo DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends -o Acquire::Retries=3 "${packages[@]}"; then
+              pkg-config --exists gdk-3.0
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            echo "APT installation failed; refreshing package lists and retrying ($attempt/3)."
+            sleep 5
+          done
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
@@ -211,10 +219,20 @@ jobs:
 
       - name: Install system dependencies (Linux)
         if: startsWith(matrix.platform, 'ubuntu')
-        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9
-        with:
-          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
-          version: 1.0
+        run: |
+          packages=(libwebkit2gtk-4.1-dev libgtk-3-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils)
+          for attempt in 1 2 3; do
+            if sudo apt-get update -o Acquire::Retries=3 &&
+              sudo DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends -o Acquire::Retries=3 "${packages[@]}"; then
+              pkg-config --exists gdk-3.0
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            echo "APT installation failed; refreshing package lists and retrying ($attempt/3)."
+            sleep 5
+          done
 
       - name: Set up Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38

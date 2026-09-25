@@ -676,10 +676,11 @@ Wrangler locally. The desktop-first product home and browser editor both publish
 
 **Desktop app says "FFmpeg not found" after installing it.**
 Use **Retry** in vidcord. On Windows, the app checks the standard WinGet
-aliases and `Gyan.FFmpeg` package directory directly. For other install methods,
-quit vidcord fully and relaunch it so the new `PATH` is loaded; if a newly
-opened terminal cannot run both `ffmpeg -version` and `ffprobe -version`, repair
-the install or its PATH entry using the [setup guide](FFMPEG_SETUP.md).
+aliases and `Gyan.FFmpeg` package directory directly. On ARM64, it also checks
+`C:\ffmpeg` for a native build. For other install methods, quit vidcord fully
+and relaunch it so the new `PATH` is loaded; if a newly opened terminal cannot
+run both `ffmpeg -version` and `ffprobe -version`, repair the install or its
+PATH entry using the [setup guide](FFMPEG_SETUP.md).
 
 **The output file exceeds the target size.**
 Both editions retry target-based exports automatically and report when the

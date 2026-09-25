@@ -78,6 +78,8 @@ pub struct AvailableEncoders {
     pub encoders: EncoderList,
     pub auto_selectable: HashSet<String>,
     pub ffmpeg_missing: bool,
+    #[cfg(target_os = "windows")]
+    pub ffmpeg_discovery_failed: bool,
     pub ffmpeg_freshly_probed: bool,
 }
 
@@ -104,7 +106,25 @@ fn discover_encoder_listing() -> Result<String, String> {
         .map_err(|error| format!("Failed while listing FFmpeg encoders: {error}"))?
         .ok_or_else(|| "FFmpeg encoder listing timed out.".to_string())?;
     if !output.status.success() {
-        return Err("FFmpeg could not list its video encoders.".to_string());
+        let status = output.status.code().map_or_else(
+            || "without an exit code".to_string(),
+            |code| format!("with exit code {code}"),
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let diagnostic = if stderr.trim().is_empty() {
+            String::from_utf8_lossy(&output.stdout)
+        } else {
+            stderr
+        };
+        let excerpt = diagnostic.chars().take(800).collect::<String>();
+        let detail = if excerpt.trim().is_empty() {
+            String::new()
+        } else {
+            format!("; output: {}", excerpt.trim())
+        };
+        return Err(format!(
+            "FFmpeg could not list its video encoders ({status}{detail})"
+        ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
@@ -145,6 +165,8 @@ fn fallback_available_encoders(ffmpeg_missing: bool) -> AvailableEncoders {
         encoders: fallback_encoder_list(),
         auto_selectable: HashSet::from(["libx264".to_string()]),
         ffmpeg_missing,
+        #[cfg(target_os = "windows")]
+        ffmpeg_discovery_failed: true,
         ffmpeg_freshly_probed: false,
     }
 }
@@ -236,6 +258,8 @@ pub fn get_available_encoders() -> AvailableEncoders {
                     encoders: cached.encoders.clone(),
                     auto_selectable: cached.auto_selectable.clone(),
                     ffmpeg_missing: false,
+                    #[cfg(target_os = "windows")]
+                    ffmpeg_discovery_failed: false,
                     ffmpeg_freshly_probed: false,
                 };
             }
@@ -358,6 +382,8 @@ pub fn get_available_encoders() -> AvailableEncoders {
         encoders: cached.encoders,
         auto_selectable: cached.auto_selectable,
         ffmpeg_missing: false,
+        #[cfg(target_os = "windows")]
+        ffmpeg_discovery_failed: false,
         ffmpeg_freshly_probed: true,
     }
 }

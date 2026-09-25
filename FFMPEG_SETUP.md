@@ -41,7 +41,8 @@ winget install Gyan.FFmpeg
 
 When the command finishes, return to vidcord and use **Retry**. vidcord also
 checks WinGet's FFmpeg installation directory directly, so a Windows restart
-should not be necessary.
+should not be necessary. On ARM64, vidcord also checks the documented
+`C:\ffmpeg` folder for a native build.
 
 > `winget` is built into Windows 10 (1809+) and Windows 11. If it's not available, [download winget here](https://aka.ms/getwinget).
 
@@ -58,6 +59,10 @@ download the community build manually:
    - Click **Environment Variables** → under _System variables_, select **Path** → **Edit**
    - Click **New** and enter `C:\ffmpeg`
    - Click **OK** on all dialogs, then restart your PC
+
+If you installed the binaries in `C:\ffmpeg`, return to vidcord and choose
+**Retry**; vidcord checks that folder directly. Adding it to PATH also makes
+FFmpeg available to other programs.
 
 ---
 
