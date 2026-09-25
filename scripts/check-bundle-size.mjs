@@ -17,7 +17,7 @@ const limits = {
   // batch failure recovery add a small amount of code while bounding runtime memory/work.
   // Reorderable queues and selective retry controls add a bounded amount of UI/runtime code
   // to both the native and hosted batch workflows.
-  // The v7.4 hosted root also carries the explicit mobile/no-install positioning and browser
+  // The v7.5 hosted root also carries the explicit mobile/no-install positioning and browser
   // limitation disclosures; keep the raw budget below 0.5 MiB while allowing that public copy.
   javascriptRaw: 496 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.

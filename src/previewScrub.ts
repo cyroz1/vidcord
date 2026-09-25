@@ -24,6 +24,27 @@ export function shouldShowDirectPreviewVideo(
   return supportsLiveScrubPreview && hasProbeData && scrubVideoReady && !playing;
 }
 
+// macOS decodes the native <video> preview through VideoToolbox, which cannot
+// decode H.264/HEVC 4:2:2 or 4:4:4. Instead of erroring it renders corrupt
+// frames (green macroblock garbage along the frame edge), so the
+// error-driven directPreviewFailed fallback never fires. Route those sources
+// through the FFmpeg frame/filmstrip/clip preview path instead, like Linux.
+export function shouldBypassNativePreview(
+  os: string | null,
+  codec: string | null | undefined,
+  pixFmt: string | null | undefined
+): boolean {
+  if (os !== "macos") return false;
+  const normalizedCodec = (codec ?? "").toLowerCase();
+  const videotoolboxBroken =
+    normalizedCodec === "h264" ||
+    normalizedCodec === "avc" ||
+    normalizedCodec === "hevc" ||
+    normalizedCodec === "h265";
+  if (!videotoolboxBroken) return false;
+  return /yuv4(22|44)/.test((pixFmt ?? "").toLowerCase());
+}
+
 export function shouldGenerateFilmstrip(
   isLinux: boolean,
   directPreviewFailed: boolean,

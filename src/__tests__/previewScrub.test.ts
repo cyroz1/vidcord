@@ -5,6 +5,7 @@ import {
   getFilmstripFrameBudget,
   getStoppedPlaybackTime,
   isFilmstripUseful,
+  shouldBypassNativePreview,
   shouldFetchReleasedScrubFrame,
   shouldFetchScrubFrame,
   shouldGenerateFilmstrip,
@@ -145,5 +146,42 @@ describe("getCompletedPlaybackTime", () => {
 
   it("preserves progress when a generated fallback clip ends before trim-out", () => {
     expect(getCompletedPlaybackTime(11.82, 20, false)).toBe(11.82);
+  });
+});
+
+describe("shouldBypassNativePreview", () => {
+  it("bypasses 10-bit 4:2:2 H.264 on macOS", () => {
+    expect(shouldBypassNativePreview("macos", "h264", "yuv422p10le")).toBe(true);
+  });
+
+  it("bypasses 8-bit 4:2:2 HEVC on macOS", () => {
+    expect(shouldBypassNativePreview("macos", "hevc", "yuv422p")).toBe(true);
+  });
+
+  it("bypasses 4:4:4 H.264 on macOS", () => {
+    expect(shouldBypassNativePreview("macos", "avc", "yuv444p10le")).toBe(true);
+  });
+
+  it("keeps native preview for 4:2:0 H.264 on macOS", () => {
+    expect(shouldBypassNativePreview("macos", "h264", "yuv420p")).toBe(false);
+  });
+
+  it("keeps native preview for 10-bit 4:2:0 HEVC on macOS", () => {
+    expect(shouldBypassNativePreview("macos", "hevc", "yuv420p10le")).toBe(false);
+  });
+
+  it("keeps native preview for ProRes 4:2:2 on macOS", () => {
+    expect(shouldBypassNativePreview("macos", "prores", "yuv422p10le")).toBe(false);
+  });
+
+  it("does not bypass on Windows or Linux", () => {
+    expect(shouldBypassNativePreview("windows", "h264", "yuv422p10le")).toBe(false);
+    expect(shouldBypassNativePreview("linux", "h264", "yuv422p10le")).toBe(false);
+  });
+
+  it("does not bypass when the OS or pixel format is unknown", () => {
+    expect(shouldBypassNativePreview(null, "h264", "yuv422p10le")).toBe(false);
+    expect(shouldBypassNativePreview("macos", "h264", null)).toBe(false);
+    expect(shouldBypassNativePreview("macos", null, "yuv422p10le")).toBe(false);
   });
 });

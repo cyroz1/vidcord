@@ -5,6 +5,14 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ## v7.5
 
+### Preview
+
+- Fixed the macOS preview showing corrupt green frames for 10-bit 4:2:2 H.264/HEVC
+  sources (e.g. Sony XAVC-S 10-bit). VideoToolbox cannot decode those pixel formats
+  and corrupts the picture instead of erroring, so the preview now detects them from
+  the probe and uses the FFmpeg-generated frame, filmstrip, and clip path instead of
+  the native video element.
+
 ### Color handling
 
 - Fixed 10-bit 4:2:2 and HDR sources compressing to oversaturated output. The desktop

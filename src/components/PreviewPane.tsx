@@ -24,9 +24,10 @@ import {
   getFilmstripFrameBudget,
   getStoppedPlaybackTime,
   isFilmstripUseful,
-  shouldGenerateFilmstrip,
+  shouldBypassNativePreview,
   shouldFetchReleasedScrubFrame,
   shouldFetchScrubFrame,
+  shouldGenerateFilmstrip,
   shouldShowDirectPreviewVideo,
 } from "../previewScrub";
 
@@ -238,6 +239,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // navigator.userAgent is unreliable (WebView2 can include "Linux"), so we ask
   // the backend for the actual OS.
   const [isLinux, setIsLinux] = useState(false);
+  const [osName, setOsName] = useState<string | null>(null);
   const [supportsLiveScrubPreview, setSupportsLiveScrubPreview] = useState(false);
   const [directPreviewFailed, setDirectPreviewFailed] = useState(false);
   const [initialPreviewSettled, setInitialPreviewSettled] = useState(false);
@@ -247,6 +249,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       .then((os) => {
         const linux = os === "linux";
         setIsLinux(linux);
+        setOsName(os);
         setSupportsLiveScrubPreview(!linux);
         supportsLiveScrubPreviewRef.current = !linux;
       })
@@ -254,8 +257,23 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         // Safe fallback: avoid a potentially unstable native video pipeline
         // and retain FFmpeg-backed previews if OS detection ever fails.
         setIsLinux(true);
+        setOsName("linux");
       });
   }, []);
+
+  // H.264/HEVC 4:2:2+ corrupts instead of erroring under VideoToolbox, so the
+  // error-driven fallback never fires for it. Treat those sources as having no
+  // usable native preview: every live-preview decision below uses the combined
+  // value, and playback goes straight to the FFmpeg-generated clip.
+  const bypassNativePreview = shouldBypassNativePreview(
+    osName,
+    probeData?.codec,
+    probeData?.pix_fmt
+  );
+  const livePreviewSupported = supportsLiveScrubPreview && !bypassNativePreview;
+  useEffect(() => {
+    supportsLiveScrubPreviewRef.current = livePreviewSupported;
+  }, [livePreviewSupported]);
   useEffect(() => {
     setDirectPreviewFailed(false);
     setInitialPreviewSettled(false);
@@ -461,7 +479,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   }, []);
 
   useEffect(() => {
-    if (!supportsLiveScrubPreview || !filePath || !probeData) {
+    if (!livePreviewSupported || !filePath || !probeData) {
       setScrubVideoReady(false);
       if ((!filePath || !probeData) && !playingRef.current) {
         scrubVideoSrcRef.current = null;
@@ -491,7 +509,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     vid.preload = "auto";
     vid.src = src;
     vid.load();
-  }, [buildPlaybackUrls, filePath, isScrubbing, playing, probeData, supportsLiveScrubPreview]);
+  }, [buildPlaybackUrls, filePath, isScrubbing, playing, probeData, livePreviewSupported]);
 
   const handleVideoReady = useCallback(
     (event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -513,7 +531,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   useEffect(() => {
     if (
-      !supportsLiveScrubPreview ||
+      !livePreviewSupported ||
       previewTime === null ||
       playing ||
       usingGeneratedClipRef.current
@@ -523,7 +541,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const dur = probeData?.duration ?? 0;
     const clamped = dur > 0 ? Math.max(0, Math.min(previewTime, dur)) : Math.max(0, previewTime);
     seekVideoElement(clamped);
-  }, [isScrubbing, playing, previewTime, probeData, seekVideoElement, supportsLiveScrubPreview]);
+  }, [isScrubbing, playing, previewTime, probeData, seekVideoElement, livePreviewSupported]);
 
   // ---------------------------------------------------------------------------
   // Filmstrip loading — fires once per file load, runs in the background
@@ -544,7 +562,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       // the URLs here would force every scrub update back onto exact frames.
       return;
     }
-    if (!shouldGenerateFilmstrip(isLinux, directPreviewFailed, initialPreviewSettled)) {
+    if (!shouldGenerateFilmstrip(isLinux, directPreviewFailed || bypassNativePreview, initialPreviewSettled)) {
       clearFilmstrip();
       return;
     }
@@ -580,6 +598,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   }, [
     clearFilmstrip,
     directPreviewFailed,
+    bypassNativePreview,
     filePath,
     initialPreviewSettled,
     isLinux,
@@ -680,7 +699,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       stopPlayback();
       return;
     }
-    if (supportsLiveScrubPreview && scrubVideoReady && !directPreviewFailed) {
+    if (livePreviewSupported && scrubVideoReady && !directPreviewFailed) {
       frameRequestIdRef.current += 1;
       queuedFrameRequestRef.current = null;
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -726,7 +745,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const fetchScrubFrame = shouldFetchScrubFrame(
       isScrubbing,
       hasUsefulFilmstrip,
-      supportsLiveScrubPreview,
+      livePreviewSupported,
       scrubVideoReady
     );
     if (isScrubbing && !fetchScrubFrame) {
@@ -775,8 +794,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     fetchFrame,
     probeData,
     directPreviewFailed,
+    bypassNativePreview,
     scrubVideoReady,
-    supportsLiveScrubPreview,
+    livePreviewSupported,
   ]);
 
   // ---------------------------------------------------------------------------
@@ -1046,7 +1066,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       vid.currentTime = usingGeneratedClipRef.current ? resumeClipOffset : resumeTime;
     };
 
-    if (directPreviewFailed) {
+    // Native preview is unusable for this source (or already failed), so skip
+    // the direct media element and go straight to the FFmpeg-generated clip.
+    if (directPreviewFailed || bypassNativePreview) {
       void playGeneratedClip();
       return;
     }
@@ -1069,6 +1091,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     clearEndBoundaryTimer,
     handlePlaybackBoundary,
     directPreviewFailed,
+    bypassNativePreview,
     getPreviewPixelSize,
   ]);
 
@@ -1110,7 +1133,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // ---------------------------------------------------------------------------
   const canPlay = !!filePath && !!probeData && endTime > startTime;
   const showDirectPreviewVideo = shouldShowDirectPreviewVideo(
-    supportsLiveScrubPreview,
+    livePreviewSupported,
     probeData !== null,
     scrubVideoReady,
     playing
@@ -1180,7 +1203,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
             setScrubVideoReady(false);
             if (
               filePath &&
-              supportsLiveScrubPreview &&
+              livePreviewSupported &&
               scrubVideoSrcRef.current !== null &&
               event.currentTarget.src === scrubVideoSrcRef.current &&
               !usingGeneratedClipRef.current
