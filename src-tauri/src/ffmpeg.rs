@@ -523,7 +523,7 @@ pub fn probe_video(
         "-print_format",
         "json",
         "-show_entries",
-        "format=duration,bit_rate:stream=index,codec_name,codec_type,width,height,avg_frame_rate,r_frame_rate,sample_aspect_ratio,display_aspect_ratio,bit_rate,channels,duration,size:stream_tags=title,name,language,handler_name:stream_side_data=rotation",
+        "format=duration,bit_rate:stream=index,codec_name,codec_type,width,height,avg_frame_rate,r_frame_rate,sample_aspect_ratio,display_aspect_ratio,bit_rate,channels,duration,size,pix_fmt,color_space,color_transfer,color_primaries:stream_tags=title,name,language,handler_name:stream_side_data=rotation",
         path,
     ]);
     configure_ffmpeg_command(&mut cmd);
@@ -689,6 +689,8 @@ pub fn probe_video(
         "frame_rate": frame_rate,
         "bitrate": bitrate,
         "codec": codec,
+        "pix_fmt": video["pix_fmt"].as_str(),
+        "color_transfer": video["color_transfer"].as_str(),
         "audio_tracks": audio_tracks
     }))
 }

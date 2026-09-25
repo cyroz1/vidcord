@@ -375,6 +375,8 @@ pub struct CompressOptions {
     pub scale_filter: Option<String>,
     pub source_width: Option<u32>,
     pub source_height: Option<u32>,
+    pub source_pix_fmt: Option<String>,
+    pub source_color_transfer: Option<String>,
     pub vaapi_device: Option<String>,
     pub gif_mode: bool,
     pub lossless_trim: bool,
@@ -691,8 +693,71 @@ fn format_fps_filter_value(fps: f64) -> String {
     value
 }
 
+/// Cached `ffmpeg -h filter=<name>` probes. Filters like `tonemap` and `zscale`
+/// are not guaranteed in every system FFmpeg build, so the compress pipeline
+/// never emits a filter the local binary does not have.
+fn ffmpeg_has_filter(name: &str) -> bool {
+    static FILTER_CACHE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
+    let cache = FILTER_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(hit) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(name) {
+        return *hit;
+    }
+    #[allow(unused_mut)]
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-hide_banner", "-h", &format!("filter={name}")]);
+    configure_ffmpeg_command(&mut cmd);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let available = crate::gpu::spawn_captured_command(&mut cmd)
+        .and_then(|child| child.wait_for_output(Duration::from_secs(10)))
+        .map(|output| output.is_some_and(|o| o.status.success()))
+        .unwrap_or(false);
+    cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(name.to_string(), available);
+    available
+}
+
+/// 10-bit and HDR sources must be normalized to 8-bit SDR BT.709 before the
+/// encoder sees them. Without this, wide-gamut or PQ/HLG values are compressed
+/// as-is and most players render the output oversaturated.
+fn color_normalization_filter(opts: &CompressOptions) -> Option<String> {
+    let pix_fmt = opts.source_pix_fmt.as_deref().unwrap_or("");
+    let deep_color = pix_fmt.contains("10") || pix_fmt.contains("12");
+    let hdr = matches!(
+        opts.source_color_transfer.as_deref(),
+        Some("smpte2084") | Some("arib-std-b67")
+    );
+    if !deep_color && !hdr {
+        return None;
+    }
+    if hdr {
+        if ffmpeg_has_filter("tonemap") && ffmpeg_has_filter("zscale") {
+            return Some(
+                "zscale=t=linear,tonemap=hable:desat=0,\
+                 zscale=t=bt709:m=bt709:p=bt709,format=yuv420p"
+                    .to_string(),
+            );
+        }
+        if ffmpeg_has_filter("tonemap") {
+            return Some("tonemap=hable:desat=0,format=yuv420p".to_string());
+        }
+        // No tonemap filter in this FFmpeg build: still downconvert to 8-bit
+        // so hardware encoders get clean SDR frames instead of raw HDR.
+    }
+    Some("format=yuv420p".to_string())
+}
+
 fn video_filter_for_encoder(opts: &CompressOptions, encoder: &str) -> Option<String> {
     let mut filters = Vec::new();
+    // Normalize color first so crop/scale/fps operate on SDR BT.709 frames.
+    if let Some(color) = color_normalization_filter(opts) {
+        filters.push(color);
+    }
     let has_crop = opts
         .crop_aspect_ratio
         .as_deref()
@@ -1383,6 +1448,18 @@ async fn run_ffmpeg_attempt(
         ]);
         if let Some(vf) = video_filter_for_encoder(opts, &attempt.encoder) {
             cmd_args.extend(["-vf".into(), vf]);
+        }
+        if color_normalization_filter(opts).is_some() {
+            // Frames were normalized to SDR BT.709 above; tag the stream so
+            // players do not interpret it as wide-gamut.
+            cmd_args.extend([
+                "-colorspace".into(),
+                "bt709".into(),
+                "-color_primaries".into(),
+                "bt709".into(),
+                "-color_trc".into(),
+                "bt709".into(),
+            ]);
         }
         cmd_args.extend(target_rate_control_args(
             &attempt.encoder,
@@ -3216,6 +3293,8 @@ mod tests {
             scale_filter: None,
             source_width: Some(1920),
             source_height: Some(1080),
+            source_pix_fmt: None,
+            source_color_transfer: None,
             vaapi_device: None,
             gif_mode: false,
             lossless_trim: false,
@@ -3284,6 +3363,45 @@ mod tests {
         assert_eq!(
             video_filter_for_encoder(&opts, "h264_vaapi"),
             Some("fps=24,format=nv12,hwupload,scale_vaapi=1280:720".into())
+        );
+    }
+
+    #[test]
+    fn test_color_normalization_skips_standard_8bit_sdr() {
+        let mut opts = retry_test_options("libx264", None);
+        opts.source_pix_fmt = Some("yuv420p".into());
+        opts.source_color_transfer = Some("bt709".into());
+
+        assert_eq!(color_normalization_filter(&opts), None);
+        assert_eq!(video_filter_for_encoder(&opts, "libx264"), None);
+    }
+
+    #[test]
+    fn test_color_normalization_downconverts_10bit_sdr() {
+        let mut opts = retry_test_options("libx264", None);
+        opts.source_pix_fmt = Some("yuv422p10le".into());
+        opts.source_color_transfer = Some("bt709".into());
+
+        assert_eq!(
+            color_normalization_filter(&opts),
+            Some("format=yuv420p".into())
+        );
+        assert_eq!(
+            video_filter_for_encoder(&opts, "libx264"),
+            Some("format=yuv420p".into())
+        );
+    }
+
+    #[test]
+    fn test_color_normalization_runs_before_crop_and_scale() {
+        let mut opts = retry_test_options("libx264", None);
+        opts.source_pix_fmt = Some("yuv422p10le".into());
+        opts.crop_aspect_ratio = Some("1:1".into());
+        opts.scale_filter = Some("scale=1280:720".into());
+
+        assert_eq!(
+            video_filter_for_encoder(&opts, "libx264"),
+            Some("format=yuv420p,crop=min(iw\\,ih):min(iw\\,ih),scale=1280:720".into())
         );
     }
 

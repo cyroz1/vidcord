@@ -3,6 +3,16 @@
 Release dates are taken from the corresponding repository release tags. The duplicate
 numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
+## v7.5
+
+### Color handling
+
+- Fixed 10-bit 4:2:2 and HDR sources compressing to oversaturated output. The desktop
+  app now probes each source's pixel format and color transfer, tonemaps HDR (PQ/HLG)
+  to SDR BT.709 with the system FFmpeg's `tonemap`/`zscale` filters when available,
+  downconverts deep-color SDR sources to 8-bit, and tags normalized outputs as BT.709
+  so players no longer interpret them as wide-gamut.
+
 ## v7.4
 
 ### Batch processing
