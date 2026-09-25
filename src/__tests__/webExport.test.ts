@@ -13,7 +13,7 @@ import {
   targetBitrateKbps,
   GIF_PRESETS,
 } from "../web/exportPlan";
-import { formatBrowserEta, progressFromMediaTime } from "../web/browserProgress";
+import { formatBrowserEta, progressFromMediaTime, progressInSegment } from "../web/browserProgress";
 import { exportBrowserFile } from "../web/webExporter";
 import { isAudioCompatibilityError } from "../web/webExporter";
 import type { BrowserFfmpegEngine } from "../web/ffmpegEngine";
@@ -51,6 +51,15 @@ describe("browser export planning", () => {
     expect(progressFromMediaTime(3_000_000, 30, 0.9)).toBeCloseTo(0.1);
     expect(progressFromMediaTime(0, 30, 0.25)).toBe(0);
     expect(progressFromMediaTime(Number.NaN, 30, 0.25)).toBe(0.25);
+  });
+
+  it("measures progress within the current export segment", () => {
+    expect(progressInSegment(0.5, 1 / 3, 2 / 3)).toBeCloseTo(0.5);
+    expect(progressInSegment(1 / 3, 1 / 3, 2 / 3)).toBe(0);
+    expect(progressInSegment(2 / 3, 1 / 3, 2 / 3)).toBe(1);
+    expect(progressInSegment(0.9, 1 / 3, 2 / 3)).toBe(1);
+    expect(progressInSegment(0.5, 0.5, 0.5)).toBe(0.5);
+    expect(progressInSegment(Number.NaN, 0, 1)).toBe(0);
   });
 
   it("calculates a target-aware bitrate with an audio allowance", () => {

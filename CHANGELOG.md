@@ -23,6 +23,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Fixed mobile browser exports silently dropping audio. Mobile WebKit can report an empty
   audio track list for videos that do have playable audio; the browser edition now treats
   that as unknown and keeps audio enabled so FFmpeg preserves it.
+- Made the browser export progress bar and ETA track the current pass instead of the whole
+  export, so both move smoothly within each pass instead of jumping at pass boundaries.
 
 ## v7.4
 

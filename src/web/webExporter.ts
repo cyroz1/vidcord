@@ -18,7 +18,18 @@ import { progressFromMediaTime } from "./browserProgress";
 import type { BrowserVideoMetadata } from "./webMedia";
 import type { BrowserMode, BrowserSettings } from "./webSettings";
 
-export type ExportProgressHandler = (progress: number, status: string) => void;
+export type ExportProgressSegment = {
+  /** Overall progress where the current operation starts (0-1). */
+  start: number;
+  /** Overall progress where the current operation ends (0-1). */
+  end: number;
+};
+
+export type ExportProgressHandler = (
+  progress: number,
+  status: string,
+  segment?: ExportProgressSegment
+) => void;
 
 export type BrowserExportResult = {
   blob: Blob;
@@ -68,7 +79,7 @@ function operationProgressHandler(
     const safeProgress = progressFromMediaTime(time, durationSeconds, progress);
     const monotonicProgress = Math.max(lastProgress, safeProgress);
     lastProgress = monotonicProgress;
-    onProgress?.(start + (end - start) * monotonicProgress, status);
+    onProgress?.(start + (end - start) * monotonicProgress, status, { start, end });
   };
 }
 
@@ -127,7 +138,7 @@ export async function exportBrowserFile({
         : engine.run(file, argsForInput, progressHandler, logHandler);
 
     if (mode === "lossless") {
-      onProgress?.(0, "Encoding lossless trim…");
+      onProgress?.(0, "Encoding lossless trim…", { start: 0, end: 1 });
       const bytes = await transcodeFile(
         (inputName) =>
           buildLosslessArgs(
@@ -140,7 +151,7 @@ export async function exportBrowserFile({
         encodedName,
         operationProgressHandler(onProgress, 0, 1, "Encoding lossless trim…", plan.selectedDuration)
       );
-      onProgress?.(1, "Finishing export…");
+      onProgress?.(1, "Finishing export…", { start: 0, end: 1 });
       return {
         blob: new Blob([bytes], { type: extensionMimeType(plan.outputExtension) }),
         fileName: baseName,
@@ -165,7 +176,7 @@ export async function exportBrowserFile({
     const encodingSpan = 1 - analysisEnd;
 
     if (shouldAnalyzeAudio) {
-      onProgress?.(0, "Analyzing audio peak…");
+      onProgress?.(0, "Analyzing audio peak…", { start: 0, end: analysisEnd });
       try {
         const analysisLog = await runFile(
           (inputName) => buildAudioPeakAnalysisArgs(inputName, plan),
@@ -185,7 +196,7 @@ export async function exportBrowserFile({
         // then retry without an audio filter if that fallback is unavailable.
         audioGainDb = null;
       }
-      onProgress?.(analysisEnd, "Preparing encoder…");
+      onProgress?.(analysisEnd, "Preparing encoder…", { start: analysisEnd, end: 1 });
     }
 
     for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
@@ -196,7 +207,7 @@ export async function exportBrowserFile({
       const attemptEnd = analysisEnd + (encodingSpan * (attempt + 1)) / maximumAttempts;
       const encodingStatus =
         mode === "gif" ? `Rendering GIF${attemptLabel}` : `Encoding${attemptLabel}`;
-      onProgress?.(attemptStart, encodingStatus);
+      onProgress?.(attemptStart, encodingStatus, { start: attemptStart, end: attemptEnd });
       const outputName = `${attempt}-${encodedName}`;
       let paletteName: string | undefined;
       let renderStart = attemptStart;
@@ -270,13 +281,19 @@ export async function exportBrowserFile({
 
           if (shouldAnalyzeAudio && audioCompatibilityFailure && !normalizationSkipped) {
             normalizationSkipped = true;
-            onProgress?.(attemptStart, "Audio normalization unavailable; retrying export…");
+            onProgress?.(attemptStart, "Audio normalization unavailable; retrying export…", {
+            start: attemptStart,
+            end: attemptEnd,
+          });
             continue;
           }
 
           if (canDropAudio && audioCompatibilityFailure && !audioRemovedForCompatibility) {
             audioRemovedForCompatibility = true;
-            onProgress?.(attemptStart, "Audio track unavailable; retrying video-only export…");
+            onProgress?.(attemptStart, "Audio track unavailable; retrying video-only export…", {
+            start: attemptStart,
+            end: attemptEnd,
+          });
             continue;
           }
 
@@ -284,10 +301,10 @@ export async function exportBrowserFile({
         }
       }
       lastBytes = bytes;
-      onProgress?.(attemptEnd, "Checking output size…");
+      onProgress?.(attemptEnd, "Checking output size…", { start: attemptStart, end: attemptEnd });
 
       if (isTargetMet(bytes.byteLength, plan.targetSizeMb)) {
-        onProgress?.(1, "Finishing export…");
+        onProgress?.(1, "Finishing export…", { start: 0, end: 1 });
         return {
           blob: new Blob([bytes], { type: extensionMimeType(plan.outputExtension) }),
           fileName: baseName,
@@ -305,7 +322,7 @@ export async function exportBrowserFile({
       }
     }
 
-    onProgress?.(1, "Finishing export…");
+    onProgress?.(1, "Finishing export…", { start: 0, end: 1 });
     return {
       blob: new Blob([lastBytes], { type: extensionMimeType(plan.outputExtension) }),
       fileName: baseName,
