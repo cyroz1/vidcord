@@ -77,7 +77,7 @@ Full-resolution PNG snapshots are available from the preview. The desktop snapsh
 
 ## Desktop integrations and reliability
 
-- Desktop preview: Windows and macOS support live video scrubbing and trim playback from the playhead. Linux uses FFmpeg-generated filmstrip and individual-frame previews because WebKitGTK live playback can crash the renderer on some systems.
+- Desktop preview: Windows and macOS support live video scrubbing and trim playback from the playhead, except macOS routes H.264/HEVC 4:2:2+ sources through an FFmpeg-generated clip (with audio) because VideoToolbox corrupts those pixel formats. Linux uses FFmpeg-generated filmstrip and individual-frame previews because WebKitGTK live playback can crash the renderer on some systems.
 - Desktop encoder behavior: vidcord detects CPU and GPU encoders exposed by FFmpeg, prefers a validated H.264 hardware encoder on first run, preserves saved choices including CPU, and falls back to CPU when hardware encoding fails. Supported families include NVENC, AMF, QSV, VAAPI, and VideoToolbox.
 - Desktop output: Downloads by default, the imported clip's folder, a remembered custom folder, or an Ask when done save prompt. Auto-named outputs are collision-safe and never replace an unrelated existing file.
 - Desktop progress: native compression progress and ETA include attempt, encoder, and bitrate details; the taskbar or Dock can mirror progress while the app is unfocused. The browser displays in-page progress and ETA.
@@ -163,6 +163,7 @@ Yes. vidcord is free and open-source under the MIT license.
 - [Changelog](https://github.com/cyroz1/vidcord/blob/main/CHANGELOG.md)
 - [Issue tracker](https://github.com/cyroz1/vidcord/issues)
 - [MIT license](https://github.com/cyroz1/vidcord/blob/main/LICENSE)
+- [GitHub Sponsors](https://github.com/sponsors/cyroz1): Support vidcord's development; linked from the desktop app footer heart icon and the website Support section.
 
 ## Agent usage notes
 

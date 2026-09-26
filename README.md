@@ -197,7 +197,8 @@ and retry oversized results with safer bitrates and CPU fallback.
   and hardware-accelerated preview clips where FFmpeg supports them.
 - **Desktop efficient preview fallback** — exact frame requests use display-sized, bounded
   in-memory output; cancelling a stale frame no longer interrupts a filmstrip that
-  is already being generated, and generated fallback clips omit unused audio.
+  is already being generated, and generated fallback clips carry AAC audio so the
+  preview plays sound.
 - **Desktop Linux preview fallback** — WebKitGTK live video scrubbing and trim playback are
   disabled for stability; FFmpeg-generated filmstrip and individual-frame previews
   remain available while scrubbing.
@@ -905,9 +906,9 @@ while offline.
 Issues and PRs are welcome. Before opening a PR:
 
 1. Run all quality gates above — CI is strict about clippy and formatting.
-2. Add a `## vX.Y` section at the top of [CHANGELOG.md](CHANGELOG.md) for
-   user-visible changes. The release workflow uses it as the GitHub release
-   body.
+2. Add entries under the `## WIP` section at the top of [CHANGELOG.md](CHANGELOG.md) for
+   user-visible changes (it becomes `## vX.Y` at release/tag time).
+   The release workflow uses it as the GitHub release body.
 3. **Don't bump version numbers casually.** `package.json`,
    `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` must stay in
    sync, and any bump triggers a release the next time a tag is pushed.
