@@ -567,12 +567,13 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 
 ## CI reference
 
-`.github/workflows/build.yml` has four jobs:
+`.github/workflows/build.yml` has five jobs:
 
 1. **frontend** (ubuntu-latest) — `npm ci`, audit (high), version and asset checks, lint, typecheck, test, build, and bundle-size budget; uploads `dist/` as an artifact for every platform matrix job to download.
 2. **rust-compile-checks** (ubuntu-22.04) — `cargo fmt --check`, `cargo audit`, `cargo clippy -D warnings`, and `cargo test`. Clippy and tests use the `ci` profile and explicit Linux x86_64 target, sharing the `rust-linux-ubuntu-22.04-v1` `Swatinem/rust-cache` key and compatible artifacts with the Linux x86_64 build job.
 3. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. Branch and pull-request runs compile every target with the `ci` profile but skip installer bundling. Tagged `v*` refs build release-profile installers; explicit manual runs build CI-profile installers for testing.
-4. **release** (ubuntu-latest, only on tags) — extracts the matching CHANGELOG section, downloads artifacts, creates a draft GitHub release.
+4. **sign-release-artifacts** (ubuntu-latest, only on tags) — verifies build provenance attestations and Ed25519-signs the installers; uploads the signed bundle.
+5. **publish-release** (ubuntu-latest, only on tags) — downloads the signed artifacts, extracts the matching CHANGELOG section, and creates a draft GitHub release.
 
 Concurrency groups branch pushes and pull-request synchronization events by head commit so the same
 revision is not built twice. Release tags and explicit manual packaging runs use isolated groups and
