@@ -1477,6 +1477,20 @@
   border-top: 1px solid rgba(139, 177, 222, 0.16);
 }
 
+.web-editor-slot {
+  scroll-margin-top: 24px;
+}
+
+.web-editor-loading {
+  display: grid;
+  min-height: min(780px, calc(100vh - 68px));
+  place-items: center;
+  padding: 24px;
+  border-top: 1px solid rgba(139, 177, 222, 0.16);
+  color: var(--web-muted);
+  text-align: center;
+}
+
 .web-hero-copy {
   width: 100%;
   max-width: 510px;
