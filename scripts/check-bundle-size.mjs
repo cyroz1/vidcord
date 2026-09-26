@@ -26,14 +26,17 @@ const limits = {
   // The preview play-button fix (generating spinner, re-entrancy guard, error toast)
   // adds a little more; allow 1 KiB for it.
   // The deferred editor adds a small lazy module-loader boundary; allow 1 KiB for that wrapper.
-  javascriptRaw: 499 * 1024,
+  // 7.5's editor also keeps its per-pass progress/ETA tracking and the Support section,
+  // and the generated preview clips now carry audio; allow 3 KiB for those 7.5-only additions.
+  javascriptRaw: 502 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
   // The new lazy module boundary adds about 1 KiB of compressed wrapper overhead; keep a small
   // cross-runtime margin while retaining the tight raw-byte guard above.
   // The donate footer link and website support section add a shared links module plus
   // small footer/section markup; allow 1 KiB for them.
   // The preview play-button fix adds a little more; allow 1 KiB for it.
-  javascriptGzip: 157 * 1024,
+  // 7.5's per-pass progress/ETA and preview-clip audio add a little more; allow 1 KiB for them.
+  javascriptGzip: 158 * 1024,
   // The browser editor also carries the integrated desktop feature story, responsive layout,
   // and the platform-aware download/architecture-choice surfaces.
   cssGzip: 18.5 * 1024,
