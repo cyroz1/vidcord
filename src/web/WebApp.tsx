@@ -60,6 +60,7 @@ import {
   type BrowserBatchItemStatus,
   type BrowserBatchQueueItem,
 } from "./webBatchQueue";
+import { getDonateLinks } from "../donate";
 import "./WebApp.css";
 
 type Notice = { type: "success" | "error" | "warning" | "info"; message: string };
@@ -1897,6 +1898,29 @@ function WebApp() {
           <WebEditor dropHandlerRef={dropHandlerRef} />
         </DesktopUpgrade>
       </main>
+
+      <section className="donate-section" aria-labelledby="donate-title">
+        <div>
+          <h2 id="donate-title">Support vidcord</h2>
+          <p>vidcord is free and open source. If it saves you time, consider sponsoring development.</p>
+        </div>
+        <div className="donate-actions">
+          {getDonateLinks().map((link) => (
+            <a
+              key={link.label}
+              className="button button-secondary"
+              href={link.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M8 14C4 10.5 2 8 2 5.8 2 3.8 3.6 2.4 5.4 2.4c1.2 0 2.2.7 2.6 1.8.4-1.1 1.4-1.8 2.6-1.8 1.8 0 3.4 1.4 3.4 3.4 0 2.2-2 4.7-6 8.2Z" />
+              </svg>
+              <span>{link.label}</span>
+            </a>
+          ))}
+        </div>
+      </section>
 
       <footer className="site-footer">
         <div>

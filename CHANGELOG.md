@@ -3,6 +3,16 @@
 Release dates are taken from the corresponding repository release tags. The duplicate
 numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
+## WIP
+
+- Added a donate link (heart icon) to the desktop app footer, opening the GitHub
+  Sponsors page in the browser, and a compact "Support vidcord" section on the website.
+  Donate URLs live in `src/donate.ts`.
+- Fixed the preview play button looking dead for sources that need an FFmpeg-generated
+  clip (e.g. 10-bit 4:2:2 on macOS): the button now shows a spinner while the clip is
+  being prepared, repeat presses are ignored while one is in flight, and a failed
+  transcode shows an error toast instead of silently doing nothing.
+
 ## v7.5
 
 ### Preview

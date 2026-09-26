@@ -2340,6 +2340,18 @@ select optgroup {
   transition: opacity 150ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
+/* Spinning indicator shown on the play button while a generated preview
+   clip is being transcoded, so the press gets instant visible feedback. */
+.preview-generating-spinner {
+  animation: preview-spin 0.9s linear infinite;
+}
+
+@keyframes preview-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .snapshot-button {
   opacity: 0;
   pointer-events: none;

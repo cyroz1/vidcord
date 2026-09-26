@@ -161,6 +161,9 @@ type Props = {
   // main thread on a wall-clock interval even while the video is paused.
   onTimeUpdate?: (timeSec: number | null) => void;
   onSnapshot?: (timeSec: number) => void;
+  // Called when generated-clip playback fails (e.g. the FFmpeg transcode
+  // errors) so the app can surface it instead of failing silently.
+  onPlaybackError?: (message: string) => void;
 };
 
 export type PreviewHandle = {
@@ -220,6 +223,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     probeData,
     onTimeUpdate,
     onSnapshot,
+    onPlaybackError,
   },
   ref
 ) {
@@ -230,6 +234,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   useEffect(() => {
     onTimeUpdateRef.current = onTimeUpdate;
   }, [onTimeUpdate]);
+  // Same pattern for the playback-error callback used inside startPlayback.
+  const onPlaybackErrorRef = useRef(onPlaybackError);
+  useEffect(() => {
+    onPlaybackErrorRef.current = onPlaybackError;
+  }, [onPlaybackError]);
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   // WebKitGTK on Linux initialises a GStreamer audio pipeline even for muted
   // video elements. When autoaudiosink is missing the pipeline returns a NULL
@@ -285,9 +294,16 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   }, [removeAudio]);
   const [loading, setLoading] = useState(false);
   const [playing, setPlaying] = useState(false);
+  // True while a generated preview clip is being transcoded. The play button
+  // shows a spinner in this state so a click always gets visible feedback —
+  // without it, the multi-second FFmpeg transcode looks like a dead button.
+  const [generatingPreview, setGeneratingPreview] = useState(false);
   const [scrubVideoReady, setScrubVideoReady] = useState(false);
   const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0);
   const playingRef = useRef(false);
+  // Guards concurrent generated-clip requests across startPlayback calls. A
+  // plain `let` inside startPlayback can't do this — every call gets its own.
+  const generatingClipRef = useRef(false);
 
   // --- Filmstrip state ---
   // Blob URLs for each pre-extracted filmstrip frame. Managed manually
@@ -855,6 +871,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     }
     playingRef.current = false;
     setPlaying(false);
+    // A stop can land while a clip is still transcoding (file change, new
+    // import). Clear the guard so the next play press starts fresh; the
+    // orphaned generation's finally block re-applies the same reset.
+    generatingClipRef.current = false;
+    setGeneratingPreview(false);
     onTimeUpdateRef.current?.(preservedTime);
   }, [clearEndBoundaryTimer, endTime, startTime]);
 
@@ -903,7 +924,6 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const sources = buildPlaybackUrls(filePath);
     if (sources.length === 0) return;
     let sourceIndex = 0;
-    let tryingGeneratedClip = false;
 
     // `timeupdate` drives UI position updates; a one-shot timer enforces the
     // trim out point more tightly than the media pipeline's low-frequency event.
@@ -944,8 +964,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     };
 
     const playGeneratedClip = async () => {
-      if (tryingGeneratedClip) return;
-      tryingGeneratedClip = true;
+      if (generatingClipRef.current) return;
+      generatingClipRef.current = true;
+      setGeneratingPreview(true);
       try {
         const fallbackStartTime = Math.max(startTime, Math.min(resumeTime, endTime));
         const fallbackEndTime = Math.min(
@@ -996,8 +1017,12 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         ensureStopTimer();
       } catch {
         if (playbackSessionRef.current === session) {
+          onPlaybackErrorRef.current?.("Couldn't prepare the preview clip.");
           stopPlayback();
         }
+      } finally {
+        generatingClipRef.current = false;
+        setGeneratingPreview(false);
       }
     };
 
@@ -1223,13 +1248,39 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
               type="button"
               className="preview-control-button"
               onClick={startPlayback}
-              title="Play trim segment"
-              aria-label="Play trim segment"
+              disabled={generatingPreview}
+              title={generatingPreview ? "Preparing preview…" : "Play trim segment"}
+              aria-label={generatingPreview ? "Preparing preview" : "Play trim segment"}
               style={overlayBtnStyle}
             >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <polygon points="5,3 17,10 5,17" fill="white" />
-              </svg>
+              {generatingPreview ? (
+                <svg
+                  className="preview-generating-spinner"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <circle
+                    cx="10"
+                    cy="10"
+                    r="7"
+                    stroke="rgba(255,255,255,0.25)"
+                    strokeWidth="2.5"
+                  />
+                  <path
+                    d="M17 10a7 7 0 0 0-7-7"
+                    stroke="white"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <polygon points="5,3 17,10 5,17" fill="white" />
+                </svg>
+              )}
             </button>
           ) : (
             <button
