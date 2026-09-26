@@ -25,9 +25,10 @@ const limits = {
   // small footer/section markup; allow 1 KiB for them.
   // The preview play-button fix (generating spinner, re-entrancy guard, error toast)
   // adds a little more; allow 1 KiB for it.
+  // The deferred editor adds a small lazy module-loader boundary; allow 1 KiB for that wrapper.
   javascriptRaw: 499 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
-  // CI measured 154.3 KiB for this build while local Node measured 153.8 KiB; keep a small
+  // The new lazy module boundary adds about 1 KiB of compressed wrapper overhead; keep a small
   // cross-runtime margin while retaining the tight raw-byte guard above.
   // The donate footer link and website support section add a shared links module plus
   // small footer/section markup; allow 1 KiB for them.
