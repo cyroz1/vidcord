@@ -1206,6 +1206,49 @@ main {
   font-size: 13px;
 }
 
+.donate-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 36px 24px;
+  border-top: 1px solid rgba(139, 177, 222, 0.14);
+}
+
+.donate-section h2 {
+  margin: 0 0 6px;
+  font-size: 22px;
+}
+
+.donate-section p {
+  margin: 0;
+  max-width: 52ch;
+  color: var(--subtle);
+  font-size: 14px;
+}
+
+.donate-actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.donate-actions .button {
+  min-height: 46px;
+  text-decoration: none;
+}
+
+.donate-actions .button svg {
+  width: 17px;
+  height: 17px;
+  margin-right: 8px;
+  fill: currentColor;
+  stroke: none;
+}
+
 .site-footer {
   display: flex;
   align-items: center;
@@ -1430,6 +1473,14 @@ main {
 
   .site-footer nav {
     margin-top: 20px;
+  }
+
+  .donate-section {
+    display: block;
+  }
+
+  .donate-actions {
+    margin-top: 18px;
   }
 }
 

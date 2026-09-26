@@ -3,6 +3,12 @@
 Release dates are taken from the corresponding repository release tags. The duplicate
 numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
+## WIP
+
+- Added a donate link (heart icon) to the desktop app footer, opening the GitHub
+  Sponsors page in the browser, and a compact "Support vidcord" section on the website.
+  Donate URLs live in `src/donate.ts`.
+
 ## v7.4
 
 ### Batch processing
