@@ -283,7 +283,7 @@ browser download. Confirm that the browser UI does not expose desktop-only encod
 completion-action, or saved-preset controls. Do not describe the browser route as hosted/cloud
 compression: selected video files must not be uploaded.
 
-Site-only changes should not trigger the multi-platform app CI: `.github/workflows/build.yml` ignores `site/**`, `wrangler.jsonc`, the Site Checks workflow, and site-only validator scripts for `push` and `pull_request`.
+Site-only changes should not trigger the multi-platform app CI: `.github/workflows/build.yml` runs on `push` and `pull_request` only when app source changes (`src/**`, `src-tauri/**`, `index.html`, `public/**`, packaging/config files, the build scripts it runs, and the workflow itself). Docs, site, and repo-metadata pushes skip it.
 
 ### Build profiles (src-tauri/Cargo.toml)
 
@@ -578,9 +578,10 @@ Concurrency groups branch pushes and pull-request synchronization events by head
 revision is not built twice. Release tags and explicit manual packaging runs use isolated groups and
 are never cancelled.
 
-The app workflow ignores `README.md`, `CHANGELOG.md`, `.gitignore`, `site/**`, `wrangler.jsonc`,
-the Site Checks workflow, and the site-only sitemap/structured-data validators. Site changes run the
-separate Site Checks workflow.
+The app workflow runs only when app source changes — `src/**`, `src-tauri/**`, `index.html`,
+`public/**`, packaging and config files, the validator scripts the build runs, and the workflow
+itself. Pushes that only touch docs, the site, or repo metadata do not trigger a platform build.
+Site changes run the separate Site Checks workflow.
 
 ## Known pitfalls
 

@@ -5,28 +5,44 @@ on:
     branches: [main, "[0-9]+.[0-9]+"]
     tags:
       - "v*"
-    paths-ignore:
-      - "README.md"
-      - "CHANGELOG.md"
-      - ".gitignore"
-      - "site/**"
-      - "scripts/check-sitemap.mjs"
-      - "scripts/check-site-structured-data.mjs"
-      - "scripts/check-site-size.mjs"
-      - "wrangler.jsonc"
-      - ".github/workflows/site.yml"
+    paths:
+      # App source only: the platform builds run when (and only when) these
+      # change. Docs, site, and repo-metadata pushes skip the build.
+      - "src/**"
+      - "src-tauri/**"
+      - "index.html"
+      - "public/**"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - "vitest.config.ts"
+      - "tsconfig.json"
+      - "eslint.config.js"
+      - "scripts/check-version.mjs"
+      - "scripts/check-assets.mjs"
+      - "scripts/check-bundle-size.mjs"
+      - "scripts/check-build-tools.mjs"
+      - ".github/workflows/build.yml"
   pull_request:
     branches: [main, "[0-9]+.[0-9]+"]
-    paths-ignore:
-      - "README.md"
-      - "CHANGELOG.md"
-      - ".gitignore"
-      - "site/**"
-      - "scripts/check-sitemap.mjs"
-      - "scripts/check-site-structured-data.mjs"
-      - "scripts/check-site-size.mjs"
-      - "wrangler.jsonc"
-      - ".github/workflows/site.yml"
+    paths:
+      # Same app-source filter as push: PRs that only touch docs, the site,
+      # or repo metadata do not need a full platform build.
+      - "src/**"
+      - "src-tauri/**"
+      - "index.html"
+      - "public/**"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - "vitest.config.ts"
+      - "tsconfig.json"
+      - "eslint.config.js"
+      - "scripts/check-version.mjs"
+      - "scripts/check-assets.mjs"
+      - "scripts/check-bundle-size.mjs"
+      - "scripts/check-build-tools.mjs"
+      - ".github/workflows/build.yml"
   workflow_dispatch:
 
 concurrency:
