@@ -4,7 +4,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 
 ## Project overview
 
-**vidcord** is a browser-first video compressor with an optional cross-platform desktop app for faster encoding and OS integrations. The desktop app is built with **Tauri 2** (Rust backend + React/TypeScript frontend) and shells out to the system **FFmpeg** binary for all native video work. It does **not** bundle system FFmpeg — the desktop app requires `ffmpeg`/`ffprobe` on `PATH`; the hosted browser edition uses its separate FFmpeg WebAssembly build instead.
+**vidcord** is a cross-platform desktop video compressor with a quick browser edition for no-install use. The desktop app is the headline product for faster encoding, GPU support, and OS integrations. The desktop app is built with **Tauri 2** (Rust backend + React/TypeScript frontend) and shells out to the system **FFmpeg** binary for all native video work. It does **not** bundle system FFmpeg — the desktop app requires `ffmpeg`/`ffprobe` on `PATH`; the hosted browser edition uses its separate FFmpeg WebAssembly build instead.
 
 - **App version**: kept in sync across `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and any `vX.Y` references in source/docs (see "Bumping the version" below)
 - **Native window**: fixed 460×690, user non-resizable/non-maximizable, opaque window background with macOS Tahoe "liquid glass" styling inside the app surface

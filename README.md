@@ -254,6 +254,9 @@ and retry oversized results with safer bitrates and CPU fallback.
 - **Desktop automated FFmpeg setup assistance** — Windows installers offer `winget`,
   and first launch prompts to install through the platform package manager.
   No FFmpeg binaries are bundled with vidcord.
+- **Support vidcord** — a heart icon in the desktop app footer and a Support section
+  on the website (with a matching top-nav link) point at
+  [GitHub Sponsors](https://github.com/sponsors/cyroz1).
 - **Cross-platform installers:** Windows NSIS (x86_64 + aarch64), macOS
   universal `.dmg`, Linux `.AppImage` (x86_64 + aarch64).
 
