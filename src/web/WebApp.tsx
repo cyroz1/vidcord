@@ -1900,7 +1900,7 @@ function WebApp() {
         </DesktopUpgrade>
       </main>
 
-      <section className="donate-section" aria-labelledby="donate-title">
+      <section className="donate-section" id="support" aria-labelledby="donate-title">
         <div>
           <h2 id="donate-title">Support vidcord</h2>
           <p>vidcord is free and open source. If it saves you time, consider sponsoring development.</p>
