@@ -1,8 +1,7 @@
 // Donation links shared by the desktop app footer and the website.
 // Update the URLs here; both surfaces read from this module.
 //
-// Primary: GitHub Sponsors for cyroz1. Enable Sponsors on the GitHub account
-// to make this link live; until then it 404s.
+// Primary: GitHub Sponsors for cyroz1.
 export const GITHUB_SPONSORS_URL = "https://github.com/sponsors/cyroz1";
 
 // Optional second slot (e.g. Ko-fi, Buy Me a Coffee). Leave the URL empty and
