@@ -3,6 +3,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mockIntersectionObserverAsVisible } from "./webTestUtils";
 
 const mocks = vi.hoisted(() => ({
   load: vi.fn(),
@@ -69,6 +70,7 @@ function ensureLocalStorage(): void {
 
 beforeEach(async () => {
   vi.resetAllMocks();
+  mockIntersectionObserverAsVisible();
   ensureLocalStorage();
   window.localStorage.clear();
   mocks.load.mockResolvedValue(undefined);
@@ -85,12 +87,16 @@ beforeEach(async () => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  await act(async () => root.render(<WebApp />));
+  await act(async () => {
+    root.render(<WebApp />);
+    await import("../web/WebEditor");
+  });
 });
 
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.unstubAllGlobals();
 });
 
 function file(name = "clip.mp4", content = "video") {

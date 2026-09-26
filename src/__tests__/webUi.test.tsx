@@ -3,6 +3,7 @@
 import { act, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
+import { mockIntersectionObserverAsVisible } from "./webTestUtils";
 
 vi.mock("../web/DesktopUpgrade", () => ({
   default: ({ children }: { children?: unknown }) => children,
@@ -18,6 +19,7 @@ let storageValues: Map<string, string>;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 beforeEach(() => {
+  mockIntersectionObserverAsVisible();
   storageValues = new Map();
   Object.defineProperty(window, "localStorage", {
     configurable: true,
@@ -37,7 +39,15 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   storageValues.clear();
+  vi.unstubAllGlobals();
 });
+
+async function renderWebApp(): Promise<void> {
+  await act(async () => {
+    root.render(<WebApp />);
+    await import("../web/WebEditor");
+  });
+}
 
 describe("browser UI", () => {
   it("locks trim history during exports and supports the advertised shortcuts", async () => {
@@ -113,9 +123,7 @@ describe("browser UI", () => {
     expect(zoom.defaultPrevented).toBe(true);
   });
   it("renders the shared GIF targets when GIF mode is selected", async () => {
-    await act(async () => {
-      root.render(<WebApp />);
-    });
+    await renderWebApp();
 
     const gifButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "GIF"
@@ -135,9 +143,7 @@ describe("browser UI", () => {
   });
 
   it("provides an accessible compact mobile navigation", async () => {
-    await act(async () => {
-      root.render(<WebApp />);
-    });
+    await renderWebApp();
 
     const menu = container.querySelector<HTMLDetailsElement>(".web-mobile-navigation");
     const menuButton = container.querySelector<HTMLElement>(
@@ -172,9 +178,7 @@ describe("browser UI", () => {
   });
 
   it("keeps the full Lossless Trim label available to assistive technology", async () => {
-    await act(async () => {
-      root.render(<WebApp />);
-    });
+    await renderWebApp();
 
     const losslessTab = container.querySelector<HTMLButtonElement>(
       ".web-mode-tabs button:nth-child(3)"
