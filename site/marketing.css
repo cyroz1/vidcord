@@ -533,7 +533,8 @@ main {
 .integration-section,
 .faq-section,
 .ffmpeg-section,
-.download-section {
+.download-section,
+.donate-section {
   scroll-margin-top: 84px;
 }
 

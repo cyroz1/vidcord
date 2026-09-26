@@ -278,6 +278,7 @@ const SITE_NAV_LINKS: readonly SiteNavLink[] = [
   { href: "#workflow", label: "How It Works" },
   { href: "#integrations", label: "Open With" },
   { href: "#faq", label: "FAQ" },
+  { href: "#support", label: "Support" },
   { href: "https://github.com/cyroz1/vidcord", label: "GitHub", external: true },
 ] as const;
 
