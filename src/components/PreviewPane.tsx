@@ -1005,12 +1005,22 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
           vid.currentTime = 0;
         };
         vid.src = clipUrl;
-        // The generated source arrives after the original click handler has
-        // returned. Keep this fallback muted: WebKit pauses media when audio is
-        // enabled without a fresh user gesture. Direct source playback still
-        // uses the requested audio state.
-        vid.muted = true;
-        await vid.play();
+        // The generated clip carries audio, but it arrives after the original
+        // click handler has returned, so WebKit may refuse unmuted playback
+        // without a fresh user gesture. Try with audio first; if the browser
+        // blocks or pauses it, fall back to muted instead of a stuck preview.
+        const playGeneratedClipWithAudio = async (muted: boolean): Promise<boolean> => {
+          vid.muted = muted || removeAudio;
+          try {
+            await vid.play();
+          } catch {
+            return false;
+          }
+          return !vid.paused;
+        };
+        if (!(await playGeneratedClipWithAudio(false))) {
+          await playGeneratedClipWithAudio(true);
+        }
         if (playbackSessionRef.current !== session) return;
         playingRef.current = true;
         setPlaying(true);
