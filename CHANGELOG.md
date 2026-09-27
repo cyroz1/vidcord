@@ -3,18 +3,6 @@
 Release dates are taken from the corresponding repository release tags. The duplicate
 numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
-## WIP
-
-- Added a donate link (heart icon) to the desktop app footer, opening the GitHub
-  Sponsors page in the browser, and a compact "Support vidcord" section on the website
-  with a matching "Support" link in the top nav. Donate URLs live in `src/donate.ts`.
-- Fixed the preview play button looking dead for sources that need an FFmpeg-generated
-  clip (e.g. 10-bit 4:2:2 on macOS): the button now shows a spinner while the clip is
-  being prepared, repeat presses are ignored while one is in flight, and a failed
-  transcode shows an error toast instead of silently doing nothing.
-- Fixed generated preview clips playing silently: they now carry AAC audio and the
-  preview tries unmuted playback first, falling back to muted if the browser blocks it.
-
 ## v7.5
 
 ### Preview
@@ -24,6 +12,12 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   and corrupts the picture instead of erroring, so the preview now detects them from
   the probe and uses the FFmpeg-generated frame, filmstrip, and clip path instead of
   the native video element.
+- Fixed the preview play button looking dead for sources that need an FFmpeg-generated
+  clip (e.g. 10-bit 4:2:2 on macOS): the button now shows a spinner while the clip is
+  being prepared, repeat presses are ignored while one is in flight, and a failed
+  transcode shows an error toast instead of silently doing nothing.
+- Fixed generated preview clips playing silently: they now carry AAC audio and the
+  preview tries unmuted playback first, falling back to muted if the browser blocks it.
 
 ### Color handling
 
@@ -45,6 +39,12 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   that as unknown and keeps audio enabled so FFmpeg preserves it.
 - Made the browser export progress bar and ETA track the current pass instead of the whole
   export, so both move smoothly within each pass instead of jumping at pass boundaries.
+
+### Donations
+
+- Added a donate link (heart icon) to the desktop app footer, opening the GitHub
+  Sponsors page in the browser, and a compact "Support vidcord" section on the website
+  with a matching "Support" link in the top nav. Donate URLs live in `src/donate.ts`.
 
 ## v7.4
 
