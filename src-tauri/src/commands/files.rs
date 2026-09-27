@@ -257,7 +257,9 @@ fn show_files_in_file_explorer_macos(files: &[std::path::PathBuf]) -> Result<(),
 }
 
 #[cfg(target_os = "linux")]
-fn show_files_in_file_explorer_linux(files: &[std::path::PathBuf]) -> Result<(), String> {
+pub(crate) fn show_files_in_file_explorer_linux(
+    files: &[std::path::PathBuf],
+) -> Result<(), String> {
     let uris = files
         .iter()
         .map(|file| {

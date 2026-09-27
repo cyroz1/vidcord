@@ -79,10 +79,11 @@ brew install ffmpeg
 sudo apt install ffmpeg
 ```
 
-**Fedora:**
+**Fedora:** (Fedora's official repos do not ship ffmpeg, so enable RPM Fusion first)
 
 ```sh
-sudo dnf install ffmpeg
+sudo dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
+sudo dnf install -y ffmpeg
 ```
 
 **Arch / Manjaro:**

@@ -268,6 +268,14 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_dispatch' }}
         run: npm run tauri -- build --target ${{ matrix.tauri-target }} --no-bundle --config '{"build":{"beforeBuildCommand":""}}' -- --profile ci
 
+      - name: Set AppImage update information (Linux)
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          # Lets linuxdeploy embed update info and emit a .zsync file so
+          # AppImageUpdate-style delta updates can find new releases.
+          arch_name="${{ matrix.arch == 'x86_64' && 'amd64' || 'aarch64' }}"
+          echo "UPDATE_INFORMATION=gh-releases-zsync|cyroz1|vidcord|latest|vidcord_*_${arch_name}.AppImage.zsync" >> "$GITHUB_ENV"
+
       - name: Build installer
         if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
         run: npm run tauri -- build --target ${{ matrix.tauri-target }} --bundles ${{ matrix.bundle }} --config '{"build":{"beforeBuildCommand":""}}' -- --profile ${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
@@ -276,7 +284,7 @@ jobs:
         if: ${{ matrix.platform != 'windows-latest' && (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch') }}
         run: |
           mkdir -p artifacts
-          find src-tauri/target \( -name "*.AppImage" -o -name "*.dmg" \) -exec cp {} artifacts/ \;
+          find src-tauri/target \( -name "*.AppImage" -o -name "*.AppImage.zsync" -o -name "*.dmg" \) -exec cp {} artifacts/ \;
 
       - name: Stage artifacts (Windows)
         if: ${{ matrix.platform == 'windows-latest' && (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch') }}
@@ -412,7 +420,9 @@ jobs:
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
         with:
           files: release-artifacts/**/*
-          draft: true
+          # Publish immediately so the in-app updater sees the release.
+          # Drafts are invisible to the update check until manually published.
+          draft: false
           body_path: release_notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

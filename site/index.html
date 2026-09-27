@@ -80,7 +80,7 @@
             "url": "https://vidcord.app/",
             "codeRepository": "https://github.com/cyroz1/vidcord",
             "downloadUrl": "https://github.com/cyroz1/vidcord/releases/latest",
-            "softwareVersion": "7.4.0",
+            "softwareVersion": "7.4.1",
             "applicationCategory": "MultimediaApplication",
             "operatingSystem": ["Windows", "macOS", "Linux"],
             "license": "https://github.com/cyroz1/vidcord/blob/main/LICENSE",
@@ -157,18 +157,26 @@
                   "@type": "Answer",
                   "text": "The desktop edition does not bundle system FFmpeg: install ffmpeg and ffprobe and make them available on PATH. The browser edition loads a fixed FFmpeg WebAssembly build and does not require a system FFmpeg install."
                 }
+              },
+              {
+                "@type": "Question",
+                "name": "How do I run the Linux AppImage?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Make it executable with chmod +x vidcord_*.AppImage, then launch it. AppImages need FUSE on the host: sudo apt install libfuse2 on Debian/Ubuntu, sudo dnf install fuse-libs on Fedora, or sudo pacman -S fuse2 on Arch. The x86_64 build runs on older distributions; the ARM64 build targets newer ones."
+                }
               }
             ]
           }
         ]
       }
     </script>
-    <script type="module" crossorigin src="/assets/index-DfmHI0wF.js"></script>
+    <script type="module" crossorigin src="/assets/index-EhIVmwmL.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-b3L32Ng1.js" />
     <link rel="modulepreload" crossorigin href="/assets/react-DVZbHsjx.js" />
     <link rel="stylesheet" crossorigin href="/assets/index-D4kHkHgZ.css" />
     <link rel="stylesheet" href="/marketing.css" data-vidcord-marketing-styles="true" />
-    <link rel="modulepreload" href="/assets/WebApp-cwskBNNU.js" crossorigin />
+    <link rel="modulepreload" href="/assets/WebApp-UUmHVe_I.js" crossorigin />
     <link rel="stylesheet" href="/assets/WebApp-uVAFl0Ah.css" crossorigin />
     <link rel="modulepreload" href="/assets/donate-BDX2c1I4.js" crossorigin />
     <link

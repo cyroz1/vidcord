@@ -80,7 +80,9 @@ fn decode_hex(input: &str, expected_bytes: usize, error: &str) -> Result<Vec<u8>
 
     input
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             std::str::from_utf8(pair)
                 .ok()
@@ -550,10 +552,11 @@ fn open_installer(path: &Path) -> Result<(), String> {
             perms.set_mode(perms.mode() | 0o755);
             std::fs::set_permissions(path, perms).map_err(|e| e.to_string())?;
         }
-        std::process::Command::new("xdg-open")
-            .arg(path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        // Do not xdg-open the AppImage: the single-instance plugin kills any
+        // second copy, so the freshly downloaded AppImage would die instantly
+        // while the old version just gets focused. Reveal it in the file
+        // manager instead so the user can quit, swap the AppImage, and relaunch.
+        super::files::show_files_in_file_explorer_linux(&[path.to_path_buf()])?;
     }
 
     Ok(())

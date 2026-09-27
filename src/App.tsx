@@ -2813,18 +2813,29 @@ export default function App() {
     setInstallingUpdate(true);
     try {
       const result = await downloadAndOpenUpdateInstaller();
-      addToast(
-        "success",
-        "Installer Opened",
-        `${result.installer_name} was downloaded and opened.`
-      );
+      if (pathPlatform === "linux") {
+        // Linux AppImages cannot be relaunched in place: the single-instance
+        // guard would kill the new copy, so the backend reveals the download
+        // instead of opening it.
+        addToast(
+          "success",
+          "Update Downloaded",
+          `${result.installer_name} was downloaded. Quit vidcord, replace your old AppImage with it, then relaunch.`
+        );
+      } else {
+        addToast(
+          "success",
+          "Installer Opened",
+          `${result.installer_name} was downloaded and opened.`
+        );
+      }
       setUpdateInfo(null);
     } catch (e) {
       addToast("error", "Update Failed", String(e));
     } finally {
       setInstallingUpdate(false);
     }
-  }, [addToast]);
+  }, [addToast, pathPlatform]);
 
   const dismissUpdate = useCallback(() => {
     if (!updateInfo || installingUpdate) return;

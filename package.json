@@ -1,7 +1,7 @@
 {
   "name": "vidcord",
   "private": true,
-  "version": "7.4.0",
+  "version": "7.4.1",
   "type": "module",
   "engines": {
     "node": "^20.19.0 || >=22.13.0"
@@ -32,7 +32,7 @@
     "react-dom": "^18"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2",
+    "@tauri-apps/cli": "^2.11.5",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@typescript-eslint/eslint-plugin": "^8.65.0",

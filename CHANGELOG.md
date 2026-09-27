@@ -5,9 +5,22 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ## WIP
 
+## v7.4.1
+
 - Added a donate link (heart icon) to the desktop app footer, opening the GitHub
   Sponsors page in the browser, and a compact "Support vidcord" section on the website.
   Donate URLs live in `src/donate.ts`.
+- Fixed the Linux in-app updater: it now reveals the downloaded AppImage in the file
+  manager with quit/swap/relaunch instructions instead of silently failing to open it
+  (the single-instance guard killed the new copy on launch).
+- The Linux FFmpeg installer now refreshes apt package lists before installing, and
+  Fedora install failures point at the RPM Fusion enablement step (Fedora's official
+  repos do not ship ffmpeg).
+- Documented Linux AppImage run prerequisites (executable bit, FUSE) on the website,
+  in the README, and in FFMPEG_SETUP.md.
+- Bumped the Tauri CLI to 2.11.5, fixing the missing `.DirIcon` in built AppImages,
+  and releases now publish immediately instead of as drafts so the in-app updater
+  sees them right away.
 
 ## v7.4
 

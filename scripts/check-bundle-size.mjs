@@ -20,11 +20,14 @@ const limits = {
   // The v7.4 hosted root also carries the explicit mobile/no-install positioning and browser
   // limitation disclosures. The deferred editor adds a small module-loader boundary, so keep
   // the raw budget below 0.5 MiB while allowing that wrapper overhead.
-  javascriptRaw: 499 * 1024,
+  // 7.4.1 adds user-visible Linux UX copy: the in-app updater toast with quit/swap/relaunch
+  // instructions and the hosted FAQ's AppImage run prerequisites (executable bit, FUSE).
+  javascriptRaw: 500 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
   // The new lazy module boundary adds about 1 KiB of compressed wrapper overhead; keep a small
   // cross-runtime margin while retaining the tight raw-byte guard above.
-  javascriptGzip: 156 * 1024,
+  // 7.4.1's Linux UX copy adds a fraction of a KiB compressed.
+  javascriptGzip: 157 * 1024,
   // The browser editor also carries the integrated desktop feature story, responsive layout,
   // and the platform-aware download/architecture-choice surfaces.
   cssGzip: 18.5 * 1024,
