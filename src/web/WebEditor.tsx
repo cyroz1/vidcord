@@ -952,14 +952,13 @@ export default function WebEditor({
                 // The bar and ETA track the current operation (for example one
                 // encode pass) instead of the whole export, so neither jumps
                 // when a pass finishes and the next one starts.
-                const segmentStart =
-                  segment && Number.isFinite(segment.start) ? segment.start : 0;
+                const segmentStart = segment && Number.isFinite(segment.start) ? segment.start : 0;
                 const segmentEnd =
                   segment && Number.isFinite(segment.end) && segment.end > segmentStart
                     ? segment.end
                     : 1;
                 const passProgress = progressInSegment(fileProgress, segmentStart, segmentEnd);
-                const segmentKey = `${status}|${segmentStart.toFixed(4)}|${segmentEnd.toFixed(4)}`;
+                const segmentKey = `${item.id}|${status}|${segmentStart.toFixed(4)}|${segmentEnd.toFixed(4)}`;
                 const now = Date.now();
                 if (exportSegmentRef.current?.key !== segmentKey) {
                   exportSegmentRef.current = { key: segmentKey, startedAt: now };

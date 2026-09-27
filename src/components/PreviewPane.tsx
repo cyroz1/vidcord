@@ -304,6 +304,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // Guards concurrent generated-clip requests across startPlayback calls. A
   // plain `let` inside startPlayback can't do this — every call gets its own.
   const generatingClipRef = useRef(false);
+  // Prevents an older in-flight clip request from clearing a newer request's
+  // spinner or concurrency guard after playback has been stopped and restarted.
+  const generatedClipRequestRef = useRef(0);
 
   // --- Filmstrip state ---
   // Blob URLs for each pre-extracted filmstrip frame. Managed manually
@@ -543,12 +546,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   );
 
   useEffect(() => {
-    if (
-      !livePreviewSupported ||
-      previewTime === null ||
-      playing ||
-      usingGeneratedClipRef.current
-    ) {
+    if (!livePreviewSupported || previewTime === null || playing || usingGeneratedClipRef.current) {
       return;
     }
     const dur = probeData?.duration ?? 0;
@@ -575,7 +573,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       // the URLs here would force every scrub update back onto exact frames.
       return;
     }
-    if (!shouldGenerateFilmstrip(isLinux, directPreviewFailed || bypassNativePreview, initialPreviewSettled)) {
+    if (
+      !shouldGenerateFilmstrip(
+        isLinux,
+        directPreviewFailed || bypassNativePreview,
+        initialPreviewSettled
+      )
+    ) {
       clearFilmstrip();
       return;
     }
@@ -872,8 +876,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     playingRef.current = false;
     setPlaying(false);
     // A stop can land while a clip is still transcoding (file change, new
-    // import). Clear the guard so the next play press starts fresh; the
-    // orphaned generation's finally block re-applies the same reset.
+    // import). Invalidate that request before allowing a new one to start.
+    generatedClipRequestRef.current += 1;
     generatingClipRef.current = false;
     setGeneratingPreview(false);
     onTimeUpdateRef.current?.(preservedTime);
@@ -906,6 +910,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   }, [endTime, loopPlayback, seekTo, startTime, stopPlayback]);
 
   const startPlayback = useCallback(() => {
+    if (generatingClipRef.current) return;
     if (!filePath || !probeData) return;
     const vid = videoRef.current;
     if (!vid) return;
@@ -965,6 +970,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
     const playGeneratedClip = async () => {
       if (generatingClipRef.current) return;
+      const request = ++generatedClipRequestRef.current;
       generatingClipRef.current = true;
       setGeneratingPreview(true);
       try {
@@ -1018,8 +1024,14 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
           }
           return !vid.paused;
         };
-        if (!(await playGeneratedClipWithAudio(false))) {
-          await playGeneratedClipWithAudio(true);
+        const playbackStarted =
+          (await playGeneratedClipWithAudio(false)) || (await playGeneratedClipWithAudio(true));
+        if (!playbackStarted) {
+          if (playbackSessionRef.current === session) {
+            onPlaybackErrorRef.current?.("Couldn't play the preview clip.");
+            stopPlayback();
+          }
+          return;
         }
         if (playbackSessionRef.current !== session) return;
         playingRef.current = true;
@@ -1031,8 +1043,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
           stopPlayback();
         }
       } finally {
-        generatingClipRef.current = false;
-        setGeneratingPreview(false);
+        if (generatedClipRequestRef.current === request) {
+          generatingClipRef.current = false;
+          setGeneratingPreview(false);
+        }
       }
     };
 
@@ -1272,13 +1286,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
                   fill="none"
                   aria-hidden="true"
                 >
-                  <circle
-                    cx="10"
-                    cy="10"
-                    r="7"
-                    stroke="rgba(255,255,255,0.25)"
-                    strokeWidth="2.5"
-                  />
+                  <circle cx="10" cy="10" r="7" stroke="rgba(255,255,255,0.25)" strokeWidth="2.5" />
                   <path
                     d="M17 10a7 7 0 0 0-7-7"
                     stroke="white"

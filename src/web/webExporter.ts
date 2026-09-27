@@ -282,18 +282,18 @@ export async function exportBrowserFile({
           if (shouldAnalyzeAudio && audioCompatibilityFailure && !normalizationSkipped) {
             normalizationSkipped = true;
             onProgress?.(attemptStart, "Audio normalization unavailable; retrying export…", {
-            start: attemptStart,
-            end: attemptEnd,
-          });
+              start: attemptStart,
+              end: attemptEnd,
+            });
             continue;
           }
 
           if (canDropAudio && audioCompatibilityFailure && !audioRemovedForCompatibility) {
             audioRemovedForCompatibility = true;
             onProgress?.(attemptStart, "Audio track unavailable; retrying video-only export…", {
-            start: attemptStart,
-            end: attemptEnd,
-          });
+              start: attemptStart,
+              end: attemptEnd,
+            });
             continue;
           }
 

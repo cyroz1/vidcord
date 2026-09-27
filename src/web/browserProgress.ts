@@ -13,12 +13,7 @@ export function clampBrowserProgress(progress: number): number {
  * missing or degenerate.
  */
 export function progressInSegment(value: number, start: number, end: number): number {
-  if (
-    !Number.isFinite(value) ||
-    !Number.isFinite(start) ||
-    !Number.isFinite(end) ||
-    end <= start
-  ) {
+  if (!Number.isFinite(value) || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
     return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
   }
   return Math.max(0, Math.min(1, (value - start) / (end - start)));
@@ -45,7 +40,8 @@ export function progressFromMediaTime(
   return Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : safeFallback;
 }
 
-export function formatBrowserEta(progress: number, elapsedMs: number): string {  const safeProgress = clampBrowserProgress(progress);
+export function formatBrowserEta(progress: number, elapsedMs: number): string {
+  const safeProgress = clampBrowserProgress(progress);
   if (safeProgress >= 100) return "Complete";
   if (safeProgress <= 0 || !Number.isFinite(elapsedMs) || elapsedMs < MINIMUM_ETA_SAMPLE_MS) {
     return "ETA: estimating…";
