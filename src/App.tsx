@@ -113,8 +113,8 @@ const SettingsPresets = lazy(() => import("./components/SettingsPresets"));
 
 const CURRENT_VERSION = pkg.version;
 const DISPLAY_VERSION = (() => {
-  const [major = "0", minor = "0"] = String(CURRENT_VERSION).split(".");
-  return `v${major}.${minor}`;
+  const [major = "0", minor = "0", patch] = String(CURRENT_VERSION).split(".");
+  return patch ? `v${major}.${minor}.${patch}` : `v${major}.${minor}`;
 })();
 
 const FOOTER_META = (
