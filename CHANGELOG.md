@@ -49,6 +49,9 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   that as unknown and keeps audio enabled so FFmpeg preserves it.
 - Made the browser export progress bar and ETA track the current pass instead of the whole
   export, so both move smoothly within each pass instead of jumping at pass boundaries.
+- Fixed non-16:9 videos (e.g. portrait phone clips) filling the browser demo's preview
+  instead of fitting inside it. The preview video is now absolutely positioned in its
+  frame like the desktop preview, so `object-fit: contain` letterboxes correctly.
 
 ### Donations
 
