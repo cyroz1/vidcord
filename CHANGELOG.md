@@ -27,6 +27,15 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   are available. Deep-color inputs are converted to 8-bit while retaining their source
   color tags; BT.709 tags are applied only after an actual HDR color conversion.
 
+### Lossless trim
+
+- Fixed lossless trim silently falling back to a full re-encode for sources carrying
+  data streams (e.g. Sony XAVC-S files with gyro/timed-metadata `rtmd` tracks). The
+  stream copy now excludes data streams (`-map -0:d`) while keeping video, audio,
+  subtitles, and attachments, so trims stay lossless. If a copy still fails for any
+  reason, the app falls back to normal compression with a status notice instead of
+  erroring out.
+
 ### Windows
 
 - Improved FFmpeg discovery on Windows ARM64 by detecting a native build in `C:\ffmpeg` and
