@@ -5,6 +5,13 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ## WIP
 
+## v7.4.2
+
+- Fixed Linux AppImage permissions: files inside the AppImage were packaged with
+  restrictive modes, so anyone but the build user got "Permission denied" on launch.
+  The release workflow now normalizes payload permissions and repacks the AppImage
+  before publishing.
+
 ## v7.4.1
 
 - Added a donate link (heart icon) to the desktop app footer, opening the GitHub
