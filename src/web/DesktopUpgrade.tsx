@@ -148,7 +148,7 @@ function architectureOptions(platform: Exclude<DownloadPlatform, "unknown">): Ar
     {
       arch: "arm64",
       label: "Linux aarch64 AppImage",
-      detail: "ARM64 Linux systems",
+      detail: "ARM64 Linux systems, newer distros",
     },
   ];
 }
@@ -1061,6 +1061,16 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
             </p>
           </article>
           <article>
+            <h3>How do I run the Linux AppImage?</h3>
+            <p>
+              Make it executable with <code>chmod +x vidcord_*.AppImage</code>, then launch it.
+              AppImages need FUSE on the host: <code>sudo apt install libfuse2</code> on
+              Debian/Ubuntu, <code>sudo dnf install fuse-libs</code> on Fedora, or
+              <code>sudo pacman -S fuse2</code> on Arch. The x86_64 build runs on older
+              distributions; the ARM64 build targets newer ones.
+            </p>
+          </article>
+          <article>
             <h3>How do desktop updates work?</h3>
             <p>
               After approval, vidcord streams, validates, and hashes the installer before saving and
@@ -1136,8 +1146,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
                 <CopyCommand command="sudo apt install ffmpeg" />
               </div>
               <div className="ffmpeg-linux-command">
-                <span>Fedora</span>
-                <CopyCommand command="sudo dnf install ffmpeg" />
+                <span>Fedora (enable RPM Fusion first)</span>
+                <CopyCommand command="sudo dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm && sudo dnf install -y ffmpeg" />
               </div>
               <div className="ffmpeg-linux-command">
                 <span>Arch / Manjaro</span>

@@ -2,7 +2,7 @@ import fs from "node:fs";
 
 const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
 const locked = lock.packages?.["node_modules/@tauri-apps/cli"];
-const expectedVersion = "2.10.1";
+const expectedVersion = "2.11.5";
 
 if (locked?.version !== expectedVersion || typeof locked.integrity !== "string") {
   throw new Error(

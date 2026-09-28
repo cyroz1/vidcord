@@ -557,7 +557,7 @@ When the user asks to tag and push `vX.Y`:
 4. **Tag with the `vX.Y` short form** (matching existing tags — see `git tag --list`): `git tag vX.Y`. Do **not** use `vX.Y.Z` — the existing tag history is short-form and the release workflow's CHANGELOG extraction matches `## vX.Y`.
 5. **Merge and push** the release commit to `main`, then push the tag: `git push origin main` followed
    by `git push origin vX.Y`. Pushing the tag triggers the release workflow (`build.yml` →
-   `release` job), which builds the `release` profile and drafts a GitHub release.
+   `release` job), which builds the `release` profile and publishes the signed GitHub release immediately so the in-app updater can see it.
 6. **Start the next changelog on the next version branch**: create or switch to the next planned
    `X.Y` branch/worktree, add a fresh `## WIP` section at the top of `CHANGELOG.md`, commit it as
    the first post-release commit, and push that version branch. Do not put the new WIP commit
@@ -573,7 +573,7 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 2. **rust-compile-checks** (ubuntu-22.04) — `cargo fmt --check`, `cargo audit`, `cargo clippy -D warnings`, and `cargo test`. Clippy and tests use the `ci` profile and explicit Linux x86_64 target, sharing the `rust-linux-ubuntu-22.04-v1` `Swatinem/rust-cache` key and compatible artifacts with the Linux x86_64 build job.
 3. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. Branch and pull-request runs compile every target with the `ci` profile but skip installer bundling. Tagged `v*` refs build release-profile installers; explicit manual runs build CI-profile installers for testing.
 4. **sign-release-artifacts** (ubuntu-latest, only on tags) — verifies build provenance attestations and Ed25519-signs the installers; uploads the signed bundle.
-5. **publish-release** (ubuntu-latest, only on tags) — downloads the signed artifacts, extracts the matching CHANGELOG section, and creates a draft GitHub release.
+5. **publish-release** (ubuntu-latest, only on tags) — downloads the signed artifacts, extracts the matching CHANGELOG section, and publishes the signed GitHub release.
 
 Concurrency groups branch pushes and pull-request synchronization events by head commit so the same
 revision is not built twice. Release tags and explicit manual packaging runs use isolated groups and

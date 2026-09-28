@@ -535,17 +535,15 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
                 .and_then(|o| o.allow_privileged)
                 .unwrap_or(false);
 
-            let install_cmd = if command_exists("apt") {
-                Some("apt install -y ffmpeg")
+            let (pkg_manager, install_cmd) = if command_exists("apt") {
+                // apt-get (not apt) for script stability, and refresh package
+                // lists first so installs work on stale systems.
+                ("apt", "apt-get update && apt-get install -y ffmpeg")
             } else if command_exists("dnf") {
-                Some("dnf install -y ffmpeg")
+                ("dnf", "dnf install -y ffmpeg")
             } else if command_exists("pacman") {
-                Some("pacman -S --noconfirm ffmpeg")
+                ("pacman", "pacman -S --noconfirm ffmpeg")
             } else {
-                None
-            };
-
-            let Some(install_cmd) = install_cmd else {
                 return FfmpegInstallResult {
                     status: "unsupported".to_string(),
                     message: "Unsupported Linux package manager. Install ffmpeg manually."
@@ -581,6 +579,18 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
                 };
             };
 
+            // Fedora's official repos do not ship ffmpeg, so a bare dnf install
+            // fails on stock systems. Point dnf users at the RPM Fusion
+            // enablement step when the install fails.
+            let failure_hint = if pkg_manager == "dnf" {
+                Some(
+                    "sudo dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm && sudo dnf install -y ffmpeg"
+                        .to_string(),
+                )
+            } else {
+                Some(format!("sudo {install_cmd}"))
+            };
+
             match status_result {
                 Ok(status) if status.success() => {
                     if ffmpeg_available_fresh() {
@@ -607,13 +617,13 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
                         "Linux install command failed with exit code {}.",
                         status.code().unwrap_or(-1)
                     ),
-                    hint_command: Some(format!("sudo {install_cmd}")),
+                    hint_command: failure_hint.clone(),
                     guide_url: Some("https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md".to_string()),
                 },
                 Err(err) => FfmpegInstallResult {
                     status: "failed".to_string(),
                     message: format!("Failed to run Linux install command: {err}"),
-                    hint_command: Some(format!("sudo {install_cmd}")),
+                    hint_command: failure_hint,
                     guide_url: Some("https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md".to_string()),
                 },
             }

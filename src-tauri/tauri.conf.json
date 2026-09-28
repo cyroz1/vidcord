@@ -95,17 +95,23 @@
       "signingIdentity": "-"
     },
     "linux": {
-      "deb": {
-        "depends": ["ffmpeg"]
-      },
       "appimage": {
         "bundleMediaFramework": false
       }
     },
+    "category": "Video",
     "fileAssociations": [
       {
         "name": "Video",
-        "ext": ["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"]
+        "ext": [
+          "mp4",
+          "avi",
+          "mov",
+          "mkv",
+          "flv",
+          "wmv",
+          "webm"
+        ]
       }
     ]
   }

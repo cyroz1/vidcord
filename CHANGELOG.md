@@ -46,6 +46,16 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   Sponsors page in the browser, and a compact "Support vidcord" section on the website
   with a matching "Support" link in the top nav. Donate URLs live in `src/donate.ts`.
 
+### Linux and release packaging
+
+- Fixed the Linux in-app updater so it reveals the downloaded AppImage in the file manager with
+  quit, replace, and relaunch instructions instead of opening a second instance that exits.
+- Improved Linux FFmpeg installation by refreshing apt package lists first and pointing Fedora
+  users to the RPM Fusion setup step when ffmpeg is unavailable from the default repositories.
+- Documented AppImage executable and FUSE requirements, updated the Tauri CLI to 2.11.5 to fix
+  missing AppImage icon metadata, and the release workflow now publishes tagged releases
+  immediately so the in-app updater can see them.
+
 ## v7.4
 
 ### Batch processing

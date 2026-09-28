@@ -380,7 +380,12 @@ installer from GitHub:
 | Windows 10/11                       | aarch64      | `vidcord_<version>_arm64-setup.exe`  |
 | macOS 11+                           | universal    | `vidcord_<version>_universal.dmg`    |
 | Linux (modern glibc desktop distro) | x86_64       | `vidcord_<version>_amd64.AppImage`   |
-| Linux (modern glibc desktop distro) | aarch64      | `vidcord_<version>_aarch64.AppImage` |
+| Linux (newer glibc desktop distro)  | aarch64      | `vidcord_<version>_aarch64.AppImage` |
+
+> **Running the Linux AppImage:** make it executable with
+> `chmod +x vidcord_*.AppImage` first. AppImages need FUSE on the host:
+> `sudo apt install libfuse2` (Debian/Ubuntu), `sudo dnf install fuse-libs`
+> (Fedora), or `sudo pacman -S fuse2` (Arch).
 
 > **You still need FFmpeg for the desktop app.** vidcord does not bundle it;
 > see the next section. The desktop installer or first launch can offer to
