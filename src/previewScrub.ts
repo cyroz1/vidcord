@@ -38,7 +38,7 @@ export function shouldBypassNativePreview(
   const c = (codec ?? "").toLowerCase();
   return (
     (c === "h264" || c === "avc" || c === "hevc" || c === "h265") &&
-    /yuv4(22|44)/.test((pixFmt ?? "").toLowerCase())
+    /yuvj?4(22|44)/.test((pixFmt ?? "").toLowerCase())
   );
 }
 

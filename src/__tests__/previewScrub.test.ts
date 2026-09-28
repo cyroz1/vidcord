@@ -162,6 +162,11 @@ describe("shouldBypassNativePreview", () => {
     expect(shouldBypassNativePreview("macos", "avc", "yuv444p10le")).toBe(true);
   });
 
+  it("bypasses full-range 4:2:2 and 4:4:4 H.264/HEVC pixel formats on macOS", () => {
+    expect(shouldBypassNativePreview("macos", "h264", "yuvj422p")).toBe(true);
+    expect(shouldBypassNativePreview("macos", "hevc", "yuvj444p")).toBe(true);
+  });
+
   it("keeps native preview for 4:2:0 H.264 on macOS", () => {
     expect(shouldBypassNativePreview("macos", "h264", "yuv420p")).toBe(false);
   });
