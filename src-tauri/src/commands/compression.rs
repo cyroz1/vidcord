@@ -1432,8 +1432,14 @@ async fn run_ffmpeg_attempt(
             opts.input_path.clone(),
             "-t".into(),
             duration,
+            // Map everything except data streams: camera files (e.g. Sony
+            // XAVC S) can carry timed-metadata tracks such as rtmd gyro data
+            // that the MP4 muxer cannot write, which fails the whole copy and
+            // forces a fallback to re-encoding.
             "-map".into(),
             "0".into(),
+            "-map".into(),
+            "-0:d".into(),
             "-c".into(),
             "copy".into(),
             "-avoid_negative_ts".into(),
