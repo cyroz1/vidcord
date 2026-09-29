@@ -52,6 +52,10 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Fixed non-16:9 videos (e.g. portrait phone clips) filling the browser demo's preview
   instead of fitting inside it. The preview video is now absolutely positioned in its
   frame like the desktop preview, so `object-fit: contain` letterboxes correctly.
+- Fixed the browser export ETA reading "Complete" while encoding was still running.
+  The bar and ETA track the current pass, so a finished pass (e.g. pass 1 of 3) made
+  it look like the whole export was done. It now reads "Continuing…" until the final
+  pass of the final file actually finishes.
 
 ### Donations
 

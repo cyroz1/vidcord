@@ -51,3 +51,20 @@ export function formatBrowserEta(progress: number, elapsedMs: number): string {
   if (!Number.isFinite(remainingSeconds) || remainingSeconds < 0) return "ETA: estimating…";
   return `ETA: ${formatClock(remainingSeconds)}`;
 }
+
+/**
+ * ETA text for the per-pass progress bar. The bar tracks the current pass, so
+ * a pass reaching 100% must not read as "Complete" while later passes (or
+ * later files in a batch) are still pending.
+ */
+export function formatPassEta(args: {
+  passPercent: number;
+  fileProgress: number;
+  isLastFile: boolean;
+  elapsedMs: number;
+}): string {
+  const fileDone = Number.isFinite(args.fileProgress) && args.fileProgress >= 1;
+  if (fileDone && args.isLastFile) return "Complete";
+  if (fileDone || args.passPercent >= 100) return "Continuing…";
+  return formatBrowserEta(args.passPercent, args.elapsedMs);
+}

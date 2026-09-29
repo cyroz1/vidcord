@@ -29,7 +29,7 @@ import {
 } from "./exportPlan";
 import type { BrowserFfmpegEngine } from "./ffmpegEngine";
 import { buildKeyframeProbeArgs, parseKeyframeTimes } from "./keyframes";
-import { formatBrowserEta, progressInSegment } from "./browserProgress";
+import { formatPassEta, progressInSegment } from "./browserProgress";
 import { effectiveBrowserExportMode, shouldCopyBrowserExport } from "./webExportState";
 import {
   loadBrowserSettings,
@@ -322,6 +322,8 @@ export default function WebEditor({
   const exportCancelledRef = useRef(false);
   const exportControllerRef = useRef<AbortController | null>(null);
   const exportProgressRef = useRef(0);
+  const exportFileProgressRef = useRef(0);
+  const exportIsLastFileRef = useRef(true);
   const exportUiUpdatedAtRef = useRef(0);
   const exportUiStatusRef = useRef("");
   const exportSegmentRef = useRef<{ key: string; startedAt: number } | null>(null);
@@ -402,7 +404,14 @@ export default function WebEditor({
     const updateEta = () => {
       const segment = exportSegmentRef.current;
       if (segment === null) return;
-      setEta(formatBrowserEta(exportProgressRef.current, Date.now() - segment.startedAt));
+      setEta(
+        formatPassEta({
+          passPercent: exportProgressRef.current,
+          fileProgress: exportFileProgressRef.current,
+          isLastFile: exportIsLastFileRef.current,
+          elapsedMs: Date.now() - segment.startedAt,
+        })
+      );
     };
 
     updateEta();
@@ -938,6 +947,8 @@ export default function WebEditor({
                 ? `Encoding ${index + 1} of ${totalFiles} · ${file.name}`
                 : `Encoding ${file.name}`
             );
+            // A finished earlier file must not leave its ETA label behind.
+            setEta("ETA: estimating…");
             const result = await exportBrowserFile({
               engine,
               file,
@@ -967,6 +978,8 @@ export default function WebEditor({
                 const nextStatus =
                   totalFiles > 1 ? `${status} · ${index + 1}/${totalFiles}` : status;
                 exportProgressRef.current = passPercent;
+                exportFileProgressRef.current = fileProgress;
+                exportIsLastFileRef.current = index === totalFiles - 1;
                 if (
                   nextStatus !== exportUiStatusRef.current ||
                   now - exportUiUpdatedAtRef.current >= 100 ||
@@ -977,10 +990,12 @@ export default function WebEditor({
                   setProgress(passPercent);
                   setExportStatus(nextStatus);
                   setEta(
-                    formatBrowserEta(
+                    formatPassEta({
                       passPercent,
-                      now - (exportSegmentRef.current?.startedAt ?? now)
-                    )
+                      fileProgress,
+                      isLastFile: index === totalFiles - 1,
+                      elapsedMs: now - (exportSegmentRef.current?.startedAt ?? now),
+                    })
                   );
                 }
               },

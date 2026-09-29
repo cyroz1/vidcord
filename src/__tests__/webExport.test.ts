@@ -13,7 +13,7 @@ import {
   targetBitrateKbps,
   GIF_PRESETS,
 } from "../web/exportPlan";
-import { formatBrowserEta, progressFromMediaTime, progressInSegment } from "../web/browserProgress";
+import { formatBrowserEta, formatPassEta, progressFromMediaTime, progressInSegment } from "../web/browserProgress";
 import { exportBrowserFile } from "../web/webExporter";
 import { isAudioCompatibilityError } from "../web/webExporter";
 import type { BrowserFfmpegEngine } from "../web/ffmpegEngine";
@@ -45,6 +45,20 @@ describe("browser export planning", () => {
     expect(formatBrowserEta(0, 2_000)).toBe("ETA: estimating…");
     expect(formatBrowserEta(50, 10_000)).toBe("ETA: 0:10");
     expect(formatBrowserEta(100, 10_000)).toBe("Complete");
+  });
+
+  it("only reports Complete once the final pass of the final file is done", () => {
+    const base = { passPercent: 50, fileProgress: 0.2, isLastFile: true, elapsedMs: 10_000 };
+    // Mid-pass keeps the normal per-pass ETA.
+    expect(formatPassEta(base)).toBe("ETA: 0:10");
+    // A finished pass with more passes pending must not claim completion.
+    expect(formatPassEta({ ...base, passPercent: 100, fileProgress: 1 / 3 })).toBe("Continuing…");
+    // A finished file with more files pending must not claim completion either.
+    expect(formatPassEta({ ...base, passPercent: 100, fileProgress: 1, isLastFile: false })).toBe(
+      "Continuing…"
+    );
+    // The final file reaching 100% really is done.
+    expect(formatPassEta({ ...base, passPercent: 100, fileProgress: 1 })).toBe("Complete");
   });
 
   it("uses encoded media time for browser progress and falls back safely", () => {
