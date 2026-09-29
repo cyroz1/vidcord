@@ -22,22 +22,39 @@ export function progressInSegment(value: number, start: number, end: number): nu
 export function progressFromMediaTime(
   mediaTimeUs: number,
   durationSeconds: number,
-  fallbackProgress: number
+  fallbackProgress: number,
+  fullDurationSeconds?: number
 ): number {
   const safeFallback = Number.isFinite(fallbackProgress)
     ? Math.max(0, Math.min(1, fallbackProgress))
     : 0;
-  if (
-    !Number.isFinite(mediaTimeUs) ||
-    mediaTimeUs < 0 ||
-    !Number.isFinite(durationSeconds) ||
-    durationSeconds <= 0
-  ) {
-    return safeFallback;
+
+  const hasMediaTime = Number.isFinite(mediaTimeUs) && mediaTimeUs >= 0;
+  const hasDuration = Number.isFinite(durationSeconds) && durationSeconds > 0;
+  let timeProgress = safeFallback;
+  if (hasMediaTime && hasDuration) {
+    const p = mediaTimeUs / (durationSeconds * MICROSECONDS_PER_SECOND);
+    if (Number.isFinite(p)) timeProgress = Math.max(0, Math.min(1, p));
   }
 
-  const progress = mediaTimeUs / (durationSeconds * MICROSECONDS_PER_SECOND);
-  return Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : safeFallback;
+  // FFmpeg's own progress ratio, rescaled from the full input to the selected
+  // range. It is self-consistent (media time / FFmpeg's input duration), so
+  // it does not jump when the browser's duration disagrees with FFmpeg's
+  // timestamps. Use it as a guard: never report 100% from the time-based
+  // ratio while FFmpeg's own ratio says the encode is still in flight.
+  if (
+    timeProgress >= 1 &&
+    Number.isFinite(fullDurationSeconds) &&
+    (fullDurationSeconds as number) > 0 &&
+    hasDuration
+  ) {
+    const rescaled = safeFallback * ((fullDurationSeconds as number) / durationSeconds);
+    if (Number.isFinite(rescaled) && rescaled >= 0 && rescaled < 0.99) {
+      return Math.max(0, Math.min(1, rescaled));
+    }
+  }
+
+  return timeProgress;
 }
 
 export function formatBrowserEta(progress: number, elapsedMs: number): string {

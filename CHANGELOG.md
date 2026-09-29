@@ -56,6 +56,10 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   The bar and ETA track the current pass, so a finished pass (e.g. pass 1 of 3) made
   it look like the whole export was done. It now reads "Continuing…" until the final
   pass of the final file actually finishes.
+- Fixed the browser export progress bar jumping to 100% mid-encode for some sources.
+  When the browser's reported duration disagrees with FFmpeg's timestamps, the
+  media-time ratio could hit 100% while encoding was still in flight. The bar now
+  cross-checks FFmpeg's own progress ratio and keeps tracking instead of jumping.
 
 ### Donations
 

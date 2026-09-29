@@ -67,6 +67,17 @@ describe("browser export planning", () => {
     expect(progressFromMediaTime(Number.NaN, 30, 0.25)).toBe(0.25);
   });
 
+  it("prefers FFmpeg's self-consistent ratio when the full duration is known", () => {
+    // Time-based progress is the primary signal.
+    expect(progressFromMediaTime(6_000_000, 12, 0.5, 12)).toBeCloseTo(0.5);
+    expect(progressFromMediaTime(5_000_000, 10, 5 / 60, 60)).toBeCloseTo(0.5);
+    // A bogus 100% ratio while media time is near zero is ignored.
+    expect(progressFromMediaTime(0, 12, 1, 12)).toBe(0);
+    // Guard: never report 100% from media time while FFmpeg's own ratio says
+    // the encode is still in flight (browser/FFmpeg duration disagreement).
+    expect(progressFromMediaTime(12_000_000, 10, 0.5, 10)).toBeCloseTo(0.5);
+  });
+
   it("measures progress within the current export segment", () => {
     expect(progressInSegment(0.5, 1 / 3, 2 / 3)).toBeCloseTo(0.5);
     expect(progressInSegment(1 / 3, 1 / 3, 2 / 3)).toBe(0);

@@ -72,11 +72,12 @@ function operationProgressHandler(
   start: number,
   end: number,
   status: string,
-  durationSeconds: number
+  durationSeconds: number,
+  fullDurationSeconds?: number
 ): FfmpegProgressHandler {
   let lastProgress = 0;
   return ({ progress, time }) => {
-    const safeProgress = progressFromMediaTime(time, durationSeconds, progress);
+    const safeProgress = progressFromMediaTime(time, durationSeconds, progress, fullDurationSeconds);
     const monotonicProgress = Math.max(lastProgress, safeProgress);
     lastProgress = monotonicProgress;
     onProgress?.(start + (end - start) * monotonicProgress, status, { start, end });
@@ -149,7 +150,7 @@ export async function exportBrowserFile({
             settings.removeAudio
           ),
         encodedName,
-        operationProgressHandler(onProgress, 0, 1, "Encoding lossless trim…", plan.selectedDuration)
+        operationProgressHandler(onProgress, 0, 1, "Encoding lossless trim…", plan.selectedDuration, metadata.duration)
       );
       onProgress?.(1, "Finishing export…", { start: 0, end: 1 });
       return {
@@ -185,7 +186,8 @@ export async function exportBrowserFile({
             0,
             analysisEnd,
             "Analyzing audio peak…",
-            plan.selectedDuration
+            plan.selectedDuration,
+            metadata.duration
           )
         );
         audioGainDb = parsePeakNormalizationGain(analysisLog);
@@ -225,7 +227,8 @@ export async function exportBrowserFile({
             attemptStart,
             renderStart,
             `Building GIF palette${attemptLabel}`,
-            plan.selectedDuration
+            plan.selectedDuration,
+            metadata.duration
           )
         );
       }
@@ -258,7 +261,8 @@ export async function exportBrowserFile({
             renderStart,
             attemptEnd,
             encodingStatus,
-            plan.selectedDuration
+            plan.selectedDuration,
+            metadata.duration
           )
         );
       let bytes: Uint8Array<ArrayBuffer>;
