@@ -43,6 +43,7 @@ import {
   copyFilesToClipboard,
   discardStagedOutput,
   downloadAndOpenUpdateInstaller,
+  exitApp,
   frontendReady,
   getLosslessTrimInfo,
   getOs,
@@ -432,13 +433,24 @@ export default function App() {
     setCustomOutputDirectory,
     completionAction,
     setCompletionAction,
+    closeAppAfterExport,
+    setCloseAppAfterExport,
     presets,
     getSettingsSnapshot,
     restoreSettings,
     savePreset,
     deletePreset,
     saveSettings,
+    flushSettings,
   } = useSettings();
+  const closeProgram = useCallback(async () => {
+    await flushSettings().catch(() => {});
+    try {
+      await exitApp();
+    } catch (error) {
+      addToast("error", "Could Not Close App", String(error));
+    }
+  }, [addToast, flushSettings]);
   const persistDetectedEncoders = useCallback(
     (detected: Encoder[]) => {
       saveSettings({ encoder_capabilities: detected });
@@ -1018,7 +1030,11 @@ export default function App() {
         const savedPath = await captureSnapshot(filePath, timeSec, targetPath);
         const displayFileName = savedPath.split(/[/\\]/).pop() ?? "snapshot.png";
 
-        if (completionAction === "copy") {
+        if (completionAction === "none") {
+          addToast("info", "Snapshot Saved", `Saved ${displayFileName}.`, {
+            notifySystem: false,
+          });
+        } else if (completionAction === "copy") {
           try {
             await copyFileToClipboard(savedPath);
             addToast(
@@ -1034,13 +1050,24 @@ export default function App() {
           await showInFileExplorer(savedPath).catch(() => {});
           addToast("info", "Snapshot Saved", `Saved ${displayFileName}.`);
         }
+
+        if (closeAppAfterExport) await closeProgram();
       } catch (err: unknown) {
         addToast("error", "Snapshot Failed", String(err));
       } finally {
         snapshotInFlightRef.current = false;
       }
     },
-    [filePath, fileName, outputDestination, customOutputDirectory, completionAction, addToast]
+    [
+      filePath,
+      fileName,
+      outputDestination,
+      customOutputDirectory,
+      completionAction,
+      closeAppAfterExport,
+      addToast,
+      closeProgram,
+    ]
   );
 
   useEffect(() => {
@@ -1566,6 +1593,14 @@ export default function App() {
     [saveSettings, setCompletionAction]
   );
 
+  const changeCloseAppAfterExport = useCallback(
+    (close: boolean) => {
+      setCloseAppAfterExport(close);
+      saveSettings({ close_app_after_export: close });
+    },
+    [saveSettings, setCloseAppAfterExport]
+  );
+
   const restoreSettingsPreset = useCallback(
     (preset: SettingsPreset) => {
       clearLosslessOfferMode();
@@ -1651,7 +1686,6 @@ export default function App() {
             "Compression Complete",
             "The output file was copied to the clipboard."
           );
-          return;
         } catch (clipboardError) {
           try {
             await showInFileExplorer(outputPath);
@@ -1660,7 +1694,6 @@ export default function App() {
               "Clipboard Unavailable",
               "The output file was saved and revealed instead."
             );
-            return;
           } catch (revealError) {
             addToast("success", "Compression Complete", "The output file was saved.");
             addToast(
@@ -1668,25 +1701,32 @@ export default function App() {
               "Complete Action Failed",
               `${String(clipboardError)} Reveal also failed: ${String(revealError)}`
             );
-            return;
           }
         }
+      } else if (completionAction === "reveal") {
+        try {
+          await showInFileExplorer(outputPath);
+          addToast("success", "Compression Complete", "The output file was revealed.");
+        } catch (error) {
+          addToast("success", "Compression Complete", "The output file was saved.");
+          addToast("error", "Complete Action Failed", String(error));
+        }
+      } else {
+        addToast("success", "Compression Complete", "The output file was saved.", {
+          notifySystem: false,
+        });
       }
 
-      try {
-        await showInFileExplorer(outputPath);
-        addToast("success", "Compression Complete", "The output file was revealed.");
-      } catch (error) {
-        addToast("success", "Compression Complete", "The output file was saved.");
-        addToast("error", "Complete Action Failed", String(error));
-      }
+      if (closeAppAfterExport) await closeProgram();
     },
-    [addToast, completionAction]
+    [addToast, closeAppAfterExport, closeProgram, completionAction]
   );
 
   const completeBatchOutputs = useCallback(
     async (outputPaths: readonly string[]) => {
       if (outputPaths.length === 0) return;
+      if (completionAction === "none") return;
+
       if (completionAction === "copy") {
         try {
           await copyFilesToClipboard([...outputPaths]);
@@ -2375,8 +2415,19 @@ export default function App() {
       addToast(
         done.cancelled || publicationCancelled || failedCount > 0 ? "warning" : "success",
         "Batch Summary",
-        summary
+        summary,
+        { notifySystem: completionAction !== "none" }
       );
+      if (
+        !done.cancelled &&
+        !publicationCancelled &&
+        failedCount === 0 &&
+        cancelledCount === 0 &&
+        outputPathsForCompletion.length > 0 &&
+        closeAppAfterExport
+      ) {
+        await closeProgram();
+      }
     } catch (error: unknown) {
       if (stagedOutputPaths.length > 0) {
         await Promise.all(
@@ -2405,6 +2456,9 @@ export default function App() {
     batchTrimEndSeconds,
     batchTrimStartSeconds,
     completeBatchOutputs,
+    closeAppAfterExport,
+    closeProgram,
+    completionAction,
     cropAspectRatio,
     customOutputDirectory,
     encoderIdx,
@@ -4329,6 +4383,7 @@ export default function App() {
             outputDestination={outputDestination}
             customOutputDirectory={customOutputDirectory}
             completionAction={completionAction}
+            closeAppAfterExport={closeAppAfterExport}
             exportSummary={exportSummary}
             readyActionLabel={readyActionLabel}
             showProgress={showProgress}
@@ -4352,6 +4407,7 @@ export default function App() {
             onOutputDestinationChange={changeOutputDestination}
             onChooseCustomOutputDirectory={chooseCustomOutputDirectory}
             onCompletionActionChange={changeCompletionAction}
+            onCloseAppAfterExportChange={changeCloseAppAfterExport}
             onStartCompression={startCompress}
             onCancelCompression={handleCancelCompression}
           />

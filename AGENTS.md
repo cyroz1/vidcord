@@ -55,6 +55,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   │   ├── log.rs             # Rotating ~/…/vidcord/vidcord.log (5 MB cap)
 │   │   ├── settings.rs        # Typed settings persisted via atomic rename
 │   │   └── commands/          # #[tauri::command] handlers
+│   │       ├── app.rs         # Application-level actions
 │   │       ├── compression.rs # compression jobs/retries/reservations + preview/probe commands
 │   │       ├── encoders.rs    # detect/install/list FFmpeg; platform install flows
 │   │       ├── files.rs       # output locations/staging, file reveal/clipboard, get_os, PendingFile
@@ -372,14 +373,19 @@ Output handling has two paths:
   Cancelling the save dialog or failing finalization must call `discard_staged_output`; retain the
   backend validation and partial-file cleanup.
 
-The persisted completion action is either `copy` (default) or `reveal`. Clipboard copy validates
-that the output is still a file, then uses CF_HDROP on Windows, AppleScript on macOS, and
-`wl-copy`/`xclip` on Linux. A copy failure falls back to revealing the saved file; a completion
-action failure must not be reported as a compression failure.
+The persisted completion action is `copy` (default), `reveal`, or `none`. Clipboard copy
+validates that the output is still a file, then uses CF_HDROP on Windows, AppleScript on macOS, and
+`wl-copy`/`xclip` on Linux. A copy failure falls back to revealing the saved file. `none` leaves
+the output saved without copying, revealing, or sending a system notification; in-app completion
+feedback may remain visible. The separate `close_app_after_export` setting defaults to false; when
+enabled, it exits the app after a successful export, including a completed batch or saved snapshot,
+and flushes pending settings before exit. Failed and cancelled exports must not trigger it. A
+completion-action failure must not be reported as a compression failure.
 
 `useSettings` persists `output_destination` (`downloads`, `source`, `ask`, or `custom`), the custom
-directory, and `completion_action` (`copy` or `reveal`). Keep the frontend's allowlist validation
-when loading these string values; invalid or older persisted values must fall back to safe defaults.
+directory, `completion_action` (`copy`, `reveal`, or `none`), and
+`close_app_after_export` (boolean). Keep the frontend's allowlist validation when loading action
+values; invalid or older persisted values must fall back to safe defaults.
 
 ### File-open routing (tricky)
 

@@ -67,6 +67,8 @@ pub struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completion_action: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub close_app_after_export: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub encoder_index: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encoder_label: Option<String>,

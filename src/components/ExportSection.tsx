@@ -6,6 +6,7 @@ type Props = {
   outputDestination: OutputDestination;
   customOutputDirectory: string;
   completionAction: CompletionAction;
+  closeAppAfterExport: boolean;
   exportSummary: string;
   readyActionLabel: string;
   showProgress: boolean;
@@ -24,6 +25,7 @@ type Props = {
   onOutputDestinationChange: (destination: OutputDestination) => void;
   onChooseCustomOutputDirectory: () => void;
   onCompletionActionChange: (action: CompletionAction) => void;
+  onCloseAppAfterExportChange: (close: boolean) => void;
   onStartCompression: () => void;
   onCancelCompression: () => void;
 };
@@ -32,6 +34,7 @@ function ExportSection({
   outputDestination,
   customOutputDirectory,
   completionAction,
+  closeAppAfterExport,
   exportSummary,
   readyActionLabel,
   showProgress,
@@ -50,6 +53,7 @@ function ExportSection({
   onOutputDestinationChange,
   onChooseCustomOutputDirectory,
   onCompletionActionChange,
+  onCloseAppAfterExportChange,
   onStartCompression,
   onCancelCompression,
 }: Props) {
@@ -94,7 +98,16 @@ function ExportSection({
           >
             <option value="copy">Copy file</option>
             <option value="reveal">Show in folder</option>
+            <option value="none">Do nothing</option>
           </select>
+          <label className="output-close-toggle">
+            <input
+              type="checkbox"
+              checked={closeAppAfterExport}
+              onChange={(event) => onCloseAppAfterExportChange(event.target.checked)}
+            />
+            Close app when done
+          </label>
         </div>
       </div>
 

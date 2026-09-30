@@ -10,6 +10,7 @@ mod gpu;
 mod log;
 mod settings;
 
+use commands::app::exit_app;
 use commands::compression::{
     cancel_compression, cancel_lossless_trim_probe, cancel_preview_frame_generation,
     cancel_preview_generation, capture_snapshot, compress_batch, compress_video, get_filmstrip,
@@ -329,6 +330,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_settings,
             save_settings,
+            exit_app,
             frontend_ready,
             sync_native_window_theme,
             probe,

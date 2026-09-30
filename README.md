@@ -121,8 +121,8 @@ and retry oversized results with safer bitrates and CPU fallback.
 - **Desktop saved settings presets** — the native app autosaves the last settings used by default;
   use the bottom-right preset dropdown to save, restore, and delete up to 20 named compression and
   mode configurations. Names are limited to 40 characters; changing a saved preset's settings
-  returns the selector to Autosave, while output destination and completion action remain separate
-  autosaved preferences.
+  returns the selector to Autosave, while output destination, completion action, and close-app
+  preference remain separate autosaved settings.
 
 - **Desktop Batch mode** — selecting two or more videos switches from the single-video
   workflows automatically. The queue probes and shows each file's resolution, frame rate, codec,
@@ -166,8 +166,8 @@ and retry oversized results with safer bitrates and CPU fallback.
   media APIs and uses the first audio stream for re-encoded exports.
 - **Full-resolution frame snapshots** — save the frame at the playhead as a
   PNG with the preview overlay. Desktop snapshots follow the configured output
-  destination and copy/reveal completion action; browser snapshots download
-  through the browser.
+  destination and completion action, and follow the separate close-app setting;
+  browser snapshots download through the browser.
 - **Output FPS controls** — standard mode can leave FPS unchanged or cap it
   at 24, 30, or 60 FPS. The desktop app hides choices at or above the FFprobe
   frame rate when they would be redundant. When browser frame-rate metadata is
@@ -175,9 +175,10 @@ and retry oversized results with safer bitrates and CPU fallback.
   disables typed Advanced FPS rather than upsampling by accident. Advanced
   mode otherwise accepts a custom FPS value, or an empty field shown as Off
   for no change.
-- **Desktop completion actions** — copy the finished output file itself to the
-  system clipboard by default, with an automatic reveal fallback, or always
-  reveal it in Explorer/Finder instead.
+- **Desktop completion actions** — copy the finished output file to the system
+  clipboard by default, with an automatic reveal fallback; show it in
+  Explorer/Finder; or do nothing. A separate setting can close the app after a
+  successful export.
 - **Desktop trim timeline** with fine-grained handles, draggable playhead, snap
   controls, zoom, pan, undo/redo, and optional looped playback. The browser
   editor keeps handles, a playhead, history, loop playback, snap intervals,
@@ -512,8 +513,8 @@ The desktop footer preset selector starts at **Autosave**. Save the current
 compression and mode settings as a named preset, restore it later, or delete it;
 if you change one of those settings afterward, the selector returns to Autosave
 to show that the saved preset no longer matches. Output destination, custom
-folder, and completion action are saved independently for the next launch. The
-browser editor has no saved setting-preset UI.
+folder, completion action, and close-app preference are saved independently for
+the next launch. The browser editor has no saved setting-preset UI.
 
 Compression goes to `~/Downloads/<original-name>-vidcord.mp4` by default, with
 `-1`, `-2`, … appended if the name is taken. Lossless Trim uses the same
@@ -525,7 +526,10 @@ unique path for every successful item. With **Ask when done**, all successful
 outputs are staged until one destination folder is chosen, then published
 together without overwriting existing files. The default completion action
 copies successful outputs as one clipboard group; the reveal action opens each
-distinct output folder once and selects every successful output in it.
+distinct output folder once and selects every successful output in it. Do
+nothing leaves the outputs saved without copying, opening a folder, or sending
+a system notification. The independent close-app setting exits after a fully
+successful batch.
 
 ## Native desktop keyboard shortcuts
 
@@ -850,9 +854,10 @@ the target bitrate, detects CPU and hardware encoders, remembers settings,
 streams attempt details and ETA, verifies the final file size, retries
 oversized results, handles visual trimming, and writes to a predictable
 auto-incremented path in Downloads, beside the source clip, or in a remembered
-custom folder. It can also ask for the final filename and copy or reveal the
-completed file. Under the hood the desktop app is still FFmpeg; Advanced mode
-exposes the encoder string so you can override any of it.
+custom folder. It can also ask for the final filename, then copy or reveal the
+completed file, or do nothing; a separate preference can close the app after
+the export finishes. Under the hood the desktop app is still FFmpeg; Advanced
+mode exposes the encoder string so you can override any of it.
 
 ### Can vidcord compress a video without re-encoding?
 

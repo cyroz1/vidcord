@@ -1,3 +1,4 @@
+pub mod app;
 pub mod compression;
 pub mod encoders;
 pub mod files;

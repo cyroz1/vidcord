@@ -7,6 +7,10 @@ export function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+export function exitApp(): Promise<void> {
+  return invoke<void>("exit_app");
+}
+
 export type OutputExtension = LosslessVideoExtension | "gif" | "png";
 
 export type ProbeData = {

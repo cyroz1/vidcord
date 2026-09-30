@@ -1,7 +1,7 @@
 import { migrateLegacyGifQualityIndex, normalizeGifTarget, type GifTargetMb } from "./gifPresets";
 
 export type OutputDestination = "downloads" | "source" | "ask" | "custom";
-export type CompletionAction = "reveal" | "copy";
+export type CompletionAction = "reveal" | "copy" | "none";
 
 export type PresetSettings = {
   quality_index: number;

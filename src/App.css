@@ -452,6 +452,19 @@
   font-size: 12px;
 }
 
+.output-option .output-close-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
+  cursor: pointer;
+}
+
+.output-close-toggle input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 .output-option select,
 .custom-folder-btn {
   width: 100%;

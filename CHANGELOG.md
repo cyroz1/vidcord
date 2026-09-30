@@ -3,6 +3,14 @@
 Release dates are taken from the corresponding repository release tags. The duplicate
 numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
+## v7.6
+
+### Export completion
+
+- Added **Do nothing** as an export action and a separate **Close app when done**
+  control. It can be combined with Copy file, Show in folder, or Do nothing,
+  and applies to frame snapshots and batch output too.
+
 ## v7.5
 
 ### Preview
