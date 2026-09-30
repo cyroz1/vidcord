@@ -28,7 +28,9 @@ const limits = {
   // The deferred editor adds a small lazy module-loader boundary; allow 1 KiB for that wrapper.
   // 7.5's editor also keeps its per-pass progress/ETA tracking and the Support section,
   // and the generated preview clips now carry audio; allow 3 KiB for those 7.5-only additions.
-  javascriptRaw: 502 * 1024,
+  // The 1 GB native-resolution Discord target adds a preset entry, label, and quality-clamp
+  // update to both the desktop app and the browser demo; allow 1 KiB for it.
+  javascriptRaw: 503 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
   // The new lazy module boundary adds about 1 KiB of compressed wrapper overhead; keep a small
   // cross-runtime margin while retaining the tight raw-byte guard above.
