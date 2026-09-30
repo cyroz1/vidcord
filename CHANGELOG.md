@@ -81,6 +81,9 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Documented AppImage executable and FUSE requirements, updated the Tauri CLI to 2.11.5 to fix
   missing AppImage icon metadata, and the release workflow now publishes tagged releases
   immediately so the in-app updater can see them.
+- Fixed the shipped AppImage failing to launch for other users with "Permission denied".
+  The release workflow now extracts the AppImage payload, normalizes it to
+  world-readable/executable permissions, and repacks it before attestation.
 
 ## v7.4
 
