@@ -31,15 +31,17 @@ const limits = {
   // The 1 GB native-resolution Discord target adds a preset entry, label, and quality-clamp
   // update to both the desktop app and the browser demo; allow 1 KiB for it.
   // v7.6 adds a persisted close-after-export setting and native app-exit wiring; allow 1 KiB for it.
-  javascriptRaw: 504 * 1024,
+  // Recursive folder imports, skipped-file reporting, and clear-queue controls add a small amount
+  // of native app UI and selection logic; allow 4 KiB for those v7.6 additions.
+  javascriptRaw: 508 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
-  // The new lazy module boundary adds about 1 KiB of compressed wrapper overhead; keep a small
-  // cross-runtime margin while retaining the tight raw-byte guard above.
+  // Keep a small cross-runtime margin while retaining the tight raw-byte guard above.
   // The donate footer link and website support section add a shared links module plus
   // small footer/section markup; allow 1 KiB for them.
   // The preview play-button fix adds a little more; allow 1 KiB for it.
   // 7.5's per-pass progress/ETA and preview-clip audio add a little more; allow 1 KiB for them.
-  javascriptGzip: 158 * 1024,
+  // 7.6 adds recursive folder imports and queue controls; allow 2 KiB for their compressed code.
+  javascriptGzip: 160 * 1024,
   // The browser editor also carries the integrated desktop feature story, responsive layout,
   // and the platform-aware download/architecture-choice surfaces.
   cssGzip: 18.5 * 1024,
