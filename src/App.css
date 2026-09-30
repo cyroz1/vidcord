@@ -682,6 +682,19 @@
   white-space: nowrap;
 }
 
+.batch-queue-clear {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--error) 35%, var(--border));
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--error) 6%, var(--surface));
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
 .batch-queue-retry-all {
   flex: 0 0 auto;
   min-height: 24px;
@@ -694,7 +707,14 @@
   border-color: var(--accent);
 }
 
+.batch-queue-clear:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error) 14%, var(--surface));
+  border-color: var(--error);
+  color: var(--error);
+}
+
 .batch-queue-retry-all:focus-visible,
+.batch-queue-clear:focus-visible,
 .batch-queue-retry:focus-visible,
 .batch-queue-move:focus-visible {
   outline: none;
@@ -703,6 +723,7 @@
 }
 
 .batch-queue-retry-all:disabled,
+.batch-queue-clear:disabled,
 .batch-queue-retry:disabled,
 .batch-queue-move:disabled {
   cursor: default;

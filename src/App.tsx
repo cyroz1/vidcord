@@ -1580,6 +1580,33 @@ export default function App() {
     if (pending && pending.length > 0) void loadSelection(pending);
   }, [loadSelection, markFrontendReady, settingsLoaded]);
 
+  const clearBatchQueue = useCallback(() => {
+    if (loadingVideo || selectionScanning || compressing || cancelling || finalizingOutput) return;
+    previewRef.current?.stopPlayback();
+    selectedFilePathRef.current = null;
+    probeDataRef.current = null;
+    losslessInfoRef.current = null;
+    setFilePath(null);
+    setFileName("Drop videos or a folder, or click Browse");
+    setProbeData(null);
+    setAudioTrackSelection(null);
+    setLosslessInfo(null);
+    setLosslessInfoLoading(false);
+    setLosslessInfoError(null);
+    clearLosslessOfferMode();
+    resetProgress();
+    leaveBatchMode();
+  }, [
+    cancelling,
+    clearLosslessOfferMode,
+    compressing,
+    finalizingOutput,
+    leaveBatchMode,
+    loadingVideo,
+    resetProgress,
+    selectionScanning,
+  ]);
+
   const removeBatchItem = useCallback(
     async (itemId: number) => {
       if (loadingVideo || compressing || cancelling || finalizingOutput) return;
@@ -4398,12 +4425,15 @@ export default function App() {
           {isBatchMode ? (
             <BatchQueue
               items={batchQueue}
+              onClearQueue={clearBatchQueue}
               onRemoveItem={removeBatchItem}
               onMoveItem={moveBatchItem}
               onReorderItem={reorderBatchItem}
               onRetryItem={retryBatchItem}
               onRetryFailed={retryFailedBatchItems}
-              actionsDisabled={loadingVideo || compressing || cancelling || finalizingOutput}
+              actionsDisabled={
+                loadingVideo || selectionScanning || compressing || cancelling || finalizingOutput
+              }
             />
           ) : (
             <>

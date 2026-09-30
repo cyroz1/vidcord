@@ -55,6 +55,7 @@ it("reorders the rendered queue with accessible move controls", async () => {
     return (
       <BatchQueue
         items={queue}
+        onClearQueue={vi.fn()}
         onMoveItem={(id, direction) => {
           onMoveItem(id, direction);
           setQueue((current) => moveBatchQueueItem(current, id, direction));
@@ -103,6 +104,7 @@ it("disables queue actions while an export is running", async () => {
     root!.render(
       <BatchQueue
         items={ITEMS}
+        onClearQueue={vi.fn()}
         onMoveItem={vi.fn()}
         onReorderItem={vi.fn()}
         onRemoveItem={vi.fn()}
@@ -137,6 +139,7 @@ it("forwards drag-and-drop reordering by stable item ids", async () => {
     root!.render(
       <BatchQueue
         items={ITEMS}
+        onClearQueue={vi.fn()}
         onMoveItem={vi.fn()}
         onReorderItem={onReorderItem}
         onRemoveItem={vi.fn()}
