@@ -57,4 +57,10 @@ describe("browser settings persistence", () => {
       gifTargetMb: 10,
     });
   });
+
+  it("keeps the 1 GB quality index and clamps out-of-range values", () => {
+    expect(normalizeBrowserSettings({ qualityIndex: 4 }).qualityIndex).toBe(4);
+    expect(normalizeBrowserSettings({ qualityIndex: 9 }).qualityIndex).toBe(4);
+    expect(normalizeBrowserSettings({ qualityIndex: -1 }).qualityIndex).toBe(0);
+  });
 });

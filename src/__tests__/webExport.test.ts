@@ -236,6 +236,22 @@ describe("browser export planning", () => {
     expect(plan.bitrateKbps).toBe(targetBitrateKbps(20, 30, false, 1, 8_000));
   });
 
+  it("plans the 1 GB Nitro preset at native resolution", () => {
+    const plan = createExportPlan(
+      metadata,
+      normalizeBrowserSettings({ qualityIndex: 4 }),
+      "compress",
+      0,
+      30
+    );
+
+    expect(plan.targetSizeMb).toBe(1024);
+    expect(plan.targetHeight).toBeNull();
+    expect(plan.bitrateKbps).toBe(targetBitrateKbps(1024, 30, false, 1, 4_000));
+    expect(plan.summary).toContain("Up to 1024 MB");
+    expect(plan.summary).toContain("Native");
+  });
+
   it("omits audio mapping when metadata confirms the source has no audio", () => {
     const silentMetadata = { ...metadata, hasAudio: false, audioTrackCount: 0 };
     const settings = normalizeBrowserSettings({ qualityIndex: 0 });

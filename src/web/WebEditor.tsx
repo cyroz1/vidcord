@@ -1197,7 +1197,7 @@ export default function WebEditor({
             <li>
               <Icon name="check" size={16} />
               <span>
-                <strong>Discord-ready targets.</strong> Choose 20, 50, 100, or 500 MB.
+                <strong>Discord-ready targets.</strong> Choose 20, 50, 100, or 500 MB, or 1 GB for Nitro.
               </span>
             </li>
             <li>

@@ -70,12 +70,23 @@ export function normalizePresetSettings(value: unknown): PresetSettings {
     migrateLegacyGifQualityIndex(record.gif_quality_index) ?? 5
   );
 
-  if (
-    !Number.isInteger(normalized.quality_index) ||
-    normalized.quality_index < 0 ||
-    normalized.quality_index > 4
-  ) {
+  const migratedLosslessPreset =
+    typeof record.lossless_mode !== "boolean" && record.quality_index === 5;
+  if (migratedLosslessPreset) {
+    // Migrate the short-lived Lossless Trim quality preset to its dedicated
+    // mode toggle. Index 5 is now the 1 GB target, so only unmigrated records
+    // (no lossless_mode boolean yet) take this path.
     normalized.quality_index = 0;
+    normalized.lossless_mode = true;
+  } else {
+    if (
+      !Number.isInteger(normalized.quality_index) ||
+      normalized.quality_index < 0 ||
+      normalized.quality_index > 5
+    ) {
+      normalized.quality_index = 0;
+    }
+    if (typeof record.lossless_mode !== "boolean") normalized.lossless_mode = false;
   }
   if (![15, 30, 50].includes(normalized.gif_fps)) normalized.gif_fps = 15;
   if (
@@ -93,8 +104,6 @@ export function normalizePresetSettings(value: unknown): PresetSettings {
   if (!Number.isInteger(normalized.encoder_index) || normalized.encoder_index < 0) {
     normalized.encoder_index = 0;
   }
-  if (typeof record.lossless_mode !== "boolean")
-    normalized.lossless_mode = record.quality_index === 5;
   return normalized;
 }
 

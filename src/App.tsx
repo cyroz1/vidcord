@@ -177,6 +177,7 @@ const QUALITY_PRESETS = [
   { index: 2, label: "50MB, 720p", size_mb: 50, target_h: 720 },
   { index: 3, label: "100MB, 1080p", size_mb: 100, target_h: 1080 },
   { index: 4, label: "500MB, native res", size_mb: 500, target_h: null },
+  { index: 5, label: "1GB, native res", size_mb: 1024, target_h: null },
 ] as const;
 
 // Keep persisted quality indices for the unaffected targets stable. The removed
@@ -187,6 +188,7 @@ const QUALITY_PRESETS_BY_INDEX = [
   QUALITY_PRESETS[1],
   QUALITY_PRESETS[2],
   QUALITY_PRESETS[3],
+  QUALITY_PRESETS[4],
 ] as const;
 
 const GIF_FPS_OPTIONS = [15, 30, 50] as const;

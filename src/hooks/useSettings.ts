@@ -71,7 +71,9 @@ export function useSettings() {
       presetsRef.current = loadedPresets;
       const savedLosslessMode =
         typeof s.lossless_mode === "boolean" ? s.lossless_mode : s.quality_index === 5;
-      if (typeof s.lossless_mode !== "boolean" && s.quality_index === 5) {
+      const migratedLosslessPreset =
+        typeof s.lossless_mode !== "boolean" && s.quality_index === 5;
+      if (migratedLosslessPreset) {
         // Migrate the short-lived Lossless Trim quality preset to its
         // dedicated mode toggle.
         settingsRef.current = {
@@ -83,7 +85,12 @@ export function useSettings() {
       }
       startTransition(() => {
         setPresets(loadedPresets);
-        if (typeof s.quality_index === "number" && s.quality_index >= 0 && s.quality_index <= 4) {
+        if (
+          !migratedLosslessPreset &&
+          typeof s.quality_index === "number" &&
+          s.quality_index >= 0 &&
+          s.quality_index <= 5
+        ) {
           setQualityIdx(s.quality_index);
         }
         if (typeof s.gif_mode === "boolean") setGifMode(s.gif_mode);

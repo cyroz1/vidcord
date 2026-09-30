@@ -10,6 +10,7 @@ export const QUALITY_PRESETS = [
   { label: "50 MB · 720p", sizeMb: 50, targetHeight: 720 },
   { label: "100 MB · 1080p", sizeMb: 100, targetHeight: 1080 },
   { label: "500 MB · native", sizeMb: 500, targetHeight: null },
+  { label: "1 GB · native", sizeMb: 1024, targetHeight: null },
 ] as const;
 
 export const RESOLUTION_OPTIONS = ["Native", "1080p", "720p", "480p"] as const;

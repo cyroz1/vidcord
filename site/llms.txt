@@ -18,7 +18,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Desktop dependency: system `ffmpeg` and `ffprobe` on PATH; the desktop app does not bundle them
 - Browser dependency: a modern browser with WebAssembly and support for the selected video's container and codec; no system FFmpeg install is required
 - Windows desktop FFmpeg setup: vidcord can install `Gyan.FFmpeg` with WinGet and recognizes WinGet's aliases or package directory without requiring a Windows restart
-- Main use case: compress local videos under Discord's current 20 / 50 / 100 / 500 MB upload limits
+- Main use case: compress local videos under Discord's current 20 / 50 / 100 / 500 MB / 1 GB upload limits
 - Desktop inputs: MP4, MOV, MKV, AVI, WebM, FLV, WMV, and other formats the installed FFmpeg can demux
 - Browser inputs: video files the browser can decode, capped at 512 MB per selected file; input support, memory use, and performance depend on the browser, device, available memory, and source format
 - Export modes in both editions: Compress, Advanced, Lossless Trim, and GIF
@@ -51,7 +51,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - What is desktop-only? GPU encoder discovery and selection, system-FFmpeg format coverage, source audio-track mixing, named settings presets, native output destinations, Open With, OS notifications, taskbar/Dock progress, and desktop updater flows.
 - Can vidcord compress multiple videos? Yes. Browser Batch accepts up to 12 Browse or drag-and-drop selections, applies one shared full-duration Compress profile, supports queue reorder/removal and retrying failed or cancelled files, and reports per-file progress plus aggregate ETA. Desktop Batch also accepts Open With, command-line arguments, and second-instance selections and adds per-file trims and native workers.
 - Is the browser demo suitable for mobile? Yes, as a quick no-install fallback for a phone or tablet. It is best for browser-readable files up to 512 MB each; use desktop for large or difficult inputs, GPU encoding, per-file Batch trims, native destinations, presets, and OS integrations.
-- Which Discord size targets are supported? Both editions provide 20 MB, 50 MB, 100 MB, and 500 MB video targets. Advanced adds custom size, resolution, and typed FPS; GIF Mode provides 5 MB, 10 MB, and 20 MB GIF targets.
+- Which Discord size targets are supported? Both editions provide 20 MB, 50 MB, 100 MB, 500 MB, and 1 GB (Nitro) video targets. Advanced adds custom size, resolution, and typed FPS; GIF Mode provides 5 MB, 10 MB, and 20 MB GIF targets.
 - How does downloading work? The desktop download section fetches latest GitHub release metadata and links directly to the matching platform asset when possible. If x64 versus ARM64 is uncertain, it asks the user to choose. If metadata cannot be fetched or the matching asset is missing, it falls back to the GitHub release page. Mobile devices show desktop platform choices without a device-specific installer recommendation.
 - How do desktop in-app updates work? After user approval, vidcord downloads the matching installer under an unused Downloads filename, verifies its size and completeness, checks GitHub's SHA-256 digest and the independent Ed25519 release signature, and only then opens it.
 

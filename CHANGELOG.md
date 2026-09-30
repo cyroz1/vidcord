@@ -61,6 +61,11 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   media-time ratio could hit 100% while encoding was still in flight. The bar now
   cross-checks FFmpeg's own progress ratio and keeps tracking instead of jumping.
 
+### Discord targets
+
+- Added a 1 GB native-resolution Discord target to both the desktop app and the
+  browser demo, matching Discord's new Nitro upload limit (doubled from 500 MB).
+
 ### Donations
 
 - Added a donate link (heart icon) to the desktop app footer, opening the GitHub
