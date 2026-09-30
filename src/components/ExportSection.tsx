@@ -13,6 +13,7 @@ type Props = {
   compressing: boolean;
   cancelling: boolean;
   finalizingOutput: boolean;
+  selectionScanning: boolean;
   ffmpegMissing: boolean;
   batchMode: boolean;
   batchReady: boolean;
@@ -41,6 +42,7 @@ function ExportSection({
   compressing,
   cancelling,
   finalizingOutput,
+  selectionScanning,
   ffmpegMissing,
   batchMode,
   batchReady,
@@ -126,6 +128,7 @@ function ExportSection({
         className={`compress-btn${compressing ? " cancel" : ""}`}
         onClick={compressing ? onCancelCompression : onStartCompression}
         disabled={
+          selectionScanning ||
           ffmpegMissing ||
           cancelling ||
           finalizingOutput ||

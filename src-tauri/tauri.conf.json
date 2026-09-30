@@ -103,15 +103,16 @@
     "fileAssociations": [
       {
         "name": "Video",
-        "ext": [
-          "mp4",
-          "avi",
-          "mov",
-          "mkv",
-          "flv",
-          "wmv",
-          "webm"
-        ]
+        "ext": ["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"]
+      },
+      {
+        "name": "Folder",
+        "description": "Folder of videos",
+        "ext": [],
+        "contentTypes": ["public.folder"],
+        "mimeType": "inode/directory",
+        "role": "Viewer",
+        "rank": "Alternate"
       }
     ]
   }

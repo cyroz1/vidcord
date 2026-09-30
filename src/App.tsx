@@ -44,6 +44,7 @@ import {
   discardStagedOutput,
   downloadAndOpenUpdateInstaller,
   exitApp,
+  expandImportPaths,
   frontendReady,
   getLosslessTrimInfo,
   getOs,
@@ -59,6 +60,7 @@ import {
   resolveStagingOutputPath,
   showFilesInFileExplorer,
   showInFileExplorer,
+  type ExpandedImportPaths,
   type OutputExtension,
   type FfmpegInstallResult,
   type BatchCompressItem,
@@ -324,6 +326,17 @@ const VIDEO_FILE_ICON = (
   </svg>
 );
 
+const FOLDER_ICON = (
+  <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden="true">
+    <path
+      d="M3.5 6.5h6l2 2H20a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 20 18.5H4A1.5 1.5 0 0 1 2.5 17V8A1.5 1.5 0 0 1 4 6.5Z"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 const WorkflowModeSelector = memo(function WorkflowModeSelector({
   mode,
   batchMode,
@@ -483,13 +496,15 @@ export default function App() {
   const batchProbeDataRef = useRef<Map<number, ProbeData>>(new Map());
   const settingsLoadedRef = useRef(settingsLoaded);
   const pendingSelectionRef = useRef<readonly string[] | null>(null);
+  const importScanGenerationRef = useRef(0);
   const openFileListenerReadyRef = useRef(false);
   const frontendReadySentRef = useRef(false);
   const [fileLoadGeneration, setFileLoadGeneration] = useState(0);
-  const [fileName, setFileName] = useState("Drag a video here or click Browse");
+  const [fileName, setFileName] = useState("Drop videos or a folder, or click Browse");
   const [probeData, setProbeData] = useState<ProbeData | null>(null);
   const [audioTrackSelection, setAudioTrackSelection] = useState<number[] | null>(null);
   const [loadingVideo, setLoadingVideo] = useState(false);
+  const [selectionScanning, setSelectionScanning] = useState(false);
   const [losslessInfo, setLosslessInfo] = useState<LosslessTrimInfo | null>(null);
   const [losslessInfoLoading, setLosslessInfoLoading] = useState(false);
   const [losslessInfoError, setLosslessInfoError] = useState<string | null>(null);
@@ -1453,14 +1468,95 @@ export default function App() {
         pendingSelectionRef.current = [...paths];
         return;
       }
-      const normalizedPaths = normalizeVideoPaths(paths, SUPPORTED_VIDEO_EXTENSION, pathPlatform);
+
+      if (compressing || cancelling || finalizingOutput) {
+        addToast(
+          "info",
+          "Compression In Progress",
+          "Cancel the current export before choosing another video."
+        );
+        return;
+      }
+
+      const scanGeneration = ++importScanGenerationRef.current;
+      setSelectionScanning(true);
+      let expanded: ExpandedImportPaths;
+      try {
+        expanded = await expandImportPaths([...paths]);
+      } catch (error) {
+        if (scanGeneration === importScanGenerationRef.current) {
+          setSelectionScanning(false);
+          addToast("error", "Could Not Import Selection", String(error));
+        }
+        return;
+      }
+      if (scanGeneration !== importScanGenerationRef.current) return;
+
+      const normalizedPaths = normalizeVideoPaths(
+        expanded.videoPaths,
+        SUPPORTED_VIDEO_EXTENSION,
+        pathPlatform
+      );
+      const videoLabel = normalizedPaths.length === 1 ? "video" : "videos";
+      const importSummary =
+        normalizedPaths.length > 0
+          ? [`Queued ${normalizedPaths.length} ${videoLabel}`]
+          : ["No supported videos found"];
+      if (expanded.skippedNonVideoFiles > 0) {
+        const fileLabel = expanded.skippedNonVideoFiles === 1 ? "file" : "files";
+        importSummary.push(
+          `skipped ${expanded.skippedNonVideoFiles} non-video ${fileLabel}`
+        );
+      }
+      if (expanded.skippedFolderLinks > 0) {
+        const folderLabel = expanded.skippedFolderLinks === 1 ? "folder link" : "folder links";
+        importSummary.push(`skipped ${expanded.skippedFolderLinks} ${folderLabel}`);
+      }
+      if (expanded.unreadableItems > 0) {
+        const itemLabel = expanded.unreadableItems === 1 ? "item" : "items";
+        importSummary.push(
+          `could not read ${expanded.unreadableItems} ${itemLabel}`
+        );
+      }
+      const shouldReportImport =
+        expanded.foldersScanned > 0 ||
+        expanded.skippedNonVideoFiles > 0 ||
+        expanded.skippedFolderLinks > 0 ||
+        expanded.unreadableItems > 0 ||
+        normalizedPaths.length === 0;
+
+      if (shouldReportImport) {
+        const foundVideos = normalizedPaths.length > 0;
+        const hasSkippedItems =
+          expanded.skippedNonVideoFiles > 0 ||
+          expanded.skippedFolderLinks > 0 ||
+          expanded.unreadableItems > 0;
+        const title = foundVideos
+          ? expanded.foldersScanned > 0
+            ? "Folder Import Complete"
+            : "Import Results"
+          : "No Videos Found";
+        const details = importSummary.join(" · ");
+        const folderLabel = expanded.foldersScanned === 1 ? "folder" : "folders";
+        const folderSummary =
+          expanded.foldersScanned > 0
+            ? ` · scanned ${expanded.foldersScanned} ${folderLabel}`
+            : "";
+        addToast(
+          hasSkippedItems || !foundVideos ? "warning" : "success",
+          title,
+          `${details}${folderSummary}`
+        );
+      }
+
+      setSelectionScanning(false);
       if (normalizedPaths.length > 1) {
         await loadBatch(normalizedPaths);
       } else if (normalizedPaths.length === 1) {
         await loadVideo(normalizedPaths[0]);
       }
     },
-    [loadBatch, loadVideo, pathPlatform]
+    [addToast, cancelling, compressing, finalizingOutput, loadBatch, loadVideo, pathPlatform]
   );
 
   const markFrontendReady = useCallback(() => {
@@ -1556,6 +1652,22 @@ export default function App() {
       }
     } catch (error) {
       addToast("error", "Could Not Open File Picker", String(error));
+    }
+  }, [addToast, loadSelection]);
+
+  const browseFolder = useCallback(async () => {
+    try {
+      const selected = await openDialog({
+        title: "Choose folders to import",
+        directory: true,
+        multiple: true,
+        recursive: true,
+      });
+      if (selected) {
+        await loadSelection(typeof selected === "string" ? [selected] : selected);
+      }
+    } catch (error) {
+      addToast("error", "Could Not Choose Folder", String(error));
     }
   }, [addToast, loadSelection]);
 
@@ -2494,6 +2606,14 @@ export default function App() {
   startBatchRef.current = startBatch;
 
   const startCompress = useCallback(async () => {
+    if (selectionScanning) {
+      addToast(
+        "info",
+        "Folder Scan In Progress",
+        "Wait for the folder scan to finish before exporting."
+      );
+      return;
+    }
     if (isBatchMode) {
       await startBatchRef.current();
       return;
@@ -2833,6 +2953,7 @@ export default function App() {
     setAdvancedMode,
     setCompressing,
     resetProgress,
+    selectionScanning,
   ]);
   startCompressRef.current = startCompress;
 
@@ -3601,7 +3722,9 @@ export default function App() {
                 importDetails,
                 loadingVideo,
                 browseFile,
+                browseFolder,
                 loadSelection,
+                selectionScanning,
                 isBatchMode,
                 gifMode,
                 losslessTrim,
@@ -3742,6 +3865,16 @@ export default function App() {
                         </span>
                       </button>
                     )}
+                    <button
+                      type="button"
+                      className="folder-import-button"
+                      onClick={browseFolder}
+                      aria-label="Import videos from a folder"
+                      title="Import videos from a folder"
+                    >
+                      {FOLDER_ICON}
+                      <span>Add Folder</span>
+                    </button>
                   </div>
 
                   <WorkflowModeSelector
@@ -4390,6 +4523,7 @@ export default function App() {
             compressing={compressing}
             cancelling={cancelling}
             finalizingOutput={finalizingOutput}
+            selectionScanning={selectionScanning}
             ffmpegMissing={ffmpegMissing}
             batchMode={isBatchMode}
             batchReady={

@@ -26,9 +26,11 @@ enter browser **Batch mode** automatically. The browser queue applies the same
 standard Compress profile to each full-duration video and downloads each MP4.
 Reorder the queue with drag-and-drop or arrow controls, and retry failed or
 cancelled files without rerunning completed downloads.
-The desktop app additionally supports Open With, command-line file arguments,
-second-instance forwarding, per-video batch trims, native output handling, and
-native parallel workers.
+The desktop app additionally supports folder imports from drag-and-drop, the
+folder picker, and file-manager context menus, plus Open With, command-line file
+arguments, second-instance forwarding, per-video batch trims, native output
+handling, and native parallel workers. Folder imports scan subfolders, queue
+supported videos, and report skipped files.
 
 The native desktop app supports **MP4, MOV, MKV, AVI, WebM, FLV, WMV**, and
 other formats handled by your system [FFmpeg](https://ffmpeg.org) install. It
@@ -136,6 +138,9 @@ and retry oversized results with safer bitrates and CPU fallback.
   encoder reports a device, session, or resource-contention error, remaining work continues one
   video at a time. Individual probe or encode failures do not stop the queue, and aggregate
   progress and ETA cover the whole remaining batch rather than only the currently active item.
+- **Desktop folder imports** — drop a folder, choose one or more folders with **Add Folder**, or
+  choose **Import folder in vidcord** on Windows or vidcord from a folder context menu on macOS and
+  Linux. vidcord scans subfolders, queues supported videos, and reports skipped or unreadable items.
 - **Five Discord target profiles** covering current Discord tiers:
   - 20 MB @ 480p — Discord free tier
   - 50 MB @ 720p — Nitro Basic / Boost Level 2
@@ -210,10 +215,11 @@ and retry oversized results with safer bitrates and CPU fallback.
   - Intel Quick Sync (`h264_qsv`, `hevc_qsv`)
   - Linux VAAPI (`h264_vaapi`, `hevc_vaapi`)
   - macOS VideoToolbox (`h264_videotoolbox`, `hevc_videotoolbox`)
-- **Desktop ways to open videos:** drag-and-drop onto the window, "Open with
-  vidcord" from Explorer/Finder, command-line file arguments, a second-instance
-  launch, or the in-app **Browse** button. Selecting one video preserves the
-  normal workflow; selecting multiple videos activates Batch mode.
+- **Desktop ways to open videos:** drag-and-drop videos or folders onto the
+  window, use **Browse File** or **Add Folder**, choose vidcord from the folder
+  context menu, pass command-line file arguments, or launch a second instance.
+  Selecting one video preserves the normal workflow; multiple videos activate
+  Batch mode.
 - **Source details at import** — the desktop app shows resolution, frame rate,
   codec, average bitrate, and duration from FFprobe. The browser shows the
   dimensions, container information, file-size-based bitrate estimate, and
@@ -473,8 +479,10 @@ supported videos to activate Batch mode automatically; Browse, drag-and-drop,
 Open With, command-line file arguments, and second-instance forwarding all
 preserve the full selection.
 
-1. **Open a video** — drop it onto the window, right-click → _Open with
-   vidcord_ from Explorer/Finder, or click **Browse File**.
+1. **Open videos** — drop videos or a folder onto the window, choose vidcord from
+   a folder's context menu, or click **Browse File** or **Add Folder**. Folder
+   imports scan subfolders and report skipped files, linked folders, or unreadable
+   items in a notification.
 2. **Choose where to save** — use Downloads, the imported clip's folder, a
    remembered custom folder, or **Ask when done**. Choose whether completion
    copies the output file or reveals it.
@@ -829,9 +837,11 @@ limit, and export a smaller `.mp4` ready to upload.
 Yes. In the browser, select two or more files through Browse or drag-and-drop;
 the reorderable queue applies the same standard Compress target, crop, FPS, and
 audio settings to each full-duration file, reports per-file progress plus an
-aggregate ETA, and can retry failed or cancelled items. The desktop app also accepts Open With, command-line file
-arguments, and second-instance launches; its Batch mode adds separate
-start/end trims, up to two native workers, and native output handling.
+aggregate ETA, and can retry failed or cancelled items. The desktop app also
+accepts Open With, command-line file arguments, and second-instance launches;
+folders can be imported recursively from drag-and-drop, the folder picker, and
+file-manager context menus. Its Batch mode adds separate start/end trims, up to
+two native workers, and native output handling.
 
 ### Does vidcord require Discord Nitro?
 

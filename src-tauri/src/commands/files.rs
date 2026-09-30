@@ -76,6 +76,143 @@ fn configure_desktop_command(command: &mut Command) {
 /// frontend listener is registered.
 pub struct PendingFile(pub std::sync::Mutex<Option<Vec<String>>>);
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpandedImportPaths {
+    pub video_paths: Vec<String>,
+    pub skipped_non_video_files: usize,
+    pub skipped_folder_links: usize,
+    pub unreadable_items: usize,
+    pub folders_scanned: usize,
+}
+
+#[tauri::command]
+pub async fn expand_import_paths(paths: Vec<String>) -> Result<ExpandedImportPaths, String> {
+    tokio::task::spawn_blocking(move || expand_import_paths_blocking(paths))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+fn expand_import_paths_blocking(paths: Vec<String>) -> ExpandedImportPaths {
+    const VIDEO_EXTENSIONS: &[&str] = &["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"];
+
+    let mut pending = paths
+        .into_iter()
+        .rev()
+        .map(|path| (std::path::PathBuf::from(path), true))
+        .collect::<Vec<_>>();
+    let mut visited_directories = HashSet::new();
+    let mut seen_videos = HashSet::new();
+    let mut video_paths = Vec::new();
+    let mut skipped_non_video_files = 0;
+    let mut skipped_folder_links = 0;
+    let mut unreadable_items = 0;
+    let mut folders_scanned = 0;
+
+    while let Some((path, is_selected_root)) = pending.pop() {
+        let metadata_result = if is_selected_root {
+            std::fs::metadata(&path)
+        } else {
+            std::fs::symlink_metadata(&path)
+        };
+        let entry_metadata = match metadata_result {
+            Ok(metadata) => metadata,
+            Err(_) => {
+                unreadable_items += 1;
+                continue;
+            }
+        };
+        let metadata = if entry_metadata.file_type().is_symlink() {
+            match std::fs::metadata(&path) {
+                Ok(metadata) if metadata.is_dir() => {
+                    skipped_folder_links += 1;
+                    continue;
+                }
+                Ok(metadata) => metadata,
+                Err(_) => {
+                    unreadable_items += 1;
+                    continue;
+                }
+            }
+        } else {
+            entry_metadata
+        };
+
+        if metadata.is_dir() {
+            let directory = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+            if !visited_directories.insert(import_path_key(&directory)) {
+                continue;
+            }
+            folders_scanned += 1;
+
+            let entries = match std::fs::read_dir(&path) {
+                Ok(entries) => entries,
+                Err(_) => {
+                    unreadable_items += 1;
+                    continue;
+                }
+            };
+            let mut children = Vec::new();
+            for entry in entries {
+                match entry {
+                    Ok(entry) => children.push(entry.path()),
+                    Err(_) => unreadable_items += 1,
+                }
+            }
+            children.sort();
+            pending.extend(children.into_iter().rev().map(|child| (child, false)));
+            continue;
+        }
+
+        if !metadata.is_file() {
+            continue;
+        }
+
+        let is_video = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                VIDEO_EXTENSIONS
+                    .iter()
+                    .any(|supported| extension.eq_ignore_ascii_case(supported))
+            });
+        if !is_video {
+            skipped_non_video_files += 1;
+            continue;
+        }
+
+        let canonical_path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        if seen_videos.insert(import_path_key(&canonical_path)) {
+            let video_path = if path.is_absolute() {
+                path
+            } else {
+                canonical_path
+            };
+            video_paths.push(video_path.to_string_lossy().into_owned());
+        }
+    }
+
+    ExpandedImportPaths {
+        video_paths,
+        skipped_non_video_files,
+        skipped_folder_links,
+        unreadable_items,
+        folders_scanned,
+    }
+}
+
+fn import_path_key(path: &std::path::Path) -> String {
+    let path = path.to_string_lossy().into_owned();
+    #[cfg(target_os = "windows")]
+    {
+        path.to_lowercase()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        path
+    }
+}
+
 #[tauri::command]
 pub async fn show_in_file_explorer(path: String) -> Result<(), String> {
     show_files_in_file_explorer(vec![path]).await

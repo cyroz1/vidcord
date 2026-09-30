@@ -3,6 +3,14 @@ import type { LosslessTrimInfo, LosslessVideoExtension } from "./losslessTrim";
 
 export type Settings = Record<string, unknown>;
 
+export type ExpandedImportPaths = {
+  videoPaths: string[];
+  skippedNonVideoFiles: number;
+  skippedFolderLinks: number;
+  unreadableItems: number;
+  foldersScanned: number;
+};
+
 export function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -151,6 +159,10 @@ export function saveSettings(settings: Settings): Promise<void> {
 
 export function frontendReady(): Promise<void> {
   return invoke("frontend_ready");
+}
+
+export function expandImportPaths(paths: string[]): Promise<ExpandedImportPaths> {
+  return invoke<ExpandedImportPaths>("expand_import_paths", { paths });
 }
 
 export function syncNativeWindowTheme(dark: boolean): Promise<void> {

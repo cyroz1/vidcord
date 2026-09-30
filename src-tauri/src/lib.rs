@@ -21,8 +21,8 @@ use commands::encoders::{
     list_ffmpeg_video_encoders,
 };
 use commands::files::{
-    copy_file_to_clipboard, copy_files_to_clipboard, discard_staged_output, get_os,
-    publish_batch_staged_outputs, publish_staged_output, resolve_batch_output_paths,
+    copy_file_to_clipboard, copy_files_to_clipboard, discard_staged_output, expand_import_paths,
+    get_os, publish_batch_staged_outputs, publish_staged_output, resolve_batch_output_paths,
     resolve_output_path, resolve_staging_output_path, send_system_notification,
     show_files_in_file_explorer, show_in_file_explorer, PendingFile,
 };
@@ -351,6 +351,7 @@ pub fn run() {
             capture_snapshot,
             check_for_updates,
             download_and_open_update_installer,
+            expand_import_paths,
             show_files_in_file_explorer,
             show_in_file_explorer,
             copy_file_to_clipboard,

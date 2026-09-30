@@ -778,8 +778,9 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
             <span className="step-number">1</span>
             <h3>Add your videos</h3>
             <p>
-              Choose a local file in the browser editor above or drag and drop. Use Open With from
-              Finder or Explorer in the desktop app, and multi-select to activate Batch mode.
+              Choose a local file in the browser editor above or drag and drop. On desktop, choose
+              a folder or use its file-manager context menu to import supported videos recursively.
+              Multi-select to activate Batch mode.
             </p>
           </article>
           <article>
@@ -879,9 +880,10 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
 
       <DetailSection
         title="Compress a whole queue in Batch mode."
-        copy="Select multiple videos and vidcord probes and encodes each one independently. The browser queue keeps source details and per-file progress visible; the desktop queue also supports separate trims, native parallel workers, and native output handling."
+        copy="Select multiple videos or import a folder and vidcord probes and encodes each video independently. The browser queue keeps source details and per-file progress visible; the desktop queue also supports separate trims, native parallel workers, and native output handling."
         items={[
-          "Select multiple videos through Browse or drag-and-drop in the browser, or Open With and the command line on desktop.",
+          "Select multiple videos through Browse or drag-and-drop in the browser; on desktop, drop folders, choose folders, or use a file-manager context menu.",
+          "Desktop folder imports scan subfolders and report skipped files, linked folders, or unreadable items.",
           "Apply shared standard Compress settings; desktop Batch adds separate start and end trims.",
           "The desktop app runs up to two encodes at once, with a serial fallback when resources contend.",
           "Continue after individual failures and keep collision-safe MP4 outputs.",
@@ -1024,10 +1026,11 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <article>
             <h3>Can vidcord compress multiple videos at once?</h3>
             <p>
-              Yes. Select two or more videos through Browse or drag-and-drop in the browser, or Open
-              With and the command line on desktop, to activate Batch mode. The browser queue
-              reports per-file and aggregate progress; desktop Batch also supports separate trims
-              and native parallel workers.
+              Yes. Select two or more videos through Browse or drag-and-drop in the browser, or
+              import videos recursively from a folder on desktop. Desktop folders can be dropped,
+              chosen with the folder picker, or opened from a file-manager context menu. The browser
+              queue reports per-file and aggregate progress; desktop Batch also supports separate
+              trims and native parallel workers.
             </p>
           </article>
           <article>
