@@ -2869,10 +2869,10 @@ export default function App() {
     loadListedEncoders().catch(() => {});
   }, [advancedMode, listedEncoderNames.length, loadListedEncoders, settingsLoaded]);
 
-  const installUpdate = useCallback(async () => {
+  const installUpdate = useCallback(async (releaseTag: string) => {
     setInstallingUpdate(true);
     try {
-      const result = await downloadAndOpenUpdateInstaller();
+      const result = await downloadAndOpenUpdateInstaller(releaseTag);
       if (pathPlatform === "linux") {
         // Linux AppImages cannot be relaunched in place: the single-instance
         // guard would kill the new copy, so the backend reveals the download
@@ -3530,7 +3530,7 @@ export default function App() {
                 ref={updatePrimaryActionRef}
                 className="update-primary-btn"
                 type="button"
-                onClick={installUpdate}
+                onClick={() => installUpdate(updateInfo.version)}
                 disabled={installingUpdate || !updateInfo.installerAvailable}
               >
                 {installingUpdate ? "Opening..." : "Install"}

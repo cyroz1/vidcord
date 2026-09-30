@@ -116,11 +116,7 @@ fn platform_asset_suffixes() -> Result<&'static [&'static str], String> {
     }
 }
 
-fn release_tag(release: &GitHubRelease) -> Result<&str, String> {
-    let tag = release
-        .tag_name
-        .as_deref()
-        .ok_or_else(|| "Update release is missing a valid tag.".to_string())?;
+fn validate_release_tag(tag: &str) -> Result<&str, String> {
     let version = tag.strip_prefix('v').unwrap_or(tag);
     if tag.is_empty()
         || version.is_empty()
@@ -132,6 +128,14 @@ fn release_tag(release: &GitHubRelease) -> Result<&str, String> {
         return Err("Update release is missing a valid tag.".to_string());
     }
     Ok(tag)
+}
+
+fn release_tag(release: &GitHubRelease) -> Result<&str, String> {
+    let tag = release
+        .tag_name
+        .as_deref()
+        .ok_or_else(|| "Update release is missing a valid tag.".to_string())?;
+    validate_release_tag(tag)
 }
 
 fn canonical_release_asset_url(tag: &str, name: &str) -> Result<String, String> {
@@ -175,29 +179,39 @@ fn select_platform_asset(release: &GitHubRelease) -> Result<SelectedAsset, Strin
     })
 }
 
-async fn fetch_latest_release() -> Result<GitHubRelease, String> {
+async fn fetch_release(url: &str) -> Result<GitHubRelease, String> {
     let resp = http_client()
-        .get("https://api.github.com/repos/cyroz1/vidcord/releases/latest")
+        .get(url)
         .header("Accept", "application/vnd.github+json")
         .send()
         .await
         .map_err(|e| {
             let msg = e.to_string();
-            vidcord_log(&format!("update check: request failed: {msg}"));
+            vidcord_log(&format!("update release request failed: {msg}"));
             msg
         })?;
 
     if !resp.status().is_success() {
         let status = resp.status();
-        vidcord_log(&format!("update check: HTTP {status}"));
+        vidcord_log(&format!("update release request: HTTP {status}"));
         return Err(format!("HTTP {status}"));
     }
 
     resp.json::<GitHubRelease>().await.map_err(|e| {
         let msg = e.to_string();
-        vidcord_log(&format!("update check: response parse failed: {msg}"));
+        vidcord_log(&format!("update release response parse failed: {msg}"));
         msg
     })
+}
+
+async fn fetch_latest_release() -> Result<GitHubRelease, String> {
+    fetch_release("https://api.github.com/repos/cyroz1/vidcord/releases/latest").await
+}
+
+async fn fetch_release_by_tag(tag: &str) -> Result<GitHubRelease, String> {
+    let tag = validate_release_tag(tag)?;
+    let url = format!("https://api.github.com/repos/cyroz1/vidcord/releases/tags/{tag}");
+    fetch_release(&url).await
 }
 
 fn safe_asset_filename(name: &str) -> Result<&str, String> {
@@ -608,8 +622,17 @@ pub async fn check_for_updates(current_version: String) -> Result<serde_json::Va
 }
 
 #[tauri::command]
-pub async fn download_and_open_update_installer() -> Result<serde_json::Value, String> {
-    let release = fetch_latest_release().await?;
+pub async fn download_and_open_update_installer(
+    approved_release_tag: String,
+) -> Result<serde_json::Value, String> {
+    let release = fetch_release_by_tag(&approved_release_tag).await?;
+    let actual_release_tag = release_tag(&release)?;
+    if actual_release_tag != approved_release_tag {
+        return Err(
+            "The requested update release did not match the release returned by GitHub."
+                .to_string(),
+        );
+    }
     let asset = select_platform_asset(&release)?;
     let signature = download_release_signature(&asset.signature_url).await?;
     if let Some(size) = asset.size {

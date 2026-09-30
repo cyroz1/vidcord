@@ -257,8 +257,10 @@ export function checkForUpdates(currentVersion: string): Promise<UpdateCheckResu
   return invoke<UpdateCheckResult>("check_for_updates", { currentVersion });
 }
 
-export function downloadAndOpenUpdateInstaller(): Promise<UpdateInstallResult> {
-  return invoke<UpdateInstallResult>("download_and_open_update_installer");
+export function downloadAndOpenUpdateInstaller(releaseTag: string): Promise<UpdateInstallResult> {
+  return invoke<UpdateInstallResult>("download_and_open_update_installer", {
+    approvedReleaseTag: releaseTag,
+  });
 }
 
 export function showInFileExplorer(path: string): Promise<void> {
