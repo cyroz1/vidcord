@@ -253,6 +253,75 @@ pub async fn probe(path: String) -> Result<serde_json::Value, String> {
     result
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchProbeResult {
+    pub data: Option<serde_json::Value>,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub async fn probe_batch(paths: Vec<String>) -> Result<Vec<BatchProbeResult>, String> {
+    const PROBE_CONCURRENCY: usize = 2;
+
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let count = paths.len();
+    let started_at = Instant::now();
+    let generation = start_probe_generation();
+    let results = tokio::task::spawn_blocking(move || {
+        cancel_superseded_probe_jobs(generation);
+        cancel_preview_jobs();
+        for path in &paths {
+            clear_preview_caches_for_path(path);
+        }
+
+        let mut results = Vec::with_capacity(paths.len());
+        for chunk in paths.chunks(PROBE_CONCURRENCY) {
+            let chunk_results = std::thread::scope(|scope| {
+                let handles = chunk
+                    .iter()
+                    .map(|path| {
+                        scope.spawn(move || {
+                            probe_video(path, generation).map_err(|error| error.to_string())
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                handles
+                    .into_iter()
+                    .map(|handle| {
+                        handle.join().unwrap_or_else(|_| {
+                            Err("FFprobe could not read this video.".to_string())
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            });
+
+            results.extend(chunk_results.into_iter().map(|result| match result {
+                Ok(data) => BatchProbeResult {
+                    data: Some(data),
+                    error: None,
+                },
+                Err(error) => BatchProbeResult {
+                    data: None,
+                    error: Some(error),
+                },
+            }));
+        }
+        results
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+
+    vidcord_log(&format!(
+        "File import: batch probe completed for {count} files in {} ms",
+        started_at.elapsed().as_millis()
+    ));
+    Ok(results)
+}
+
 #[tauri::command]
 pub async fn get_lossless_trim_info(
     path: String,
@@ -880,6 +949,9 @@ fn gif_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> String {
 const OVERSIZE_RETRY_LIMIT_PER_ENCODER: usize = 1;
 const OVERSIZE_RETRY_SAFETY: f64 = 0.90;
 const LOSSLESS_FASTSTART_MAX_INPUT_BYTES: u64 = 256 * 1024 * 1024;
+const SIZE_PREFLIGHT_MIN_DURATION_SECONDS: f64 = 120.0;
+const SIZE_PREFLIGHT_SAMPLE_SECONDS: f64 = 4.0;
+const SIZE_PREFLIGHT_SAFETY_MARGIN: f64 = 1.10;
 const GIF_PREFLIGHT_INITIAL_SECONDS: f64 = 1.0;
 const GIF_PREFLIGHT_EXTENDED_SECONDS: f64 = 3.0;
 const GIF_PREFLIGHT_UNCERTAINTY_LOW: f64 = 0.80;
@@ -911,7 +983,7 @@ impl TemporaryOutput {
         for _ in 0..32 {
             let suffix = GIF_PREFLIGHT_COUNTER.fetch_add(1, Ordering::Relaxed);
             let path = directory.join(format!(
-                "gif-preflight-{}-{suffix}.{extension}",
+                "vidcord-preflight-{}-{suffix}.{extension}",
                 std::process::id()
             ));
             match std::fs::OpenOptions::new()
@@ -988,6 +1060,17 @@ fn max_adaptive_attempts(opts: &CompressOptions, has_target: bool) -> usize {
     };
     encoder_phases * attempts_per_encoder
         + usize::from(supports_auto_hardware_decode(opts, &opts.encoder))
+}
+
+fn should_preflight_standard_size(
+    opts: &CompressOptions,
+    target_bytes: Option<u64>,
+    clip_duration: f64,
+) -> bool {
+    target_bytes.is_some()
+        && !opts.gif_mode
+        && !opts.lossless_trim
+        && clip_duration >= SIZE_PREFLIGHT_MIN_DURATION_SECONDS
 }
 
 fn target_rate_control_args(encoder: &str, bitrate_k: u32, has_target: bool) -> Vec<String> {
@@ -1765,6 +1848,44 @@ async fn run_ffmpeg_attempt(
     })
 }
 
+async fn estimate_size_from_sample(
+    app: &AppHandle,
+    opts: &CompressOptions,
+    attempt: &CompressionAttempt,
+    sample_duration: f64,
+    mut run_context: FfmpegRunContext,
+) -> Result<Option<u64>, String> {
+    let sample_output = TemporaryOutput::create("mp4")?;
+    let mut sample_opts = opts.clone();
+    sample_opts.end_time = sample_opts.start_time + sample_duration;
+    sample_opts.output_path = sample_output.as_string();
+    run_context.attempt_index = 0;
+    run_context.clip_duration = sample_duration;
+    run_context.emit_progress = false;
+    let run = run_ffmpeg_attempt(app, &sample_opts, attempt, run_context).await?;
+
+    if run.cancelled {
+        return Err("Cancelled".to_string());
+    }
+    if !run.exit_status.success() {
+        return Ok(None);
+    }
+
+    let Ok(metadata) = std::fs::metadata(&sample_output.0) else {
+        return Ok(None);
+    };
+    if metadata.len() == 0 || sample_duration <= 0.0 || !sample_duration.is_finite() {
+        return Ok(None);
+    }
+
+    let clip_duration = opts.end_time - opts.start_time;
+    let projected = ((metadata.len() as f64 * clip_duration / sample_duration)
+        * SIZE_PREFLIGHT_SAFETY_MARGIN)
+        .ceil()
+        .min(u64::MAX as f64) as u64;
+    Ok(Some(projected))
+}
+
 #[cfg(unix)]
 fn lower_compression_process_priority(pid: u32) {
     // Let UI and desktop compositor work pre-empt long software encodes while
@@ -2097,6 +2218,66 @@ async fn run_batch_item(
     } else {
         None
     };
+
+    if should_preflight_standard_size(&opts, target_bytes, clip_duration) {
+        emit_batch_progress(
+            app,
+            &context,
+            BatchProgressUpdate {
+                item_percent: 0,
+                phase: "encoding",
+                status: "Estimating output size…",
+                eta: "Calculating…",
+                attempt: Some(1),
+                attempt_total: Some(total_attempts),
+                encoder: Some(attempt.encoder.as_str()),
+                video_bitrate_k: Some(attempt.video_bitrate_k),
+            },
+        );
+        match estimate_size_from_sample(
+            app,
+            &opts,
+            &attempt,
+            SIZE_PREFLIGHT_SAMPLE_SECONDS.min(clip_duration),
+            FfmpegRunContext {
+                attempt_index: 0,
+                total_attempts,
+                clip_duration,
+                job_id,
+                emit_progress: false,
+                audio_gain_db,
+                batch: Some(context.clone()),
+            },
+        )
+        .await
+        {
+            Ok(Some(projected_bytes)) => {
+                let target_bytes = target_bytes.expect("preflight requires a target size");
+                if projected_bytes > target_bytes {
+                    let next_bitrate = adaptive_bitrate_for_oversize(
+                        attempt.video_bitrate_k,
+                        target_bytes,
+                        projected_bytes,
+                    );
+                    if next_bitrate < attempt.video_bitrate_k {
+                        attempt.video_bitrate_k = next_bitrate;
+                        attempt.status =
+                            format!("Compressing at {next_bitrate} kbps after size estimate...");
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(error) if error == "Cancelled" => return Err(error),
+            Err(error) => {
+                if is_resource_contention_error(&error) {
+                    mark_batch_resource_contention(&context);
+                }
+                vidcord_log(&format!(
+                    "Batch size estimate could not run; continuing with normal encoding: {error}"
+                ));
+            }
+        }
+    }
 
     loop {
         if attempt_index >= total_attempts {
@@ -2710,6 +2891,72 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             }
             Err(error) => vidcord_log(&format!(
                 "GIF sizing sample could not reserve temporary output ({error}); continuing with the normal encode."
+            )),
+        }
+    }
+
+    if should_preflight_standard_size(&opts, target_bytes, clip_duration) {
+        let _ = app.emit(
+            "compress-progress",
+            serde_json::json!({
+                "percent": 0,
+                "eta": "Calculating...",
+                "status": "Estimating output size…",
+                "attempt": 1,
+                "attempt_total": total_attempts,
+                "encoder": attempt.encoder.as_str(),
+                "video_bitrate_k": attempt.video_bitrate_k,
+                "gif_mode": false,
+                "lossless_trim": false
+            }),
+        );
+        match estimate_size_from_sample(
+            &app,
+            &opts,
+            &attempt,
+            SIZE_PREFLIGHT_SAMPLE_SECONDS.min(clip_duration),
+            FfmpegRunContext {
+                attempt_index: 0,
+                total_attempts,
+                clip_duration,
+                job_id,
+                emit_progress: false,
+                audio_gain_db,
+                batch: None,
+            },
+        )
+        .await
+        {
+            Ok(Some(projected_bytes)) => {
+                let target_bytes = target_bytes.expect("preflight requires a target size");
+                if projected_bytes > target_bytes {
+                    let next_bitrate = adaptive_bitrate_for_oversize(
+                        attempt.video_bitrate_k,
+                        target_bytes,
+                        projected_bytes,
+                    );
+                    if next_bitrate < attempt.video_bitrate_k {
+                        attempt.video_bitrate_k = next_bitrate;
+                        attempt.status =
+                            format!("Compressing at {next_bitrate} kbps after size estimate...");
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(error) if error == "Cancelled" => {
+                remove_partial_output(&opts.output_path);
+                let _ = app.emit(
+                    "compress-done",
+                    serde_json::json!({
+                        "success": false,
+                        "cancelled": true,
+                        "message": "Cancelled."
+                    }),
+                );
+                return Err(error);
+            }
+            Err(error) => vidcord_log(&format!(
+                "Size estimate could not run; continuing with normal encoding: {error}"
             )),
         }
     }

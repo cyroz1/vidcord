@@ -13,10 +13,17 @@ import {
   getRetryBitrate,
   outputFileName,
   parsePeakNormalizationGain,
+  type ExportPlan,
 } from "./exportPlan";
 import { progressFromMediaTime } from "./browserProgress";
 import type { BrowserVideoMetadata } from "./webMedia";
 import type { BrowserMode, BrowserSettings } from "./webSettings";
+
+const SIZE_SAMPLE_MIN_DURATION_SECONDS = 120;
+const SIZE_SAMPLE_DURATION_SECONDS = 4;
+const GIF_SAMPLE_MIN_DURATION_SECONDS = 30;
+const GIF_SAMPLE_DURATION_SECONDS = 1;
+const SIZE_SAMPLE_SAFETY_MARGIN = 1.1;
 
 export type ExportProgressSegment = {
   /** Overall progress where the current operation starts (0-1). */
@@ -77,7 +84,12 @@ function operationProgressHandler(
 ): FfmpegProgressHandler {
   let lastProgress = 0;
   return ({ progress, time }) => {
-    const safeProgress = progressFromMediaTime(time, durationSeconds, progress, fullDurationSeconds);
+    const safeProgress = progressFromMediaTime(
+      time,
+      durationSeconds,
+      progress,
+      fullDurationSeconds
+    );
     const monotonicProgress = Math.max(lastProgress, safeProgress);
     lastProgress = monotonicProgress;
     onProgress?.(start + (end - start) * monotonicProgress, status, { start, end });
@@ -150,7 +162,14 @@ export async function exportBrowserFile({
             settings.removeAudio
           ),
         encodedName,
-        operationProgressHandler(onProgress, 0, 1, "Encoding lossless trim…", plan.selectedDuration, metadata.duration)
+        operationProgressHandler(
+          onProgress,
+          0,
+          1,
+          "Encoding lossless trim…",
+          plan.selectedDuration,
+          metadata.duration
+        )
       );
       onProgress?.(1, "Finishing export…", { start: 0, end: 1 });
       return {
@@ -174,7 +193,15 @@ export async function exportBrowserFile({
       settings.audioNormalize && !settings.removeAudio && metadata.hasAudio && mode !== "gif";
     const canDropAudio = mode !== "gif" && !settings.removeAudio && metadata.hasAudio;
     const analysisEnd = shouldAnalyzeAudio ? 0.12 : 0;
-    const encodingSpan = 1 - analysisEnd;
+    const preflightDuration =
+      mode === "gif" ? GIF_SAMPLE_DURATION_SECONDS : SIZE_SAMPLE_DURATION_SECONDS;
+    const shouldRunSizePreflight =
+      plan.targetSizeMb !== null &&
+      bitrate !== null &&
+      plan.selectedDuration >=
+        (mode === "gif" ? GIF_SAMPLE_MIN_DURATION_SECONDS : SIZE_SAMPLE_MIN_DURATION_SECONDS);
+    const preflightSpan = shouldRunSizePreflight ? 0.06 : 0;
+    const encodingSpan = 1 - analysisEnd - preflightSpan;
 
     if (shouldAnalyzeAudio) {
       onProgress?.(0, "Analyzing audio peak…", { start: 0, end: analysisEnd });
@@ -201,12 +228,104 @@ export async function exportBrowserFile({
       onProgress?.(analysisEnd, "Preparing encoder…", { start: analysisEnd, end: 1 });
     }
 
+    if (shouldRunSizePreflight && bitrate !== null && plan.targetSizeMb !== null) {
+      const sampleDuration = Math.min(preflightDuration, plan.selectedDuration);
+      const samplePlan: ExportPlan = {
+        ...plan,
+        endTime: plan.startTime + sampleDuration,
+        selectedDuration: sampleDuration,
+      };
+      const preflightStart = analysisEnd;
+      const preflightEnd = preflightStart + preflightSpan;
+      const sampleOutputName = mode === "gif" ? "size-sample.gif" : "size-sample.mp4";
+      const sampleProgress = operationProgressHandler(
+        onProgress,
+        preflightStart,
+        preflightEnd,
+        "Estimating output size…",
+        sampleDuration,
+        metadata.duration
+      );
+
+      onProgress?.(preflightStart, "Estimating output size…", {
+        start: preflightStart,
+        end: preflightEnd,
+      });
+      let sizeAdjusted = false;
+      try {
+        let paletteName: string | undefined;
+        if (mode === "gif" && session?.prepareFile) {
+          paletteName = "size-sample-palette.png";
+          const paletteEnd = preflightStart + preflightSpan * 0.35;
+          await session.prepareFile(
+            (inputName) =>
+              buildGifPaletteArgs(inputName, paletteName!, metadata, settings, samplePlan, bitrate),
+            paletteName,
+            operationProgressHandler(
+              onProgress,
+              preflightStart,
+              paletteEnd,
+              "Estimating GIF size…",
+              sampleDuration,
+              metadata.duration
+            )
+          );
+        }
+
+        const sampleBytes = await transcodeFile(
+          (inputName) =>
+            mode === "gif"
+              ? buildGifArgs(
+                  inputName,
+                  sampleOutputName,
+                  metadata,
+                  settings,
+                  samplePlan,
+                  plan.targetHeight ?? 480,
+                  bitrate,
+                  paletteName
+                )
+              : buildCompressionArgs(
+                  inputName,
+                  sampleOutputName,
+                  metadata,
+                  settings,
+                  samplePlan,
+                  bitrate,
+                  audioGainDb
+                ),
+          sampleOutputName,
+          sampleProgress
+        );
+        const projectedBytes = Math.ceil(
+          (sampleBytes.byteLength * plan.selectedDuration * SIZE_SAMPLE_SAFETY_MARGIN) /
+            sampleDuration
+        );
+        const adjustedBitrate = getRetryBitrate(bitrate, projectedBytes, plan.targetSizeMb);
+        if (projectedBytes > plan.targetSizeMb * 1024 * 1024 && adjustedBitrate < bitrate) {
+          bitrate = adjustedBitrate;
+          sizeAdjusted = true;
+        }
+      } catch (error: unknown) {
+        if (String(error).toLowerCase().includes("cancel")) throw error;
+      }
+      onProgress?.(
+        preflightEnd,
+        sizeAdjusted ? "Starting full export with a safer size estimate…" : "Starting full export…",
+        {
+          start: preflightStart,
+          end: preflightEnd,
+        }
+      );
+    }
+
     for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
       // A rejected large output must not stay alive during the next encode.
       lastBytes = new Uint8Array();
       const attemptLabel = maximumAttempts > 1 ? ` · pass ${attempt + 1}/${maximumAttempts}` : "";
-      const attemptStart = analysisEnd + (encodingSpan * attempt) / maximumAttempts;
-      const attemptEnd = analysisEnd + (encodingSpan * (attempt + 1)) / maximumAttempts;
+      const attemptStart = analysisEnd + preflightSpan + (encodingSpan * attempt) / maximumAttempts;
+      const attemptEnd =
+        analysisEnd + preflightSpan + (encodingSpan * (attempt + 1)) / maximumAttempts;
       const encodingStatus =
         mode === "gif" ? `Rendering GIF${attemptLabel}` : `Encoding${attemptLabel}`;
       onProgress?.(attemptStart, encodingStatus, { start: attemptStart, end: attemptEnd });

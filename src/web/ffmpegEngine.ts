@@ -10,6 +10,12 @@ export type FfmpegProgressEvent = {
 
 export type FfmpegProgressHandler = (event: FfmpegProgressEvent) => void;
 
+export type BrowserEncoderLoadProgress = {
+  stage: "downloading" | "starting";
+  loadedBytes: number;
+  totalBytes: number | null;
+};
+
 export type BrowserFfmpegSession = {
   prepareFile: (
     argsForInput: (inputName: string) => string[],
@@ -49,7 +55,58 @@ function isWasmBytes(bytes: Uint8Array): boolean {
   );
 }
 
-async function resolveWasmSource(signal: AbortSignal): Promise<WasmSource> {
+async function readResponseBytes(
+  response: Response,
+  signal: AbortSignal,
+  onProgress?: (loadedBytes: number, totalBytes: number | null) => void
+): Promise<Uint8Array<ArrayBuffer>> {
+  const totalBytes = responseContentLength(response);
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    onProgress?.(bytes.byteLength, totalBytes);
+    return bytes;
+  }
+
+  const bytes = totalBytes === null ? null : new Uint8Array(totalBytes);
+  const chunks: Uint8Array[] = [];
+  let loadedBytes = 0;
+  while (true) {
+    signal.throwIfAborted();
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (bytes) {
+      if (loadedBytes + value.byteLength > bytes.byteLength) {
+        throw new Error("The browser encoder download exceeded its declared size.");
+      }
+      bytes.set(value, loadedBytes);
+    } else {
+      chunks.push(value);
+    }
+    loadedBytes += value.byteLength;
+    onProgress?.(loadedBytes, totalBytes);
+  }
+
+  if (bytes) return loadedBytes === bytes.byteLength ? bytes : bytes.slice(0, loadedBytes);
+
+  const assembledBytes = new Uint8Array(loadedBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    assembledBytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return assembledBytes;
+}
+
+function responseContentLength(response: Response): number | null {
+  const contentLength = Number(response.headers.get("content-length"));
+  return Number.isFinite(contentLength) && contentLength > 0 ? contentLength : null;
+}
+
+async function resolveWasmSource(
+  signal: AbortSignal,
+  onProgress?: (progress: BrowserEncoderLoadProgress) => void
+): Promise<WasmSource> {
   let response: Response;
 
   try {
@@ -63,7 +120,14 @@ async function resolveWasmSource(signal: AbortSignal): Promise<WasmSource> {
 
   if (!response.ok) return directWasmSource();
 
-  const compressedBytes = new Uint8Array(await response.arrayBuffer());
+  onProgress?.({
+    stage: "downloading",
+    loadedBytes: 0,
+    totalBytes: responseContentLength(response),
+  });
+  const compressedBytes = await readResponseBytes(response, signal, (loadedBytes, totalBytes) => {
+    onProgress?.({ stage: "downloading", loadedBytes, totalBytes });
+  });
   const isGzip = compressedBytes[0] === 0x1f && compressedBytes[1] === 0x8b;
   if (!isGzip && !isWasmBytes(compressedBytes)) return directWasmSource();
   const wasmBytes = isGzip
@@ -79,6 +143,7 @@ async function resolveWasmSource(signal: AbortSignal): Promise<WasmSource> {
       })()
     : compressedBytes;
   signal.throwIfAborted();
+  onProgress?.({ stage: "starting", loadedBytes: compressedBytes.byteLength, totalBytes: null });
   const blobURL = URL.createObjectURL(new Blob([wasmBytes], { type: "application/wasm" }));
 
   return {
@@ -141,7 +206,7 @@ export class BrowserFfmpegEngine {
     return this.ffmpeg?.loaded === true;
   }
 
-  async load(): Promise<void> {
+  async load(onProgress?: (progress: BrowserEncoderLoadProgress) => void): Promise<void> {
     if (this.ffmpeg?.loaded) return;
     if (this.loading) return this.loading;
 
@@ -160,11 +225,12 @@ export class BrowserFfmpegEngine {
       let wasmSource: WasmSource | null = null;
 
       try {
-        wasmSource = await resolveWasmSource(controller.signal);
+        wasmSource = await resolveWasmSource(controller.signal, onProgress);
         if (this.loadGeneration !== loadGeneration || this.ffmpeg !== ffmpeg) {
           ffmpeg.terminate();
           throw new Error("The browser encoder load was cancelled.");
         }
+        onProgress?.({ stage: "starting", loadedBytes: 0, totalBytes: null });
         await ffmpeg.load({ coreURL, wasmURL: wasmSource.url }, { signal: controller.signal });
         controller.signal.throwIfAborted();
       } catch (error: unknown) {

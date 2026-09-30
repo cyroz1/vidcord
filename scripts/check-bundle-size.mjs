@@ -33,7 +33,10 @@ const limits = {
   // v7.6 adds a persisted close-after-export setting and native app-exit wiring; allow 1 KiB for it.
   // Recursive folder imports, skipped-file reporting, and clear-queue controls add a small amount
   // of native app UI and selection logic; allow 4 KiB for those v7.6 additions.
-  javascriptRaw: 508 * 1024,
+  // Browser encoder-load feedback, large-export memory guidance, size sampling, and parallel
+  // desktop import probes improve long or multi-file workflows; keep the complete bundle under
+  // the existing 0.5 MiB ceiling while allowing up to 3 KiB for those performance changes.
+  javascriptRaw: 511 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
   // Keep a small cross-runtime margin while retaining the tight raw-byte guard above.
   // The donate footer link and website support section add a shared links module plus

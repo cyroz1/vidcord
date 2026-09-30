@@ -35,6 +35,11 @@ export type ProbeData = {
   audio_tracks: AudioTrack[];
 };
 
+export type BatchProbeResult = {
+  data: ProbeData | null;
+  error: string | null;
+};
+
 export type AudioTrack = {
   index: number;
   name: string;
@@ -171,6 +176,10 @@ export function syncNativeWindowTheme(dark: boolean): Promise<void> {
 
 export function probe(path: string): Promise<ProbeData> {
   return invoke<ProbeData>("probe", { path });
+}
+
+export function probeBatch(paths: string[]): Promise<BatchProbeResult[]> {
+  return invoke<BatchProbeResult[]>("probe_batch", { paths });
 }
 
 export function getLosslessTrimInfo(path: string, requestId?: number): Promise<LosslessTrimInfo> {

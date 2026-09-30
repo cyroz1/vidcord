@@ -453,7 +453,9 @@ Call `clear_preview_caches_for_path(path)` when the frontend loads a new file
 (already done in `probe`) so preview reuse survives switching sources without
 retaining stale entries for the file being re-probed.
 FFprobe child PIDs have a separate generation token and a six-second deadline. Starting a newer
-import must terminate the older probe so stale metadata work cannot consume the full timeout.
+import must terminate older probes so stale metadata work cannot consume the full timeout. Desktop
+batch import uses the `probe_batch` IPC command to run at most two FFprobe jobs concurrently under
+one generation; preserve generation-wide cancellation when that batch is superseded.
 Preview FFmpeg child PIDs are tracked by a generation token. Call `cancel_preview_jobs()` before
 starting work that should supersede previews; `probe` and `compress_video` already do this, and the
 frontend invokes `cancel_preview_generation` when the preview unmounts.

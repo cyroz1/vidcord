@@ -27,9 +27,9 @@ import {
   createExportPlan,
   type ExportPlan,
 } from "./exportPlan";
-import type { BrowserFfmpegEngine } from "./ffmpegEngine";
+import type { BrowserEncoderLoadProgress, BrowserFfmpegEngine } from "./ffmpegEngine";
 import { buildKeyframeProbeArgs, parseKeyframeTimes } from "./keyframes";
-import { formatPassEta, progressInSegment } from "./browserProgress";
+import { formatBrowserEta, formatPassEta, progressInSegment } from "./browserProgress";
 import { effectiveBrowserExportMode, shouldCopyBrowserExport } from "./webExportState";
 import {
   loadBrowserSettings,
@@ -65,6 +65,8 @@ type Notice = { type: "success" | "error" | "warning" | "info"; message: string 
 const MAX_BROWSER_BATCH_FILES = 12;
 const KEYFRAME_PROBE_TIMEOUT_MS = 60_000;
 const MAX_BROWSER_KEYFRAMES = 100_000;
+const BROWSER_MEMORY_WARNING_BYTES = 256 * 1024 * 1024;
+const SIZE_SAMPLE_SAFETY_MARGIN = 1.1;
 type BrowserExportModule = typeof import("./browserExport");
 function loadBrowserExportModule(): Promise<BrowserExportModule> {
   return import("./browserExport");
@@ -311,6 +313,7 @@ export default function WebEditor({
   const [progress, setProgress] = useState(0);
   const [exportStatus, setExportStatus] = useState("Ready");
   const [wasmLoading, setWasmLoading] = useState(false);
+  const [encoderLoadProgress, setEncoderLoadProgress] = useState<number | null>(null);
   const [eta, setEta] = useState("Ready");
   const [lastExport, setLastExport] = useState<{ name: string; bytes: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -327,6 +330,7 @@ export default function WebEditor({
   const exportUiUpdatedAtRef = useRef(0);
   const exportUiStatusRef = useRef("");
   const exportSegmentRef = useRef<{ key: string; startedAt: number } | null>(null);
+  const encoderLoadStartedAtRef = useRef(0);
   const engineRef = useRef<BrowserFfmpegEngine | null>(null);
   const [draggedQueueItemId, setDraggedQueueItemId] = useState<number | null>(null);
   const [dragOverQueueItemId, setDragOverQueueItemId] = useState<number | null>(null);
@@ -895,13 +899,15 @@ export default function WebEditor({
       videoRef.current?.pause();
       setIsExporting(true);
       setWasmLoading(true);
+      setEncoderLoadProgress(0);
+      encoderLoadStartedAtRef.current = Date.now();
       exportProgressRef.current = 0;
       exportUiUpdatedAtRef.current = 0;
       exportUiStatusRef.current = "";
       exportSegmentRef.current = null;
       setProgress(0);
       setExportStatus("Loading the local browser encoder…");
-      setEta("ETA: estimating…");
+      setEta("Downloading encoder…");
       setLastExport(null);
       const exportSettings =
         batchMode && !standardFpsOptions.some((option) => option.value === settings.fps)
@@ -920,9 +926,35 @@ export default function WebEditor({
         if (exportCancelledRef.current) throw new Error("Export cancelled.");
         const engine = engineRef.current ?? new BrowserFfmpegEngine();
         engineRef.current = engine;
-        await engine.load();
+        await engine.load((loadProgress: BrowserEncoderLoadProgress) => {
+          if (controller.signal.aborted) return;
+          if (loadProgress.stage === "starting") {
+            setEncoderLoadProgress(null);
+            setExportStatus("Starting the local browser encoder…");
+            setEta("Preparing encoder…");
+            return;
+          }
+
+          const { loadedBytes, totalBytes } = loadProgress;
+          const percent =
+            totalBytes && totalBytes > 0
+              ? Math.max(0, Math.min(100, (loadedBytes / totalBytes) * 100))
+              : null;
+          setEncoderLoadProgress(percent);
+          setExportStatus(
+            totalBytes && totalBytes > 0
+              ? `Downloading encoder · ${formatFileSize(loadedBytes)} of ${formatFileSize(totalBytes)}`
+              : `Downloading encoder · ${formatFileSize(loadedBytes)}`
+          );
+          setEta(
+            percent === null
+              ? "ETA: estimating…"
+              : formatBrowserEta(percent, Date.now() - encoderLoadStartedAtRef.current)
+          );
+        });
         controller.signal.throwIfAborted();
         setWasmLoading(false);
+        setEncoderLoadProgress(null);
         let completed = 0;
         let failed = 0;
         let oversized = false;
@@ -1085,6 +1117,7 @@ export default function WebEditor({
         exportControllerRef.current = null;
         setIsExporting(false);
         setWasmLoading(false);
+        setEncoderLoadProgress(null);
       }
     },
     [
@@ -1172,6 +1205,20 @@ export default function WebEditor({
     : plan
       ? plan.summary
       : "Choose a video to preview the export";
+  const estimatedBrowserOutputBytes = batchMode
+    ? selectedQuality.sizeMb * 1024 * 1024
+    : !metadata || !plan
+      ? 0
+      : activeMode === "lossless" || plan.bitrateKbps === null
+        ? metadata.sizeBytes * (plan.selectedDuration / Math.max(metadata.duration, 0.1))
+        : (plan.bitrateKbps + (metadata.hasAudio && !settings.removeAudio ? 128 : 0)) *
+          125 *
+          plan.selectedDuration *
+          SIZE_SAMPLE_SAFETY_MARGIN;
+  const showBrowserMemoryWarning = estimatedBrowserOutputBytes >= BROWSER_MEMORY_WARNING_BYTES;
+  const displayedProgress =
+    wasmLoading && encoderLoadProgress !== null ? encoderLoadProgress : progress;
+  const indeterminateEncoderLoad = wasmLoading && encoderLoadProgress === null;
 
   return (
     <>
@@ -1197,7 +1244,8 @@ export default function WebEditor({
             <li>
               <Icon name="check" size={16} />
               <span>
-                <strong>Discord-ready targets.</strong> Choose 20, 50, 100, or 500 MB, or 1 GB for Nitro.
+                <strong>Discord-ready targets.</strong> Choose 20, 50, 100, or 500 MB, or 1 GB for
+                Nitro.
               </span>
             </li>
             <li>
@@ -1792,6 +1840,13 @@ export default function WebEditor({
               <div className="web-export-summary" aria-live="polite">
                 {outputSummary}
               </div>
+              {showBrowserMemoryWarning && (
+                <p className="web-memory-warning" role="note">
+                  Large exports can use several times their final size in browser memory and may
+                  stall or fail on some devices. Try a shorter clip or lower target, or use the
+                  desktop app for very large exports.
+                </p>
+              )}
 
               <button
                 className={`web-export-button${isExporting ? " cancel" : ""}`}
@@ -1815,18 +1870,34 @@ export default function WebEditor({
                 <div className="web-progress-panel" aria-live="polite">
                   <div className="web-progress-line">
                     <span>{exportStatus}</span>
-                    <strong>{Math.round(progress)}%</strong>
+                    <strong>
+                      {indeterminateEncoderLoad ? "…" : `${Math.round(displayedProgress)}%`}
+                    </strong>
                   </div>
                   <div
-                    className="web-progress-track"
+                    className={`web-progress-track${indeterminateEncoderLoad ? " indeterminate" : ""}`}
                     role="progressbar"
-                    aria-label="Export progress"
+                    aria-label={wasmLoading ? "Browser encoder loading" : "Export progress"}
                     aria-valuemin={0}
                     aria-valuemax={100}
-                    aria-valuenow={Math.round(Math.max(0, Math.min(100, progress)))}
-                    aria-valuetext={`${Math.round(progress)}% complete, ${eta}`}
+                    aria-valuenow={
+                      indeterminateEncoderLoad
+                        ? undefined
+                        : Math.round(Math.max(0, Math.min(100, displayedProgress)))
+                    }
+                    aria-valuetext={
+                      indeterminateEncoderLoad
+                        ? exportStatus
+                        : `${Math.round(displayedProgress)}% complete, ${eta}`
+                    }
                   >
-                    <span style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />
+                    <span
+                      style={{
+                        width: indeterminateEncoderLoad
+                          ? undefined
+                          : `${Math.max(0, Math.min(100, displayedProgress))}%`,
+                      }}
+                    />
                   </div>
                   <span className="web-progress-eta">{eta}</span>
                   {lastExport && !isExporting && (

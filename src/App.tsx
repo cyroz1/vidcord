@@ -52,6 +52,7 @@ import {
   installFfmpegDependency,
   isTauriRuntime,
   listFfmpegVideoEncoders,
+  probeBatch as probeBatchVideos,
   probe as probeVideo,
   publishBatchStagedOutputs,
   publishStagedOutput,
@@ -1407,42 +1408,58 @@ export default function App() {
       resetProgress();
 
       try {
-        for (let id = 0; id < normalizedPaths.length; id += 1) {
+        const probeGroupSize = 2;
+        for (let offset = 0; offset < normalizedPaths.length; offset += probeGroupSize) {
           if (loadGenerationRef.current !== loadGeneration) return;
-          const inputPath = normalizedPaths[id];
+          const pathsToProbe = normalizedPaths.slice(offset, offset + probeGroupSize);
           setBatchQueue((items) =>
             items.map((item) =>
-              item.id === id ? { ...item, status: "probing", message: "Reading details..." } : item
+              item.id >= offset && item.id < offset + pathsToProbe.length
+                ? { ...item, status: "probing", message: "Reading details…" }
+                : item
             )
           );
+
+          let results: Awaited<ReturnType<typeof probeBatchVideos>>;
           try {
-            const data = await probeVideo(inputPath);
-            if (loadGenerationRef.current !== loadGeneration) return;
-            batchProbeDataRef.current.set(id, data);
-            setBatchQueue((items) =>
-              items.map((item) =>
-                item.id === id
-                  ? {
-                      ...item,
-                      status: "queued",
-                      progress: 0,
-                      details: formatBatchVideoDetails(data),
-                      message: "Ready",
-                    }
-                  : item
-              )
-            );
+            results = await probeBatchVideos(pathsToProbe);
           } catch (error: unknown) {
             if (loadGenerationRef.current !== loadGeneration) return;
             if (isFfmpegMissingError(error)) markFfmpegMissing();
+            const message = String(error);
             setBatchQueue((items) =>
               items.map((item) =>
-                item.id === id
-                  ? { ...item, status: "failed", progress: 0, message: String(error) }
+                item.id >= offset && item.id < offset + pathsToProbe.length
+                  ? { ...item, status: "failed", progress: 0, message }
                   : item
               )
             );
+            continue;
           }
+
+          if (loadGenerationRef.current !== loadGeneration) return;
+          results.forEach((result, resultIndex) => {
+            if (result.data) batchProbeDataRef.current.set(offset + resultIndex, result.data);
+            if (result.error && isFfmpegMissingError(result.error)) markFfmpegMissing();
+          });
+          setBatchQueue((items) =>
+            items.map((item) => {
+              const resultIndex = item.id - offset;
+              if (resultIndex < 0 || resultIndex >= pathsToProbe.length) return item;
+              const result = results[resultIndex];
+              if (result?.data) {
+                return {
+                  ...item,
+                  status: "queued",
+                  progress: 0,
+                  details: formatBatchVideoDetails(result.data),
+                  message: "Ready",
+                };
+              }
+              const message = result?.error ?? "FFprobe could not read this video.";
+              return { ...item, status: "failed", progress: 0, message };
+            })
+          );
         }
       } finally {
         if (loadGenerationRef.current === loadGeneration) setLoadingVideo(false);

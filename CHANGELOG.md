@@ -11,6 +11,14 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   control. It can be combined with Copy file, Show in folder, or Do nothing,
   and applies to frame snapshots and batch output too.
 
+### Performance
+
+- The browser editor now reports encoder download progress, warns before exports
+  likely to need substantial working memory, and samples long target-size exports
+  before the full encode to reduce unnecessary full-length retries.
+- Desktop batch imports now probe up to two videos at a time while preserving
+  cancellation when a newer selection replaces the current import.
+
 ## v7.5
 
 ### Preview

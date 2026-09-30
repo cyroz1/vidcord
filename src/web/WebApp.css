@@ -806,6 +806,17 @@
   text-align: center;
 }
 
+.web-memory-warning {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(155, 102, 0, 0.28);
+  border-radius: 9px;
+  background: rgba(230, 168, 44, 0.1);
+  color: var(--web-warning);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .web-export-button {
   display: inline-flex;
   align-items: center;
@@ -878,6 +889,20 @@
   border-radius: inherit;
   background: var(--web-accent);
   transition: width 0.18s ease;
+}
+
+.web-progress-track.indeterminate span {
+  width: 40%;
+  animation: web-progress-indeterminate 1.25s ease-in-out infinite;
+}
+
+@keyframes web-progress-indeterminate {
+  from {
+    transform: translateX(-105%);
+  }
+  to {
+    transform: translateX(255%);
+  }
 }
 
 .web-last-export {

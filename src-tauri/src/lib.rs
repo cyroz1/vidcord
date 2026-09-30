@@ -14,7 +14,7 @@ use commands::app::exit_app;
 use commands::compression::{
     cancel_compression, cancel_lossless_trim_probe, cancel_preview_frame_generation,
     cancel_preview_generation, capture_snapshot, compress_batch, compress_video, get_filmstrip,
-    get_lossless_trim_info, get_preview_clip, get_preview_frame, probe,
+    get_lossless_trim_info, get_preview_clip, get_preview_frame, probe, probe_batch,
 };
 use commands::encoders::{
     check_ffmpeg_available, detect_encoders, get_vaapi_device, install_ffmpeg_dependency,
@@ -334,6 +334,7 @@ pub fn run() {
             frontend_ready,
             sync_native_window_theme,
             probe,
+            probe_batch,
             get_lossless_trim_info,
             get_preview_frame,
             get_preview_clip,
