@@ -89,25 +89,30 @@ function ExportSection({
           </div>
         </div>
 
-        <div className="output-option">
+        <div className="output-option output-completion-option">
           <label htmlFor="completion-action-select">After export</label>
-          <select
-            id="completion-action-select"
-            value={completionAction}
-            onChange={(event) => onCompletionActionChange(event.target.value as CompletionAction)}
-          >
-            <option value="copy">Copy file</option>
-            <option value="reveal">Show in folder</option>
-            <option value="none">Do nothing</option>
-          </select>
-          <label className="output-close-toggle">
-            <input
-              type="checkbox"
-              checked={closeAppAfterExport}
-              onChange={(event) => onCloseAppAfterExportChange(event.target.checked)}
-            />
-            Close app when done
-          </label>
+          <div className="output-completion-controls">
+            <select
+              id="completion-action-select"
+              value={completionAction}
+              onChange={(event) => onCompletionActionChange(event.target.value as CompletionAction)}
+            >
+              <option value="copy">Copy file</option>
+              <option value="reveal">Show in folder</option>
+              <option value="none">Do nothing</option>
+            </select>
+            <label
+              className="output-close-toggle"
+              title="Close vidcord after a successful export"
+            >
+              <input
+                type="checkbox"
+                checked={closeAppAfterExport}
+                onChange={(event) => onCloseAppAfterExportChange(event.target.checked)}
+              />
+              Close app
+            </label>
+          </div>
         </div>
       </div>
 

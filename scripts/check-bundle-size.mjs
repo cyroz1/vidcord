@@ -30,7 +30,8 @@ const limits = {
   // and the generated preview clips now carry audio; allow 3 KiB for those 7.5-only additions.
   // The 1 GB native-resolution Discord target adds a preset entry, label, and quality-clamp
   // update to both the desktop app and the browser demo; allow 1 KiB for it.
-  javascriptRaw: 503 * 1024,
+  // v7.6 adds a persisted close-after-export setting and native app-exit wiring; allow 1 KiB for it.
+  javascriptRaw: 504 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
   // The new lazy module boundary adds about 1 KiB of compressed wrapper overhead; keep a small
   // cross-runtime margin while retaining the tight raw-byte guard above.
