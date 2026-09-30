@@ -2201,6 +2201,15 @@ select optgroup {
   text-align: center;
 }
 
+.selection-scan-progress {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Compress button (liquid glass primary) ──────────────────────────── */
 .compress-btn {
   flex: 0 0 auto;

@@ -313,6 +313,7 @@ export default function WebEditor({
   const [progress, setProgress] = useState(0);
   const [exportStatus, setExportStatus] = useState("Ready");
   const [wasmLoading, setWasmLoading] = useState(false);
+  const [encoderPreloading, setEncoderPreloading] = useState(false);
   const [encoderLoadProgress, setEncoderLoadProgress] = useState<number | null>(null);
   const [eta, setEta] = useState("Ready");
   const [lastExport, setLastExport] = useState<{ name: string; bytes: number } | null>(null);
@@ -331,6 +332,8 @@ export default function WebEditor({
   const exportUiStatusRef = useRef("");
   const exportSegmentRef = useRef<{ key: string; startedAt: number } | null>(null);
   const encoderLoadStartedAtRef = useRef(0);
+  const encoderWarmupStartedRef = useRef(false);
+  const componentMountedRef = useRef(true);
   const engineRef = useRef<BrowserFfmpegEngine | null>(null);
   const [draggedQueueItemId, setDraggedQueueItemId] = useState<number | null>(null);
   const [dragOverQueueItemId, setDragOverQueueItemId] = useState<number | null>(null);
@@ -360,9 +363,51 @@ export default function WebEditor({
         : null,
     [endTime, exportMode, metadata, settings, startTime]
   );
+  const selectedQuality = QUALITY_PRESETS[settings.qualityIndex] ?? QUALITY_PRESETS[0];
+  const estimatedBrowserOutputBytes = batchMode
+    ? selectedQuality.sizeMb * 1024 * 1024
+    : !metadata || !plan
+      ? 0
+      : activeMode === "lossless" || plan.bitrateKbps === null
+        ? metadata.sizeBytes * (plan.selectedDuration / Math.max(metadata.duration, 0.1))
+        : (plan.bitrateKbps + (metadata.hasAudio && !settings.removeAudio ? 128 : 0)) *
+          125 *
+          plan.selectedDuration *
+          SIZE_SAMPLE_SAFETY_MARGIN;
+  const showBrowserMemoryWarning = estimatedBrowserOutputBytes >= BROWSER_MEMORY_WARNING_BYTES;
   const showNotice = useCallback((type: Notice["type"], message: string) => {
     setNotice({ type, message });
   }, []);
+
+  const updateEncoderLoadProgress = useCallback(
+    (loadProgress: BrowserEncoderLoadProgress, signal?: AbortSignal) => {
+      if (!componentMountedRef.current || signal?.aborted) return;
+      if (loadProgress.stage === "starting") {
+        setEncoderLoadProgress(null);
+        setExportStatus("Starting the local browser encoder…");
+        setEta("Preparing encoder…");
+        return;
+      }
+
+      const { loadedBytes, totalBytes } = loadProgress;
+      const percent =
+        totalBytes && totalBytes > 0
+          ? Math.max(0, Math.min(100, (loadedBytes / totalBytes) * 100))
+          : null;
+      setEncoderLoadProgress(percent);
+      setExportStatus(
+        totalBytes && totalBytes > 0
+          ? `Downloading encoder · ${formatFileSize(loadedBytes)} of ${formatFileSize(totalBytes)}`
+          : `Downloading encoder · ${formatFileSize(loadedBytes)}`
+      );
+      setEta(
+        percent === null
+          ? "ETA: estimating…"
+          : formatBrowserEta(percent, Date.now() - encoderLoadStartedAtRef.current)
+      );
+    },
+    []
+  );
 
   const resetExportFeedback = useCallback((clearQueue = true) => {
     setLastExport(null);
@@ -424,7 +469,9 @@ export default function WebEditor({
   }, [isExporting]);
 
   useEffect(() => {
+    componentMountedRef.current = true;
     return () => {
+      componentMountedRef.current = false;
       exportCancelledRef.current = true;
       exportControllerRef.current?.abort();
       engineRef.current?.dispose();
@@ -479,6 +526,45 @@ export default function WebEditor({
       URL.revokeObjectURL(url);
     };
   }, [activeFile, readCachedMetadata, showNotice]);
+
+  useEffect(() => {
+    if (
+      !activeFile ||
+      !isBrowserFileSizeSupported(activeFile) ||
+      !metadata ||
+      metadataLoading ||
+      encoderWarmupStartedRef.current
+    ) {
+      return;
+    }
+
+    const existingEngine = engineRef.current;
+    if (existingEngine?.isLoaded) {
+      encoderWarmupStartedRef.current = true;
+      return;
+    }
+
+    encoderWarmupStartedRef.current = true;
+    setEncoderPreloading(true);
+    setEncoderLoadProgress(null);
+
+    void loadBrowserExportModule()
+      .then(({ BrowserFfmpegEngine }) => {
+        if (!componentMountedRef.current) return null;
+        const engine = engineRef.current ?? new BrowserFfmpegEngine();
+        engineRef.current = engine;
+        return engine.load().then(() => engine);
+      })
+      .then((engine) => {
+        if (!engine || !componentMountedRef.current) return;
+        setEncoderPreloading(false);
+      })
+      .catch(() => {
+        if (!componentMountedRef.current) return;
+        setEncoderPreloading(false);
+        encoderWarmupStartedRef.current = false;
+      });
+  }, [activeFile, batchMode, metadata, metadataLoading]);
 
   const patchSettings = useCallback(
     (patch: Partial<BrowserSettings>) => {
@@ -544,6 +630,9 @@ export default function WebEditor({
     setLosslessKeyframesLoading(true);
     setLosslessKeyframeError(null);
     setWasmLoading(true);
+    setEncoderLoadProgress(null);
+    setExportStatus("Preparing Lossless Trim…");
+    setEta("Finding keyframes…");
 
     void loadBrowserExportModule()
       .then(({ BrowserFfmpegEngine }) => {
@@ -588,7 +677,11 @@ export default function WebEditor({
       })
       .finally(() => {
         probeRunning = false;
-        if (generation === keyframeProbeGenerationRef.current) setWasmLoading(false);
+        if (generation === keyframeProbeGenerationRef.current) {
+          setWasmLoading(false);
+          setExportStatus("Ready");
+          setEta("Ready");
+        }
       });
 
     return () => {
@@ -893,6 +986,15 @@ export default function WebEditor({
         }
       }
 
+      if (
+        showBrowserMemoryWarning &&
+        !window.confirm(
+          `Output ${formatFileSize(estimatedBrowserOutputBytes)} may use more memory and freeze or fail. Continue?`
+        )
+      ) {
+        return;
+      }
+
       exportCancelledRef.current = false;
       const controller = new AbortController();
       exportControllerRef.current = controller;
@@ -926,32 +1028,9 @@ export default function WebEditor({
         if (exportCancelledRef.current) throw new Error("Export cancelled.");
         const engine = engineRef.current ?? new BrowserFfmpegEngine();
         engineRef.current = engine;
-        await engine.load((loadProgress: BrowserEncoderLoadProgress) => {
-          if (controller.signal.aborted) return;
-          if (loadProgress.stage === "starting") {
-            setEncoderLoadProgress(null);
-            setExportStatus("Starting the local browser encoder…");
-            setEta("Preparing encoder…");
-            return;
-          }
-
-          const { loadedBytes, totalBytes } = loadProgress;
-          const percent =
-            totalBytes && totalBytes > 0
-              ? Math.max(0, Math.min(100, (loadedBytes / totalBytes) * 100))
-              : null;
-          setEncoderLoadProgress(percent);
-          setExportStatus(
-            totalBytes && totalBytes > 0
-              ? `Downloading encoder · ${formatFileSize(loadedBytes)} of ${formatFileSize(totalBytes)}`
-              : `Downloading encoder · ${formatFileSize(loadedBytes)}`
-          );
-          setEta(
-            percent === null
-              ? "ETA: estimating…"
-              : formatBrowserEta(percent, Date.now() - encoderLoadStartedAtRef.current)
-          );
-        });
+        await engine.load((loadProgress: BrowserEncoderLoadProgress) =>
+          updateEncoderLoadProgress(loadProgress, controller.signal)
+        );
         controller.signal.throwIfAborted();
         setWasmLoading(false);
         setEncoderLoadProgress(null);
@@ -1129,14 +1208,17 @@ export default function WebEditor({
       losslessKeyframeError,
       losslessKeyframes,
       losslessKeyframesLoading,
+      estimatedBrowserOutputBytes,
       metadata,
       queueItems,
       queueStatuses,
       readCachedMetadata,
       settings,
       showNotice,
+      showBrowserMemoryWarning,
       standardFpsOptions,
       startTime,
+      updateEncoderLoadProgress,
     ]
   );
 
@@ -1184,7 +1266,6 @@ export default function WebEditor({
     [duration, endTime, loopPlayback, startTime]
   );
 
-  const selectedQuality = QUALITY_PRESETS[settings.qualityIndex] ?? QUALITY_PRESETS[0];
   const standardFps = standardFpsOptions.some((option) => option.value === settings.fps)
     ? settings.fps
     : "off";
@@ -1205,20 +1286,12 @@ export default function WebEditor({
     : plan
       ? plan.summary
       : "Choose a video to preview the export";
-  const estimatedBrowserOutputBytes = batchMode
-    ? selectedQuality.sizeMb * 1024 * 1024
-    : !metadata || !plan
-      ? 0
-      : activeMode === "lossless" || plan.bitrateKbps === null
-        ? metadata.sizeBytes * (plan.selectedDuration / Math.max(metadata.duration, 0.1))
-        : (plan.bitrateKbps + (metadata.hasAudio && !settings.removeAudio ? 128 : 0)) *
-          125 *
-          plan.selectedDuration *
-          SIZE_SAMPLE_SAFETY_MARGIN;
-  const showBrowserMemoryWarning = estimatedBrowserOutputBytes >= BROWSER_MEMORY_WARNING_BYTES;
   const displayedProgress =
-    wasmLoading && encoderLoadProgress !== null ? encoderLoadProgress : progress;
-  const indeterminateEncoderLoad = wasmLoading && encoderLoadProgress === null;
+    (wasmLoading || encoderPreloading) && encoderLoadProgress !== null
+      ? encoderLoadProgress
+      : progress;
+  const indeterminateEncoderLoad =
+    (wasmLoading || encoderPreloading) && encoderLoadProgress === null;
 
   return (
     <>
@@ -1841,11 +1914,13 @@ export default function WebEditor({
                 {outputSummary}
               </div>
               {showBrowserMemoryWarning && (
-                <p className="web-memory-warning" role="note">
-                  Large exports can use several times their final size in browser memory and may
-                  stall or fail on some devices. Try a shorter clip or lower target, or use the
-                  desktop app for very large exports.
-                </p>
+                <div className="web-memory-warning" aria-live="polite">
+                  <p role="note">
+                    Estimated output: <strong>{formatFileSize(estimatedBrowserOutputBytes)}</strong>
+                    . Memory use can be several times higher and may freeze or fail. Shorten the
+                    clip, lower the target, or use desktop.
+                  </p>
+                </div>
               )}
 
               <button
@@ -1856,6 +1931,7 @@ export default function WebEditor({
                   ((!batchMode && !metadata) ||
                     metadataLoading ||
                     wasmLoading ||
+                    encoderPreloading ||
                     (activeMode === "lossless" &&
                       (losslessKeyframesLoading ||
                         losslessKeyframes.length === 0 ||
@@ -1863,13 +1939,21 @@ export default function WebEditor({
                 }
                 onClick={isExporting ? cancelExport : () => void startExport()}
               >
-                {isExporting ? "Cancel export" : actionLabel}
+                {isExporting
+                  ? "Cancel export"
+                  : wasmLoading || encoderPreloading
+                    ? activeMode === "lossless"
+                      ? "Preparing Lossless Trim…"
+                      : "Preparing encoder…"
+                    : actionLabel}
               </button>
 
-              {(isExporting || progress > 0 || lastExport) && (
+              {(isExporting || wasmLoading || encoderPreloading || progress > 0 || lastExport) && (
                 <div className="web-progress-panel" aria-live="polite">
                   <div className="web-progress-line">
-                    <span>{exportStatus}</span>
+                    <span>
+                      {encoderPreloading ? "Preparing the local browser encoder…" : exportStatus}
+                    </span>
                     <strong>
                       {indeterminateEncoderLoad ? "…" : `${Math.round(displayedProgress)}%`}
                     </strong>
@@ -1877,7 +1961,11 @@ export default function WebEditor({
                   <div
                     className={`web-progress-track${indeterminateEncoderLoad ? " indeterminate" : ""}`}
                     role="progressbar"
-                    aria-label={wasmLoading ? "Browser encoder loading" : "Export progress"}
+                    aria-label={
+                      wasmLoading || encoderPreloading
+                        ? "Browser encoder loading"
+                        : "Export progress"
+                    }
                     aria-valuemin={0}
                     aria-valuemax={100}
                     aria-valuenow={
@@ -1887,7 +1975,9 @@ export default function WebEditor({
                     }
                     aria-valuetext={
                       indeterminateEncoderLoad
-                        ? exportStatus
+                        ? encoderPreloading
+                          ? "Preparing the local browser encoder"
+                          : exportStatus
                         : `${Math.round(displayedProgress)}% complete, ${eta}`
                     }
                   >
@@ -1899,7 +1989,9 @@ export default function WebEditor({
                       }}
                     />
                   </div>
-                  <span className="web-progress-eta">{eta}</span>
+                  <span className="web-progress-eta">
+                    {encoderPreloading ? "Preparing on this device…" : eta}
+                  </span>
                   {lastExport && !isExporting && (
                     <span className="web-last-export">
                       <Icon name="check" size={15} />

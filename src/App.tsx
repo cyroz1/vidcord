@@ -62,6 +62,7 @@ import {
   showFilesInFileExplorer,
   showInFileExplorer,
   type ExpandedImportPaths,
+  type ImportScanProgress,
   type OutputExtension,
   type FfmpegInstallResult,
   type BatchCompressItem,
@@ -506,6 +507,9 @@ export default function App() {
   const [audioTrackSelection, setAudioTrackSelection] = useState<number[] | null>(null);
   const [loadingVideo, setLoadingVideo] = useState(false);
   const [selectionScanning, setSelectionScanning] = useState(false);
+  const [selectionScanProgress, setSelectionScanProgress] = useState<ImportScanProgress | null>(
+    null
+  );
   const [losslessInfo, setLosslessInfo] = useState<LosslessTrimInfo | null>(null);
   const [losslessInfoLoading, setLosslessInfoLoading] = useState(false);
   const [losslessInfoError, setLosslessInfoError] = useState<string | null>(null);
@@ -1497,15 +1501,41 @@ export default function App() {
 
       const scanGeneration = ++importScanGenerationRef.current;
       setSelectionScanning(true);
+      setSelectionScanProgress({
+        scanId: scanGeneration,
+        itemsDiscovered: paths.length,
+        videosFound: 0,
+        foldersScanned: 0,
+      });
       let expanded: ExpandedImportPaths;
+      let unlisten: (() => void) | undefined;
       try {
-        expanded = await expandImportPaths([...paths]);
+        try {
+          unlisten = await listen<ImportScanProgress>(
+            "import-scan-progress",
+            ({ payload }) => {
+              if (
+                payload.scanId !== scanGeneration ||
+                scanGeneration !== importScanGenerationRef.current
+              ) {
+                return;
+              }
+              setSelectionScanProgress(payload);
+            }
+          );
+        } catch {
+          // Importing still works when progress events are unavailable.
+        }
+        expanded = await expandImportPaths([...paths], scanGeneration);
       } catch (error) {
         if (scanGeneration === importScanGenerationRef.current) {
           setSelectionScanning(false);
+          setSelectionScanProgress(null);
           addToast("error", "Could Not Import Selection", String(error));
         }
         return;
+      } finally {
+        unlisten?.();
       }
       if (scanGeneration !== importScanGenerationRef.current) return;
 
@@ -1567,6 +1597,7 @@ export default function App() {
       }
 
       setSelectionScanning(false);
+      setSelectionScanProgress(null);
       if (normalizedPaths.length > 1) {
         await loadBatch(normalizedPaths);
       } else if (normalizedPaths.length === 1) {
@@ -4571,6 +4602,7 @@ export default function App() {
             cancelling={cancelling}
             finalizingOutput={finalizingOutput}
             selectionScanning={selectionScanning}
+            selectionScanProgress={selectionScanProgress}
             ffmpegMissing={ffmpegMissing}
             batchMode={isBatchMode}
             batchReady={

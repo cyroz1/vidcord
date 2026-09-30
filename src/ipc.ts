@@ -11,6 +11,13 @@ export type ExpandedImportPaths = {
   foldersScanned: number;
 };
 
+export type ImportScanProgress = {
+  scanId: number;
+  itemsDiscovered: number;
+  videosFound: number;
+  foldersScanned: number;
+};
+
 export function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -166,8 +173,8 @@ export function frontendReady(): Promise<void> {
   return invoke("frontend_ready");
 }
 
-export function expandImportPaths(paths: string[]): Promise<ExpandedImportPaths> {
-  return invoke<ExpandedImportPaths>("expand_import_paths", { paths });
+export function expandImportPaths(paths: string[], scanId: number): Promise<ExpandedImportPaths> {
+  return invoke<ExpandedImportPaths>("expand_import_paths", { paths, scanId });
 }
 
 export function syncNativeWindowTheme(dark: boolean): Promise<void> {

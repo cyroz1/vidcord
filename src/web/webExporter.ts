@@ -152,7 +152,7 @@ export async function exportBrowserFile({
 
     if (mode === "lossless") {
       onProgress?.(0, "Encoding lossless trim…", { start: 0, end: 1 });
-      const bytes = await transcodeFile(
+      let bytes = await transcodeFile(
         (inputName) =>
           buildLosslessArgs(
             inputName,
@@ -172,10 +172,13 @@ export async function exportBrowserFile({
         )
       );
       onProgress?.(1, "Finishing export…", { start: 0, end: 1 });
+      const outputBytes = bytes.byteLength;
+      const blob = new Blob([bytes], { type: extensionMimeType(plan.outputExtension) });
+      bytes = new Uint8Array();
       return {
-        blob: new Blob([bytes], { type: extensionMimeType(plan.outputExtension) }),
+        blob,
         fileName: baseName,
-        bytes: bytes.byteLength,
+        bytes: outputBytes,
         wasOversized: false,
         normalizationSkipped: false,
         audioRemovedForCompatibility: false,
@@ -428,10 +431,14 @@ export async function exportBrowserFile({
 
       if (isTargetMet(bytes.byteLength, plan.targetSizeMb)) {
         onProgress?.(1, "Finishing export…", { start: 0, end: 1 });
+        const outputBytes = bytes.byteLength;
+        const blob = new Blob([bytes], { type: extensionMimeType(plan.outputExtension) });
+        bytes = new Uint8Array();
+        lastBytes = new Uint8Array();
         return {
-          blob: new Blob([bytes], { type: extensionMimeType(plan.outputExtension) }),
+          blob,
           fileName: baseName,
-          bytes: bytes.byteLength,
+          bytes: outputBytes,
           wasOversized: false,
           normalizationSkipped,
           audioRemovedForCompatibility,
@@ -446,10 +453,13 @@ export async function exportBrowserFile({
     }
 
     onProgress?.(1, "Finishing export…", { start: 0, end: 1 });
+    const outputBytes = lastBytes.byteLength;
+    const blob = new Blob([lastBytes], { type: extensionMimeType(plan.outputExtension) });
+    lastBytes = new Uint8Array();
     return {
-      blob: new Blob([lastBytes], { type: extensionMimeType(plan.outputExtension) }),
+      blob,
       fileName: baseName,
-      bytes: lastBytes.byteLength,
+      bytes: outputBytes,
       wasOversized: true,
       normalizationSkipped,
       audioRemovedForCompatibility,

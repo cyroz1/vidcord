@@ -1,6 +1,7 @@
 import { memo } from "react";
 import ProgressSection from "./ProgressSection";
 import type { CompletionAction, OutputDestination } from "../hooks/useSettings";
+import type { ImportScanProgress } from "../ipc";
 
 type Props = {
   outputDestination: OutputDestination;
@@ -14,6 +15,7 @@ type Props = {
   cancelling: boolean;
   finalizingOutput: boolean;
   selectionScanning: boolean;
+  selectionScanProgress: ImportScanProgress | null;
   ffmpegMissing: boolean;
   batchMode: boolean;
   batchReady: boolean;
@@ -43,6 +45,7 @@ function ExportSection({
   cancelling,
   finalizingOutput,
   selectionScanning,
+  selectionScanProgress,
   ffmpegMissing,
   batchMode,
   batchReady,
@@ -124,6 +127,14 @@ function ExportSection({
         </div>
       )}
 
+      {selectionScanning && (
+        <div className="selection-scan-progress" role="status" aria-live="polite">
+          {selectionScanProgress?.foldersScanned
+            ? `Scanning folders · ${selectionScanProgress.itemsDiscovered} items found · ${selectionScanProgress.videosFound} videos found`
+            : `Preparing selected files · ${selectionScanProgress?.itemsDiscovered ?? 0} items found`}
+        </div>
+      )}
+
       <button
         className={`compress-btn${compressing ? " cancel" : ""}`}
         onClick={compressing ? onCancelCompression : onStartCompression}
@@ -142,7 +153,11 @@ function ExportSection({
             ? "Saving Output..."
             : compressing
               ? "Cancel"
-              : readyActionLabel}
+              : selectionScanning
+                ? selectionScanProgress?.foldersScanned
+                  ? "Scanning Folder..."
+                  : "Preparing..."
+                : readyActionLabel}
       </button>
 
       {showProgress && <ProgressSection progress={progress} eta={eta} />}

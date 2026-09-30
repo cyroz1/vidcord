@@ -807,7 +807,9 @@
 }
 
 .web-memory-warning {
-  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   padding: 8px 10px;
   border: 1px solid rgba(155, 102, 0, 0.28);
   border-radius: 9px;
@@ -815,6 +817,10 @@
   color: var(--web-warning);
   font-size: 11px;
   line-height: 1.4;
+}
+
+.web-memory-warning p {
+  margin: 0;
 }
 
 .web-export-button {

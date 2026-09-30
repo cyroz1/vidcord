@@ -2,9 +2,11 @@ use std::collections::HashSet;
 #[cfg(target_os = "linux")]
 use std::process::{Command, Stdio};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
 use crate::log::vidcord_log;
+use tauri::{AppHandle, Emitter};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 const DESKTOP_COMMAND_TIMEOUT: Duration = Duration::from_secs(4);
@@ -86,15 +88,71 @@ pub struct ExpandedImportPaths {
     pub folders_scanned: usize,
 }
 
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ImportScanProgress {
+    scan_id: u64,
+    items_discovered: usize,
+    videos_found: usize,
+    folders_scanned: usize,
+}
+
+struct ImportScanReporter {
+    app: AppHandle,
+    scan_id: u64,
+    items_discovered: usize,
+    videos_found: usize,
+    folders_scanned: usize,
+    last_emitted_at: Instant,
+}
+
+impl ImportScanReporter {
+    fn emit_if_due(&mut self, force: bool) {
+        let now = Instant::now();
+        if !force
+            && now.duration_since(self.last_emitted_at) < std::time::Duration::from_millis(500)
+        {
+            return;
+        }
+
+        let progress = ImportScanProgress {
+            scan_id: self.scan_id,
+            items_discovered: self.items_discovered,
+            videos_found: self.videos_found,
+            folders_scanned: self.folders_scanned,
+        };
+        let _ = self.app.emit("import-scan-progress", progress);
+        self.last_emitted_at = now;
+    }
+}
+
 #[tauri::command]
-pub async fn expand_import_paths(paths: Vec<String>) -> Result<ExpandedImportPaths, String> {
-    tokio::task::spawn_blocking(move || expand_import_paths_blocking(paths))
+pub async fn expand_import_paths(
+    app: AppHandle,
+    paths: Vec<String>,
+    scan_id: u64,
+) -> Result<ExpandedImportPaths, String> {
+    tokio::task::spawn_blocking(move || expand_import_paths_blocking(app, paths, scan_id))
         .await
         .map_err(|error| error.to_string())
 }
 
-fn expand_import_paths_blocking(paths: Vec<String>) -> ExpandedImportPaths {
+fn expand_import_paths_blocking(
+    app: AppHandle,
+    paths: Vec<String>,
+    scan_id: u64,
+) -> ExpandedImportPaths {
     const VIDEO_EXTENSIONS: &[&str] = &["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"];
+
+    let mut reporter = ImportScanReporter {
+        app,
+        scan_id,
+        items_discovered: paths.len(),
+        videos_found: 0,
+        folders_scanned: 0,
+        last_emitted_at: Instant::now(),
+    };
+    reporter.emit_if_due(true);
 
     let mut pending = paths
         .into_iter()
@@ -144,6 +202,7 @@ fn expand_import_paths_blocking(paths: Vec<String>) -> ExpandedImportPaths {
                 continue;
             }
             folders_scanned += 1;
+            reporter.folders_scanned = folders_scanned;
 
             let entries = match std::fs::read_dir(&path) {
                 Ok(entries) => entries,
@@ -155,7 +214,11 @@ fn expand_import_paths_blocking(paths: Vec<String>) -> ExpandedImportPaths {
             let mut children = Vec::new();
             for entry in entries {
                 match entry {
-                    Ok(entry) => children.push(entry.path()),
+                    Ok(entry) => {
+                        children.push(entry.path());
+                        reporter.items_discovered += 1;
+                        reporter.emit_if_due(false);
+                    }
                     Err(_) => unreadable_items += 1,
                 }
             }
@@ -189,9 +252,12 @@ fn expand_import_paths_blocking(paths: Vec<String>) -> ExpandedImportPaths {
                 canonical_path
             };
             video_paths.push(video_path.to_string_lossy().into_owned());
+            reporter.videos_found = video_paths.len();
+            reporter.emit_if_due(false);
         }
     }
 
+    reporter.emit_if_due(true);
     ExpandedImportPaths {
         video_paths,
         skipped_non_video_files,
