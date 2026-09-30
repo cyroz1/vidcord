@@ -130,7 +130,7 @@ Yes, as a quick no-install fallback for a phone or tablet. It is best for browse
 
 ### Which Discord size targets are supported?
 
-Both editions provide 20 MB, 50 MB, 100 MB, and 500 MB video targets. Advanced adds custom size, resolution, and typed FPS. GIF Mode provides 5 MB, 10 MB, and 20 MB GIF targets at 15, 30, or 50 FPS.
+Both editions provide 20 MB, 50 MB, 100 MB, 500 MB, and 1 GB video targets. Advanced adds custom size, resolution, and typed FPS. GIF Mode provides 5 MB, 10 MB, and 20 MB GIF targets at 15, 30, or 50 FPS.
 
 ### What is desktop-only?
 

@@ -13,7 +13,7 @@ workflow. The browser demo is linked under the download button for a quick local
 export from a phone, tablet, or desktop browser.
 
 The browser demo processes selected videos locally with FFmpeg WebAssembly:
-choose a **20 MB, 50 MB, 100 MB, or 500 MB** target, trim the clip, or choose
+choose a **20 MB, 50 MB, 100 MB, 500 MB, or 1 GB** target, trim the clip, or choose
 **Lossless Trim** to cut on source keyframes without re-encoding. Finished files
 download through the browser; selected videos never leave the device. It is a
 lighter fallback for quick jobs: inputs must be readable by the browser and
@@ -52,7 +52,7 @@ the same React frontend paired with FFmpeg WebAssembly.
 
 > **At a glance** — Native desktop app at [vidcord.app](https://vidcord.app/) ·
 > Windows 10/11, macOS 11+, and Linux · x86_64 + aarch64 · Native installers ·
-> Discord targets 20 / 50 / 100 / 500 MB · Hardware acceleration and OS
+> Discord targets 20 / 50 / 100 / 500 MB / 1 GB · Hardware acceleration and OS
 > integrations on desktop · Desktop requires system FFmpeg on `PATH` · Quick
 > browser demo with no install, no uploads, local FFmpeg WebAssembly, and browser
 > downloads · MIT licensed.
@@ -85,7 +85,7 @@ the same React frontend paired with FFmpeg WebAssembly.
 ## Why vidcord
 
 Discord's current upload limits are 20 MB (free), 50 MB (Nitro Basic /
-Boost Level 2), 100 MB (Boost Level 3), and 500 MB (Nitro). Both editions pick
+Boost Level 2), 100 MB (Boost Level 3), and 1 GB (Nitro). Both editions pick
 a target bitrate for the clip length you want and verify the result against the
 selected size limit. The browser edition keeps the input in the page and
 downloads the export through the browser. The desktop app can choose from the
@@ -110,7 +110,7 @@ and retry oversized results with safer bitrates and CPU fallback.
 | Compress several videos in one pass                     | Browser Batch applies shared settings to full-duration files with reorder/retry controls; desktop Batch adds trims, native workers, and output handling. |
 | Preserve original video quality while trimming          | Use Lossless Trim for keyframe-aligned stream-copy output without re-encoding.                                               |
 | Turn a video clip into a Discord GIF                    | Enable GIF Mode and choose the 5 MB, 10 MB, or 20 MB target.                                                                 |
-| Make a video fit Discord Nitro or boosted server limits | Pick the 50 MB, 100 MB, or 500 MB target without calculating bitrates by hand.                                               |
+| Make a video fit Discord Nitro or boosted server limits | Pick the 50 MB, 100 MB, 500 MB, or 1 GB target without calculating bitrates by hand.                                              |
 | Keep video compression private                          | Everything runs locally on your computer; no web upload step.                                                                |
 | Need a quick no-install export, including on mobile     | Use the browser demo for local WebAssembly processing and browser downloads; it is best for browser-readable files up to 512 MB each. |
 | Use GPU video encoding from a simple GUI                | vidcord auto-detects NVENC, AMF, QSV, VAAPI, and VideoToolbox encoders.                                                      |
@@ -136,12 +136,13 @@ and retry oversized results with safer bitrates and CPU fallback.
   encoder reports a device, session, or resource-contention error, remaining work continues one
   video at a time. Individual probe or encode failures do not stop the queue, and aggregate
   progress and ETA cover the whole remaining batch rather than only the currently active item.
-- **Four Discord target profiles** covering current Discord tiers:
+- **Five Discord target profiles** covering current Discord tiers:
   - 20 MB @ 480p — Discord free tier
   - 50 MB @ 720p — Nitro Basic / Boost Level 2
   - 100 MB @ 1080p — Boost Level 3 or
     [Clips Bypass](https://github.com/riolubruh/YABDP4Nitro?tab=readme-ov-file#clips)
-  - 500 MB @ native — Nitro Full
+  - 500 MB @ native — legacy Nitro limit
+  - 1 GB @ native — Nitro
 - **GIF Mode** — export an optimized animated GIF for a 5 MB, 10 MB, or 20 MB target at 15, 30, or
   Discord-safe maximum 50 FPS. Video-only encoder, audio,
   and unrelated video controls are hidden while GIF Mode is active; the aspect-ratio crop selector
@@ -477,7 +478,7 @@ preserve the full selection.
    remembered custom folder, or **Ask when done**. Choose whether completion
    copies the output file or reveals it.
 3. **Pick a mode or target** — choose **Compress**, **Advanced**, **Lossless
-   Trim**, or **GIF**, then select a target size for that mode: 20/50/100/500 MB for video or
+   Trim**, or **GIF**, then select a target size for that mode: 20/50/100/500 MB or 1 GB for video or
    5/10/20 MB for GIF. Compress, Advanced, and GIF Mode expose the aspect-ratio crop selector;
    Advanced also exposes custom target size, resolution, FPS, audio normalization,
    and encoder controls. Leaving its size empty uses the source bitrate
@@ -727,7 +728,7 @@ storage and has no named settings-preset records.
 ### What is the best free Discord video compressor?
 
 vidcord is built specifically for Discord uploads. It offers one-click
-20 MB, 50 MB, 100 MB, and 500 MB targets. The browser editor runs local FFmpeg
+20 MB, 50 MB, 100 MB, 500 MB, and 1 GB targets. The browser editor runs local FFmpeg
 WebAssembly, while the desktop app runs system FFmpeg on Windows, macOS, and
 Linux; neither uploads your video to a third-party compression website.
 
@@ -798,7 +799,7 @@ This independent release signature does not replace platform code signing.
 - **Server Boost Level 3 uploads:** 100 MB (also the ceiling for the
   [Clips Bypass](https://github.com/riolubruh/YABDP4Nitro?tab=readme-ov-file#clips)
   trick).
-- **Nitro Full:** 500 MB per file.
+- **Nitro:** 1 GB per file.
 
 Each edition provides one target profile per tier and picks a resolution cap
 that usually looks reasonable at that bitrate. The desktop app also supports
@@ -830,7 +831,7 @@ start/end trims, up to two native workers, and native output handling.
 
 ### Does vidcord require Discord Nitro?
 
-No. The 20 MB target covers free Discord accounts; the 50 / 100 / 500 MB
+No. The 20 MB target covers free Discord accounts; the 50 / 100 / 500 MB / 1 GB
 targets cover Nitro Basic, boosted servers, and Nitro.
 
 ### Can I change the output FPS?
@@ -944,7 +945,7 @@ distribution for the corresponding notices.
 
 <sub>
 Keywords: Discord video compressor, compress video for Discord, Discord
-20 MB limit, Discord 50 MB upload, Discord 100 MB upload, Discord 500 MB Nitro,
+20 MB limit, Discord 50 MB upload, Discord 100 MB upload, Discord 1 GB Nitro,
 shrink MP4 for Discord, FFmpeg GUI,
 FFmpeg frontend, cross-platform video compressor, Windows video
 compressor, macOS video compressor, Linux video compressor, open-source
