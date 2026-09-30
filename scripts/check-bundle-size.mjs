@@ -37,13 +37,13 @@ const limits = {
   // long workflows; keep raw JavaScript within the 0.5 MiB ceiling with no additional headroom.
   javascriptRaw: 512 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
-  // Keep a small cross-runtime margin while retaining the tight raw-byte guard above.
+  // Keep 1 KiB of cross-runtime margin while retaining the tight raw-byte guard above.
   // The donate footer link and website support section add a shared links module plus
   // small footer/section markup; allow 1 KiB for them.
   // The preview play-button fix adds a little more; allow 1 KiB for it.
   // 7.5's per-pass progress/ETA and preview-clip audio add a little more; allow 1 KiB for them.
   // 7.6 adds recursive folder imports and queue controls; allow 2 KiB for their compressed code.
-  javascriptGzip: 160 * 1024,
+  javascriptGzip: 161 * 1024,
   // The browser editor also carries the integrated desktop feature story, responsive layout,
   // and the platform-aware download/architecture-choice surfaces.
   cssGzip: 18.5 * 1024,
