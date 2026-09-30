@@ -205,7 +205,9 @@ function WebApp() {
       <section className="donate-section" id="support" aria-labelledby="donate-title">
         <div>
           <h2 id="donate-title">Support vidcord</h2>
-          <p>vidcord is free and open source. If it saves you time, consider sponsoring development.</p>
+          <p>
+            vidcord is free and open source. If it saves you time, consider sponsoring development.
+          </p>
         </div>
         <div className="donate-actions">
           {getDonateLinks().map((link) => (

@@ -77,7 +77,7 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
   const record = isRecord(value) ? value : {};
   const qualityIndex =
     typeof record.qualityIndex === "number" && Number.isInteger(record.qualityIndex)
-      ? Math.max(0, Math.min(3, record.qualityIndex))
+      ? Math.max(0, Math.min(4, record.qualityIndex))
       : DEFAULT_BROWSER_SETTINGS.qualityIndex;
   const legacyGifTarget = migrateLegacyGifQualityIndex(record.gifQualityIndex);
   const gifTargetMb = normalizeGifTarget(record.gifTargetMb, legacyGifTarget ?? 5);

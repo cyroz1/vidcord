@@ -197,7 +197,8 @@ and retry oversized results with safer bitrates and CPU fallback.
   and hardware-accelerated preview clips where FFmpeg supports them.
 - **Desktop efficient preview fallback** — exact frame requests use display-sized, bounded
   in-memory output; cancelling a stale frame no longer interrupts a filmstrip that
-  is already being generated, and generated fallback clips omit unused audio.
+  is already being generated, and generated fallback clips carry AAC audio so the
+  preview plays sound.
 - **Desktop Linux preview fallback** — WebKitGTK live video scrubbing and trim playback are
   disabled for stability; FFmpeg-generated filmstrip and individual-frame previews
   remain available while scrubbing.
@@ -254,6 +255,9 @@ and retry oversized results with safer bitrates and CPU fallback.
 - **Desktop automated FFmpeg setup assistance** — Windows installers offer `winget`,
   and first launch prompts to install through the platform package manager.
   No FFmpeg binaries are bundled with vidcord.
+- **Support vidcord** — a heart icon in the desktop app footer and a Support section
+  on the website (with a matching top-nav link) point at
+  [GitHub Sponsors](https://github.com/sponsors/cyroz1).
 - **Cross-platform installers:** Windows NSIS (x86_64 + aarch64), macOS
   universal `.dmg`, Linux `.AppImage` (x86_64 + aarch64).
 
@@ -681,10 +685,11 @@ Wrangler locally. The desktop-first product home and browser editor both publish
 
 **Desktop app says "FFmpeg not found" after installing it.**
 Use **Retry** in vidcord. On Windows, the app checks the standard WinGet
-aliases and `Gyan.FFmpeg` package directory directly. For other install methods,
-quit vidcord fully and relaunch it so the new `PATH` is loaded; if a newly
-opened terminal cannot run both `ffmpeg -version` and `ffprobe -version`, repair
-the install or its PATH entry using the [setup guide](FFMPEG_SETUP.md).
+aliases and `Gyan.FFmpeg` package directory directly. On ARM64, it also checks
+`C:\ffmpeg` for a native build. For other install methods, quit vidcord fully
+and relaunch it so the new `PATH` is loaded; if a newly opened terminal cannot
+run both `ffmpeg -version` and `ffprobe -version`, repair the install or its
+PATH entry using the [setup guide](FFMPEG_SETUP.md).
 
 **The output file exceeds the target size.**
 Both editions retry target-based exports automatically and report when the
@@ -906,9 +911,9 @@ while offline.
 Issues and PRs are welcome. Before opening a PR:
 
 1. Run all quality gates above — CI is strict about clippy and formatting.
-2. Add a `## vX.Y` section at the top of [CHANGELOG.md](CHANGELOG.md) for
-   user-visible changes. The release workflow uses it as the GitHub release
-   body.
+2. Add entries under the `## WIP` section at the top of [CHANGELOG.md](CHANGELOG.md) for
+   user-visible changes (it becomes `## vX.Y` at release/tag time).
+   The release workflow uses it as the GitHub release body.
 3. **Don't bump version numbers casually.** `package.json`,
    `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` must stay in
    sync, and any bump triggers a release the next time a tag is pushed.

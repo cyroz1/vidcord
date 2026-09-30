@@ -29,7 +29,7 @@ import {
 } from "./exportPlan";
 import type { BrowserFfmpegEngine } from "./ffmpegEngine";
 import { buildKeyframeProbeArgs, parseKeyframeTimes } from "./keyframes";
-import { formatBrowserEta } from "./browserProgress";
+import { formatPassEta, progressInSegment } from "./browserProgress";
 import { effectiveBrowserExportMode, shouldCopyBrowserExport } from "./webExportState";
 import {
   loadBrowserSettings,
@@ -322,9 +322,11 @@ export default function WebEditor({
   const exportCancelledRef = useRef(false);
   const exportControllerRef = useRef<AbortController | null>(null);
   const exportProgressRef = useRef(0);
+  const exportFileProgressRef = useRef(0);
+  const exportIsLastFileRef = useRef(true);
   const exportUiUpdatedAtRef = useRef(0);
   const exportUiStatusRef = useRef("");
-  const exportStartedAtRef = useRef<number | null>(null);
+  const exportSegmentRef = useRef<{ key: string; startedAt: number } | null>(null);
   const engineRef = useRef<BrowserFfmpegEngine | null>(null);
   const [draggedQueueItemId, setDraggedQueueItemId] = useState<number | null>(null);
   const [dragOverQueueItemId, setDragOverQueueItemId] = useState<number | null>(null);
@@ -364,7 +366,7 @@ export default function WebEditor({
     exportProgressRef.current = 0;
     exportUiUpdatedAtRef.current = 0;
     exportUiStatusRef.current = "Ready";
-    exportStartedAtRef.current = null;
+    exportSegmentRef.current = null;
     setProgress(0);
     setExportStatus("Ready");
     setEta("Ready");
@@ -400,9 +402,16 @@ export default function WebEditor({
     if (!isExporting) return;
 
     const updateEta = () => {
-      const startedAt = exportStartedAtRef.current;
-      if (startedAt === null) return;
-      setEta(formatBrowserEta(exportProgressRef.current, Date.now() - startedAt));
+      const segment = exportSegmentRef.current;
+      if (segment === null) return;
+      setEta(
+        formatPassEta({
+          passPercent: exportProgressRef.current,
+          fileProgress: exportFileProgressRef.current,
+          isLastFile: exportIsLastFileRef.current,
+          elapsedMs: Date.now() - segment.startedAt,
+        })
+      );
     };
 
     updateEta();
@@ -889,7 +898,7 @@ export default function WebEditor({
       exportProgressRef.current = 0;
       exportUiUpdatedAtRef.current = 0;
       exportUiStatusRef.current = "";
-      exportStartedAtRef.current = Date.now();
+      exportSegmentRef.current = null;
       setProgress(0);
       setExportStatus("Loading the local browser encoder…");
       setEta("ETA: estimating…");
@@ -914,7 +923,6 @@ export default function WebEditor({
         await engine.load();
         controller.signal.throwIfAborted();
         setWasmLoading(false);
-        exportStartedAtRef.current = Date.now();
         let completed = 0;
         let failed = 0;
         let oversized = false;
@@ -939,6 +947,8 @@ export default function WebEditor({
                 ? `Encoding ${index + 1} of ${totalFiles} · ${file.name}`
                 : `Encoding ${file.name}`
             );
+            // A finished earlier file must not leave its ETA label behind.
+            setEta("ETA: estimating…");
             const result = await exportBrowserFile({
               engine,
               file,
@@ -948,25 +958,45 @@ export default function WebEditor({
               startTime: fileStart,
               endTime: fileEnd,
               fileIndex: index,
-              onProgress: (value, status) => {
+              onProgress: (value, status, segment) => {
                 const fileProgress = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
-                const nextProgress = Math.max(
-                  exportProgressRef.current,
-                  ((index + fileProgress) / totalFiles) * 100
-                );
-                exportProgressRef.current = nextProgress;
+                // The bar and ETA track the current operation (for example one
+                // encode pass) instead of the whole export, so neither jumps
+                // when a pass finishes and the next one starts.
+                const segmentStart = segment && Number.isFinite(segment.start) ? segment.start : 0;
+                const segmentEnd =
+                  segment && Number.isFinite(segment.end) && segment.end > segmentStart
+                    ? segment.end
+                    : 1;
+                const passProgress = progressInSegment(fileProgress, segmentStart, segmentEnd);
+                const segmentKey = `${item.id}|${status}|${segmentStart.toFixed(4)}|${segmentEnd.toFixed(4)}`;
+                const now = Date.now();
+                if (exportSegmentRef.current?.key !== segmentKey) {
+                  exportSegmentRef.current = { key: segmentKey, startedAt: now };
+                }
+                const passPercent = passProgress * 100;
                 const nextStatus =
                   totalFiles > 1 ? `${status} · ${index + 1}/${totalFiles}` : status;
-                const now = Date.now();
+                exportProgressRef.current = passPercent;
+                exportFileProgressRef.current = fileProgress;
+                exportIsLastFileRef.current = index === totalFiles - 1;
                 if (
                   nextStatus !== exportUiStatusRef.current ||
                   now - exportUiUpdatedAtRef.current >= 100 ||
-                  fileProgress >= 1
+                  passProgress >= 1
                 ) {
                   exportUiUpdatedAtRef.current = now;
                   exportUiStatusRef.current = nextStatus;
-                  setProgress(nextProgress);
+                  setProgress(passPercent);
                   setExportStatus(nextStatus);
+                  setEta(
+                    formatPassEta({
+                      passPercent,
+                      fileProgress,
+                      isLastFile: index === totalFiles - 1,
+                      elapsedMs: now - (exportSegmentRef.current?.startedAt ?? now),
+                    })
+                  );
                 }
               },
             });
@@ -993,14 +1023,9 @@ export default function WebEditor({
             failed += 1;
             setQueueStatuses((current) => ({ ...current, [item.id]: "failed" }));
           }
-          exportProgressRef.current = Math.max(
-            exportProgressRef.current,
-            ((index + 1) / totalFiles) * 100
-          );
+          // The per-pass bar already sits at 100% for the finished file; the
+          // next file's first progress update resets it for its own passes.
           setProgress(exportProgressRef.current);
-          const startedAt = exportStartedAtRef.current;
-          if (startedAt !== null)
-            setEta(formatBrowserEta(exportProgressRef.current, Date.now() - startedAt));
         }
         exportProgressRef.current = 100;
         setProgress(100);
@@ -1172,7 +1197,7 @@ export default function WebEditor({
             <li>
               <Icon name="check" size={16} />
               <span>
-                <strong>Discord-ready targets.</strong> Choose 20, 50, 100, or 500 MB.
+                <strong>Discord-ready targets.</strong> Choose 20, 50, 100, or 500 MB, or 1 GB for Nitro.
               </span>
             </li>
             <li>

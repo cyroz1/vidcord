@@ -568,7 +568,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <p className="hero-lede">The full desktop app for local Discord compression.</p>
           <p className="hero-body">
             Compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord&apos;s 20, 50, 100,
-            or 500 MB limits using system FFmpeg locally. Lossless Trim cuts on keyframes without
+            500 MB, or 1 GB (Nitro) limits using system FFmpeg locally. Lossless Trim cuts on keyframes without
             re-encoding. GIF Mode creates Discord-ready GIFs with 5 MB, 10 MB, or 20 MB size targets
             at 15, 30, or up to 50 FPS.
           </p>
@@ -740,7 +740,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           </svg>
           <h2>Discord targets</h2>
           <p>
-            Choose a 20, 50, 100, or 500 MB limit and let vidcord calculate the bitrate. GIF Mode
+            Choose a 20, 50, 100, or 500 MB limit, or 1 GB for Nitro, and let vidcord calculate the bitrate. GIF Mode
             supports 5 MB, 10 MB, and 20 MB exports at 15, 30, or up to 50 FPS in both editions.
           </p>
         </article>
@@ -1016,7 +1016,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <article>
             <h3>Which Discord upload limits are supported?</h3>
             <p>
-              Both editions cover 20 MB, 50 MB, 100 MB, and 500 MB targets. Advanced mode adds
+              Both editions cover 20 MB, 50 MB, 100 MB, 500 MB, and 1 GB (Nitro) targets. Advanced mode adds
               custom size, resolution, FPS, and encoder controls on desktop; GIF Mode supports 5 MB,
               10 MB, and 20 MB exports at 15, 30, or up to 50 FPS.
             </p>

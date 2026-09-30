@@ -375,6 +375,8 @@ pub struct CompressOptions {
     pub scale_filter: Option<String>,
     pub source_width: Option<u32>,
     pub source_height: Option<u32>,
+    pub source_pix_fmt: Option<String>,
+    pub source_color_transfer: Option<String>,
     pub vaapi_device: Option<String>,
     pub gif_mode: bool,
     pub lossless_trim: bool,
@@ -691,8 +693,109 @@ fn format_fps_filter_value(fps: f64) -> String {
     value
 }
 
+/// Cached `ffmpeg -h filter=<name>` probes. Filters like `tonemap` and `zscale`
+/// are not guaranteed in every system FFmpeg build, so the compress pipeline
+/// never emits a filter the local binary does not have.
+fn ffmpeg_has_filter(name: &str) -> bool {
+    static FILTER_CACHE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
+    let cache = FILTER_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(hit) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(name) {
+        return *hit;
+    }
+    #[allow(unused_mut)]
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-hide_banner", "-h", &format!("filter={name}")]);
+    configure_ffmpeg_command(&mut cmd);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let available = crate::gpu::spawn_captured_command(&mut cmd)
+        .and_then(|child| child.wait_for_output(Duration::from_secs(10)))
+        .map(|output| {
+            output.is_some_and(|o| {
+                filter_help_reports_available(o.status.success(), &o.stdout, &o.stderr)
+            })
+        })
+        .unwrap_or(false);
+    cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(name.to_string(), available);
+    available
+}
+
+fn filter_help_reports_available(status_success: bool, stdout: &[u8], stderr: &[u8]) -> bool {
+    status_success
+        && !String::from_utf8_lossy(stdout).contains("Unknown filter")
+        && !String::from_utf8_lossy(stderr).contains("Unknown filter")
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ColorNormalization {
+    filter: String,
+    tags_bt709: bool,
+}
+
+fn has_hdr_color_transfer(opts: &CompressOptions) -> bool {
+    matches!(
+        opts.source_color_transfer.as_deref(),
+        Some("smpte2084") | Some("arib-std-b67")
+    )
+}
+
+/// Downconvert deep-color sources, and tone-map HDR to SDR BT.709 when the
+/// system FFmpeg has both required filters. A plain format conversion does
+/// not change color space, so it must keep the source color tags.
+fn color_normalization_filter(
+    opts: &CompressOptions,
+    tonemap_available: bool,
+    zscale_available: bool,
+) -> Option<ColorNormalization> {
+    let pix_fmt = opts.source_pix_fmt.as_deref().unwrap_or("");
+    let deep_color = pix_fmt.contains("10") || pix_fmt.contains("12");
+    let hdr = has_hdr_color_transfer(opts);
+    if !deep_color && !hdr {
+        return None;
+    }
+
+    if hdr && tonemap_available && zscale_available {
+        return Some(ColorNormalization {
+            filter: "zscale=t=linear:npl=100,format=gbrpf32le,\
+                    tonemap=hable:desat=0,\
+                    zscale=p=bt709:t=bt709:m=bt709:r=tv,format=yuv420p"
+                .to_string(),
+            tags_bt709: true,
+        });
+    }
+
+    // Keep color metadata when FFmpeg cannot perform a proper HDR transfer.
+    // The tonemap filter requires linear floating-point input; using it alone
+    // can fail or produce incorrect colors.
+    Some(ColorNormalization {
+        filter: "format=yuv420p".to_string(),
+        tags_bt709: false,
+    })
+}
+
+#[cfg(test)]
 fn video_filter_for_encoder(opts: &CompressOptions, encoder: &str) -> Option<String> {
+    let color = color_normalization_filter(opts, false, false);
+    video_filter_for_encoder_with_color(opts, encoder, color.as_ref())
+}
+
+fn video_filter_for_encoder_with_color(
+    opts: &CompressOptions,
+    encoder: &str,
+    color: Option<&ColorNormalization>,
+) -> Option<String> {
     let mut filters = Vec::new();
+    // Apply color conversion before crop/scale/fps so later filters see the
+    // final pixel format and, when tone-mapped, SDR BT.709 frames.
+    if let Some(color) = color {
+        filters.push(color.filter.clone());
+    }
     let has_crop = opts
         .crop_aspect_ratio
         .as_deref()
@@ -1329,8 +1432,14 @@ async fn run_ffmpeg_attempt(
             opts.input_path.clone(),
             "-t".into(),
             duration,
+            // Map everything except data streams: camera files (e.g. Sony
+            // XAVC S) can carry timed-metadata tracks such as rtmd gyro data
+            // that the MP4 muxer cannot write, which fails the whole copy and
+            // forces a fallback to re-encoding.
             "-map".into(),
             "0".into(),
+            "-map".into(),
+            "-0:d".into(),
             "-c".into(),
             "copy".into(),
             "-avoid_negative_ts".into(),
@@ -1381,8 +1490,49 @@ async fn run_ffmpeg_attempt(
             "-b:v".into(),
             format!("{}k", attempt.video_bitrate_k),
         ]);
-        if let Some(vf) = video_filter_for_encoder(opts, &attempt.encoder) {
+        let (video_filter, tags_bt709) = if has_hdr_color_transfer(opts) {
+            let filter_opts = opts.clone();
+            let filter_encoder = attempt.encoder.clone();
+            tokio::task::spawn_blocking(move || {
+                let tonemap_available = ffmpeg_has_filter("tonemap");
+                let zscale_available = tonemap_available && ffmpeg_has_filter("zscale");
+                let color =
+                    color_normalization_filter(&filter_opts, tonemap_available, zscale_available);
+                let video_filter = video_filter_for_encoder_with_color(
+                    &filter_opts,
+                    &filter_encoder,
+                    color.as_ref(),
+                );
+                let tags_bt709 = color
+                    .as_ref()
+                    .is_some_and(|normalization| normalization.tags_bt709);
+                (video_filter, tags_bt709)
+            })
+            .await
+            .map_err(|error| format!("Color filter setup failed: {error}"))?
+        } else {
+            let color = color_normalization_filter(opts, false, false);
+            let video_filter =
+                video_filter_for_encoder_with_color(opts, &attempt.encoder, color.as_ref());
+            let tags_bt709 = color
+                .as_ref()
+                .is_some_and(|normalization| normalization.tags_bt709);
+            (video_filter, tags_bt709)
+        };
+        if let Some(vf) = video_filter {
             cmd_args.extend(["-vf".into(), vf]);
+        }
+        if tags_bt709 {
+            // HDR frames were converted to SDR BT.709 above; tag the stream
+            // to match the transformed pixels.
+            cmd_args.extend([
+                "-colorspace".into(),
+                "bt709".into(),
+                "-color_primaries".into(),
+                "bt709".into(),
+                "-color_trc".into(),
+                "bt709".into(),
+            ]);
         }
         cmd_args.extend(target_rate_control_args(
             &attempt.encoder,
@@ -1419,6 +1569,14 @@ async fn run_ffmpeg_attempt(
         ]);
     }
     cmd_args.push(opts.output_path.clone());
+
+    if was_cancelled(context.job_id) {
+        return Ok(FfmpegRunResult {
+            exit_status: cancelled_exit_status(),
+            last_lines: std::collections::VecDeque::new(),
+            cancelled: true,
+        });
+    }
 
     vidcord_log(&format!("FFmpeg command: ffmpeg {}", cmd_args.join(" ")));
 
@@ -3216,6 +3374,8 @@ mod tests {
             scale_filter: None,
             source_width: Some(1920),
             source_height: Some(1080),
+            source_pix_fmt: None,
+            source_color_transfer: None,
             vaapi_device: None,
             gif_mode: false,
             lossless_trim: false,
@@ -3284,6 +3444,75 @@ mod tests {
         assert_eq!(
             video_filter_for_encoder(&opts, "h264_vaapi"),
             Some("fps=24,format=nv12,hwupload,scale_vaapi=1280:720".into())
+        );
+    }
+
+    #[test]
+    fn test_color_normalization_skips_standard_8bit_sdr() {
+        let mut opts = retry_test_options("libx264", None);
+        opts.source_pix_fmt = Some("yuv420p".into());
+        opts.source_color_transfer = Some("bt709".into());
+
+        assert_eq!(color_normalization_filter(&opts, false, false), None);
+        assert_eq!(video_filter_for_encoder(&opts, "libx264"), None);
+    }
+
+    #[test]
+    fn test_filter_help_rejects_unknown_filter_even_with_success_exit_status() {
+        assert!(!filter_help_reports_available(
+            true,
+            b"",
+            b"Unknown filter 'zscale'."
+        ));
+        assert!(filter_help_reports_available(true, b"Filter tonemap", b""));
+        assert!(!filter_help_reports_available(
+            false,
+            b"Filter tonemap",
+            b""
+        ));
+    }
+
+    #[test]
+    fn test_color_normalization_downconverts_10bit_sdr() {
+        let mut opts = retry_test_options("libx264", None);
+        opts.source_pix_fmt = Some("yuv422p10le".into());
+        opts.source_color_transfer = Some("bt709".into());
+
+        let color = color_normalization_filter(&opts, false, false).unwrap();
+        assert_eq!(color.filter, "format=yuv420p");
+        assert!(!color.tags_bt709);
+        assert_eq!(
+            video_filter_for_encoder(&opts, "libx264"),
+            Some("format=yuv420p".into())
+        );
+    }
+
+    #[test]
+    fn test_hdr_color_normalization_requires_zscale_and_float_input() {
+        let mut opts = retry_test_options("libx264", None);
+        opts.source_pix_fmt = Some("yuv420p10le".into());
+        opts.source_color_transfer = Some("smpte2084".into());
+
+        let normalized = color_normalization_filter(&opts, true, true).unwrap();
+        assert!(normalized.filter.contains("format=gbrpf32le,tonemap=hable"));
+        assert!(normalized.filter.ends_with("format=yuv420p"));
+        assert!(normalized.tags_bt709);
+
+        let fallback = color_normalization_filter(&opts, true, false).unwrap();
+        assert_eq!(fallback.filter, "format=yuv420p");
+        assert!(!fallback.tags_bt709);
+    }
+
+    #[test]
+    fn test_color_normalization_runs_before_crop_and_scale() {
+        let mut opts = retry_test_options("libx264", None);
+        opts.source_pix_fmt = Some("yuv422p10le".into());
+        opts.crop_aspect_ratio = Some("1:1".into());
+        opts.scale_filter = Some("scale=1280:720".into());
+
+        assert_eq!(
+            video_filter_for_encoder(&opts, "libx264"),
+            Some("format=yuv420p,crop=min(iw\\,ih):min(iw\\,ih),scale=1280:720".into())
         );
     }
 

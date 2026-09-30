@@ -2,7 +2,7 @@
 
 ## FFmpeg WebAssembly
 
-The hosted browser bundle serves `@ffmpeg/core` version `0.12.10`, a WebAssembly
+The hosted browser bundle serves `@ffmpeg/core` version `0.12.10` or later, a WebAssembly
 build of FFmpeg licensed under the GNU General Public License version 2 or
 later. The package is published from the [ffmpeg.wasm repository](https://github.com/ffmpegwasm/ffmpeg.wasm).
 

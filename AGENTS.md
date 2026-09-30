@@ -4,7 +4,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 
 ## Project overview
 
-**vidcord** is a browser-first video compressor with an optional cross-platform desktop app for faster encoding and OS integrations. The desktop app is built with **Tauri 2** (Rust backend + React/TypeScript frontend) and shells out to the system **FFmpeg** binary for all native video work. It does **not** bundle system FFmpeg — the desktop app requires `ffmpeg`/`ffprobe` on `PATH`; the hosted browser edition uses its separate FFmpeg WebAssembly build instead.
+**vidcord** is a cross-platform desktop video compressor with a quick browser edition for no-install use. The desktop app is the headline product for faster encoding, GPU support, and OS integrations. The desktop app is built with **Tauri 2** (Rust backend + React/TypeScript frontend) and shells out to the system **FFmpeg** binary for all native video work. It does **not** bundle system FFmpeg — the desktop app requires `ffmpeg`/`ffprobe` on `PATH`; the hosted browser edition uses its separate FFmpeg WebAssembly build instead.
 
 - **App version**: kept in sync across `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and any `vX.Y` references in source/docs (see "Bumping the version" below)
 - **Native window**: fixed 460×690, user non-resizable/non-maximizable, opaque window background with macOS Tahoe "liquid glass" styling inside the app surface
@@ -283,7 +283,7 @@ browser download. Confirm that the browser UI does not expose desktop-only encod
 completion-action, or saved-preset controls. Do not describe the browser route as hosted/cloud
 compression: selected video files must not be uploaded.
 
-Site-only changes should not trigger the multi-platform app CI: `.github/workflows/build.yml` ignores `site/**`, `wrangler.jsonc`, the Site Checks workflow, and site-only validator scripts for `push` and `pull_request`.
+Site-only changes should not trigger the multi-platform app CI: `.github/workflows/build.yml` runs on `push` and `pull_request` only when app source changes (`src/**`, `src-tauri/**`, `index.html`, `public/**`, packaging/config files, the build scripts it runs, and the workflow itself). Docs, site, and repo-metadata pushes skip it.
 
 ### Build profiles (src-tauri/Cargo.toml)
 
@@ -557,7 +557,7 @@ When the user asks to tag and push `vX.Y`:
 4. **Tag with the `vX.Y` short form** (matching existing tags — see `git tag --list`): `git tag vX.Y`. Do **not** use `vX.Y.Z` — the existing tag history is short-form and the release workflow's CHANGELOG extraction matches `## vX.Y`.
 5. **Merge and push** the release commit to `main`, then push the tag: `git push origin main` followed
    by `git push origin vX.Y`. Pushing the tag triggers the release workflow (`build.yml` →
-   `release` job), which builds the `release` profile and drafts a GitHub release.
+   `release` job), which builds the `release` profile and publishes the signed GitHub release immediately so the in-app updater can see it.
 6. **Start the next changelog on the next version branch**: create or switch to the next planned
    `X.Y` branch/worktree, add a fresh `## WIP` section at the top of `CHANGELOG.md`, commit it as
    the first post-release commit, and push that version branch. Do not put the new WIP commit
@@ -567,20 +567,22 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 
 ## CI reference
 
-`.github/workflows/build.yml` has four jobs:
+`.github/workflows/build.yml` has five jobs:
 
 1. **frontend** (ubuntu-latest) — `npm ci`, audit (high), version and asset checks, lint, typecheck, test, build, and bundle-size budget; uploads `dist/` as an artifact for every platform matrix job to download.
 2. **rust-compile-checks** (ubuntu-22.04) — `cargo fmt --check`, `cargo audit`, `cargo clippy -D warnings`, and `cargo test`. Clippy and tests use the `ci` profile and explicit Linux x86_64 target, sharing the `rust-linux-ubuntu-22.04-v1` `Swatinem/rust-cache` key and compatible artifacts with the Linux x86_64 build job.
 3. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. Branch and pull-request runs compile every target with the `ci` profile but skip installer bundling. Tagged `v*` refs build release-profile installers; explicit manual runs build CI-profile installers for testing.
-4. **release** (ubuntu-latest, only on tags) — extracts the matching CHANGELOG section, downloads artifacts, creates a draft GitHub release.
+4. **sign-release-artifacts** (ubuntu-latest, only on tags) — verifies build provenance attestations and Ed25519-signs the installers; uploads the signed bundle.
+5. **publish-release** (ubuntu-latest, only on tags) — downloads the signed artifacts, extracts the matching CHANGELOG section, and publishes the signed GitHub release.
 
 Concurrency groups branch pushes and pull-request synchronization events by head commit so the same
 revision is not built twice. Release tags and explicit manual packaging runs use isolated groups and
 are never cancelled.
 
-The app workflow ignores `README.md`, `CHANGELOG.md`, `.gitignore`, `site/**`, `wrangler.jsonc`,
-the Site Checks workflow, and the site-only sitemap/structured-data validators. Site changes run the
-separate Site Checks workflow.
+The app workflow runs only when app source changes — `src/**`, `src-tauri/**`, `index.html`,
+`public/**`, packaging and config files, the validator scripts the build runs, and the workflow
+itself. Pushes that only touch docs, the site, or repo metadata do not trigger a platform build.
+Site changes run the separate Site Checks workflow.
 
 ## Known pitfalls
 

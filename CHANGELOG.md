@@ -3,7 +3,87 @@
 Release dates are taken from the corresponding repository release tags. The duplicate
 numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
-## WIP
+## v7.5
+
+### Preview
+
+- Fixed the macOS preview showing corrupt green frames for 10-bit 4:2:2 H.264/HEVC
+  sources (e.g. Sony XAVC-S 10-bit) and full-range 4:2:2/4:4:4 variants.
+  VideoToolbox cannot decode those pixel formats
+  and corrupts the picture instead of erroring, so the preview now detects them from
+  the probe and uses the FFmpeg-generated frame, filmstrip, and clip path instead of
+  the native video element.
+- Fixed the preview play button looking dead for sources that need an FFmpeg-generated
+  clip (e.g. 10-bit 4:2:2 on macOS): the button now shows a spinner while the clip is
+  being prepared, repeat presses are ignored while one is in flight, and a failed
+  transcode shows an error toast instead of silently doing nothing.
+- Fixed generated preview clips playing silently: they now carry AAC audio and the
+  preview tries unmuted playback first, falling back to muted if the browser blocks it.
+
+### Color handling
+
+- Fixed 10-bit 4:2:2 and HDR sources compressing to oversaturated output. The desktop
+  app now probes each source's pixel format and color transfer, and converts HDR
+  (PQ/HLG) to SDR BT.709 with the system FFmpeg's `tonemap`/`zscale` filters when both
+  are available. Deep-color inputs are converted to 8-bit while retaining their source
+  color tags; BT.709 tags are applied only after an actual HDR color conversion.
+
+### Lossless trim
+
+- Fixed lossless trim silently falling back to a full re-encode for sources carrying
+  data streams (e.g. Sony XAVC-S files with gyro/timed-metadata `rtmd` tracks). The
+  stream copy now excludes data streams (`-map -0:d`) while keeping video, audio,
+  subtitles, and attachments, so trims stay lossless. If a copy still fails for any
+  reason, the app falls back to normal compression with a status notice instead of
+  erroring out.
+
+### Windows
+
+- Improved FFmpeg discovery on Windows ARM64 by detecting a native build in `C:\ffmpeg` and
+  retrying encoder discovery when the initially resolved FFmpeg command fails.
+
+### Browser
+
+- Fixed mobile browser exports silently dropping audio. Mobile WebKit can report an empty
+  audio track list for videos that do have playable audio; the browser edition now treats
+  that as unknown and keeps audio enabled so FFmpeg preserves it.
+- Made the browser export progress bar and ETA track the current pass instead of the whole
+  export, so both move smoothly within each pass instead of jumping at pass boundaries.
+- Fixed non-16:9 videos (e.g. portrait phone clips) filling the browser demo's preview
+  instead of fitting inside it. The preview video is now absolutely positioned in its
+  frame like the desktop preview, so `object-fit: contain` letterboxes correctly.
+- Fixed the browser export ETA reading "Complete" while encoding was still running.
+  The bar and ETA track the current pass, so a finished pass (e.g. pass 1 of 3) made
+  it look like the whole export was done. It now reads "Continuing…" until the final
+  pass of the final file actually finishes.
+- Fixed the browser export progress bar jumping to 100% mid-encode for some sources.
+  When the browser's reported duration disagrees with FFmpeg's timestamps, the
+  media-time ratio could hit 100% while encoding was still in flight. The bar now
+  cross-checks FFmpeg's own progress ratio and keeps tracking instead of jumping.
+
+### Discord targets
+
+- Added a 1 GB native-resolution Discord target to both the desktop app and the
+  browser demo, matching Discord's new Nitro upload limit (doubled from 500 MB).
+
+### Donations
+
+- Added a donate link (heart icon) to the desktop app footer, opening the GitHub
+  Sponsors page in the browser, and a compact "Support vidcord" section on the website
+  with a matching "Support" link in the top nav. Donate URLs live in `src/donate.ts`.
+
+### Linux and release packaging
+
+- Fixed the Linux in-app updater so it reveals the downloaded AppImage in the file manager with
+  quit, replace, and relaunch instructions instead of opening a second instance that exits.
+- Improved Linux FFmpeg installation by refreshing apt package lists first and pointing Fedora
+  users to the RPM Fusion setup step when ffmpeg is unavailable from the default repositories.
+- Documented AppImage executable and FUSE requirements, updated the Tauri CLI to 2.11.5 to fix
+  missing AppImage icon metadata, and the release workflow now publishes tagged releases
+  immediately so the in-app updater can see them.
+- Fixed the shipped AppImage failing to launch for other users with "Permission denied".
+  The release workflow now extracts the AppImage payload, normalizes it to
+  world-readable/executable permissions, and repacks it before attestation.
 
 ## v7.4.2
 

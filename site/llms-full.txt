@@ -12,7 +12,7 @@ This file gives web crawlers and AI agents a more complete grounding source than
 - Source repository: https://github.com/cyroz1/vidcord
 - Latest desktop release page: https://github.com/cyroz1/vidcord/releases/latest
 - License: MIT
-- Current website-referenced app version: 7.4.2
+- Current website-referenced app version: 7.5.0
 - Browser runtime: React and TypeScript with FFmpeg WebAssembly loaded on demand for export work
 - Desktop runtime: Tauri 2 with a React and TypeScript frontend plus Rust backend
 - Desktop dependency: system `ffmpeg` and `ffprobe` available on PATH; system FFmpeg is not bundled
@@ -31,7 +31,7 @@ The native desktop app is the full local workflow for users who want system FFmp
 
 The browser editor at https://vidcord.app/ supports these modes:
 
-- Compress with 20 MB, 50 MB, 100 MB, or 500 MB Discord target profiles
+- Compress with 20 MB, 50 MB, 100 MB, 500 MB, or 1 GB (Nitro) Discord target profiles
 - Advanced with custom target size, resolution, and typed FPS
 - Lossless Trim with local keyframe discovery and source-stream copy
 - GIF with 5 MB, 10 MB, or 20 MB targets and 15, 30, or 50 FPS
@@ -63,7 +63,8 @@ Both editions provide Discord target profiles for:
 - 20 MB — free accounts and base-server limit
 - 50 MB — Nitro Basic and Boost Level 2
 - 100 MB — Boost Level 3
-- 500 MB — Nitro
+- 500 MB — previous Nitro limit
+- 1 GB — Nitro
 
 Standard mode can leave output FPS unchanged or cap it at 24, 30, or 60 FPS when the choice is below the source frame rate; the desktop app hides redundant choices when FFprobe reports the source rate, while the browser keeps Source as the only safe choice and disables custom FPS when source-rate metadata is unavailable. Advanced mode otherwise accepts a positive typed FPS value; an empty value means no frame-rate change. Standard, Advanced, and GIF Mode expose aspect-ratio crop presets: 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, and 5:4, with a native-ratio option hidden when it would be redundant.
 

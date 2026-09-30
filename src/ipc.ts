@@ -18,6 +18,8 @@ export type ProbeData = {
   frame_rate?: number;
   bitrate: number;
   codec: string;
+  pix_fmt?: string | null;
+  color_transfer?: string | null;
   audio_tracks: AudioTrack[];
 };
 
@@ -67,6 +69,8 @@ export type CompressOptions = {
   scale_filter: string | null;
   source_width?: number | null;
   source_height?: number | null;
+  source_pix_fmt?: string | null;
+  source_color_transfer?: string | null;
   vaapi_device: string | null;
   gif_mode: boolean;
   lossless_trim: boolean;

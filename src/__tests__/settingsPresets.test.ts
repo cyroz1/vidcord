@@ -58,6 +58,13 @@ describe("normalizePresetSettings", () => {
     });
   });
 
+  it("keeps the 1 GB quality index on records that already migrated", () => {
+    expect(normalizePresetSettings({ quality_index: 5, lossless_mode: false })).toMatchObject({
+      quality_index: 5,
+      lossless_mode: false,
+    });
+  });
+
   it("stores semantic GIF targets and migrates the old index values", () => {
     expect(normalizePresetSettings({ gif_target_mb: 20 }).gif_target_mb).toBe(20);
     expect(normalizePresetSettings({ gif_quality_index: 0 }).gif_target_mb).toBe(20);

@@ -17,17 +17,26 @@ const limits = {
   // batch failure recovery add a small amount of code while bounding runtime memory/work.
   // Reorderable queues and selective retry controls add a bounded amount of UI/runtime code
   // to both the native and hosted batch workflows.
-  // The v7.4 hosted root also carries the explicit mobile/no-install positioning and browser
-  // limitation disclosures. The deferred editor adds a small module-loader boundary, so keep
-  // the raw budget below 0.5 MiB while allowing that wrapper overhead.
-  // 7.4.1 adds user-visible Linux UX copy: the in-app updater toast with quit/swap/relaunch
-  // instructions and the hosted FAQ's AppImage run prerequisites (executable bit, FUSE).
-  javascriptRaw: 500 * 1024,
+  // The v7.5 hosted root also carries the explicit mobile/no-install positioning and browser
+  // limitation disclosures; keep the raw budget below 0.5 MiB while allowing that public copy.
+  // v7.5 also routes H.264/HEVC 4:2:2+ sources through the FFmpeg preview path on macOS
+  // (VideoToolbox corrupts those pixel formats instead of erroring); allow 1 KiB for it.
+  // The donate footer link and website support section add a shared links module plus
+  // small footer/section markup; allow 1 KiB for them.
+  // The preview play-button fix (generating spinner, re-entrancy guard, error toast)
+  // adds a little more; allow 1 KiB for it.
+  // The deferred editor adds a small lazy module-loader boundary; allow 1 KiB for that wrapper.
+  // 7.5's editor also keeps its per-pass progress/ETA tracking and the Support section,
+  // and the generated preview clips now carry audio; allow 3 KiB for those 7.5-only additions.
+  javascriptRaw: 502 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
   // The new lazy module boundary adds about 1 KiB of compressed wrapper overhead; keep a small
   // cross-runtime margin while retaining the tight raw-byte guard above.
-  // 7.4.1's Linux UX copy adds a fraction of a KiB compressed.
-  javascriptGzip: 157 * 1024,
+  // The donate footer link and website support section add a shared links module plus
+  // small footer/section markup; allow 1 KiB for them.
+  // The preview play-button fix adds a little more; allow 1 KiB for it.
+  // 7.5's per-pass progress/ETA and preview-clip audio add a little more; allow 1 KiB for them.
+  javascriptGzip: 158 * 1024,
   // The browser editor also carries the integrated desktop feature story, responsive layout,
   // and the platform-aware download/architecture-choice surfaces.
   cssGzip: 18.5 * 1024,

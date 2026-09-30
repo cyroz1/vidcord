@@ -2093,7 +2093,15 @@
 .web-editor-column .web-preview-frame video {
   /* Keep the normal web preview fitted to its fixed frame. The shared
      crop rule is intentionally important for the native preview, so this
-     scoped rule owns the web editor's default media behavior. */
+     scoped rule owns the web editor's default media behavior.
+     Absolute positioning (mirroring the native PreviewPane) is required:
+     as an in-flow grid item of PreviewCrop, height: 100% will not resolve
+     against the implicit grid track, so the video falls back to its
+     intrinsic aspect ratio, overflows the frame, and gets cropped. */
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   object-fit: contain !important;
   background: #000;
 }

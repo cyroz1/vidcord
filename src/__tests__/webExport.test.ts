@@ -13,7 +13,7 @@ import {
   targetBitrateKbps,
   GIF_PRESETS,
 } from "../web/exportPlan";
-import { formatBrowserEta, progressFromMediaTime } from "../web/browserProgress";
+import { formatBrowserEta, formatPassEta, progressFromMediaTime, progressInSegment } from "../web/browserProgress";
 import { exportBrowserFile } from "../web/webExporter";
 import { isAudioCompatibilityError } from "../web/webExporter";
 import type { BrowserFfmpegEngine } from "../web/ffmpegEngine";
@@ -47,10 +47,44 @@ describe("browser export planning", () => {
     expect(formatBrowserEta(100, 10_000)).toBe("Complete");
   });
 
+  it("only reports Complete once the final pass of the final file is done", () => {
+    const base = { passPercent: 50, fileProgress: 0.2, isLastFile: true, elapsedMs: 10_000 };
+    // Mid-pass keeps the normal per-pass ETA.
+    expect(formatPassEta(base)).toBe("ETA: 0:10");
+    // A finished pass with more passes pending must not claim completion.
+    expect(formatPassEta({ ...base, passPercent: 100, fileProgress: 1 / 3 })).toBe("Continuing…");
+    // A finished file with more files pending must not claim completion either.
+    expect(formatPassEta({ ...base, passPercent: 100, fileProgress: 1, isLastFile: false })).toBe(
+      "Continuing…"
+    );
+    // The final file reaching 100% really is done.
+    expect(formatPassEta({ ...base, passPercent: 100, fileProgress: 1 })).toBe("Complete");
+  });
+
   it("uses encoded media time for browser progress and falls back safely", () => {
     expect(progressFromMediaTime(3_000_000, 30, 0.9)).toBeCloseTo(0.1);
     expect(progressFromMediaTime(0, 30, 0.25)).toBe(0);
     expect(progressFromMediaTime(Number.NaN, 30, 0.25)).toBe(0.25);
+  });
+
+  it("prefers FFmpeg's self-consistent ratio when the full duration is known", () => {
+    // Time-based progress is the primary signal.
+    expect(progressFromMediaTime(6_000_000, 12, 0.5, 12)).toBeCloseTo(0.5);
+    expect(progressFromMediaTime(5_000_000, 10, 5 / 60, 60)).toBeCloseTo(0.5);
+    // A bogus 100% ratio while media time is near zero is ignored.
+    expect(progressFromMediaTime(0, 12, 1, 12)).toBe(0);
+    // Guard: never report 100% from media time while FFmpeg's own ratio says
+    // the encode is still in flight (browser/FFmpeg duration disagreement).
+    expect(progressFromMediaTime(12_000_000, 10, 0.5, 10)).toBeCloseTo(0.5);
+  });
+
+  it("measures progress within the current export segment", () => {
+    expect(progressInSegment(0.5, 1 / 3, 2 / 3)).toBeCloseTo(0.5);
+    expect(progressInSegment(1 / 3, 1 / 3, 2 / 3)).toBe(0);
+    expect(progressInSegment(2 / 3, 1 / 3, 2 / 3)).toBe(1);
+    expect(progressInSegment(0.9, 1 / 3, 2 / 3)).toBe(1);
+    expect(progressInSegment(0.5, 0.5, 0.5)).toBe(0.5);
+    expect(progressInSegment(Number.NaN, 0, 1)).toBe(0);
   });
 
   it("calculates a target-aware bitrate with an audio allowance", () => {
@@ -200,6 +234,22 @@ describe("browser export planning", () => {
     );
 
     expect(plan.bitrateKbps).toBe(targetBitrateKbps(20, 30, false, 1, 8_000));
+  });
+
+  it("plans the 1 GB Nitro preset at native resolution", () => {
+    const plan = createExportPlan(
+      metadata,
+      normalizeBrowserSettings({ qualityIndex: 4 }),
+      "compress",
+      0,
+      30
+    );
+
+    expect(plan.targetSizeMb).toBe(1024);
+    expect(plan.targetHeight).toBeNull();
+    expect(plan.bitrateKbps).toBe(targetBitrateKbps(1024, 30, false, 1, 4_000));
+    expect(plan.summary).toContain("Up to 1024 MB");
+    expect(plan.summary).toContain("Native");
   });
 
   it("omits audio mapping when metadata confirms the source has no audio", () => {
