@@ -3702,7 +3702,7 @@ export default function App() {
             <div className="update-modal-header">
               <div>
                 <div className="update-modal-kicker">Update available</div>
-                <h2 id="update-title">Version {updateInfo.version}</h2>
+                <h2 id="update-title">Version {updateInfo.version.replace(/^v/, "")}</h2>
               </div>
               <button
                 className="update-close-btn"
