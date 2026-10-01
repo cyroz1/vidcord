@@ -35,7 +35,9 @@ const limits = {
   // of native app UI and selection logic; allow 4 KiB for those v7.6 additions.
   // Browser encoder warmup, large-export memory confirmation, and import-scan feedback improve
   // long workflows; keep raw JavaScript within the 0.5 MiB ceiling with no additional headroom.
-  javascriptRaw: 512 * 1024,
+  // The target-size accuracy tuning (undersize correction and efficiency-aware bitrate targeting
+  // in the web export planner) adds a small amount of export code; allow 1 KiB for it.
+  javascriptRaw: 513 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
   // Keep 1 KiB of cross-runtime margin while retaining the tight raw-byte guard above.
   // The donate footer link and website support section add a shared links module plus
