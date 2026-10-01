@@ -519,7 +519,7 @@ describe("browser export planning", () => {
         },
         transcode: async (args: (input: string) => string[]) => {
           operations.push(args("input.mp4"));
-          return new Uint8Array(100);
+          return new Uint8Array(5 * 1024 * 1024 * 0.95);
         },
         dispose,
       }),
@@ -528,7 +528,7 @@ describe("browser export planning", () => {
       engine,
       file: { name: "clip.mp4" } as File,
       metadata,
-      settings: normalizeBrowserSettings({ crop: "1:1" }),
+      settings: normalizeBrowserSettings({ crop: "1:1", gifTargetMb: 5 }),
       mode: "gif",
       startTime: 0,
       endTime: 10,
@@ -643,7 +643,7 @@ describe("browser export planning", () => {
       endTime: 30,
     });
 
-    expect(sessionTranscodes).toBe(3);
+    expect(sessionTranscodes).toBe(4);
     expect(new Set(inputNames)).toEqual(new Set(["input-1.mp4"]));
   });
 

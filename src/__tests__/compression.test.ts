@@ -27,7 +27,7 @@ describe("calculateBitrate", () => {
     const oneTrack = calculateBitrate(100, 60, false, 1);
     const twoTracks = calculateBitrate(100, 60, false, 2);
     expect(twoTracks).toBeLessThan(oneTrack);
-    expect(oneTrack - twoTracks).toBe(115);
+    expect(oneTrack - twoTracks).toBe(122);
   });
 
   it("clamps to minimum 100 kbps for tiny size targets", () => {
