@@ -1366,7 +1366,9 @@
 .web-footer a {
   color: var(--web-muted);
   text-decoration: none;
-  transition: color 0.16s ease;
+  transition:
+    color 0.16s ease,
+    transform 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 .web-header-nav a {
@@ -1409,6 +1411,11 @@
   background: rgba(9, 27, 51, 0.72);
   color: var(--web-text);
   cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
 }
 
 .web-mobile-menu-button::marker {
@@ -1451,11 +1458,16 @@
   font-size: 15px;
   font-weight: 610;
   text-decoration: none;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
 }
 
 .web-mobile-nav a:hover {
   background: var(--web-accent-soft);
   color: var(--web-text);
+  transform: translateX(3px);
 }
 
 .web-mobile-nav svg {
