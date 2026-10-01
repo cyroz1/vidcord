@@ -567,14 +567,11 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <h1 id="desktop-app-title">vidcord</h1>
           <p className="hero-lede">The full desktop app for local Discord compression.</p>
           <p className="hero-body">
-            Compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV files under Discord&apos;s 20, 50, 100,
-            500 MB, or 1 GB (Nitro) limits using system FFmpeg locally. Lossless Trim cuts on keyframes without
-            re-encoding. GIF Mode creates Discord-ready GIFs with 5 MB, 10 MB, or 20 MB size targets
-            at 15, 30, or up to 50 FPS.
+            Compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV for Discord&apos;s 20 MB–1 GB limits
+            with system FFmpeg. Trim without re-encoding or make target-size GIFs.
           </p>
           <p className="hero-body">
-            Download the native app for faster encoding, GPU acceleration, Open With integration,
-            native output locations, and the complete desktop workflow.
+            Download for GPU acceleration, Open With, native outputs, and the full desktop workflow.
           </p>
 
           <div className="hero-actions">
@@ -599,8 +596,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
                 </span>
               </a>
               <p className="web-demo-callout">
-                In a pinch, or on a phone or tablet? Use the no-install browser editor for a quick
-                local export. <a href="#web-editor">Try the web demo</a>
+                Need a quick export on a phone or tablet? <a href="#web-editor">Try the web demo</a>
               </p>
             </div>
             <a
@@ -694,32 +690,27 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <span className="eyebrow">Browser edition</span>
           <h2 id="browser-title">A quick no-install option, when you&apos;re in a pinch.</h2>
           <p>
-            Open it on a phone, tablet, or desktop browser for a local export without installing the
-            app. Your selected files stay in the browser while local FFmpeg WebAssembly handles the
-            encode; finished videos and PNG frame snapshots are downloaded by the browser. It works
-            best for browser-readable files up to 512 MB each, and speed depends on your browser,
-            device, available memory, and source format.
+            Use it on a phone, tablet, or desktop without installing. Files stay in your browser as
+            FFmpeg WebAssembly encodes them; videos and PNG snapshots download locally. Use
+            browser-readable files up to 512 MB; speed and format support vary by device.
           </p>
         </div>
         <div className="browser-points">
           <div>
             <strong>What works here</strong>
             <span>
-              Compress, Advanced, Lossless Trim, GIF, trim, crop, audio normalization, audio removal
-              for re-encoded exports, lossless audio removal, FPS, trim snap/zoom/pan, snapshots,
-              and same-profile batches.
+              Compress, Advanced, Lossless Trim, GIF, trim/crop/zoom/pan/snap, FPS, audio
+              normalization or removal (including lossless), snapshots, keyframe search, and Batch.
             </span>
           </div>
           <div>
             <strong>Know the limits</strong>
             <span>
-              Inputs must be browser-readable and stay under 512 MB each. The encoder is fixed to
-              libx264, re-encoded exports use the first browser audio stream, Batch supports up to
-              12 full-duration files with one shared Compress profile, and downloads are controlled
-              by the browser. Lossless keyframe discovery is bounded to 60 seconds and 100,000
-              keyframes. GPU or encoder selection, audio-track mixing, saved presets, native folders
-              and completion actions, Open With, notifications, taskbar/Dock progress, and updater
-              controls stay in the desktop app.
+              Files must be browser-readable and 512 MB or less. Re-encodes use fixed libx264 and
+              the first audio track. Batch supports 12 full-length files on one Compress profile;
+              keyframe search is capped at 60 seconds or 100,000 keys. Desktop adds GPU/encoder
+              choice, track mixing, presets, native folders and completion actions, Open With,
+              notifications, Dock/taskbar progress, and updates.
             </span>
           </div>
         </div>
@@ -740,8 +731,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           </svg>
           <h2>Discord targets</h2>
           <p>
-            Choose a 20, 50, 100, or 500 MB limit, or 1 GB for Nitro, and let vidcord calculate the bitrate. GIF Mode
-            supports 5 MB, 10 MB, and 20 MB exports at 15, 30, or up to 50 FPS in both editions.
+            Auto-calculate for 20, 50, 100, 500 MB, or 1 GB Nitro targets. GIFs target 5, 10, or 20
+            MB at 15, 30, or up to 50 FPS.
           </p>
         </article>
         <article>
@@ -750,9 +741,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           </svg>
           <h2>Trim and preview</h2>
           <p>
-            Scrub, preview, and compress only the range you need. Lossless Trim preserves source
-            streams with keyframe-aligned boundaries. The browser editor uses the video preview; the
-            desktop app adds native preview fallbacks on Linux.
+            Scrub and trim to the moment you need. Lossless Trim snaps to keyframes; desktop Linux
+            adds FFmpeg previews.
           </p>
         </article>
         <article>
@@ -761,9 +751,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           </svg>
           <h2>Desktop acceleration</h2>
           <p>
-            The desktop app detects NVENC, AMF, QSV, VAAPI, and VideoToolbox, prefers H.264 hardware
-            on first run, and keeps CPU fallback ready. The web editor uses a fixed local
-            WebAssembly encoder.
+            Detect NVENC, AMF, QSV, VAAPI, and VideoToolbox; prefer working H.264 hardware with CPU
+            fallback. The browser uses fixed libx264 WebAssembly.
           </p>
         </article>
       </section>
@@ -778,24 +767,24 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
             <span className="step-number">1</span>
             <h3>Add your videos</h3>
             <p>
-              Choose a local file in the browser editor above or drag and drop. Use Open With from
-              Finder or Explorer in the desktop app, and multi-select to activate Batch mode.
+              Browse or drop browser videos; desktop also imports folders recursively or opens
+              videos from Finder or Explorer. Select multiple clips for Batch.
             </p>
           </article>
           <article>
             <span className="step-number">2</span>
             <h3>Choose controls and trim</h3>
             <p>
-              Select a Discord size target, cap FPS or remove audio if needed, and preview the range
-              you want to share. Desktop mode adds its full native control set.
+              Set a size, adjust FPS or audio, then preview and trim. Desktop adds the full control
+              set.
             </p>
           </article>
           <article>
             <span className="step-number">3</span>
             <h3>Compress and save</h3>
             <p>
-              Run the local encoder, verify the output size, and download a ready-to-send browser
-              export—or save it through the desktop app&apos;s native destinations.
+              Encode locally and verify size. Download in the browser or save to a desktop
+              destination.
             </p>
           </article>
         </div>
@@ -803,16 +792,14 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
 
       <DetailSection
         title="Simple when you want it. Precise when you need it."
-        copy="Both editions include aspect-ratio crop presets, custom size, resolution, FPS, and audio normalization. The desktop app adds encoder selection, source audio-track mixing, saved settings presets, native output preferences, and native completion actions."
+        copy="Both editions offer crop, size, resolution, FPS, and audio controls. Desktop adds encoder selection, source-track mixing, presets, native destinations, and copy/reveal/no-action completion choices."
         items={[
-          "Browser Batch mode applies one shared full-duration Compress profile with per-file details and an aggregate ETA; desktop Batch adds separate trims and native parallel encoding.",
-          "Strict output size checks with safer adaptive retry behavior.",
-          "Named settings presets with Autosave, restore, and delete controls in the desktop app.",
-          "Output FPS controls for 24, 30, 60, or a custom Advanced value when browser source-rate metadata permits.",
-          "Crop to 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, or 5:4 before scaling.",
-          "Peak-normalize audio or remove it for more video bitrate in browser re-encoded or Lossless Trim modes; desktop Advanced can also mix source tracks.",
-          "Race-safe cancellation in both editions; native exports use atomically reserved outputs that never overwrite your files, while browser exports use browser downloads.",
-          "User-approved desktop update installers verified against GitHub’s published integrity data.",
+          "Browser Batch: up to 12 full-length files, one Compress profile, per-file details, and aggregate ETA. Desktop adds per-file trims and parallel encoding.",
+          "Output-size checks with adaptive retries; safe cancellation and collision-safe native filenames.",
+          "Desktop presets: Autosave, restore, and delete. FPS: 24, 30, 60, or custom (browser source metadata permitting).",
+          "Crop presets: 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, and 5:4.",
+          "Normalize or remove audio in either edition; desktop Advanced can mix source tracks.",
+          "Desktop updates are user-approved and verified against GitHub’s published SHA-256 digest.",
         ]}
         image={{
           fallback: "advancedmode.png",
@@ -830,13 +817,10 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
 
       <DetailSection
         title="Keep the original quality when you only need a shorter clip."
-        copy="Lossless Trim cuts on source keyframes without re-encoding the video in both editions. The browser editor copies source streams through WebAssembly and can remove audio without re-encoding; the desktop app also supports native container/output handling."
+        copy="Both editions stream-copy keyframe-aligned clips without re-encoding video. Desktop adds container and output choices."
         items={[
-          "No video re-encoding for fast, original-quality exports.",
-          "Trim boundaries snap outward to source keyframes.",
-          "Both editions can keep audio or remove every audio track without re-encoding video.",
-          "Desktop size-based exports offer it when the selected segment is estimated to fit.",
-          "Desktop falls back to normal compression when stream copying is incompatible.",
+          "Trim edges snap outward to keyframes; keep audio or remove every track without re-encoding.",
+          "Desktop can offer it when a size target should fit, then falls back to compression if copy fails.",
         ]}
         image={{
           fallback: "losslesstrim.png",
@@ -854,13 +838,10 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
 
       <DetailSection
         title="Turn the best moment into a Discord-ready GIF."
-        copy="GIF Mode swaps in focused controls for animated exports in the browser and desktop app. Choose a 5 MB, 10 MB, or 20 MB size target and the motion quality you want, then let vidcord optimize the result locally."
+        copy="Create local, target-size GIFs in either edition."
         items={[
-          "Focused 5 MB, 10 MB, and 20 MB targets.",
-          "Selectable 15, 30, or Discord-safe maximum 50 FPS output.",
-          "Automatic palette generation for cleaner color and motion.",
-          "Adaptive size retries that preserve your selected frame rate.",
-          "No audio track or unrelated video-only controls.",
+          "Target 5, 10, or 20 MB at 15, 30, or up to 50 FPS.",
+          "Palette optimization and size retries preserve the selected rate; GIFs are silent.",
         ]}
         reverse
         image={{
@@ -879,13 +860,12 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
 
       <DetailSection
         title="Compress a whole queue in Batch mode."
-        copy="Select multiple videos and vidcord probes and encodes each one independently. The browser queue keeps source details and per-file progress visible; the desktop queue also supports separate trims, native parallel workers, and native output handling."
+        copy="Queue clips with per-file status and aggregate progress. Desktop adds folder scanning, separate trims, parallel encoding, and native outputs."
         items={[
-          "Select multiple videos through Browse or drag-and-drop in the browser, or Open With and the command line on desktop.",
-          "Apply shared standard Compress settings; desktop Batch adds separate start and end trims.",
-          "The desktop app runs up to two encodes at once, with a serial fallback when resources contend.",
-          "Continue after individual failures and keep collision-safe MP4 outputs.",
-          "Cancel active work while queued items are skipped cleanly.",
+          "Browse or drop browser files; desktop opens files or folders from Explorer or Finder and scans folders recursively.",
+          "Desktop flags skipped, linked, or unreadable files; it runs two encodes at once with serial fallback.",
+          "Continue after failures, retry failed browser jobs, or cancel and skip queued work.",
+          "Browser Batch uses one Compress profile; desktop adds per-file trims and collision-safe MP4 outputs.",
         ]}
         image={{
           fallback: "batchmode.png",
@@ -910,9 +890,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <div>
             <h2 id="integrations-title">Open one or more videos from Explorer or Finder</h2>
             <p>
-              These integrations belong to the desktop app. Start from your file manager, choose one
-              or more videos, and get compressed MP4s in Downloads or another native output
-              location.
+              Open videos from Explorer or Finder, then save compressed MP4s to Downloads or a
+              chosen desktop folder.
             </p>
           </div>
         </div>
@@ -958,8 +937,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
             <div>
               <h3>Saved output file</h3>
               <p>
-                Desktop exports use a safe auto-incremented filename in Downloads, beside the clip,
-                or in your saved custom folder. The browser edition downloads through the browser.
+                Collision-safe names in Downloads, beside the source, or in a custom folder. Browser
+                exports use browser downloads.
               </p>
             </div>
             <Screenshot
@@ -989,92 +968,78 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <article>
             <h3>Does vidcord upload videos?</h3>
             <p>
-              No. The browser edition keeps selected files local while FFmpeg WebAssembly runs on
-              your device, and the desktop edition runs system FFmpeg locally. Neither edition
-              uploads video, requires an account, or uses telemetry.
+              No. Both editions process files locally; there are no uploads, accounts, or telemetry.
             </p>
           </article>
           <article>
             <h3>Can I use vidcord in a browser?</h3>
             <p>
-              Yes. Open the <a href="#web-editor">browser edition</a> to run FFmpeg WebAssembly
-              locally. Files stay in your browser and exports go to browser downloads. It is a
-              lighter alternative with a fixed WASM encoder and no desktop-only GPU, Open With,
-              native folder, or OS notification integrations.
+              Yes. The <a href="#web-editor">browser edition</a> uses local WebAssembly and a fixed
+              libx264 encoder. Desktop adds GPU support, Open With, folders, and OS integrations.
             </p>
           </article>
           <article>
             <h3>Is the browser demo suitable for mobile?</h3>
             <p>
-              It is the quick no-install fallback for a phone or tablet when you need an export in a
-              pinch. It works best for browser-readable files up to 512 MB each, but browser memory,
-              device performance, source format, and download behavior vary. Use the desktop app for
-              large or difficult inputs, GPU encoding, per-file Batch trims, saved presets, native
-              destinations, Open With, and other OS integrations.
+              Yes, for a quick export. It supports browser-readable files up to 512 MB; performance
+              and download behavior vary. Use desktop for large inputs and the full native workflow.
             </p>
           </article>
           <article>
             <h3>Which Discord upload limits are supported?</h3>
             <p>
-              Both editions cover 20 MB, 50 MB, 100 MB, 500 MB, and 1 GB (Nitro) targets. Advanced mode adds
-              custom size, resolution, FPS, and encoder controls on desktop; GIF Mode supports 5 MB,
-              10 MB, and 20 MB exports at 15, 30, or up to 50 FPS.
+              Compress targets: 20, 50, 100, 500 MB, or 1 GB Nitro. Advanced adds custom size,
+              resolution, FPS, and desktop encoder controls. GIFs target 5, 10, or 20 MB.
             </p>
           </article>
           <article>
             <h3>Can vidcord compress multiple videos at once?</h3>
             <p>
-              Yes. Select two or more videos through Browse or drag-and-drop in the browser, or Open
-              With and the command line on desktop, to activate Batch mode. The browser queue
-              reports per-file and aggregate progress; desktop Batch also supports separate trims
-              and native parallel workers.
+              Yes. Select or drop browser files; desktop also imports folders recursively. Browser
+              Batch supports up to 12 files; desktop adds per-file trims and parallel workers.
             </p>
           </article>
           <article>
             <h3>Can vidcord change output FPS?</h3>
             <p>
-              Yes. Standard mode can leave FPS unchanged or cap it at 24, 30, or 60 FPS. Advanced
-              mode accepts a custom typed value in both editions; desktop also offers native encoder
-              choices.
+              Yes. Keep the source rate or cap at 24, 30, or 60 FPS. Advanced supports custom FPS in
+              both editions; desktop also offers encoder choices.
             </p>
           </article>
           <article>
             <h3>Are scrubbing and playback previews available on Linux?</h3>
             <p>
-              The desktop Linux edition uses FFmpeg to generate filmstrip and frame previews while
-              scrubbing. The browser edition uses the browser&apos;s local video preview instead.
+              Yes. Desktop Linux generates FFmpeg frame previews; the browser uses local video
+              playback.
             </p>
           </article>
           <article>
             <h3>Does vidcord include FFmpeg?</h3>
             <p>
-              The desktop edition does not bundle FFmpeg: install <code>ffmpeg</code> and
-              <code>ffprobe</code> and make them available on PATH. The browser edition loads a
-              local WebAssembly build.
+              Desktop needs system <code>ffmpeg</code> and <code>ffprobe</code> on PATH. The browser
+              uses WebAssembly.
             </p>
           </article>
           <article>
             <h3>How does the desktop download work?</h3>
             <p>
-              The page detects your OS and links to the matching latest-release binary. If x64 or
-              ARM64 is unclear, it asks you to choose the architecture.
+              vidcord links to the latest binary for your OS; choose x64 or ARM64 if detection is
+              unsure.
             </p>
           </article>
           <article>
             <h3>How do I run the Linux AppImage?</h3>
             <p>
-              Make it executable with <code>chmod +x vidcord_*.AppImage</code>, then launch it.
-              AppImages need FUSE on the host: <code>sudo apt install libfuse2</code> on
-              Debian/Ubuntu, <code>sudo dnf install fuse-libs</code> on Fedora, or
-              <code>sudo pacman -S fuse2</code> on Arch. The x86_64 build runs on older
-              distributions; the ARM64 build targets newer ones.
+              Run <code>chmod +x vidcord_*.AppImage</code>, then launch it. Install FUSE:
+              <code>libfuse2</code> (Debian/Ubuntu), <code>fuse-libs</code> (Fedora), or
+              <code>fuse2</code> (Arch). x86_64 supports older distros; ARM64 targets newer ones.
             </p>
           </article>
           <article>
             <h3>How do desktop updates work?</h3>
             <p>
-              After approval, vidcord streams, validates, and hashes the installer before saving and
-              opening it. The release page remains a fallback.
+              After your approval, vidcord verifies the installer&apos;s SHA-256 digest before
+              saving and opening it.
             </p>
           </article>
         </div>
@@ -1085,9 +1050,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <div>
             <h2 id="ffmpeg-title">Set up FFmpeg</h2>
             <p>
-              The browser edition uses local WebAssembly. The desktop app does not bundle FFmpeg;
-              its installer or first launch can help install it through your platform package
-              manager, then detect <code>ffmpeg</code> and <code>ffprobe</code> automatically.
+              Desktop requires system <code>ffmpeg</code> and <code>ffprobe</code>; first-run setup
+              can install them. The browser uses local WebAssembly.
             </p>
           </div>
           <a
@@ -1109,12 +1073,9 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           >
             <span className="detected-pill">Detected platform</span>
             <h3>Windows</h3>
-            <p>vidcord can run this through the installer or first-launch setup:</p>
+            <p>Run from the installer, first-run setup, or Terminal:</p>
             <CopyCommand command="winget install Gyan.FFmpeg" />
-            <p>
-              When it finishes, select Retry in vidcord. The app recognizes WinGet&apos;s install
-              directory without a restart.
-            </p>
+            <p>Select Retry when it finishes; WinGet installs work without restarting.</p>
           </article>
           <article
             className={`ffmpeg-install-card${selectedPlatform === "macos" ? " is-active" : ""}`}
@@ -1124,11 +1085,10 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           >
             <span className="detected-pill">Detected platform</span>
             <h3>macOS</h3>
-            <p>Install Homebrew if you do not have it, then run this in Terminal:</p>
+            <p>Install Homebrew, then run:</p>
             <CopyCommand command="brew install ffmpeg" />
             <p>
-              After Homebrew finishes, reopen vidcord. It will look for <code>ffmpeg</code> and
-              <code>ffprobe</code> on your PATH.
+              Reopen vidcord to detect <code>ffmpeg</code> and <code>ffprobe</code> on PATH.
             </p>
           </article>
           <article
@@ -1139,7 +1099,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           >
             <span className="detected-pill">Detected platform</span>
             <h3>Linux</h3>
-            <p>Choose the command for your distribution:</p>
+            <p>Run the command for your distribution:</p>
             <div className="ffmpeg-linux-commands">
               <div className="ffmpeg-linux-command">
                 <span>Debian / Ubuntu</span>
@@ -1155,8 +1115,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
               </div>
             </div>
             <p>
-              Use the command for your distro, then launch vidcord normally. The app uses the system
-              <code>ffmpeg</code> and <code>ffprobe</code> binaries.
+              Launch vidcord normally; it uses the system <code>ffmpeg</code> and{" "}
+              <code>ffprobe</code>.
             </p>
           </article>
         </div>
@@ -1185,8 +1145,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <div>
             <strong>FFmpeg required for the desktop app</strong>
             <span>
-              The desktop app shells out to your system <code>ffmpeg</code> and <code>ffprobe</code>
-              ; the browser edition uses local WebAssembly.
+              Desktop uses system <code>ffmpeg</code> and <code>ffprobe</code>; browser encoding
+              runs locally in WebAssembly.
             </span>
           </div>
           <div className="ffmpeg-callout-actions">

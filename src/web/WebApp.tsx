@@ -49,6 +49,29 @@ const SITE_NAV_LINKS: readonly SiteNavLink[] = [
   { href: "https://github.com/cyroz1/vidcord", label: "GitHub", external: true },
 ] as const;
 
+const PAGE_REVEAL_SELECTOR = [
+  ".web-marketing > .hero > .hero-copy",
+  ".web-marketing > .hero > .hero-product",
+  ".web-marketing > #web-editor",
+  ".web-marketing > .browser-section",
+  ".web-marketing > .feature-band > article",
+  ".web-marketing > .workflow-section > .section-heading",
+  ".web-marketing > .workflow-section > .workflow-grid > article",
+  ".web-marketing > .detail-section > .detail-copy",
+  ".web-marketing > .detail-section > .detail-image",
+  ".web-marketing > .integration-section > .section-heading",
+  ".web-marketing > .integration-section > .integration-grid > .integration-panel",
+  ".web-marketing > .faq-section > .section-heading",
+  ".web-marketing > .faq-section > .faq-grid > article",
+  ".web-marketing > .ffmpeg-section > .section-heading",
+  ".web-marketing > .ffmpeg-section .ffmpeg-install-card",
+  ".web-marketing > .download-section > .download-heading",
+  ".web-marketing > .download-section > .ffmpeg-callout",
+  ".web-marketing > .download-section .download-card",
+  ".web-app > .donate-section",
+  ".web-app > .site-footer",
+].join(", ");
+
 function closeMobileNavigation(event: MouseEvent<HTMLAnchorElement>) {
   const disclosure = event.currentTarget.closest("details");
   if (disclosure) disclosure.open = false;
@@ -179,6 +202,64 @@ function WebApp() {
   const handlePageDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     dropHandlerRef.current?.(Array.from(event.dataTransfer.files));
+  }, []);
+
+  useEffect(() => {
+    const root = document.querySelector<HTMLElement>(".web-app");
+    if (
+      !root ||
+      typeof IntersectionObserver === "undefined" ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      return;
+    }
+
+    const targets = Array.from(root.querySelectorAll<HTMLElement>(PAGE_REVEAL_SELECTOR));
+    if (targets.length === 0) return;
+
+    targets.forEach((target) => {
+      target.dataset.scrollReveal = "true";
+    });
+
+    const siblingsByParent = new Map<HTMLElement, HTMLElement[]>();
+    targets.forEach((target) => {
+      const parent = target.parentElement;
+      if (!parent) return;
+      const siblings = siblingsByParent.get(parent) ?? [];
+      siblings.push(target);
+      siblingsByParent.set(parent, siblings);
+    });
+
+    siblingsByParent.forEach((siblings) => {
+      siblings.forEach((target, index) => {
+        target.style.setProperty("--scroll-reveal-delay", `${Math.min(index * 85, 255)}ms`);
+      });
+    });
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          const target = entry.target as HTMLElement;
+          target.dataset.scrollRevealed = "true";
+          observer.unobserve(target);
+        });
+      },
+      { rootMargin: "0px 0px -7% 0px", threshold: 0.08 }
+    );
+
+    targets.forEach((target) => observer.observe(target));
+    root.dataset.motionReady = "true";
+
+    return () => {
+      observer.disconnect();
+      delete root.dataset.motionReady;
+      targets.forEach((target) => {
+        delete target.dataset.scrollReveal;
+        delete target.dataset.scrollRevealed;
+        target.style.removeProperty("--scroll-reveal-delay");
+      });
+    };
   }, []);
 
   return (
