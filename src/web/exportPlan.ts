@@ -30,6 +30,7 @@ export type ExportPlan = {
   targetSizeMb: number | null;
   targetHeight: number | null;
   bitrateKbps: number | null;
+  sourceBitrateKbps: number | null;
   startTime: number;
   endTime: number;
   selectedDuration: number;
@@ -67,7 +68,7 @@ export function targetBitrateKbps(
   const audioKbits = removeAudio ? 0 : 128 * audioTracks * duration;
   const targetBitrate = Math.max(
     100,
-    Math.floor(((totalKbits - audioKbits) / Math.max(duration, 0.1)) * 0.9)
+    Math.floor(((totalKbits - audioKbits) / Math.max(duration, 0.1)) * 0.95)
   );
   if (!Number.isFinite(sourceBitrateKbps) || sourceBitrateKbps <= 0) return targetBitrate;
   return Math.min(targetBitrate, Math.max(100, Math.floor(sourceBitrateKbps)));
@@ -126,6 +127,7 @@ export function createExportPlan(
       targetSizeMb: null,
       targetHeight: null,
       bitrateKbps: null,
+      sourceBitrateKbps: null,
       startTime: range.startTime,
       endTime: range.endTime,
       selectedDuration: duration,
@@ -144,6 +146,7 @@ export function createExportPlan(
       targetSizeMb: preset.sizeMb,
       targetHeight: preset.targetHeight,
       bitrateKbps: targetBitrateKbps(preset.sizeMb, duration, true, 0),
+      sourceBitrateKbps: null,
       startTime: range.startTime,
       endTime: range.endTime,
       selectedDuration: duration,
@@ -185,6 +188,10 @@ export function createExportPlan(
     targetSizeMb,
     targetHeight,
     bitrateKbps,
+    sourceBitrateKbps:
+      Number.isFinite(sourceBitrateKbps) && sourceBitrateKbps > 0
+        ? Math.max(100, Math.floor(sourceBitrateKbps))
+        : null,
     startTime: range.startTime,
     endTime: range.endTime,
     selectedDuration: duration,
@@ -515,7 +522,25 @@ export function getRetryBitrate(
 ): number {
   const targetBytes = targetSizeMb * 1024 * 1024;
   const correction = targetBytes / Math.max(outputBytes, targetBytes);
-  return Math.max(100, Math.floor(currentKbps * correction * 0.9));
+  return Math.max(100, Math.floor(currentKbps * correction * 0.95));
+}
+
+export function getFillBitrate(
+  currentKbps: number,
+  outputBytes: number,
+  targetSizeMb: number,
+  sourceBitrateKbps: number | null
+): number {
+  const targetBytes = targetSizeMb * 1024 * 1024;
+  if (outputBytes <= 0 || outputBytes >= targetBytes * 0.9) return currentKbps;
+
+  const estimate = Math.floor(currentKbps * (targetBytes / outputBytes) * 0.92);
+  const stepLimit = Math.floor(currentKbps * 1.5);
+  const sourceLimit =
+    sourceBitrateKbps !== null && Number.isFinite(sourceBitrateKbps) && sourceBitrateKbps > 0
+      ? Math.floor(sourceBitrateKbps)
+      : Number.MAX_SAFE_INTEGER;
+  return Math.max(currentKbps, Math.min(estimate, stepLimit, sourceLimit));
 }
 
 export function outputFileName(name: string, extension: string, index = 0): string {

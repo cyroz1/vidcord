@@ -82,6 +82,7 @@ export type CompressOptions = {
   output_path: string;
   encoder: string;
   video_bitrate_k: number;
+  source_video_bitrate_k?: number | null;
   target_size_mb: number | null;
   start_time: number;
   end_time: number;

@@ -11,7 +11,7 @@ import {
 
 describe("calculateBitrate", () => {
   it("returns correct bitrate with audio at 100 MB / 60 s", () => {
-    // (100 * 1024 * 8 - 128 * 60) / 60 * 0.9 = ~11,827 kbps
+    // (100 * 1024 * 8 - 128 * 60) / 60 * 0.95 = ~12,849 kbps
     const result = calculateBitrate(100, 60, false);
     expect(result).toBeGreaterThan(11_000);
     expect(result).toBeLessThan(13_000);

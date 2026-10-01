@@ -13,7 +13,12 @@ import {
   targetBitrateKbps,
   GIF_PRESETS,
 } from "../web/exportPlan";
-import { formatBrowserEta, formatPassEta, progressFromMediaTime, progressInSegment } from "../web/browserProgress";
+import {
+  formatBrowserEta,
+  formatPassEta,
+  progressFromMediaTime,
+  progressInSegment,
+} from "../web/browserProgress";
 import { exportBrowserFile } from "../web/webExporter";
 import { isAudioCompatibilityError } from "../web/webExporter";
 import type { BrowserFfmpegEngine } from "../web/ffmpegEngine";
@@ -88,9 +93,9 @@ describe("browser export planning", () => {
   });
 
   it("calculates a target-aware bitrate with an audio allowance", () => {
-    expect(targetBitrateKbps(20, 30, false)).toBe(4800);
+    expect(targetBitrateKbps(20, 30, false)).toBe(5066);
     expect(targetBitrateKbps(20, 30, true)).toBeGreaterThan(targetBitrateKbps(20, 30, false));
-    expect(targetBitrateKbps(20, 30, false, 2)).toBe(4684);
+    expect(targetBitrateKbps(20, 30, false, 2)).toBe(4945);
     expect(targetBitrateKbps(20, 30, false, 1, 3_200)).toBe(3_200);
   });
 
@@ -473,7 +478,7 @@ describe("browser export planning", () => {
   });
 
   it("corrects oversized target encodes and sanitizes browser downloads", () => {
-    expect(getRetryBitrate(4000, 30 * 1024 * 1024, 20)).toBe(2400);
+    expect(getRetryBitrate(4000, 30 * 1024 * 1024, 20)).toBe(2533);
     expect(outputFileName("my capture (final).mov", "mp4", 0)).toBe(
       "my capture - final-vidcord.mp4"
     );
@@ -568,7 +573,7 @@ describe("browser export planning", () => {
       onProgress: (value) => progress.push(value),
     });
 
-    expect(transcodeCount).toBe(3);
+    expect(transcodeCount).toBe(4);
     expect(progress.some((value) => value > 0 && value < 1)).toBe(true);
     expect(progress[progress.length - 1]).toBe(1);
     expect(result.wasOversized).toBe(true);

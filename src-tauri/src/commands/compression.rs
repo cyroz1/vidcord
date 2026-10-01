@@ -433,6 +433,7 @@ pub struct CompressOptions {
     pub output_path: String,
     pub encoder: String,
     pub video_bitrate_k: u32,
+    pub source_video_bitrate_k: Option<u32>,
     pub target_size_mb: Option<f64>,
     pub start_time: f64,
     pub end_time: f64,
@@ -946,12 +947,14 @@ fn gif_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> String {
     )
 }
 
-const OVERSIZE_RETRY_LIMIT_PER_ENCODER: usize = 1;
-const OVERSIZE_RETRY_SAFETY: f64 = 0.90;
+const SIZE_RETRY_LIMIT_PER_ENCODER: usize = 2;
+const OVERSIZE_RETRY_SAFETY: f64 = 0.95;
+const UNDERFILL_RETRY_SAFETY: f64 = 0.92;
+const UNDERFILL_RETRY_THRESHOLD: f64 = 0.90;
 const LOSSLESS_FASTSTART_MAX_INPUT_BYTES: u64 = 256 * 1024 * 1024;
 const SIZE_PREFLIGHT_MIN_DURATION_SECONDS: f64 = 120.0;
 const SIZE_PREFLIGHT_SAMPLE_SECONDS: f64 = 4.0;
-const SIZE_PREFLIGHT_SAFETY_MARGIN: f64 = 1.10;
+const SIZE_PREFLIGHT_SAFETY_MARGIN: f64 = 1.03;
 const GIF_PREFLIGHT_INITIAL_SECONDS: f64 = 1.0;
 const GIF_PREFLIGHT_EXTENDED_SECONDS: f64 = 3.0;
 const GIF_PREFLIGHT_UNCERTAINTY_LOW: f64 = 0.80;
@@ -1048,13 +1051,13 @@ fn max_adaptive_attempts(opts: &CompressOptions, has_target: bool) -> usize {
     }
     // A hardware selection has two encoder phases: the requested encoder and
     // a CPU fallback. Each phase gets its initial encode, and target-size jobs
-    // get the same bounded number of adaptive bitrate retries per encoder.
+    // get the same bounded number of size-correction retries per encoder.
     // Deriving the cap from that policy keeps it aligned with
     // `next_oversize_attempt` instead of silently discarding its final CPU
     // retry.
     let encoder_phases = if opts.encoder == "libx264" { 1 } else { 2 };
     let attempts_per_encoder = if has_target {
-        1 + OVERSIZE_RETRY_LIMIT_PER_ENCODER
+        1 + SIZE_RETRY_LIMIT_PER_ENCODER
     } else {
         1
     };
@@ -1131,6 +1134,59 @@ fn adaptive_bitrate_for_oversize(
     ((current_bitrate_k as f64 * ratio * OVERSIZE_RETRY_SAFETY).floor() as u32).max(100)
 }
 
+fn adaptive_bitrate_for_underfill(
+    current_bitrate_k: u32,
+    target_bytes: u64,
+    output_bytes: u64,
+    source_bitrate_k: Option<u32>,
+) -> u32 {
+    if output_bytes == 0 || target_bytes == 0 {
+        return current_bitrate_k.max(100);
+    }
+    let ratio = target_bytes as f64 / output_bytes as f64;
+    let estimated = (current_bitrate_k as f64 * ratio * UNDERFILL_RETRY_SAFETY)
+        .floor()
+        .min(u32::MAX as f64) as u32;
+    let step_limit = current_bitrate_k.saturating_mul(2);
+    let source_limit = source_bitrate_k.unwrap_or(u32::MAX);
+    estimated
+        .min(step_limit)
+        .min(source_limit)
+        .max(current_bitrate_k)
+}
+
+fn next_underfill_attempt(
+    current: &CompressionAttempt,
+    target_bytes: u64,
+    output_bytes: u64,
+    size_retries_for_encoder: usize,
+    source_bitrate_k: Option<u32>,
+) -> Option<(CompressionAttempt, usize)> {
+    if size_retries_for_encoder >= SIZE_RETRY_LIMIT_PER_ENCODER
+        || output_bytes == 0
+        || output_bytes as f64 >= target_bytes as f64 * UNDERFILL_RETRY_THRESHOLD
+    {
+        return None;
+    }
+    let next_bitrate = adaptive_bitrate_for_underfill(
+        current.video_bitrate_k,
+        target_bytes,
+        output_bytes,
+        source_bitrate_k,
+    );
+    (next_bitrate > current.video_bitrate_k).then(|| {
+        (
+            CompressionAttempt {
+                encoder: current.encoder.clone(),
+                video_bitrate_k: next_bitrate,
+                status: format!("Using more of the target at {next_bitrate} kbps..."),
+                try_hardware_decode: current.try_hardware_decode,
+            },
+            size_retries_for_encoder + 1,
+        )
+    })
+}
+
 fn projected_gif_size(sample_bytes: u64, sample_duration: f64, clip_duration: f64) -> u64 {
     if sample_duration <= 0.0 || !sample_duration.is_finite() || !clip_duration.is_finite() {
         return sample_bytes;
@@ -1152,13 +1208,13 @@ fn next_oversize_attempt(
     current: &CompressionAttempt,
     target_bytes: u64,
     output_bytes: u64,
-    oversize_retries_for_encoder: usize,
+    size_retries_for_encoder: usize,
     cpu_fallback_used: bool,
 ) -> Option<(CompressionAttempt, usize, bool)> {
     let next_bitrate =
         adaptive_bitrate_for_oversize(current.video_bitrate_k, target_bytes, output_bytes);
 
-    if oversize_retries_for_encoder < OVERSIZE_RETRY_LIMIT_PER_ENCODER
+    if size_retries_for_encoder < SIZE_RETRY_LIMIT_PER_ENCODER
         && next_bitrate < current.video_bitrate_k
     {
         return Some((
@@ -1168,7 +1224,7 @@ fn next_oversize_attempt(
                 status: format!("Retrying at {next_bitrate} kbps after size check..."),
                 try_hardware_decode: current.try_hardware_decode,
             },
-            oversize_retries_for_encoder + 1,
+            size_retries_for_encoder + 1,
             cpu_fallback_used,
         ));
     }
@@ -2186,7 +2242,7 @@ async fn run_batch_item(
     let mut smallest_oversize_bytes: Option<u64> = None;
     let mut attempt = initial_attempt(&opts);
     let mut attempt_index = 0usize;
-    let mut oversize_retries_for_encoder = 0usize;
+    let mut size_retries_for_encoder = 0usize;
     let mut cpu_fallback_used = opts.encoder == "libx264";
     let mut seen_attempts: HashSet<(String, u32, bool)> = HashSet::new();
 
@@ -2263,6 +2319,19 @@ async fn run_batch_item(
                         attempt.video_bitrate_k = next_bitrate;
                         attempt.status =
                             format!("Compressing at {next_bitrate} kbps after size estimate...");
+                    }
+                } else if (projected_bytes as f64) < target_bytes as f64 * UNDERFILL_RETRY_THRESHOLD
+                {
+                    let next_bitrate = adaptive_bitrate_for_underfill(
+                        attempt.video_bitrate_k,
+                        target_bytes,
+                        projected_bytes,
+                        opts.source_video_bitrate_k,
+                    );
+                    if next_bitrate > attempt.video_bitrate_k {
+                        attempt.video_bitrate_k = next_bitrate;
+                        attempt.status =
+                            format!("Using more of the target at {next_bitrate} kbps...");
                     }
                 }
             }
@@ -2354,7 +2423,7 @@ async fn run_batch_item(
             }
             if !cpu_fallback_used && attempt.encoder != "libx264" {
                 cpu_fallback_used = true;
-                oversize_retries_for_encoder = 0;
+                size_retries_for_encoder = 0;
                 attempt_index += 1;
                 attempt = cpu_fallback_attempt(
                     attempt.video_bitrate_k,
@@ -2392,6 +2461,26 @@ async fn run_batch_item(
             None => true,
         };
         if output_is_small_enough {
+            if let Some(limit) = target_bytes {
+                if let Some((next_attempt, next_retries)) = next_underfill_attempt(
+                    &attempt,
+                    limit,
+                    output_size,
+                    size_retries_for_encoder,
+                    opts.source_video_bitrate_k,
+                ) {
+                    if !seen_attempts.contains(&(
+                        next_attempt.encoder.clone(),
+                        next_attempt.video_bitrate_k,
+                        next_attempt.try_hardware_decode,
+                    )) {
+                        attempt_index += 1;
+                        attempt = next_attempt;
+                        size_retries_for_encoder = next_retries;
+                        continue;
+                    }
+                }
+            }
             output_reservation.commit();
             return Ok(BatchEncodedOutput {
                 output_path: opts.output_path,
@@ -2412,14 +2501,14 @@ async fn run_batch_item(
             &attempt,
             limit,
             output_size,
-            oversize_retries_for_encoder,
+            size_retries_for_encoder,
             cpu_fallback_used,
         ) else {
             break;
         };
         attempt_index += 1;
         attempt = next_attempt;
-        oversize_retries_for_encoder = next_retries;
+        size_retries_for_encoder = next_retries;
         cpu_fallback_used = next_cpu_fallback_used;
     }
 
@@ -2751,7 +2840,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     let mut smallest_oversize_bytes: Option<u64> = None;
     let mut attempt = initial_attempt(&opts);
     let mut attempt_index = 0usize;
-    let mut oversize_retries_for_encoder = 0usize;
+    let mut size_retries_for_encoder = 0usize;
     let mut cpu_fallback_used = opts.gif_mode || opts.encoder == "libx264";
     let mut seen_attempts: std::collections::HashSet<(String, u32, bool)> =
         std::collections::HashSet::new();
@@ -2869,7 +2958,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                                     "GIF sizing sample projected {projected} bytes; starting the full encode at quality step {retries}."
                                 ));
                                 attempt = adjusted;
-                                oversize_retries_for_encoder = retries;
+                                size_retries_for_encoder = retries;
                             }
                             break;
                         }
@@ -2939,6 +3028,19 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                         attempt.video_bitrate_k = next_bitrate;
                         attempt.status =
                             format!("Compressing at {next_bitrate} kbps after size estimate...");
+                    }
+                } else if (projected_bytes as f64) < target_bytes as f64 * UNDERFILL_RETRY_THRESHOLD
+                {
+                    let next_bitrate = adaptive_bitrate_for_underfill(
+                        attempt.video_bitrate_k,
+                        target_bytes,
+                        projected_bytes,
+                        opts.source_video_bitrate_k,
+                    );
+                    if next_bitrate > attempt.video_bitrate_k {
+                        attempt.video_bitrate_k = next_bitrate;
+                        attempt.status =
+                            format!("Using more of the target at {next_bitrate} kbps...");
                     }
                 }
             }
@@ -3047,7 +3149,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                     all_lines.join("\n")
                 ));
                 cpu_fallback_used = true;
-                oversize_retries_for_encoder = 0;
+                size_retries_for_encoder = 0;
                 attempt_index += 1;
                 attempt = cpu_fallback_attempt(
                     attempt.video_bitrate_k,
@@ -3100,6 +3202,28 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             None => true,
         };
         if output_is_small_enough {
+            if !opts.gif_mode {
+                if let Some(limit) = target_bytes {
+                    if let Some((next_attempt, next_retries)) = next_underfill_attempt(
+                        &attempt,
+                        limit,
+                        output_size,
+                        size_retries_for_encoder,
+                        opts.source_video_bitrate_k,
+                    ) {
+                        if !seen_attempts.contains(&(
+                            next_attempt.encoder.clone(),
+                            next_attempt.video_bitrate_k,
+                            next_attempt.try_hardware_decode,
+                        )) {
+                            attempt_index += 1;
+                            attempt = next_attempt;
+                            size_retries_for_encoder = next_retries;
+                            continue;
+                        }
+                    }
+                }
+            }
             let message = format!("Compressed to {}.", format_size_mb(output_size));
             vidcord_log(&format!(
                 "Compression finished successfully: {} bytes with {} at {}k.",
@@ -3140,7 +3264,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         };
         let (next_attempt, next_oversize_retries, next_cpu_fallback_used) = if opts.gif_mode {
             let Some((next, retries)) =
-                next_gif_attempt(&attempt, limit, output_size, oversize_retries_for_encoder)
+                next_gif_attempt(&attempt, limit, output_size, size_retries_for_encoder)
             else {
                 break;
             };
@@ -3150,7 +3274,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 &attempt,
                 limit,
                 output_size,
-                oversize_retries_for_encoder,
+                size_retries_for_encoder,
                 cpu_fallback_used,
             ) else {
                 break;
@@ -3159,7 +3283,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         };
         attempt_index += 1;
         attempt = next_attempt;
-        oversize_retries_for_encoder = next_oversize_retries;
+        size_retries_for_encoder = next_oversize_retries;
         cpu_fallback_used = next_cpu_fallback_used;
     }
 
@@ -3610,6 +3734,7 @@ mod tests {
             output_path: "output.mp4".into(),
             encoder: encoder.into(),
             video_bitrate_k: 900,
+            source_video_bitrate_k: None,
             target_size_mb,
             start_time: 0.0,
             end_time: 60.0,
@@ -3919,15 +4044,23 @@ mod tests {
         let (next, retries, cpu_used) =
             next_oversize_attempt(&attempt, 1_000, 2_000, 0, false).unwrap();
         assert_eq!(next.encoder, "h264_nvenc");
-        assert_eq!(next.video_bitrate_k, 405);
+        assert_eq!(next.video_bitrate_k, 427);
         assert_eq!(retries, 1);
         assert!(!cpu_used);
 
         attempt = next;
         let (next, retries, cpu_used) =
             next_oversize_attempt(&attempt, 1_000, 1_500, retries, cpu_used).unwrap();
+        assert_eq!(next.encoder, "h264_nvenc");
+        assert_eq!(next.video_bitrate_k, 270);
+        assert_eq!(retries, 2);
+        assert!(!cpu_used);
+
+        attempt = next;
+        let (next, retries, cpu_used) =
+            next_oversize_attempt(&attempt, 1_000, 1_500, retries, cpu_used).unwrap();
         assert_eq!(next.encoder, "libx264");
-        assert_eq!(next.video_bitrate_k, 243);
+        assert_eq!(next.video_bitrate_k, 171);
         assert_eq!(retries, 0);
         assert!(cpu_used);
     }
@@ -3943,16 +4076,20 @@ mod tests {
         let (second, retries, cpu_used) =
             next_oversize_attempt(&first, 1_000, 2_000, 0, true).unwrap();
         assert_eq!(second.encoder, "libx264");
-        assert_eq!(second.video_bitrate_k, 405);
+        assert_eq!(second.video_bitrate_k, 427);
         assert_eq!(retries, 1);
         assert!(cpu_used);
 
-        assert!(next_oversize_attempt(&second, 1_000, 2_000, retries, cpu_used).is_none());
+        let (third, retries, cpu_used) =
+            next_oversize_attempt(&second, 1_000, 2_000, retries, cpu_used).unwrap();
+        assert_eq!(third.video_bitrate_k, 202);
+        assert_eq!(retries, 2);
+        assert!(next_oversize_attempt(&third, 1_000, 2_000, retries, cpu_used).is_none());
     }
 
     #[test]
     fn test_adaptive_bitrate_has_safety_margin_and_minimum() {
-        assert_eq!(adaptive_bitrate_for_oversize(1_000, 900, 1_000), 810);
+        assert_eq!(adaptive_bitrate_for_oversize(1_000, 900, 1_000), 855);
         assert_eq!(adaptive_bitrate_for_oversize(120, 1, 10_000), 100);
     }
 
@@ -3964,9 +4101,9 @@ mod tests {
 
         assert_eq!(
             max_adaptive_attempts(&hardware, true),
-            4 + usize::from(!cfg!(any(target_os = "windows", target_os = "macos")))
+            6 + usize::from(!cfg!(any(target_os = "windows", target_os = "macos")))
         );
-        assert_eq!(max_adaptive_attempts(&cpu, true), 2);
+        assert_eq!(max_adaptive_attempts(&cpu, true), 3);
         assert_eq!(
             max_adaptive_attempts(&no_target, false),
             2 + usize::from(!cfg!(any(target_os = "windows", target_os = "macos")))
@@ -3986,7 +4123,7 @@ mod tests {
         let mut oversize_retries = 0;
         let mut cpu_fallback_used = false;
 
-        for output_size in [2_000, 1_500, 1_300] {
+        for output_size in [2_000, 1_500, 1_300, 1_300, 1_300] {
             let (next, next_retries, next_cpu_used) = next_oversize_attempt(
                 attempts.last().unwrap(),
                 1_000,
@@ -4009,7 +4146,14 @@ mod tests {
                 .iter()
                 .map(|attempt| attempt.encoder.as_str())
                 .collect::<Vec<_>>(),
-            vec!["h264_nvenc", "h264_nvenc", "libx264", "libx264"]
+            vec![
+                "h264_nvenc",
+                "h264_nvenc",
+                "h264_nvenc",
+                "libx264",
+                "libx264",
+                "libx264"
+            ]
         );
         assert!(attempts[3].video_bitrate_k < attempts[2].video_bitrate_k);
         assert!(next_oversize_attempt(

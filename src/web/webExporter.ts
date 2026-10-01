@@ -10,6 +10,7 @@ import {
   buildGifPaletteArgs,
   buildLosslessArgs,
   createExportPlan,
+  getFillBitrate,
   getRetryBitrate,
   outputFileName,
   parsePeakNormalizationGain,
@@ -23,7 +24,7 @@ const SIZE_SAMPLE_MIN_DURATION_SECONDS = 120;
 const SIZE_SAMPLE_DURATION_SECONDS = 4;
 const GIF_SAMPLE_MIN_DURATION_SECONDS = 30;
 const GIF_SAMPLE_DURATION_SECONDS = 1;
-const SIZE_SAMPLE_SAFETY_MARGIN = 1.1;
+const SIZE_SAMPLE_SAFETY_MARGIN = 1.03;
 
 export type ExportProgressSegment = {
   /** Overall progress where the current operation starts (0-1). */
@@ -185,7 +186,7 @@ export async function exportBrowserFile({
       };
     }
 
-    const maximumAttempts = mode === "gif" ? 4 : plan.targetSizeMb === null ? 1 : 3;
+    const maximumAttempts = mode === "gif" ? 4 : plan.targetSizeMb === null ? 1 : 4;
     let bitrate = plan.bitrateKbps;
     let audioGainDb: number | null = null;
     let normalizationSkipped = false;
@@ -304,8 +305,12 @@ export async function exportBrowserFile({
           (sampleBytes.byteLength * plan.selectedDuration * SIZE_SAMPLE_SAFETY_MARGIN) /
             sampleDuration
         );
-        const adjustedBitrate = getRetryBitrate(bitrate, projectedBytes, plan.targetSizeMb);
-        if (projectedBytes > plan.targetSizeMb * 1024 * 1024 && adjustedBitrate < bitrate) {
+        const targetBytes = plan.targetSizeMb * 1024 * 1024;
+        const adjustedBitrate =
+          projectedBytes > targetBytes
+            ? getRetryBitrate(bitrate, projectedBytes, plan.targetSizeMb)
+            : getFillBitrate(bitrate, projectedBytes, plan.targetSizeMb, plan.sourceBitrateKbps);
+        if (adjustedBitrate !== bitrate) {
           bitrate = adjustedBitrate;
           sizeAdjusted = true;
         }
@@ -430,6 +435,18 @@ export async function exportBrowserFile({
       onProgress?.(attemptEnd, "Checking output size…", { start: attemptStart, end: attemptEnd });
 
       if (isTargetMet(bytes.byteLength, plan.targetSizeMb)) {
+        if (bitrate !== null && plan.targetSizeMb !== null) {
+          const nextBitrate = getFillBitrate(
+            bitrate,
+            bytes.byteLength,
+            plan.targetSizeMb,
+            plan.sourceBitrateKbps
+          );
+          if (nextBitrate > bitrate && attempt + 1 < maximumAttempts) {
+            bitrate = nextBitrate;
+            continue;
+          }
+        }
         onProgress?.(1, "Finishing export…", { start: 0, end: 1 });
         const outputBytes = bytes.byteLength;
         const blob = new Blob([bytes], { type: extensionMimeType(plan.outputExtension) });
