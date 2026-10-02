@@ -10,14 +10,42 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Added **Do nothing** as an export action and a separate **Close app when done**
   control. It can be combined with Copy file, Show in folder, or Do nothing,
   and applies to frame snapshots and batch output too.
+- Adjusted the output and completion controls to fit the app's fixed-size window.
+
+### Batch and folder imports
+
+- Added recursive desktop folder imports through **Add Folder**, folder drag-and-drop,
+  and supported file-manager context menus. Supported videos are queued, and import
+  results report skipped or unreadable items.
+- Added **Clear queue** to remove all queued videos at once.
+- Folder scans now report progress, and desktop batch imports probe up to two videos
+  concurrently while cancelling stale work when a new selection replaces the current one.
+
+### Target-size exports
+
+- Long size-target exports use a short sample to improve the initial bitrate estimate
+  and reduce full-length retries.
+- Desktop, batch, and browser exports can make bounded refinements when an output is
+  well below its size limit, and keep the best in-range result if a later refinement
+  fails or produces a worse fit.
+
+### Updates
+
+- Update installers are now fetched from the exact release selected in the update
+  prompt, even if a newer release appears before installation begins.
+- Cleaned up the update dialog's version label so it no longer repeats the leading
+  `v` from the release tag.
 
 ### Performance
 
-- The browser editor now reports encoder download progress, warns before exports
-  likely to need substantial working memory, and samples long target-size exports
-  before the full encode to reduce unnecessary full-length retries.
-- Desktop batch imports now probe up to two videos at a time while preserving
-  cancellation when a newer selection replaces the current import.
+- The browser editor warms the local encoder after video metadata is ready, reports
+  encoder download progress, warns before exports likely to need substantial working
+  memory, and keeps progress moving across export stages.
+
+### Interface
+
+- Fixed the main controls shifting horizontally when compression starts and the
+  scroll area overflows.
 
 ## v7.5
 
