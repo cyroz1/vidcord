@@ -631,19 +631,21 @@ describe("browser export planning", () => {
       }),
     } as unknown as BrowserFfmpegEngine;
 
-    await exportBrowserFile({
-      engine,
-      file: { name: "capture.mp4" } as File,
-      metadata,
-      settings: normalizeBrowserSettings({
+    await expect(
+      exportBrowserFile({
+        engine,
+        file: { name: "capture.mp4" } as File,
+        metadata,
+        settings: normalizeBrowserSettings({
+          mode: "advanced",
+          advancedTargetSize: "20",
+          audioNormalize: true,
+        }),
         mode: "advanced",
-        advancedTargetSize: "20",
-        audioNormalize: true,
-      }),
-      mode: "advanced",
-      startTime: 0,
-      endTime: 30,
-    });
+        startTime: 0,
+        endTime: 30,
+      })
+    ).rejects.toThrow("Could not reach the selected 20 MB target");
 
     expect(sessionTranscodes).toBe(4);
     expect(new Set(inputNames)).toEqual(new Set(["input-1.mp4"]));

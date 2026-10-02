@@ -4354,7 +4354,7 @@ mod tests {
 
         assert_eq!(
             attempts.len() + usize::from(!cfg!(any(target_os = "windows", target_os = "macos"))),
-            4 + usize::from(!cfg!(any(target_os = "windows", target_os = "macos")))
+            max_adaptive_attempts(&opts, true)
         );
         assert_eq!(
             attempts
