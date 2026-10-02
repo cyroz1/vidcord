@@ -205,12 +205,16 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  scrollbar-width: none;
   padding: 8px 14px 8px;
   display: flex;
   flex-direction: column;
   gap: 5px;
   min-width: 0;
+}
+
+.scroll-area::-webkit-scrollbar {
+  display: none;
 }
 
 .app-content.has-ffmpeg-banner .scroll-area {
