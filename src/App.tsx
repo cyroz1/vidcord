@@ -29,6 +29,7 @@ import {
 import {
   useCompression,
   resolveVideoBitrate,
+  resolveSourceBitrateCeiling,
   resolutionToShortSide,
   computeTargetDimensions,
   type ProbeData,
@@ -2424,10 +2425,7 @@ export default function App() {
               item.probe.bitrate,
               item.audioTrackIndices.length
             ) ?? 100,
-          source_video_bitrate_k:
-            Number.isFinite(item.probe.bitrate) && item.probe.bitrate > 0
-              ? Math.floor(item.probe.bitrate)
-              : null,
+          source_video_bitrate_k: resolveSourceBitrateCeiling(item.probe.bitrate),
           target_size_mb: item.targetSize,
           start_time: item.startTime,
           end_time: item.endTime,
@@ -2917,10 +2915,7 @@ export default function App() {
       output_path: resolvedOutput,
       encoder: encoderName,
       video_bitrate_k: requestedVideoBitrate,
-      source_video_bitrate_k:
-        Number.isFinite(probeData.bitrate) && probeData.bitrate > 0
-          ? Math.floor(probeData.bitrate)
-          : null,
+      source_video_bitrate_k: gifMode ? null : resolveSourceBitrateCeiling(probeData.bitrate),
       target_size_mb: losslessTrim ? null : targetSize,
       start_time: startTime,
       end_time: endTime,

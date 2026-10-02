@@ -181,7 +181,6 @@ export function createExportPlan(
           outputAudioTrackCount,
           sourceBitrateKbps
         );
-
   return {
     mode,
     outputExtension: "mp4",
@@ -532,7 +531,7 @@ export function getFillBitrate(
   sourceBitrateKbps: number | null
 ): number {
   const targetBytes = targetSizeMb * 1024 * 1024;
-  if (outputBytes <= 0 || outputBytes >= targetBytes * 0.9) return currentKbps;
+  if (outputBytes <= 0 || outputBytes >= targetBytes * 0.95) return currentKbps;
 
   const estimate = Math.floor(currentKbps * (targetBytes / outputBytes) * 0.92);
   const stepLimit = Math.floor(currentKbps * 1.5);

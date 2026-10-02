@@ -216,6 +216,11 @@ export function resolveVideoBitrate(
   return Math.min(targetBitrate, Math.floor(sourceBitrateKbps));
 }
 
+export function resolveSourceBitrateCeiling(sourceBitrateKbps: number): number | null {
+  if (!Number.isFinite(sourceBitrateKbps) || sourceBitrateKbps <= 0) return null;
+  return Math.max(100, Math.floor(sourceBitrateKbps));
+}
+
 export function resolutionToShortSide(choice: string): number | null {
   const map: Record<string, number> = {
     "4k": 2160,

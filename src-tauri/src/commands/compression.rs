@@ -1004,8 +1004,48 @@ impl TemporaryOutput {
         Err("Could not choose a temporary output filename.".to_string())
     }
 
+    fn create_sibling(output_path: &str) -> Result<Self, String> {
+        use std::sync::atomic::Ordering;
+
+        let output_path = Path::new(output_path);
+        let directory = output_path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let extension = output_path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .filter(|extension| !extension.is_empty())
+            .unwrap_or("mp4");
+        for _ in 0..32 {
+            let suffix = GIF_PREFLIGHT_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let path = directory.join(format!(
+                ".vidcord-attempt-{}-{suffix}.{extension}",
+                std::process::id()
+            ));
+            match std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&path)
+            {
+                Ok(_) => return Ok(Self(path)),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => {
+                    return Err(format!(
+                        "Could not reserve an encoding attempt file: {error}"
+                    ));
+                }
+            }
+        }
+        Err("Could not choose a temporary encoding filename.".to_string())
+    }
+
     fn as_string(&self) -> String {
         self.0.to_string_lossy().into_owned()
+    }
+
+    fn as_path(&self) -> &Path {
+        &self.0
     }
 }
 
@@ -2244,6 +2284,8 @@ async fn run_batch_item(
     let mut attempt_index = 0usize;
     let mut size_retries_for_encoder = 0usize;
     let mut cpu_fallback_used = opts.encoder == "libx264";
+    let mut best_fit_bytes = None;
+    let mut best_fit_bitrate_k = None;
     let mut seen_attempts: HashSet<(String, u32, bool)> = HashSet::new();
 
     let audio_gain_db = if should_peak_normalize_audio(&opts) {
@@ -2360,6 +2402,24 @@ async fn run_batch_item(
             break;
         }
 
+        let candidate_output = if best_fit_bytes.is_some() {
+            match TemporaryOutput::create_sibling(&opts.output_path) {
+                Ok(output) => Some(output),
+                Err(error) => {
+                    vidcord_log(&format!(
+                        "Could not reserve a refinement output; keeping the best target fit: {error}"
+                    ));
+                    break;
+                }
+            }
+        } else {
+            None
+        };
+        let mut attempt_opts = opts.clone();
+        if let Some(output) = &candidate_output {
+            attempt_opts.output_path = output.as_string();
+        }
+
         emit_batch_progress(
             app,
             &context,
@@ -2377,7 +2437,7 @@ async fn run_batch_item(
 
         let run = match run_ffmpeg_attempt(
             app,
-            &opts,
+            &attempt_opts,
             &attempt,
             FfmpegRunContext {
                 attempt_index,
@@ -2395,6 +2455,12 @@ async fn run_batch_item(
             Err(error) => {
                 if is_resource_contention_error(&error) {
                     mark_batch_resource_contention(&context);
+                }
+                if best_fit_bytes.is_some() {
+                    vidcord_log(&format!(
+                        "Target-size refinement failed; keeping the previous in-range output: {error}"
+                    ));
+                    break;
                 }
                 remove_partial_output(&opts.output_path);
                 return Err(error);
@@ -2443,15 +2509,27 @@ async fn run_batch_item(
                 "Compression failed.\n\nFFmpeg Error:\n{}",
                 err_lines.join("\n")
             );
+            if best_fit_bytes.is_some() {
+                vidcord_log(&format!(
+                    "Target-size refinement failed; keeping the previous in-range output: {message}"
+                ));
+                break;
+            }
             remove_partial_output(&opts.output_path);
             return Err(message);
         }
 
-        let output_size = match std::fs::metadata(&opts.output_path) {
+        let output_size = match std::fs::metadata(&attempt_opts.output_path) {
             Ok(metadata) => metadata.len(),
             Err(error) => {
                 let message =
                     format!("Compression finished but output file could not be read: {error}");
+                if best_fit_bytes.is_some() {
+                    vidcord_log(&format!(
+                        "Target-size refinement output could not be read; keeping the previous in-range output: {message}"
+                    ));
+                    break;
+                }
                 remove_partial_output(&opts.output_path);
                 return Err(message);
             }
@@ -2461,7 +2539,36 @@ async fn run_batch_item(
             None => true,
         };
         if output_is_small_enough {
-            if let Some(limit) = target_bytes {
+            let Some(limit) = target_bytes else {
+                output_reservation.commit();
+                return Ok(BatchEncodedOutput {
+                    output_path: opts.output_path,
+                    input_size_bytes,
+                    output_size_bytes: output_size,
+                    message: format!("Compressed to {}.", format_size_mb(output_size)),
+                });
+            };
+            let improved = match best_fit_bytes {
+                Some(best) => output_size > best,
+                None => true,
+            };
+            if improved {
+                if let Some(candidate) = &candidate_output {
+                    if let Err(error) = crate::settings::replace_file(
+                        candidate.as_path(),
+                        Path::new(&opts.output_path),
+                    ) {
+                        vidcord_log(&format!(
+                            "Could not publish a better in-range output; keeping the previous target fit: {error}"
+                        ));
+                        break;
+                    }
+                }
+                best_fit_bytes = Some(output_size);
+                best_fit_bitrate_k = Some(attempt.video_bitrate_k);
+            }
+
+            if improved {
                 if let Some((next_attempt, next_retries)) = next_underfill_attempt(
                     &attempt,
                     limit,
@@ -2481,22 +2588,14 @@ async fn run_batch_item(
                     }
                 }
             }
-            output_reservation.commit();
-            return Ok(BatchEncodedOutput {
-                output_path: opts.output_path,
-                input_size_bytes,
-                output_size_bytes: output_size,
-                message: format!("Compressed to {}.", format_size_mb(output_size)),
-            });
+            break;
         }
 
         smallest_oversize_bytes = match smallest_oversize_bytes {
             Some(current) if current <= output_size => Some(current),
             _ => Some(output_size),
         };
-        let Some(limit) = target_bytes else {
-            break;
-        };
+        let limit = target_bytes.expect("oversize output requires a target size");
         let Some((next_attempt, next_retries, next_cpu_fallback_used)) = next_oversize_attempt(
             &attempt,
             limit,
@@ -2506,10 +2605,26 @@ async fn run_batch_item(
         ) else {
             break;
         };
+        if best_fit_bytes.is_some()
+            && (next_attempt.encoder != attempt.encoder
+                || next_attempt.video_bitrate_k <= best_fit_bitrate_k.unwrap_or(0))
+        {
+            break;
+        }
         attempt_index += 1;
         attempt = next_attempt;
         size_retries_for_encoder = next_retries;
         cpu_fallback_used = next_cpu_fallback_used;
+    }
+
+    if let Some(output_size_bytes) = best_fit_bytes {
+        output_reservation.commit();
+        return Ok(BatchEncodedOutput {
+            output_path: opts.output_path,
+            input_size_bytes,
+            output_size_bytes,
+            message: format!("Compressed to {}.", format_size_mb(output_size_bytes)),
+        });
     }
 
     remove_partial_output(&opts.output_path);
@@ -2842,6 +2957,10 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     let mut attempt_index = 0usize;
     let mut size_retries_for_encoder = 0usize;
     let mut cpu_fallback_used = opts.gif_mode || opts.encoder == "libx264";
+    let mut best_fit_bytes = None;
+    let mut best_fit_bitrate_k = None;
+    let mut best_fit_attempt: Option<CompressionAttempt> = None;
+    let mut best_fit_attempt_index = None;
     let mut seen_attempts: std::collections::HashSet<(String, u32, bool)> =
         std::collections::HashSet::new();
 
@@ -3075,6 +3194,24 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             break;
         }
 
+        let candidate_output = if best_fit_bytes.is_some() {
+            match TemporaryOutput::create_sibling(&opts.output_path) {
+                Ok(output) => Some(output),
+                Err(error) => {
+                    vidcord_log(&format!(
+                        "Could not reserve a refinement output; keeping the best target fit: {error}"
+                    ));
+                    break;
+                }
+            }
+        } else {
+            None
+        };
+        let mut attempt_opts = opts.clone();
+        if let Some(output) = &candidate_output {
+            attempt_opts.output_path = output.as_string();
+        }
+
         let _ = app.emit(
             "compress-progress",
             serde_json::json!({
@@ -3091,7 +3228,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
 
         let run = match run_ffmpeg_attempt(
             &app,
-            &opts,
+            &attempt_opts,
             &attempt,
             FfmpegRunContext {
                 attempt_index,
@@ -3108,6 +3245,12 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             Ok(run) => run,
             Err(error) => {
                 vidcord_log(&format!("Compression worker failed: {error}"));
+                if best_fit_bytes.is_some() {
+                    vidcord_log(&format!(
+                        "Target-size refinement failed; keeping the previous in-range output: {error}"
+                    ));
+                    break;
+                }
                 remove_partial_output(&opts.output_path);
                 let _ = app.emit(
                     "compress-done",
@@ -3175,6 +3318,10 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 run.exit_status.code(),
                 all_lines.join("\n")
             ));
+            if best_fit_bytes.is_some() {
+                vidcord_log("Target-size refinement failed; keeping the previous in-range output.");
+                break;
+            }
             remove_partial_output(&opts.output_path);
             let _ = app.emit(
                 "compress-done",
@@ -3183,12 +3330,18 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             return Err(err_msg);
         }
 
-        let output_size = match std::fs::metadata(&opts.output_path) {
+        let output_size = match std::fs::metadata(&attempt_opts.output_path) {
             Ok(metadata) => metadata.len(),
             Err(error) => {
                 let message =
                     format!("Compression finished but output file could not be read: {error}");
                 vidcord_log(&message);
+                if best_fit_bytes.is_some() {
+                    vidcord_log(
+                        "Target-size refinement output could not be read; keeping the previous in-range output.",
+                    );
+                    break;
+                }
                 remove_partial_output(&opts.output_path);
                 let _ = app.emit(
                     "compress-done",
@@ -3202,50 +3355,79 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             None => true,
         };
         if output_is_small_enough {
-            if !opts.gif_mode {
-                if let Some(limit) = target_bytes {
-                    if let Some((next_attempt, next_retries)) = next_underfill_attempt(
-                        &attempt,
-                        limit,
-                        output_size,
-                        size_retries_for_encoder,
-                        opts.source_video_bitrate_k,
+            let Some(limit) = target_bytes else {
+                let message = format!("Compressed to {}.", format_size_mb(output_size));
+                vidcord_log(&format!(
+                    "Compression finished successfully: {} bytes with {} at {}k.",
+                    output_size, attempt.encoder, attempt.video_bitrate_k
+                ));
+                let _ = app.emit(
+                    "compress-done",
+                    serde_json::json!({
+                        "success": true,
+                        "message": message,
+                        "output_path": &opts.output_path,
+                        "input_size_bytes": input_size_bytes,
+                        "output_size_bytes": output_size,
+                        "target_size_bytes": target_bytes,
+                        "attempt": attempt_index + 1,
+                        "attempt_total": total_attempts,
+                        "encoder": attempt.encoder.as_str(),
+                        "video_bitrate_k": attempt.video_bitrate_k
+                    }),
+                );
+                output_reservation.commit();
+                return Ok(opts.output_path);
+            };
+
+            let improved = match best_fit_bytes {
+                Some(best) => output_size > best,
+                None => true,
+            };
+            if improved {
+                if let Some(candidate) = &candidate_output {
+                    if let Err(error) = crate::settings::replace_file(
+                        candidate.as_path(),
+                        Path::new(&opts.output_path),
                     ) {
-                        if !seen_attempts.contains(&(
-                            next_attempt.encoder.clone(),
-                            next_attempt.video_bitrate_k,
-                            next_attempt.try_hardware_decode,
-                        )) {
-                            attempt_index += 1;
-                            attempt = next_attempt;
-                            size_retries_for_encoder = next_retries;
-                            continue;
-                        }
+                        vidcord_log(&format!(
+                            "Could not publish a better in-range output; keeping the previous target fit: {error}"
+                        ));
+                        break;
+                    }
+                }
+                best_fit_bytes = Some(output_size);
+                best_fit_bitrate_k = Some(attempt.video_bitrate_k);
+                best_fit_attempt = Some(CompressionAttempt {
+                    encoder: attempt.encoder.clone(),
+                    video_bitrate_k: attempt.video_bitrate_k,
+                    status: attempt.status.clone(),
+                    try_hardware_decode: attempt.try_hardware_decode,
+                });
+                best_fit_attempt_index = Some(attempt_index + 1);
+            }
+
+            if improved && !opts.gif_mode {
+                if let Some((next_attempt, next_retries)) = next_underfill_attempt(
+                    &attempt,
+                    limit,
+                    output_size,
+                    size_retries_for_encoder,
+                    opts.source_video_bitrate_k,
+                ) {
+                    if !seen_attempts.contains(&(
+                        next_attempt.encoder.clone(),
+                        next_attempt.video_bitrate_k,
+                        next_attempt.try_hardware_decode,
+                    )) {
+                        attempt_index += 1;
+                        attempt = next_attempt;
+                        size_retries_for_encoder = next_retries;
+                        continue;
                     }
                 }
             }
-            let message = format!("Compressed to {}.", format_size_mb(output_size));
-            vidcord_log(&format!(
-                "Compression finished successfully: {} bytes with {} at {}k.",
-                output_size, attempt.encoder, attempt.video_bitrate_k
-            ));
-            let _ = app.emit(
-                "compress-done",
-                serde_json::json!({
-                    "success": true,
-                    "message": message,
-                    "output_path": &opts.output_path,
-                    "input_size_bytes": input_size_bytes,
-                    "output_size_bytes": output_size,
-                    "target_size_bytes": target_bytes,
-                    "attempt": attempt_index + 1,
-                    "attempt_total": total_attempts,
-                    "encoder": attempt.encoder.as_str(),
-                    "video_bitrate_k": attempt.video_bitrate_k
-                }),
-            );
-            output_reservation.commit();
-            return Ok(opts.output_path);
+            break;
         }
 
         smallest_oversize_bytes = match smallest_oversize_bytes {
@@ -3259,9 +3441,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             target_bytes.unwrap_or(0)
         ));
 
-        let Some(limit) = target_bytes else {
-            break;
-        };
+        let limit = target_bytes.expect("oversize output requires a target size");
         let (next_attempt, next_oversize_retries, next_cpu_fallback_used) = if opts.gif_mode {
             let Some((next, retries)) =
                 next_gif_attempt(&attempt, limit, output_size, size_retries_for_encoder)
@@ -3281,10 +3461,45 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             };
             next
         };
+        if best_fit_bytes.is_some()
+            && (next_attempt.encoder != attempt.encoder
+                || next_attempt.video_bitrate_k <= best_fit_bitrate_k.unwrap_or(0))
+        {
+            break;
+        }
         attempt_index += 1;
         attempt = next_attempt;
         size_retries_for_encoder = next_oversize_retries;
         cpu_fallback_used = next_cpu_fallback_used;
+    }
+
+    if let Some(output_size) = best_fit_bytes {
+        let selected_attempt = best_fit_attempt
+            .as_ref()
+            .expect("a saved best fit has an encoder attempt");
+        let selected_attempt_index = best_fit_attempt_index.unwrap_or(attempt_index + 1);
+        let message = format!("Compressed to {}.", format_size_mb(output_size));
+        vidcord_log(&format!(
+            "Compression finished within the size target: {output_size} bytes with {} at {}k.",
+            selected_attempt.encoder, selected_attempt.video_bitrate_k
+        ));
+        let _ = app.emit(
+            "compress-done",
+            serde_json::json!({
+                "success": true,
+                "message": message,
+                "output_path": &opts.output_path,
+                "input_size_bytes": input_size_bytes,
+                "output_size_bytes": output_size,
+                "target_size_bytes": target_bytes,
+                "attempt": selected_attempt_index,
+                "attempt_total": total_attempts,
+                "encoder": selected_attempt.encoder.as_str(),
+                "video_bitrate_k": selected_attempt.video_bitrate_k
+            }),
+        );
+        output_reservation.commit();
+        return Ok(opts.output_path);
     }
 
     let err_msg = match (smallest_oversize_bytes, target_bytes) {
@@ -4139,7 +4354,7 @@ mod tests {
 
         assert_eq!(
             attempts.len() + usize::from(!cfg!(any(target_os = "windows", target_os = "macos"))),
-            max_adaptive_attempts(&opts, true)
+            4 + usize::from(!cfg!(any(target_os = "windows", target_os = "macos")))
         );
         assert_eq!(
             attempts

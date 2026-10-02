@@ -25,6 +25,8 @@ const SIZE_SAMPLE_DURATION_SECONDS = 4;
 const GIF_SAMPLE_MIN_DURATION_SECONDS = 30;
 const GIF_SAMPLE_DURATION_SECONDS = 1;
 const SIZE_SAMPLE_SAFETY_MARGIN = 1.03;
+const SIZE_REFINE_RATIO = 0.95;
+const SIZE_UNDERSIZE_RETRY_LIMIT = 2;
 
 export type ExportProgressSegment = {
   /** Overall progress where the current operation starts (0-1). */
@@ -191,7 +193,12 @@ export async function exportBrowserFile({
     let audioGainDb: number | null = null;
     let normalizationSkipped = false;
     let audioRemovedForCompatibility = false;
-    let lastBytes: Uint8Array<ArrayBuffer> = new Uint8Array();
+    let bestBytes: Uint8Array<ArrayBuffer> | null = null;
+    let bestNormalizationSkipped = false;
+    let bestAudioRemovedForCompatibility = false;
+    let smallestOversizeBytes: number | null = null;
+    let undersizeRetries = 0;
+    let lastOversizedBytes: Uint8Array<ArrayBuffer> | null = null;
 
     const shouldAnalyzeAudio =
       settings.audioNormalize && !settings.removeAudio && metadata.hasAudio && mode !== "gif";
@@ -319,7 +326,9 @@ export async function exportBrowserFile({
       }
       onProgress?.(
         preflightEnd,
-        sizeAdjusted ? "Starting full export with a safer size estimate…" : "Starting full export…",
+        sizeAdjusted
+          ? "Starting full export with an adjusted size estimate…"
+          : "Starting full export…",
         {
           start: preflightStart,
           end: preflightEnd,
@@ -328,8 +337,6 @@ export async function exportBrowserFile({
     }
 
     for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
-      // A rejected large output must not stay alive during the next encode.
-      lastBytes = new Uint8Array();
       const attemptLabel = maximumAttempts > 1 ? ` · pass ${attempt + 1}/${maximumAttempts}` : "";
       const attemptStart = analysisEnd + preflightSpan + (encodingSpan * attempt) / maximumAttempts;
       const attemptEnd =
@@ -428,59 +435,97 @@ export async function exportBrowserFile({
             continue;
           }
 
+          if (bestBytes) {
+            bytes = bestBytes;
+            break;
+          }
+
           throw error;
         }
       }
-      lastBytes = bytes;
       onProgress?.(attemptEnd, "Checking output size…", { start: attemptStart, end: attemptEnd });
 
       if (isTargetMet(bytes.byteLength, plan.targetSizeMb)) {
-        if (bitrate !== null && plan.targetSizeMb !== null) {
+        lastOversizedBytes = null;
+        const improved = bestBytes === null || bytes.byteLength > bestBytes.byteLength;
+        if (improved) {
+          bestBytes = bytes;
+          bestNormalizationSkipped = normalizationSkipped;
+          bestAudioRemovedForCompatibility = audioRemovedForCompatibility;
+        }
+
+        if (
+          improved &&
+          mode !== "gif" &&
+          bitrate !== null &&
+          plan.targetSizeMb !== null &&
+          undersizeRetries < SIZE_UNDERSIZE_RETRY_LIMIT &&
+          attempt + 1 < maximumAttempts &&
+          bytes.byteLength < plan.targetSizeMb * 1024 * 1024 * SIZE_REFINE_RATIO
+        ) {
           const nextBitrate = getFillBitrate(
             bitrate,
             bytes.byteLength,
             plan.targetSizeMb,
             plan.sourceBitrateKbps
           );
-          if (nextBitrate > bitrate && attempt + 1 < maximumAttempts) {
+          if (nextBitrate > bitrate) {
             bitrate = nextBitrate;
+            undersizeRetries += 1;
             continue;
           }
         }
-        onProgress?.(1, "Finishing export…", { start: 0, end: 1 });
-        const outputBytes = bytes.byteLength;
-        const blob = new Blob([bytes], { type: extensionMimeType(plan.outputExtension) });
-        bytes = new Uint8Array();
-        lastBytes = new Uint8Array();
-        return {
-          blob,
-          fileName: baseName,
-          bytes: outputBytes,
-          wasOversized: false,
-          normalizationSkipped,
-          audioRemovedForCompatibility,
-        };
+        break;
       }
 
       if (bitrate !== null && plan.targetSizeMb !== null) {
+        lastOversizedBytes = bytes;
+        smallestOversizeBytes =
+          smallestOversizeBytes === null
+            ? bytes.byteLength
+            : Math.min(smallestOversizeBytes, bytes.byteLength);
         const nextBitrate = getRetryBitrate(bitrate, bytes.byteLength, plan.targetSizeMb);
-        if (nextBitrate >= bitrate) break;
+        if (nextBitrate >= bitrate || attempt + 1 >= maximumAttempts) break;
         bitrate = nextBitrate;
+      } else {
+        break;
       }
     }
 
     onProgress?.(1, "Finishing export…", { start: 0, end: 1 });
-    const outputBytes = lastBytes.byteLength;
-    const blob = new Blob([lastBytes], { type: extensionMimeType(plan.outputExtension) });
-    lastBytes = new Uint8Array();
-    return {
-      blob,
-      fileName: baseName,
-      bytes: outputBytes,
-      wasOversized: true,
-      normalizationSkipped,
-      audioRemovedForCompatibility,
-    };
+    if (bestBytes) {
+      const outputBytes = bestBytes.byteLength;
+      const blob = new Blob([bestBytes], { type: extensionMimeType(plan.outputExtension) });
+      bestBytes = null;
+      return {
+        blob,
+        fileName: baseName,
+        bytes: outputBytes,
+        wasOversized: false,
+        normalizationSkipped: bestNormalizationSkipped,
+        audioRemovedForCompatibility: bestAudioRemovedForCompatibility,
+      };
+    }
+    if (mode === "gif" && lastOversizedBytes) {
+      const outputBytes = lastOversizedBytes.byteLength;
+      const blob = new Blob([lastOversizedBytes], {
+        type: extensionMimeType(plan.outputExtension),
+      });
+      return {
+        blob,
+        fileName: baseName,
+        bytes: outputBytes,
+        wasOversized: true,
+        normalizationSkipped,
+        audioRemovedForCompatibility,
+      };
+    }
+    if (plan.targetSizeMb !== null && smallestOversizeBytes !== null) {
+      throw new Error(
+        `Could not reach the selected ${plan.targetSizeMb} MB target. The smallest attempt was ${(smallestOversizeBytes / (1024 * 1024)).toFixed(2)} MB.`
+      );
+    }
+    throw new Error("The video export did not produce an output file.");
   } finally {
     if (session) await session.dispose().catch(() => undefined);
   }

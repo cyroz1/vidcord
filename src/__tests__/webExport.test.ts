@@ -463,18 +463,19 @@ describe("browser export planning", () => {
       },
     } as unknown as BrowserFfmpegEngine;
 
-    const result = await exportBrowserFile({
-      engine,
-      file: { name: "capture.mp4" } as File,
-      metadata,
-      settings: normalizeBrowserSettings({ mode: "advanced", advancedTargetSize: "0.0001" }),
-      mode: "advanced",
-      startTime: 0,
-      endTime: 30,
-    });
+    await expect(
+      exportBrowserFile({
+        engine,
+        file: { name: "capture.mp4" } as File,
+        metadata,
+        settings: normalizeBrowserSettings({ mode: "advanced", advancedTargetSize: "0.0001" }),
+        mode: "advanced",
+        startTime: 0,
+        endTime: 30,
+      })
+    ).rejects.toThrow("Could not reach the selected 0.0001 MB target");
 
     expect(transcodeCount).toBe(1);
-    expect(result.wasOversized).toBe(true);
   });
 
   it("corrects oversized target encodes and sanitizes browser downloads", () => {
@@ -562,21 +563,22 @@ describe("browser export planning", () => {
       mode: "advanced",
       advancedTargetSize: "20",
     });
-    const result = await exportBrowserFile({
-      engine,
-      file: { name: "capture.mp4" } as File,
-      metadata,
-      settings: advanced,
-      mode: "advanced",
-      startTime: 0,
-      endTime: 30,
-      onProgress: (value) => progress.push(value),
-    });
+    await expect(
+      exportBrowserFile({
+        engine,
+        file: { name: "capture.mp4" } as File,
+        metadata,
+        settings: advanced,
+        mode: "advanced",
+        startTime: 0,
+        endTime: 30,
+        onProgress: (value) => progress.push(value),
+      })
+    ).rejects.toThrow("Could not reach the selected 20 MB target");
 
     expect(transcodeCount).toBe(4);
     expect(progress.some((value) => value > 0 && value < 1)).toBe(true);
     expect(progress[progress.length - 1]).toBe(1);
-    expect(result.wasOversized).toBe(true);
   });
 
   it("maps the encoded timestamp instead of the unreliable FFmpeg ratio", async () => {
