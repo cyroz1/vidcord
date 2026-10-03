@@ -1791,14 +1791,8 @@ export default function App() {
 
   const restoreSettingsPreset = useCallback(
     (preset: SettingsPreset) => {
+      if (isBatchMode) return;
       clearLosslessOfferMode();
-      const previousModeSettings = isBatchMode
-        ? {
-            gif_mode: settingsRef.current.gif_mode,
-            advanced_mode: settingsRef.current.advanced_mode,
-            lossless_mode: settingsRef.current.lossless_mode,
-          }
-        : null;
       const restored = restoreSettings(preset.settings);
       const matchingEncoderIndex = restored.encoder_label
         ? encoders.findIndex((encoder) => encoder.label === restored.encoder_label)
@@ -1808,14 +1802,7 @@ export default function App() {
           ? matchingEncoderIndex
           : Math.max(0, Math.min(restored.encoder_index, Math.max(encoders.length - 1, 0)));
       setEncoderIdx(nextEncoderIndex);
-      if (isBatchMode) {
-        setGifMode(false);
-        setAdvancedMode(false);
-        setLosslessMode(false);
-        saveSettings({ ...restored, ...previousModeSettings });
-      } else {
-        saveSettings(restored);
-      }
+      saveSettings(restored);
       addToast("success", "Preset Restored", `Loaded “${preset.name}”.`);
     },
     [
@@ -1825,10 +1812,7 @@ export default function App() {
       isBatchMode,
       restoreSettings,
       saveSettings,
-      setAdvancedMode,
       setEncoderIdx,
-      setGifMode,
-      setLosslessMode,
       settingsRef,
     ]
   );
@@ -4641,6 +4625,7 @@ export default function App() {
           >
             <SettingsPresets
               currentSettings={currentPresetSettings}
+              batchMode={isBatchMode}
               presets={presets}
               onRestore={restoreSettingsPreset}
               onSave={saveSettingsPreset}
