@@ -950,7 +950,9 @@ fn gif_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> String {
 const SIZE_RETRY_LIMIT_PER_ENCODER: usize = 2;
 const OVERSIZE_RETRY_SAFETY: f64 = 0.95;
 const UNDERFILL_RETRY_SAFETY: f64 = 0.92;
-const UNDERFILL_RETRY_THRESHOLD: f64 = 0.90;
+// Fill target, matching the browser export planner (getFillBitrate):
+// keep refining while the output is under 95% of the target.
+const UNDERFILL_RETRY_THRESHOLD: f64 = 0.95;
 const LOSSLESS_FASTSTART_MAX_INPUT_BYTES: u64 = 256 * 1024 * 1024;
 const SIZE_PREFLIGHT_MIN_DURATION_SECONDS: f64 = 120.0;
 const SIZE_PREFLIGHT_SAMPLE_SECONDS: f64 = 4.0;
@@ -1187,7 +1189,8 @@ fn adaptive_bitrate_for_underfill(
     let estimated = (current_bitrate_k as f64 * ratio * UNDERFILL_RETRY_SAFETY)
         .floor()
         .min(u32::MAX as f64) as u32;
-    let step_limit = current_bitrate_k.saturating_mul(2);
+    // 1.5x per-pass step cap, matching the browser export planner.
+    let step_limit = current_bitrate_k.saturating_mul(3) / 2;
     let source_limit = source_bitrate_k.unwrap_or(u32::MAX);
     estimated
         .min(step_limit)
@@ -1757,7 +1760,22 @@ async fn run_ffmpeg_attempt(
         });
     }
 
-    vidcord_log(&format!("FFmpeg command: ffmpeg {}", cmd_args.join(" ")));
+    // Log file names only: absolute paths embed the user's home directory,
+    // and this log is often shared for debugging.
+    let log_args: Vec<String> = cmd_args
+        .iter()
+        .map(|arg| {
+            if arg == &opts.input_path || arg == &opts.output_path {
+                std::path::Path::new(arg)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "<redacted>".to_string())
+            } else {
+                arg.clone()
+            }
+        })
+        .collect();
+    vidcord_log(&format!("FFmpeg command: ffmpeg {}", log_args.join(" ")));
 
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");

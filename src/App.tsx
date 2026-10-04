@@ -1813,7 +1813,6 @@ export default function App() {
       restoreSettings,
       saveSettings,
       setEncoderIdx,
-      settingsRef,
     ]
   );
 
@@ -3333,6 +3332,13 @@ export default function App() {
   // directly instead of re-rendering the entire App and trim subtree for every
   // native `timeupdate` event. Only the two derived button-enabled booleans
   // enter React state, and React bails out while they remain unchanged.
+  // Stable identity: PreviewPane is memoized, so an inline arrow here would
+  // re-render it on every App render (e.g. every trim-slider move).
+  const handlePreviewPlaybackError = useCallback(
+    (message: string) => addToast("error", "Preview failed", message),
+    [addToast]
+  );
+
   const handlePreviewTimeUpdate = useCallback(
     (next: number | null) => {
       playheadTimeRef.current = next;
@@ -4488,7 +4494,7 @@ export default function App() {
                 removeAudio={gifMode || removeAudio}
                 onTimeUpdate={handlePreviewTimeUpdate}
                 onSnapshot={handleSnapshot}
-                onPlaybackError={(message) => addToast("error", "Preview failed", message)}
+                onPlaybackError={handlePreviewPlaybackError}
               />
 
               <TrimTimeline
