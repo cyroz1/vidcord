@@ -240,7 +240,12 @@ describe("vidcord desktop end-to-end workflow", function () {
     await browser.$('button[aria-label="Import videos from a folder"]').click();
     await waitForDisplayed(".batch-queue");
     await browser.waitUntil(async () => (await browser.$$(".batch-queue-name")).length === 2);
-    await browser.$('button[aria-label="Move sample-b.mp4 up in queue"]').click();
+    const moveSampleBUp = await browser.$('button[aria-label="Move sample-b.mp4 up in queue"]');
+    await browser.waitUntil(async () => await moveSampleBUp.isEnabled(), {
+      timeout: 60_000,
+      timeoutMsg: "The folder scan did not enable batch queue ordering",
+    });
+    await moveSampleBUp.click();
     await browser.waitUntil(async () => (await queueNames())[0] === "sample-b.mp4");
     await browser.$('button[aria-label="Move sample-b.mp4 down in queue"]').click();
     await browser.waitUntil(async () => (await queueNames())[0] === "sample-a.mp4");
