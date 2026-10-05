@@ -10,6 +10,7 @@ const runDirectory = mkdtempSync(path.join(os.tmpdir(), "vidcord-web-e2e-"));
 const outputDirectory = path.join(runDirectory, "outputs");
 const artifactsDirectory =
   process.env.VIDCORD_E2E_ARTIFACTS || path.join(os.tmpdir(), "vidcord-e2e-artifacts", "web");
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
 function run(command, args, environment) {
   const result = spawnSync(command, args, {
@@ -32,7 +33,7 @@ try {
     VIDCORD_E2E_ARTIFACTS: artifactsDirectory,
   };
 
-  run("npm", ["run", "web:build"], environment);
+  run(npmCommand, ["run", "web:build"], environment);
   if (!process.exitCode) {
     run(
       process.execPath,

@@ -128,30 +128,20 @@ test("browser demo controls, all export modes, batch, and real output files", as
   await page.getByRole("button", { name: "More trim options" }).click();
   const timelineOptions = page.getByRole("dialog", { name: "More trim options" });
   await expect(timelineOptions).toBeVisible();
+  const timeFormat = page.getByRole("button", {
+    name: "Show timeline times as hours, minutes, and seconds",
+  });
+  await expect(timeFormat).toBeVisible();
+  await timeFormat.click();
+  await expect(timeFormat).toHaveAttribute("aria-pressed", "true");
+  await timeFormat.click();
+  await expect(timeFormat).toHaveAttribute("aria-pressed", "false");
   await page.getByLabel("Timeline snap interval").selectOption("0.5");
   await page.getByRole("button", { name: "Zoom timeline in" }).click();
   await page.getByRole("button", { name: "Zoom timeline in" }).click();
   await page.getByRole("button", { name: "Zoom timeline out" }).click();
   await page.getByRole("button", { name: "Reset timeline zoom to 1x" }).click();
   const optionsButton = page.getByRole("button", { name: "More trim options" });
-  if ((await optionsButton.getAttribute("aria-expanded")) !== "true") await optionsButton.click();
-  const timeFormat = page.getByRole("button", {
-    name: "Show timeline times as hours, minutes, and seconds",
-  });
-  await expect(timeFormat).toBeVisible();
-  let timeFormatBox = await timeFormat.boundingBox();
-  expect(timeFormatBox).not.toBeNull();
-  await page.mouse.click(
-    timeFormatBox.x + timeFormatBox.width / 2,
-    timeFormatBox.y + timeFormatBox.height / 2
-  );
-  await expect(timeFormat).toHaveAttribute("aria-pressed", "true");
-  timeFormatBox = await timeFormat.boundingBox();
-  expect(timeFormatBox).not.toBeNull();
-  await page.mouse.click(
-    timeFormatBox.x + timeFormatBox.width / 2,
-    timeFormatBox.y + timeFormatBox.height / 2
-  );
   await page.keyboard.press("Escape");
   await expect(optionsButton).toHaveAttribute("aria-expanded", "false");
   await page.keyboard.press("?");

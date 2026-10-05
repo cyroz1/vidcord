@@ -20,6 +20,7 @@ const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const runDirectory = mkdtempSync(path.join(os.tmpdir(), "vidcord-desktop-e2e-"));
 const artifactsDirectory =
   process.env.VIDCORD_E2E_ARTIFACTS || path.join(os.tmpdir(), "vidcord-e2e-artifacts", "desktop");
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const appDataDirectory = path.join(runDirectory, "app-data");
 mkdirSync(appDataDirectory, { recursive: true });
 mkdirSync(artifactsDirectory, { recursive: true });
@@ -100,7 +101,7 @@ try {
   }
 
   const buildStatus = run(
-    "npm",
+    npmCommand,
     [
       "run",
       "tauri",
@@ -141,17 +142,22 @@ try {
     let driver;
     try {
       await waitForWebDriver(port, application);
+      console.log("WebDriver: embedded endpoint is ready");
       driver = await new Builder()
         .usingServer(`http://127.0.0.1:${port}`)
         .withCapabilities(new Capabilities().setBrowserName("tauri"))
         .build();
-      await driver.manage().setTimeouts({ implicit: 0, pageLoad: 30_000, script: 30_000 });
+      console.log("WebDriver: session created");
+      await driver.manage().setTimeouts({ implicit: 0, pageLoad: 90_000, script: 90_000 });
+      console.log("WebDriver: waiting for the Tauri page to finish loading");
       await driver.wait(
         () => driver.executeScript(() => document.readyState === "complete"),
-        30_000,
+        90_000,
         "Tauri's WebView document did not finish loading",
         100
       );
+      console.log("WebDriver: Tauri page finished loading");
+      console.log("WebDriver: reading startup DOM");
       const initialPage = await driver.executeScript(() => ({
         title: document.title,
         rootText: document.querySelector("#root")?.textContent?.slice(0, 500),

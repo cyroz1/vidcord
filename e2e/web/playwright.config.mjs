@@ -1,7 +1,10 @@
 import { defineConfig } from "@playwright/test";
 import path from "node:path";
 
-const artifacts = process.env.VIDCORD_E2E_ARTIFACTS || path.resolve(".e2e-artifacts/web");
+const artifacts = path.resolve(
+  process.cwd(),
+  process.env.VIDCORD_E2E_ARTIFACTS || ".e2e-artifacts/web"
+);
 
 export default defineConfig({
   testDir: ".",
