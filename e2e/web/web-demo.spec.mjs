@@ -186,26 +186,35 @@ test("browser demo controls, all export modes, batch, and real output files", as
       page.getByRole("button", { name: "Move sample-a.mp4 down in queue" })
     ).toBeVisible();
   } catch (error) {
+    const pageState = await page
+      .evaluate(() => {
+        const input = document.querySelector('input[type="file"]');
+        return {
+          url: location.href,
+          title: document.title,
+          hasWebEditor: Boolean(document.querySelector(".web-editor-column")),
+          input: input
+            ? {
+                value: input.value,
+                disabled: input.disabled,
+                multiple: input.multiple,
+                files: Array.from(input.files ?? [], (file) => ({
+                  name: file.name,
+                  size: file.size,
+                  type: file.type,
+                })),
+              }
+            : null,
+          queueNames: Array.from(
+            document.querySelectorAll(".web-queue-name"),
+            (node) => node.textContent?.trim() ?? ""
+          ),
+          bodyText: document.body.innerText.slice(-2_000),
+        };
+      })
+      .catch((stateError) => ({ evaluationError: String(stateError) }));
     const diagnostics = {
-      input: await input.evaluate((element) => ({
-        value: element.value,
-        disabled: element.disabled,
-        multiple: element.multiple,
-        files: Array.from(element.files ?? [], (file) => ({
-          name: file.name,
-          size: file.size,
-          type: file.type,
-        })),
-      })),
-      queueNames: await page.locator(".web-queue-name").allTextContents(),
-      notice: await page
-        .locator(".web-notice")
-        .innerText()
-        .catch(() => "<none>"),
-      exportButton: await page
-        .locator(".web-export-button")
-        .innerText()
-        .catch(() => "<unavailable>"),
+      pageState,
       pageErrors,
       consoleErrors,
     };
