@@ -149,14 +149,19 @@ try {
         .build();
       console.log("WebDriver: session created");
       await driver.manage().setTimeouts({ implicit: 0, pageLoad: 90_000, script: 90_000 });
-      console.log("WebDriver: waiting for the Tauri page to finish loading");
+      console.log("WebDriver: waiting for the desktop UI to become interactive");
       await driver.wait(
-        () => driver.executeScript(() => document.readyState === "complete"),
+        () =>
+          driver.executeScript(
+            () =>
+              Boolean(document.querySelector(".drop-zone")) &&
+              typeof window.__VIDCORD_E2E_DIALOGS__ === "object"
+          ),
         90_000,
-        "Tauri's WebView document did not finish loading",
+        "The desktop UI and E2E dialog bridge did not become interactive",
         100
       );
-      console.log("WebDriver: Tauri page finished loading");
+      console.log("WebDriver: desktop UI is interactive");
       console.log("WebDriver: reading startup DOM");
       const initialPage = await driver.executeScript(() => ({
         title: document.title,
