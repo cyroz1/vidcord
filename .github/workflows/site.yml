@@ -14,7 +14,7 @@ on:
       - "scripts/check-sitemap.mjs"
       - "scripts/check-site-structured-data.mjs"
       - "scripts/check-version.mjs"
-      - ".github/workflows/site.yml"
+      - ".github/workflows/**"
   pull_request:
     branches: [main]
     paths:
@@ -28,7 +28,7 @@ on:
       - "scripts/check-site-structured-data.mjs"
       - "scripts/check-version.mjs"
       - "wrangler.jsonc"
-      - ".github/workflows/site.yml"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 concurrency:

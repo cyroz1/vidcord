@@ -14,9 +14,7 @@ on:
       - "package-lock.json"
       - "scripts/build-web-site.mjs"
       - "scripts/check-site-generated.mjs"
-      - "site/index.html"
-      - "site/icon.png"
-      - "site/assets/**"
+      - "site/**"
       - ".github/workflows/**"
   pull_request:
     branches: [main]
@@ -31,9 +29,7 @@ on:
       - "package-lock.json"
       - "scripts/build-web-site.mjs"
       - "scripts/check-site-generated.mjs"
-      - "site/index.html"
-      - "site/icon.png"
-      - "site/assets/**"
+      - "site/**"
       - ".github/workflows/**"
   workflow_dispatch:
 
