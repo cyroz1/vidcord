@@ -3,7 +3,15 @@
   "app": {
     "withGlobalTauri": true,
     "security": {
-      "capabilities": ["default", "e2e"]
+      "capabilities": [
+        "default",
+        {
+          "identifier": "e2e",
+          "description": "Embedded WebDriver permissions for local end-to-end tests only",
+          "windows": ["main"],
+          "permissions": ["wdio-webdriver:default"]
+        }
+      ]
     }
   }
 }
