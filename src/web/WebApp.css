@@ -1509,7 +1509,7 @@
 }
 
 .web-editor-slot {
-  scroll-margin-top: 24px;
+  scroll-margin-top: 84px;
 }
 
 .web-editor-loading {
@@ -2145,6 +2145,7 @@
   position: absolute;
   top: 50%;
   left: 50%;
+  z-index: 4;
   display: inline-flex;
   align-items: center;
   justify-content: center;

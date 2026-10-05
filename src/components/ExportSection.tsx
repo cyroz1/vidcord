@@ -62,6 +62,20 @@ function ExportSection({
   onStartCompression,
   onCancelCompression,
 }: Props) {
+  const e2eDisabledReason = selectionScanning
+    ? "selection-scanning"
+    : ffmpegMissing
+      ? "ffmpeg-missing"
+      : cancelling
+        ? "cancelling"
+        : finalizingOutput
+          ? "finalizing-output"
+          : !compressing && losslessTrim && losslessInfoLoading
+            ? "lossless-keyframes-loading"
+            : !compressing && (batchMode ? !batchReady : !filePath || !probeReady)
+              ? "missing-export-input"
+              : "";
+
   return (
     <>
       <div className="output-options" aria-label="Output options">
@@ -106,10 +120,7 @@ function ExportSection({
               <option value="reveal">Show in folder</option>
               <option value="none">Do nothing</option>
             </select>
-            <label
-              className="output-close-toggle"
-              title="Close vidcord after a successful export"
-            >
+            <label className="output-close-toggle" title="Close vidcord after a successful export">
               <input
                 type="checkbox"
                 checked={closeAppAfterExport}
@@ -137,6 +148,9 @@ function ExportSection({
 
       <button
         className={`compress-btn${compressing ? " cancel" : ""}`}
+        data-e2e-disabled-reason={
+          import.meta.env.VITE_VIDCORD_E2E === "1" ? e2eDisabledReason : undefined
+        }
         onClick={compressing ? onCancelCompression : onStartCompression}
         disabled={
           selectionScanning ||

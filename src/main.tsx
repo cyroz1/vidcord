@@ -20,12 +20,21 @@ function applyNativeWindowTheme(): void {
 applyNativeWindowTheme();
 systemDarkMode.addEventListener("change", applyNativeWindowTheme);
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <Suspense fallback={<div className="app-boot-screen">Loading vidcord…</div>}>
-        <RootApp />
-      </Suspense>
-    </ErrorBoundary>
-  </React.StrictMode>
-);
+async function mountApplication(): Promise<void> {
+  if (import.meta.env.VITE_VIDCORD_E2E === "1") {
+    const { initializeE2EDialogMocks } = await import("./e2eDialog");
+    initializeE2EDialogMocks();
+  }
+
+  ReactDOM.createRoot(document.getElementById("root")!).render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        <Suspense fallback={<div className="app-boot-screen">Loading vidcord…</div>}>
+          <RootApp />
+        </Suspense>
+      </ErrorBoundary>
+    </React.StrictMode>
+  );
+}
+
+void mountApplication();

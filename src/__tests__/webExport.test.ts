@@ -3,6 +3,7 @@ import {
   buildAudioPeakAnalysisArgs,
   buildCompressionArgs,
   buildGifArgs,
+  buildGifPaletteArgs,
   buildLosslessArgs,
   createExportPlan,
   buildVideoFilter,
@@ -117,6 +118,14 @@ describe("browser export planning", () => {
       createExportPlan(metadata, settings, "gif", 2, 20),
       480
     );
+    const gifPalette = buildGifPaletteArgs(
+      "input.mp4",
+      "palette.png",
+      metadata,
+      settings,
+      createExportPlan(metadata, settings, "gif", 2, 20),
+      null
+    );
     const lossless = buildLosslessArgs("input.mp4", "output.mp4", 2, 20);
     const losslessWithoutAudio = buildLosslessArgs("input.mp4", "output.mp4", 2, 20, true);
 
@@ -134,6 +143,8 @@ describe("browser export planning", () => {
     expect(gif).toContain("-an");
     expect(gif.indexOf("-i")).toBeLessThan(gif.indexOf("-ss"));
     expect(gif.indexOf("-ss")).toBeLessThan(gif.indexOf("-t"));
+    expect(gifPalette.indexOf("-ss")).toBeLessThan(gifPalette.indexOf("-t"));
+    expect(gifPalette.indexOf("-t")).toBeLessThan(gifPalette.indexOf("-i"));
     expect(lossless).toContain("copy");
     expect(lossless).not.toContain("-vf");
     expect(lossless).not.toContain("-an");

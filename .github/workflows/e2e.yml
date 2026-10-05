@@ -1,0 +1,116 @@
+name: End-to-End UI Tests
+
+on:
+  push:
+    branches: [main, "[0-9]+.[0-9]+"]
+  pull_request:
+    branches: [main, "[0-9]+.[0-9]+"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+jobs:
+  browser-demo:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    env:
+      VIDCORD_E2E_ARTIFACTS: artifacts/e2e-web
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 1
+
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38d
+        with:
+          node-version: 22.23.1
+          cache: npm
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+
+      - name: Install npm dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser demo end-to-end tests
+        run: npm run e2e:web
+
+      - name: Upload browser test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: browser-e2e-${{ github.run_attempt }}
+          path: artifacts/e2e-web/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  desktop-app:
+    name: Desktop UI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+    env:
+      VIDCORD_E2E_ARTIFACTS: artifacts/e2e-desktop
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 1
+
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38d
+        with:
+          node-version: 22.23.1
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with:
+          toolchain: 1.97.1
+
+      - name: Install Tauri and desktop test dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libappindicator3-dev librsvg2-dev \
+            patchelf xdg-utils ffmpeg xvfb
+
+      - name: Install FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+
+      - name: Install FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg --yes --no-progress
+
+      - name: Install npm dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Build and run desktop end-to-end tests (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum npm run e2e:desktop
+
+      - name: Build and run desktop end-to-end tests (macOS and Windows)
+        if: runner.os != 'Linux'
+        run: npm run e2e:desktop
+
+      - name: Upload desktop test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: desktop-e2e-${{ matrix.os }}-${{ github.run_attempt }}
+          path: artifacts/e2e-desktop/
+          if-no-files-found: ignore
+          retention-days: 7

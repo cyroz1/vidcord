@@ -439,12 +439,12 @@ export function buildGifPaletteArgs(
     qualityBitrateKbps
   );
   return [
-    "-i",
-    inputName,
     "-ss",
     plan.startTime.toFixed(3),
     "-t",
     plan.selectedDuration.toFixed(3),
+    "-i",
+    inputName,
     "-vf",
     `${visual},palettegen=max_colors=${colors}:stats_mode=diff`,
     "-frames:v",

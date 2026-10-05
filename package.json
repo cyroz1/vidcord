@@ -20,6 +20,9 @@
     "site:check": "prettier --check index.html site/index.html site/marketing.css site/site.webmanifest wrangler.jsonc && prettier --check --parser markdown site/llms.txt site/llms-full.txt && node scripts/check-site-structured-data.mjs && node scripts/check-sitemap.mjs && node scripts/check-assets.mjs && node scripts/check-site-size.mjs && node scripts/check-version.mjs",
     "preview": "vite preview",
     "test": "vitest run",
+    "e2e": "node scripts/e2e/run-all.mjs",
+    "e2e:web": "node scripts/e2e/run-web.mjs",
+    "e2e:desktop": "node scripts/e2e/run-desktop.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -32,6 +35,7 @@
     "react-dom": "^18"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tauri-apps/cli": "^2.11.5",
     "@types/react": "^18",
     "@types/react-dom": "^18",
@@ -43,6 +47,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "happy-dom": "^20.12.0",
     "prettier": "^3",
+    "selenium-webdriver": "^4.50.0",
     "typescript": "^5",
     "vite": "^8.0.8",
     "vitest": "^4.1.11"

@@ -386,6 +386,17 @@ export class BrowserFfmpegEngine {
     ) => {
       preparedFiles.add(outputName);
       await run(argsForInput, onProgress);
+      let bytes: Uint8Array<ArrayBuffer>;
+      try {
+        bytes = readBytes(await ffmpeg.readFile(outputName));
+      } catch (error: unknown) {
+        throw new Error(
+          `FFmpeg did not create the intermediate file ${outputName}.\n${this.logBuffer.slice(-4000)}\n${String(error)}`
+        );
+      }
+      if (bytes.byteLength === 0) {
+        throw new Error(`FFmpeg produced an empty intermediate file: ${outputName}`);
+      }
     };
 
     return { transcode, run, prepareFile, dispose };

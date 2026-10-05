@@ -9,6 +9,10 @@ edition = "2021"
 name = "vidcord_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+default = []
+e2e = ["dep:tauri-plugin-wdio-webdriver"]
+
 [[bin]]
 name = "vidcord"
 path = "src/main.rs"
@@ -32,6 +36,7 @@ sha2 = "0.10"
 url = "2"
 regex-lite = "0.1"
 dirs = "6"
+tauri-plugin-wdio-webdriver = { version = "1", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
