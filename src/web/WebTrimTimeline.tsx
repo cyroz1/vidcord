@@ -4,6 +4,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
@@ -20,7 +21,7 @@ type Props = {
   duration: number;
   startTime: number;
   endTime: number;
-  currentTime: number;
+  videoRef: MutableRefObject<HTMLVideoElement | null>;
   disabled?: boolean;
   editableTimes: boolean;
   losslessTrim: boolean;
@@ -219,7 +220,7 @@ function WebTrimTimeline({
   duration,
   startTime,
   endTime,
-  currentTime,
+  videoRef,
   disabled = false,
   editableTimes,
   losslessTrim,
@@ -244,7 +245,11 @@ function WebTrimTimeline({
   const rangeRef = useRef<TrimRange>({ start: startTime, end: endTime });
   const interactionStartRef = useRef<TrimRange | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
+  const playheadPositionRef = useRef<HTMLDivElement>(null);
+  const currentTimeRef = useRef(videoRef.current?.currentTime ?? 0);
   const optionsButtonRef = useRef<HTMLButtonElement>(null);
+  const [canSetInPoint, setCanSetInPoint] = useState(false);
+  const [canSetOutPoint, setCanSetOutPoint] = useState(false);
 
   const hasDuration = duration > 0;
   const safeDuration = hasDuration ? duration : 0.1;
@@ -265,14 +270,48 @@ function WebTrimTimeline({
   const toViewPercent = (value: number) => clamp(((value - viewStart) / viewSpan) * 100, 0, 100);
   const startPercent = toViewPercent(safeStart);
   const endPercent = toViewPercent(safeEnd);
-  const playheadPercent = toViewPercent(currentTime);
   const startHandleInView = safeStart >= viewStart && safeStart <= viewEnd;
   const endHandleInView = safeEnd >= viewStart && safeEnd <= viewEnd;
   const trimReady = !disabled && duration > 0;
-  const canSetInPoint = trimReady && currentTime < safeEnd - MIN_TRIM_GAP;
-  const canSetOutPoint = trimReady && currentTime > safeStart + MIN_TRIM_GAP;
   const canUndoTrim = trimReady && historyRef.current.past.length > 0;
   const canRedoTrim = trimReady && historyRef.current.future.length > 0;
+
+  const updatePlaybackPosition = useCallback(() => {
+    const video = videoRef.current;
+    const currentTime = video && Number.isFinite(video.currentTime) ? video.currentTime : 0;
+    currentTimeRef.current = currentTime;
+
+    const visible = duration > 0 && currentTime >= viewStart && currentTime <= viewEnd;
+    const playheadPosition = playheadPositionRef.current;
+    if (playheadPosition) {
+      playheadPosition.hidden = !visible;
+      if (visible) {
+        const viewSpan = Math.max(viewEnd - viewStart, MIN_TRIM_GAP);
+        const playheadPercent = clamp(((currentTime - viewStart) / viewSpan) * 100, 0, 100);
+        playheadPosition.style.transform = `translateX(${playheadPercent}%)`;
+      }
+    }
+
+    const nextCanSetInPoint = trimReady && currentTime < safeEnd - MIN_TRIM_GAP;
+    const nextCanSetOutPoint = trimReady && currentTime > safeStart + MIN_TRIM_GAP;
+    setCanSetInPoint(nextCanSetInPoint);
+    setCanSetOutPoint(nextCanSetOutPoint);
+  }, [duration, safeEnd, safeStart, trimReady, videoRef, viewEnd, viewStart]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    updatePlaybackPosition();
+    video.addEventListener("timeupdate", updatePlaybackPosition);
+    video.addEventListener("seeked", updatePlaybackPosition);
+    video.addEventListener("loadedmetadata", updatePlaybackPosition);
+    return () => {
+      video.removeEventListener("timeupdate", updatePlaybackPosition);
+      video.removeEventListener("seeked", updatePlaybackPosition);
+      video.removeEventListener("loadedmetadata", updatePlaybackPosition);
+    };
+  }, [updatePlaybackPosition, videoRef]);
 
   useEffect(() => {
     rangeRef.current = { start: safeStart, end: safeEnd };
@@ -412,15 +451,15 @@ function WebTrimTimeline({
 
   const setInPoint = useCallback(() => {
     if (!canSetInPoint) return;
-    const nextStart = clamp(currentTime, 0, safeEnd - MIN_TRIM_GAP);
+    const nextStart = clamp(currentTimeRef.current, 0, safeEnd - MIN_TRIM_GAP);
     applyRange({ start: nextStart, end: safeEnd }, nextStart);
-  }, [applyRange, canSetInPoint, currentTime, safeEnd]);
+  }, [applyRange, canSetInPoint, safeEnd]);
 
   const setOutPoint = useCallback(() => {
     if (!canSetOutPoint) return;
-    const nextEnd = clamp(currentTime, safeStart + MIN_TRIM_GAP, safeDuration);
+    const nextEnd = clamp(currentTimeRef.current, safeStart + MIN_TRIM_GAP, safeDuration);
     applyRange({ start: safeStart, end: nextEnd }, nextEnd);
-  }, [applyRange, canSetOutPoint, currentTime, safeDuration, safeStart]);
+  }, [applyRange, canSetOutPoint, safeDuration, safeStart]);
 
   const undoTrim = useCallback(() => {
     if (!trimReady) return;
@@ -805,11 +844,7 @@ function WebTrimTimeline({
             }}
             aria-hidden="true"
           />
-          <div
-            className="web-trim-playhead-position"
-            style={{ transform: `translateX(${playheadPercent}%)` }}
-            hidden={!duration || currentTime < viewStart || currentTime > viewEnd}
-          >
+          <div ref={playheadPositionRef} className="web-trim-playhead-position" hidden>
             <div
               className="web-trim-playhead"
               onPointerDown={handlePlayheadPointerDown}

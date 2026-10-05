@@ -22,6 +22,7 @@ on:
       - "scripts/check-assets.mjs"
       - "scripts/check-bundle-size.mjs"
       - "scripts/check-build-tools.mjs"
+      - "tools/tauri-cli/**"
       - ".github/workflows/build.yml"
   pull_request:
     branches: [main, "[0-9]+.[0-9]+"]
@@ -42,6 +43,7 @@ on:
       - "scripts/check-assets.mjs"
       - "scripts/check-bundle-size.mjs"
       - "scripts/check-build-tools.mjs"
+      - "tools/tauri-cli/**"
       - ".github/workflows/build.yml"
   workflow_dispatch:
 
@@ -255,9 +257,10 @@ jobs:
         with:
           node-version: 22.23.1
           cache: npm
+          cache-dependency-path: tools/tauri-cli/package-lock.json
 
-      - name: Install locked npm dependencies
-        run: npm ci --prefer-offline --no-audit --fund=false
+      - name: Install the locked Tauri CLI
+        run: npm ci --prefix tools/tauri-cli --prefer-offline --no-audit --fund=false
 
       - name: Verify locked Tauri build tool
         run: npm run build-tools:check
@@ -293,7 +296,7 @@ jobs:
 
       - name: Verify platform build
         if: ${{ !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_dispatch' }}
-        run: npm run tauri -- build --target ${{ matrix.tauri-target }} --no-bundle --config '{"build":{"beforeBuildCommand":""}}' -- --profile ci
+        run: npm run tauri:ci -- build --target ${{ matrix.tauri-target }} --no-bundle --config '{"build":{"beforeBuildCommand":""}}' -- --profile ci
 
       - name: Set AppImage update information (Linux)
         if: startsWith(matrix.platform, 'ubuntu')
@@ -305,7 +308,7 @@ jobs:
 
       - name: Build installer
         if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
-        run: npm run tauri -- build --target ${{ matrix.tauri-target }} --bundles ${{ matrix.bundle }} --config '{"build":{"beforeBuildCommand":""}}' -- --profile ${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
+        run: npm run tauri:ci -- build --target ${{ matrix.tauri-target }} --bundles ${{ matrix.bundle }} --config '{"build":{"beforeBuildCommand":""}}' -- --profile ${{ startsWith(github.ref, 'refs/tags/') && 'release' || 'ci' }}
 
       - name: Stage artifacts (Unix)
         if: ${{ matrix.platform != 'windows-latest' && (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch') }}

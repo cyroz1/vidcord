@@ -41,6 +41,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - The browser editor warms the local encoder after video metadata is ready, reports
   encoder download progress, warns before exports likely to need substantial working
   memory, and keeps progress moving across export stages.
+- Browser trim controls stay responsive during preview playback; only the playhead and
+  time display update with media time.
 
 ### Interface
 

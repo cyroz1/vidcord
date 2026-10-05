@@ -6,17 +6,11 @@ on:
     paths:
       - "site/**"
       - "index.html"
-      - "src/main.tsx"
-      - "src/web/**"
-      - "src/index.css"
-      - "vite.config.ts"
       - "wrangler.jsonc"
       - "package.json"
       - "package-lock.json"
       - "scripts/check-assets.mjs"
       - "scripts/check-site-size.mjs"
-      - "scripts/check-site-generated.mjs"
-      - "scripts/build-web-site.mjs"
       - "scripts/check-sitemap.mjs"
       - "scripts/check-site-structured-data.mjs"
       - "scripts/check-version.mjs"
@@ -26,20 +20,14 @@ on:
     paths:
       - "site/**"
       - "index.html"
-      - "src/main.tsx"
-      - "src/web/**"
-      - "src/index.css"
-      - "vite.config.ts"
-      - "wrangler.jsonc"
       - "package.json"
       - "package-lock.json"
       - "scripts/check-assets.mjs"
       - "scripts/check-site-size.mjs"
-      - "scripts/check-site-generated.mjs"
-      - "scripts/build-web-site.mjs"
       - "scripts/check-sitemap.mjs"
       - "scripts/check-site-structured-data.mjs"
       - "scripts/check-version.mjs"
+      - "wrangler.jsonc"
       - ".github/workflows/site.yml"
   workflow_dispatch:
 
@@ -63,14 +51,6 @@ jobs:
 
       - name: Install locked npm dependencies
         run: npm ci --ignore-scripts --prefer-offline --no-audit --fund=false
-
-      - name: Build browser bundle
-        run: npm run web:build
-
-      - name: Check browser bundle is current
-        run: |
-          git diff --exit-code -- site ':(exclude)site/assets/ffmpeg-core-*.wasm.gz'
-          node scripts/check-site-generated.mjs
 
       - name: Validate site
         run: npm run site:check

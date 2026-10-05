@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, useState } from "react";
+import { act, useState, type MutableRefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 import { mockIntersectionObserverAsVisible } from "./webTestUtils";
@@ -17,6 +17,16 @@ let container: HTMLDivElement;
 let storageValues: Map<string, string>;
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+function createVideoRef(currentTime = 20): MutableRefObject<HTMLVideoElement | null> {
+  const video = document.createElement("video");
+  Object.defineProperty(video, "currentTime", {
+    configurable: true,
+    value: currentTime,
+    writable: true,
+  });
+  return { current: video };
+}
 
 beforeEach(() => {
   mockIntersectionObserverAsVisible();
@@ -51,6 +61,7 @@ async function renderWebApp(): Promise<void> {
 
 describe("browser UI", () => {
   it("locks trim history during exports and supports the advertised shortcuts", async () => {
+    const videoRef = createVideoRef();
     function TimelineHarness({ disabled = false }: { disabled?: boolean }) {
       const [range, setRange] = useState({ start: 10, end: 50 });
       return (
@@ -58,7 +69,7 @@ describe("browser UI", () => {
           duration={60}
           startTime={range.start}
           endTime={range.end}
-          currentTime={20}
+          videoRef={videoRef}
           disabled={disabled}
           editableTimes
           losslessTrim={false}
@@ -191,6 +202,7 @@ describe("browser UI", () => {
   it("exposes browser timeline snap and zoom controls", async () => {
     const onRangeChange = vi.fn();
     const onSeek = vi.fn();
+    const videoRef = createVideoRef();
 
     await act(async () => {
       root.render(
@@ -198,7 +210,7 @@ describe("browser UI", () => {
           duration={60}
           startTime={10}
           endTime={50}
-          currentTime={20}
+          videoRef={videoRef}
           editableTimes
           losslessTrim={false}
           losslessInfoLoading={false}
@@ -237,13 +249,14 @@ describe("browser UI", () => {
   });
 
   it("does not advertise desktop-only keyboard shortcuts in the browser timeline", async () => {
+    const videoRef = createVideoRef();
     await act(async () => {
       root.render(
         <WebTrimTimeline
           duration={60}
           startTime={10}
           endTime={50}
-          currentTime={20}
+          videoRef={videoRef}
           editableTimes={false}
           losslessTrim={false}
           losslessInfoLoading={false}
@@ -268,5 +281,39 @@ describe("browser UI", () => {
     expect(
       container.querySelector<HTMLButtonElement>('button[aria-label="Redo trim"]')?.title
     ).toBe("Redo trim");
+  });
+
+  it("updates the playhead and point controls from media events", async () => {
+    const videoRef = createVideoRef();
+    await act(async () => {
+      root.render(
+        <WebTrimTimeline
+          duration={60}
+          startTime={10}
+          endTime={50}
+          videoRef={videoRef}
+          editableTimes
+          losslessTrim={false}
+          losslessInfoLoading={false}
+          losslessInfoError={null}
+          historyKey="playback-clock"
+          loopPlayback={false}
+          onLoopPlaybackChange={vi.fn()}
+          onRangeChange={vi.fn()}
+          onSeek={vi.fn()}
+        />
+      );
+    });
+
+    const playhead = container.querySelector<HTMLElement>(".web-trim-playhead-position")!;
+    const initialTransform = playhead.style.transform;
+    videoRef.current!.currentTime = 49.95;
+    await act(async () => videoRef.current!.dispatchEvent(new Event("timeupdate")));
+
+    expect(playhead.style.transform).not.toBe(initialTransform);
+    expect(
+      container.querySelector<HTMLButtonElement>('button[title="Set in point to playhead"]')
+        ?.disabled
+    ).toBe(true);
   });
 });

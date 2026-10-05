@@ -23,7 +23,8 @@
     "e2e": "node scripts/e2e/run-all.mjs",
     "e2e:web": "node scripts/e2e/run-web.mjs",
     "e2e:desktop": "node scripts/e2e/run-desktop.mjs",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:ci": "node tools/tauri-cli/node_modules/@tauri-apps/cli/tauri.js"
   },
   "dependencies": {
     "@ffmpeg/core": "^0.12.10",

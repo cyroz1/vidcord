@@ -84,7 +84,9 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   └── _redirects              # Static redirects for historical entry-point aliases
 ├── wrangler.jsonc             # Cloudflare Worker static-assets deployment config
 ├── .github/workflows/build.yml# Multi-platform CI + release workflow
-├── .github/workflows/site.yml # Site-only validation workflow
+├── .github/workflows/site.yml # Static site validation workflow
+├── .github/workflows/site-build.yml # Browser bundle regeneration and parity workflow
+├── tools/tauri-cli/           # Minimal locked CLI install for platform CI builds
 ├── scripts/                   # Bundle, version, asset, sitemap, and structured-data checks
 ├── index.html                 # Vite entry
 ├── vite.config.ts             # React plugin, manual chunks (react / tauri / tauri-opener)
@@ -527,8 +529,9 @@ The app re-renders on every trim-slider move. Established patterns:
   branch; `CHANGELOG.md` may use either a top-level `## WIP` section or the matching `## vX.Y`
   section while that release is under development. Do not develop application code on `main`, a
   detached HEAD, `feature/...`, or `vX.Y` branches. Site-only changes may be made directly on
-  `main` when they are limited to `site/**`, `wrangler.jsonc`, the site validator scripts, or
-  `.github/workflows/site.yml`; run `npm run site:check` for those changes. For application work,
+  `main` when they are limited to `site/**`, `wrangler.jsonc`, the site validator scripts,
+  `scripts/build-web-site.mjs`, `.github/workflows/site.yml`, or
+  `.github/workflows/site-build.yml`; run `npm run site:check` for those changes. For application work,
   verify the branch name and that the changelog's leading release section matches the active work;
   if either check fails, stop and ask the user to switch to or create the appropriate `X.Y`
   branch/worktree. Merge the completed `X.Y` branch into `main` only after all quality gates pass
@@ -588,9 +591,14 @@ revision is not built twice. Release tags and explicit manual packaging runs use
 are never cancelled.
 
 The app workflow runs only when app source changes — `src/**`, `src-tauri/**`, `index.html`,
-`public/**`, packaging and config files, the validator scripts the build runs, and the workflow
-itself. Pushes that only touch docs, the site, or repo metadata do not trigger a platform build.
-Site changes run the separate Site Checks workflow.
+`public/**`, packaging and config files, `tools/tauri-cli/**`, the validator scripts the build runs,
+and the workflow itself. Pushes that only touch docs, the site, or repo metadata do not trigger a
+platform build.
+Each platform build installs the locked Tauri CLI from `tools/tauri-cli/package-lock.json` instead
+of installing the full frontend toolchain again; `scripts/check-build-tools.mjs` verifies that its
+package integrity matches the root lockfile. Site changes run Site Checks. Browser source and
+generated browser-asset changes also run Site Browser Build, which rebuilds and checks the committed
+browser output. Content and marketing-asset changes therefore avoid rebuilding FFmpeg WebAssembly.
 
 ## Known pitfalls
 

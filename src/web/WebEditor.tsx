@@ -301,7 +301,6 @@ export default function WebEditor({
   const [metadataLoading, setMetadataLoading] = useState(false);
   const [startTime, setStartTime] = useState(0);
   const [endTime, setEndTime] = useState(0);
-  const [currentTime, setCurrentTime] = useState(0);
   const [losslessKeyframes, setLosslessKeyframes] = useState<number[]>([]);
   const [losslessKeyframesLoading, setLosslessKeyframesLoading] = useState(false);
   const [losslessKeyframeError, setLosslessKeyframeError] = useState<string | null>(null);
@@ -319,6 +318,7 @@ export default function WebEditor({
   const [lastExport, setLastExport] = useState<{ name: string; bytes: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const playbackTimeRef = useRef<HTMLDivElement>(null);
   const loadGenerationRef = useRef(0);
   const keyframeProbeGenerationRef = useRef(0);
   const keyframeCacheRef = useRef(new WeakMap<File, number[]>());
@@ -488,7 +488,6 @@ export default function WebEditor({
       setMetadataLoading(false);
       setStartTime(0);
       setEndTime(0);
-      setCurrentTime(0);
       setPreviewPlaying(false);
       return;
     }
@@ -499,7 +498,6 @@ export default function WebEditor({
     setPreviewError(null);
     setMetadata(null);
     setMetadataLoading(true);
-    setCurrentTime(0);
     setPreviewPlaying(false);
     void readCachedMetadata(file, controller.signal)
       .then((nextMetadata) => {
@@ -840,7 +838,6 @@ export default function WebEditor({
   const seekTo = useCallback(
     (time: number) => {
       const next = Math.max(0, Math.min(time, duration));
-      setCurrentTime(next);
       if (videoRef.current) {
         try {
           videoRef.current.currentTime = next;
@@ -934,7 +931,6 @@ export default function WebEditor({
 
     if (video.currentTime < startTime || video.currentTime >= selectedEnd - 0.05) {
       video.currentTime = startTime;
-      setCurrentTime(startTime);
     }
     void video
       .play()
@@ -944,14 +940,17 @@ export default function WebEditor({
 
   const handleVideoEnded = useCallback(() => {
     const video = videoRef.current;
+    if (!video) {
+      setPreviewPlaying(false);
+      return;
+    }
     if (loopPlayback && video && metadata && endTime > startTime) {
       video.currentTime = startTime;
-      setCurrentTime(startTime);
       void video.play().catch(() => setPreviewPlaying(false));
       return;
     }
     setPreviewPlaying(false);
-    setCurrentTime(startTime);
+    video.currentTime = startTime;
   }, [endTime, loopPlayback, metadata, startTime]);
 
   const startExport = useCallback(
@@ -1251,17 +1250,18 @@ export default function WebEditor({
   const handleVideoTimeUpdate = useCallback(
     (event: SyntheticEvent<HTMLVideoElement>) => {
       const video = event.currentTarget;
+      if (playbackTimeRef.current) {
+        const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+        playbackTimeRef.current.textContent = `${currentTime.toFixed(1)}s / ${duration.toFixed(1)}s`;
+      }
       const selectedEnd = endTime || duration;
       if (!video.paused && selectedEnd > startTime && video.currentTime >= selectedEnd - 0.05) {
         video.currentTime = startTime;
-        setCurrentTime(startTime);
         if (!loopPlayback) {
           video.pause();
           setPreviewPlaying(false);
         }
-        return;
       }
-      setCurrentTime(video.currentTime);
     },
     [duration, endTime, loopPlayback, startTime]
   );
@@ -1797,6 +1797,7 @@ export default function WebEditor({
                             playsInline
                             preload="metadata"
                             onTimeUpdate={handleVideoTimeUpdate}
+                            onSeeked={handleVideoTimeUpdate}
                             onPlay={() => setPreviewPlaying(true)}
                             onPause={() => setPreviewPlaying(false)}
                             onEnded={handleVideoEnded}
@@ -1875,8 +1876,8 @@ export default function WebEditor({
                       </span>
                     )}
                     {activeFile && metadata && (
-                      <div className="web-preview-time-overlay">
-                        {currentTime.toFixed(1)}s / {duration.toFixed(1)}s
+                      <div ref={playbackTimeRef} className="web-preview-time-overlay">
+                        0.0s / {duration.toFixed(1)}s
                       </div>
                     )}
                   </div>
@@ -1896,7 +1897,7 @@ export default function WebEditor({
                   duration={duration}
                   startTime={startTime}
                   endTime={endTime || duration}
-                  currentTime={currentTime}
+                  videoRef={videoRef}
                   disabled={!metadata || isExporting}
                   editableTimes={activeMode === "advanced" || activeMode === "lossless"}
                   losslessTrim={activeMode === "lossless"}

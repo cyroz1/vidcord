@@ -1,0 +1,67 @@
+name: Site Browser Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/main.tsx"
+      - "src/web/**"
+      - "src/index.css"
+      - "index.html"
+      - "public/**"
+      - "vite.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/build-web-site.mjs"
+      - "scripts/check-site-generated.mjs"
+      - "site/index.html"
+      - "site/icon.png"
+      - "site/assets/**"
+      - ".github/workflows/site-build.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/main.tsx"
+      - "src/web/**"
+      - "src/index.css"
+      - "index.html"
+      - "public/**"
+      - "vite.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/build-web-site.mjs"
+      - "scripts/check-site-generated.mjs"
+      - "site/index.html"
+      - "site/icon.png"
+      - "site/assets/**"
+      - ".github/workflows/site-build.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-generated-browser-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22.23.1
+          cache: npm
+
+      - name: Install locked npm dependencies
+        run: npm ci --ignore-scripts --prefer-offline --no-audit --fund=false
+
+      - name: Build browser bundle
+        run: npm run web:build
+
+      - name: Check browser bundle is current
+        run: |
+          git diff --exit-code -- site ':(exclude)site/assets/ffmpeg-core-*.wasm.gz'
+          node scripts/check-site-generated.mjs
