@@ -318,7 +318,7 @@ export default function WebEditor({
   const [lastExport, setLastExport] = useState<{ name: string; bytes: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const playbackTimeRef = useRef<HTMLDivElement>(null);
+  const playbackTimeRef = useRef<HTMLSpanElement>(null);
   const loadGenerationRef = useRef(0);
   const keyframeProbeGenerationRef = useRef(0);
   const keyframeCacheRef = useRef(new WeakMap<File, number[]>());
@@ -1252,9 +1252,10 @@ export default function WebEditor({
   const handleVideoTimeUpdate = useCallback(
     (event: SyntheticEvent<HTMLVideoElement>) => {
       const video = event.currentTarget;
-      if (playbackTimeRef.current) {
+      const playbackTimeText = playbackTimeRef.current?.firstChild;
+      if (playbackTimeText) {
         const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
-        playbackTimeRef.current.textContent = `${currentTime.toFixed(1)}s / ${duration.toFixed(1)}s`;
+        playbackTimeText.nodeValue = `${currentTime.toFixed(1)}s / ${duration.toFixed(1)}s`;
       }
       const selectedEnd = endTime || duration;
       if (!video.paused && selectedEnd > startTime && video.currentTime >= selectedEnd - 0.05) {
@@ -1878,8 +1879,8 @@ export default function WebEditor({
                       </span>
                     )}
                     {activeFile && metadata && (
-                      <div ref={playbackTimeRef} className="web-preview-time-overlay">
-                        0.0s / {duration.toFixed(1)}s
+                      <div className="web-preview-time-overlay">
+                        <span ref={playbackTimeRef}>{`0.0s / ${duration.toFixed(1)}s`}</span>
                       </div>
                     )}
                   </div>

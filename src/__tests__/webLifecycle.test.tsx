@@ -141,6 +141,25 @@ describe("browser export lifecycle", () => {
     expect(queueNames()).toEqual(["sample-a.mp4", "sample-b.mp4"]);
   });
 
+  it("keeps the preview text node intact before switching to batch mode", async () => {
+    const first = file("sample-a.mp4");
+    const second = file("sample-b.mp4");
+    await selectFiles([first]);
+
+    const previewTime = container.querySelector<HTMLElement>(".web-preview-time-overlay")!;
+    const timeText = previewTime.querySelector("span")!;
+    const textNode = timeText.firstChild;
+    const video = container.querySelector<HTMLVideoElement>("video")!;
+    Object.defineProperty(video, "currentTime", { configurable: true, value: 1 });
+    await act(async () => video.dispatchEvent(new Event("timeupdate", { bubbles: true })));
+
+    expect(previewTime.textContent).toBe("1.0s / 20.0s");
+    expect(timeText.firstChild).toBe(textNode);
+
+    await selectFiles([first, second]);
+    expect(queueNames()).toEqual(["sample-a.mp4", "sample-b.mp4"]);
+  });
+
   it("keeps marketing outside editor updates while accepting drops elsewhere on the page", async () => {
     const initialMarketingRenders = mocks.marketingRender.mock.calls.length;
     const drop = new Event("drop", { bubbles: true, cancelable: true });
