@@ -152,11 +152,13 @@ try {
       console.log("WebDriver: waiting for the desktop UI to become interactive");
       await driver.wait(
         () =>
-          driver.executeScript(
-            () =>
-              Boolean(document.querySelector(".drop-zone")) &&
+          driver.executeScript(() => {
+            const rootText = document.querySelector("#root")?.textContent ?? "";
+            return (
+              rootText.includes("Drop videos or a folder") &&
               typeof window.__VIDCORD_E2E_DIALOGS__ === "object"
-          ),
+            );
+          }),
         90_000,
         "The desktop UI and E2E dialog bridge did not become interactive",
         100
