@@ -131,16 +131,20 @@ and retry oversized results with safer bitrates and CPU fallback.
   bitrate, and duration, with per-file queued, encoding, completed, failed, or cancelled states.
   Batch uses standard Compress controls only, always writes MP4 output, and provides separate
   start-trim and end-trim seconds that default to `0`. Reorder items with drag-and-drop or the
-  keyboard arrow controls, remove queued items before export, and retry failed or cancelled items
-  individually or together without rerunning completed outputs. When a trim would leave less than
-  one second, the two trim values are reduced proportionally.
+  keyboard arrow controls, remove queued items before export, or use **Clear queue** to remove all
+  queued videos at once. Retry failed or cancelled items individually or together without rerunning
+  completed outputs. Saved presets cannot be restored while Batch is active, keeping its shared
+  Compress profile intact. When a trim would leave less than one second, the two trim values are
+  reduced proportionally.
 - **Desktop parallel batch encoding** — up to two videos encode concurrently by default. If the selected
   encoder reports a device, session, or resource-contention error, remaining work continues one
   video at a time. Individual probe or encode failures do not stop the queue, and aggregate
   progress and ETA cover the whole remaining batch rather than only the currently active item.
 - **Desktop folder imports** — drop a folder, choose one or more folders with **Add Folder**, or
-  choose **Import folder in vidcord** on Windows or vidcord from a folder context menu on macOS and
-  Linux. vidcord scans subfolders, queues supported videos, and reports skipped or unreadable items.
+  choose **Import folder in vidcord** from a Windows folder menu, **Open With → vidcord** in Finder,
+  or **Open With → vidcord** in a Linux file manager. Linux AppImages register the folder action the
+  first time vidcord launches. vidcord scans subfolders, shows scan progress, queues supported
+  videos, and reports skipped or unreadable items.
 - **Five Discord target profiles** covering current Discord tiers:
   - 20 MB @ 480p — Discord free tier
   - 50 MB @ 720p — Nitro Basic / Boost Level 2
@@ -218,8 +222,9 @@ and retry oversized results with safer bitrates and CPU fallback.
 - **Desktop ways to open videos:** drag-and-drop videos or folders onto the
   window, use **Browse File** or **Add Folder**, choose vidcord from the folder
   context menu, pass command-line file arguments, or launch a second instance.
-  Selecting one video preserves the normal workflow; multiple videos activate
-  Batch mode.
+  macOS uses Finder's **Open With** menu; Linux AppImages register their folder
+  action on first launch. Selecting one video preserves the normal workflow;
+  multiple videos activate Batch mode.
 - **Source details at import** — the desktop app shows resolution, frame rate,
   codec, average bitrate, and duration from FFprobe. The browser shows the
   dimensions, container information, file-size-based bitrate estimate, and
@@ -232,10 +237,13 @@ and retry oversized results with safer bitrates and CPU fallback.
   and Dark appearances together with the app surface.
 - **Remove audio in re-encoded modes** — strip the audio track to reclaim space.
 - **Strict size checks with bounded retries** — finished files are measured
-  against the selected target. Target-size encodes apply encoder-specific
-  peak-rate bounds before adaptive correction. Hardware jobs use at most four
-  full attempts and CPU jobs use at most two, including measured bitrate
-  correction and CPU fallback before reporting the smallest result.
+  against the selected target. Long target-size video exports use a short sample
+  to improve the initial bitrate estimate. When an output is well below its size
+  limit, bounded refinement passes can use more of the available size while
+  preserving the best in-range result if a later pass fails. Target-size encodes
+  apply encoder-specific peak-rate bounds and bounded measured-bitrate correction.
+  Hardware output can fall back to CPU; if no attempt fits, vidcord reports the
+  smallest result.
 - **Real-time desktop progress** with ETA, current attempt number, encoder, and
   bitrate parsed from FFmpeg's stderr. Browser exports show in-page progress and
   ETA; Batch progress is aggregated across the applicable queue.
@@ -479,13 +487,16 @@ supported videos to activate Batch mode automatically; Browse, drag-and-drop,
 Open With, command-line file arguments, and second-instance forwarding all
 preserve the full selection.
 
-1. **Open videos** — drop videos or a folder onto the window, choose vidcord from
-   a folder's context menu, or click **Browse File** or **Add Folder**. Folder
-   imports scan subfolders and report skipped files, linked folders, or unreadable
-   items in a notification.
+1. **Open videos** — drop videos or a folder onto the window, choose **Import
+   folder in vidcord** from a Windows folder menu, **Open With → vidcord** in
+   Finder or a Linux file manager, or click **Browse File** or **Add Folder**.
+   Linux AppImages register the folder action on first launch. Folder imports scan
+   subfolders, show progress, and report skipped files, linked folders, or
+   unreadable items in a notification.
 2. **Choose where to save** — use Downloads, the imported clip's folder, a
-   remembered custom folder, or **Ask when done**. Choose whether completion
-   copies the output file or reveals it.
+   remembered custom folder, or **Ask when done**. After export, choose **Copy file**,
+   **Show in folder**, or **Do nothing**; optionally enable **Close app** after a
+   successful export.
 3. **Pick a mode or target** — choose **Compress**, **Advanced**, **Lossless
    Trim**, or **GIF**, then select a target size for that mode: 20/50/100/500 MB or 1 GB for video or
    5/10/20 MB for GIF. Compress, Advanced, and GIF Mode expose the aspect-ratio crop selector;
@@ -513,9 +524,10 @@ separate start/end trim settings. Up to two encodes run in parallel by default;
 resource contention switches the remaining queue to one-at-a-time processing.
 The queue continues after individual probe or encode failures, reports an
 aggregate ETA for the remaining work, and skips queued items when cancelled.
-Drag items or use the per-row arrows to choose the execution order before starting. After a run,
-Retry reprocesses only failed or cancelled entries; completed items and their outputs remain in
-place.
+Drag items or use the per-row arrows to choose the execution order before starting. **Clear queue**
+removes every queued video at once. After a run, Retry reprocesses only failed or cancelled entries;
+completed items and their outputs remain in place. Saved presets are disabled while Batch mode is
+active so all queued videos use the shared Compress profile.
 
 The desktop footer preset selector starts at **Autosave**. Save the current
 compression and mode settings as a named preset, restore it later, or delete it;

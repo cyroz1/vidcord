@@ -59,7 +59,7 @@ fn without_appimage_library_paths(appdir: &str, library_path: &str) -> String {
 }
 
 #[cfg(target_os = "linux")]
-fn configure_desktop_command(command: &mut Command) {
+pub(crate) fn configure_desktop_command(command: &mut Command) {
     if let (Ok(appdir), Ok(library_path)) =
         (std::env::var("APPDIR"), std::env::var("LD_LIBRARY_PATH"))
     {

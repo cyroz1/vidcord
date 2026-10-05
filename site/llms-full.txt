@@ -50,9 +50,9 @@ The desktop app compresses local video files under Discord upload limits with sy
 
 ### Desktop batch processing
 
-Selecting two or more supported videos through Browse, drag-and-drop, Open With, command-line file arguments, or a second-instance launch automatically switches the desktop app into Batch mode. One selected video keeps the normal single-video workflow. Folders can be dropped, selected in the native folder picker, or opened from a file-manager context menu; folder imports scan subfolders, queue supported video files, and report skipped non-video files, linked folders, or unreadable items. Desktop Batch uses shared standard Compress settings, supports separate start and end trim seconds for every source, runs up to two native encodes concurrently by default, and falls back to one at a time when device/session/resource contention is detected.
+Selecting two or more supported videos through Browse, drag-and-drop, Open With, command-line file arguments, or a second-instance launch automatically switches the desktop app into Batch mode. One selected video keeps the normal single-video workflow. Folders can be dropped, selected in the native folder picker, or opened from a file-manager context menu; folder imports scan subfolders with progress, queue supported video files, and report skipped non-video files, linked folders, or unreadable items. Desktop Batch uses shared standard Compress settings, supports separate start and end trim seconds for every source, runs up to two native encodes concurrently by default, and falls back to one at a time when device/session/resource contention is detected.
 
-The desktop queue probes each file and displays filename, resolution, frame rate, codec, average bitrate, duration, and status. Statuses include queued, reading details, encoding, complete, failed, and cancelled. Users can reorder the queue with drag-and-drop or keyboard arrow controls, remove queued items before export, and retry failed or cancelled items individually or together. Individual probe or encode failures do not stop the queue. Aggregate progress and ETA cover the remaining batch, and cancellation terminates active children while skipping queued items.
+The desktop queue probes each file and displays filename, resolution, frame rate, codec, average bitrate, duration, and status. Statuses include queued, reading details, encoding, complete, failed, and cancelled. Users can reorder the queue with drag-and-drop or keyboard arrow controls, remove queued items before export, use Clear queue to remove all queued videos at once, and retry failed or cancelled items individually or together. Saved presets are disabled while Batch is active so every queued video keeps the shared Compress profile. Individual probe or encode failures do not stop the queue. Aggregate progress and ETA cover the remaining batch, and cancellation terminates active children while skipping queued items.
 
 Desktop Batch outputs are collision-safe MP4 files. Direct destinations reserve one unique path per successful item. Ask when done stages successful outputs until one destination folder is chosen, then publishes them without overwriting existing files. Completion actions can copy successful outputs as one clipboard group, reveal each distinct output folder with its successful files selected, or do nothing. A separate close-after-export preference closes the app after a successful batch.
 
@@ -65,6 +65,10 @@ Both editions provide Discord target profiles for:
 - 100 MB — Boost Level 3
 - 500 MB — previous Nitro limit
 - 1 GB — Nitro
+
+For long target-size video exports, a short sample improves the initial bitrate estimate. If an
+output is well below its limit, bounded refinement passes can use more of the available size while
+preserving the best in-range result if a later pass fails.
 
 Standard mode can leave output FPS unchanged or cap it at 24, 30, or 60 FPS when the choice is below the source frame rate; the desktop app hides redundant choices when FFprobe reports the source rate, while the browser keeps Source as the only safe choice and disables custom FPS when source-rate metadata is unavailable. Advanced mode otherwise accepts a positive typed FPS value; an empty value means no frame-rate change. Standard, Advanced, and GIF Mode expose aspect-ratio crop presets: 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, and 5:4, with a native-ratio option hidden when it would be redundant.
 

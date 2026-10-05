@@ -48,6 +48,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   ├── src/
 │   │   ├── main.rs            # Thin entry — calls lib::run()
 │   │   ├── lib.rs             # Tauri builder, platform shims/theme, file-open routing
+│   │   ├── desktop_integration.rs # Linux AppImage folder Open With registration
 │   │   ├── ffmpeg.rs          # probe / preview / filmstrip / VAAPI discovery + caches
 │   │   ├── ffmpeg/
 │   │   │   └── encoders.rs    # FFmpeg encoder detection + encoder cache invalidation
@@ -398,6 +399,8 @@ Open-with / right-click → Open must work across three delivery mechanisms:
 - **Second instance launched while running**: `tauri_plugin_single_instance::init` focuses the existing window and emits `open-file` directly.
 
 The frontend registers its `open-file` listener and then invokes `frontend_ready`; that command marks the listener ready and drains `PendingFile` under the same mutex used by event delivery. `on_page_load` resets readiness at `PageLoadEvent::Started` so a WebView reload cannot emit into a stale React listener. Do **not** collapse these paths into one — each handles a real race that exists on at least one platform.
+
+Folder imports are registered as an alternate `public.folder` handler in the macOS app bundle and as `inode/directory` in Linux desktop metadata. A directly launched Linux AppImage also writes a per-user desktop entry on first launch so file managers can offer vidcord in **Open With** without requiring an AppImage integration utility. Linux file-manager arguments may arrive as `file://` URLs; normalize them before checking paths and forwarding them to the frontend. Do not make vidcord the default handler for all folders.
 
 ### Update downloads
 

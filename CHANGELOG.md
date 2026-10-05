@@ -20,6 +20,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Added **Clear queue** to remove all queued videos at once.
 - Folder scans now report progress, and desktop batch imports probe up to two videos
   concurrently while cancelling stale work when a new selection replaces the current one.
+- Saved presets are disabled during Batch mode so every queued video keeps the shared
+  Compress profile.
 
 ### Target-size exports
 

@@ -5,6 +5,8 @@ use tauri::{webview::PageLoadEvent, AppHandle, Emitter, Manager};
 use tauri_plugin_window_state::StateFlags;
 
 pub mod commands;
+#[cfg(target_os = "linux")]
+mod desktop_integration;
 mod ffmpeg;
 mod gpu;
 mod log;
@@ -68,6 +70,26 @@ fn append_pending_files(pending: &mut Option<Vec<String>>, paths: Vec<String>) {
     } else {
         *pending = Some(paths);
     }
+}
+
+fn existing_open_path(argument: &str) -> Option<String> {
+    if argument.starts_with('-') {
+        return None;
+    }
+
+    let path = match url::Url::parse(argument) {
+        Ok(url) if url.scheme() == "file" => url.to_file_path().ok()?,
+        _ => std::path::PathBuf::from(argument),
+    };
+
+    path.exists().then(|| path.to_string_lossy().into_owned())
+}
+
+fn existing_open_paths(arguments: impl IntoIterator<Item = String>) -> Vec<String> {
+    arguments
+        .into_iter()
+        .filter_map(|argument| existing_open_path(&argument))
+        .collect()
 }
 
 fn emit_or_defer_open_files(app: &AppHandle, paths: Vec<String>) {
@@ -276,11 +298,7 @@ pub fn run() {
             }
             // If the second instance was opened with a file (e.g. right-click → Open With),
             // forward that file path to the already-running frontend.
-            let paths = argv
-                .into_iter()
-                .skip(1)
-                .filter(|a| !a.starts_with('-') && std::path::Path::new(a).exists())
-                .collect::<Vec<_>>();
+            let paths = existing_open_paths(argv.into_iter().skip(1));
             if !paths.is_empty() {
                 vidcord_log(&format!(
                     "Single-instance: forwarding {} file(s) from second instance",
@@ -316,13 +334,13 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            #[cfg(target_os = "linux")]
+            desktop_integration::register_appimage_folder_open_with();
+
             // Handle CLI file argument: `vidcord myfile.mp4`
-            // Filter out macOS -psn_* pseudo-args and flag args while retaining
-            // every selected existing video for batch mode.
-            let paths = std::env::args()
-                .skip(1)
-                .filter(|arg| !arg.starts_with('-') && std::path::Path::new(arg).exists())
-                .collect::<Vec<_>>();
+            // File managers may pass local files as `file://` URLs; normalize
+            // those while retaining every selected path for batch mode.
+            let paths = existing_open_paths(std::env::args().skip(1));
             if !paths.is_empty() {
                 vidcord_log(&format!("Received {} open-file path(s)", paths.len()));
                 *app.state::<PendingFile>()
