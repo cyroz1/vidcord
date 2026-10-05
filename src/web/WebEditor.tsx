@@ -747,8 +747,10 @@ export default function WebEditor({
 
   const handleFileInput = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      acceptFiles(Array.from(event.target.files ?? []));
-      event.target.value = "";
+      const input = event.currentTarget;
+      const selectedFiles = Array.from(input.files ?? []);
+      input.value = "";
+      acceptFiles(selectedFiles);
     },
     [acceptFiles]
   );

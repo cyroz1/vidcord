@@ -441,9 +441,13 @@ async function waitForDisplayed(selector) {
 
 async function dismissAllToasts() {
   for (let index = 0; index < 50; index += 1) {
-    const dismissButtons = await browser.$$('button[aria-label^="Dismiss "]');
-    if (dismissButtons.length === 0) return;
-    await dismissButtons[0].click();
+    const dismissed = await browser.execute(() => {
+      const button = document.querySelector('button[aria-label^="Dismiss "]');
+      if (!(button instanceof HTMLButtonElement)) return false;
+      button.click();
+      return true;
+    });
+    if (!dismissed) return;
   }
   throw new Error("The desktop UI did not dismiss all queued toast notifications");
 }

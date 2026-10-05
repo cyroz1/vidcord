@@ -181,7 +181,36 @@ test("browser demo controls, all export modes, batch, and real output files", as
 
   // Batch queue selection, ordering, removal, import, and exports for both clips.
   await input.setInputFiles([sampleA, sampleB]);
-  await expect(page.getByRole("button", { name: "Move sample-a.mp4 down in queue" })).toBeVisible();
+  try {
+    await expect(
+      page.getByRole("button", { name: "Move sample-a.mp4 down in queue" })
+    ).toBeVisible();
+  } catch (error) {
+    const diagnostics = {
+      input: await input.evaluate((element) => ({
+        value: element.value,
+        disabled: element.disabled,
+        multiple: element.multiple,
+        files: Array.from(element.files ?? [], (file) => ({
+          name: file.name,
+          size: file.size,
+          type: file.type,
+        })),
+      })),
+      queueNames: await page.locator(".web-queue-name").allTextContents(),
+      notice: await page
+        .locator(".web-notice")
+        .innerText()
+        .catch(() => "<none>"),
+      exportButton: await page
+        .locator(".web-export-button")
+        .innerText()
+        .catch(() => "<unavailable>"),
+      pageErrors,
+      consoleErrors,
+    };
+    throw new Error(`${error.message}\nBatch picker diagnostics: ${JSON.stringify(diagnostics)}`);
+  }
   await page.getByRole("button", { name: "Move sample-b.mp4 up in queue" }).click();
   await expect(page.locator(".web-queue-name")).toHaveText(["sample-b.mp4", "sample-a.mp4"]);
   await page.getByRole("button", { name: "Move sample-b.mp4 down in queue" }).click();
