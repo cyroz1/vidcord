@@ -215,7 +215,7 @@ export function createSeleniumBrowser(driver) {
       const elements = await driver.findElements(locator(selector));
       return elements.map((element) => elementAdapter(driver, async () => element));
     },
-    async waitUntil(condition, { timeout = 5000, interval = 100, timeoutMsg } = {}) {
+    async waitUntil(condition, { timeout = 30_000, interval = 100, timeoutMsg } = {}) {
       await driver.wait(condition, timeout, timeoutMsg, interval);
     },
     async execute(script, ...args) {

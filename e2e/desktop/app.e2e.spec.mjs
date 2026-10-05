@@ -54,7 +54,10 @@ describe("vidcord desktop end-to-end workflow", function () {
       "Desktop E2E: custom folder chooser returned",
       await browser.execute(() => window.__VIDCORD_E2E_DIALOGS__?.openQueue.length)
     );
-    await browser.waitUntil(async () => (await outputSelect.getValue()) === "custom");
+    await browser.waitUntil(async () => (await outputSelect.getValue()) === "custom", {
+      timeout: 60_000,
+      timeoutMsg: "The output destination did not switch to the custom folder option",
+    });
     await outputSelect.selectByAttribute("value", "downloads");
     assert.equal(await outputSelect.getValue(), "downloads");
     await outputSelect.selectByAttribute("value", "source");
@@ -239,21 +242,33 @@ describe("vidcord desktop end-to-end workflow", function () {
     // and clear-queue control.
     await browser.$('button[aria-label="Import videos from a folder"]').click();
     await waitForDisplayed(".batch-queue");
-    await browser.waitUntil(async () => (await browser.$$(".batch-queue-name")).length === 2);
+    await browser.waitUntil(async () => (await browser.$$(".batch-queue-name")).length === 2, {
+      timeout: 60_000,
+      timeoutMsg: "The batch queue did not list both imported videos",
+    });
     const moveSampleBUp = await browser.$('button[aria-label="Move sample-b.mp4 up in queue"]');
     await browser.waitUntil(async () => await moveSampleBUp.isEnabled(), {
       timeout: 60_000,
       timeoutMsg: "The folder scan did not enable batch queue ordering",
     });
     await moveSampleBUp.click();
-    await browser.waitUntil(async () => (await queueNames())[0] === "sample-b.mp4");
+    await browser.waitUntil(async () => (await queueNames())[0] === "sample-b.mp4", {
+      timeout: 60_000,
+      timeoutMsg: "The batch queue did not move sample-b.mp4 to the top",
+    });
     await browser.$('button[aria-label="Move sample-b.mp4 down in queue"]').click();
-    await browser.waitUntil(async () => (await queueNames())[0] === "sample-a.mp4");
+    await browser.waitUntil(async () => (await queueNames())[0] === "sample-a.mp4", {
+      timeout: 60_000,
+      timeoutMsg: "The batch queue did not move sample-a.mp4 back to the top",
+    });
     await browser.$('button[aria-label="Remove sample-b.mp4 from queue"]').click();
     await browser.$(".batch-queue").waitForDisplayed({ reverse: true });
     await browser.$('button[aria-label="Import videos from a folder"]').click();
     await waitForDisplayed(".batch-queue");
-    await browser.waitUntil(async () => (await browser.$$(".batch-queue-name")).length === 2);
+    await browser.waitUntil(async () => (await browser.$$(".batch-queue-name")).length === 2, {
+      timeout: 60_000,
+      timeoutMsg: "The batch queue did not list both imported videos",
+    });
 
     await selectLabel("Trim from start (s)", "input").then((input) => input.setValue("0.5"));
     await selectLabel("Trim from end (s)", "input").then((input) => input.setValue("0.5"));

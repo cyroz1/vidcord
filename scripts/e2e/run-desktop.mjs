@@ -149,6 +149,28 @@ try {
         .build();
       console.log("WebDriver: session created");
       await driver.manage().setTimeouts({ implicit: 0, pageLoad: 90_000, script: 90_000 });
+      // Tauri's embedded WebDriver can hang the very first script execution for
+      // the full script timeout while the WebView session attaches (observed: a
+      // 90s ScriptTimeoutError on macOS with a fully rendered page). Warm up
+      // with a short script timeout so a hung first script fails fast and the
+      // poll retries instead of killing the run.
+      await driver.manage().setTimeouts({ implicit: 0, pageLoad: 90_000, script: 10_000 });
+      console.log("WebDriver: warming up the automation session");
+      await driver.wait(
+        async () => {
+          try {
+            await driver.executeScript(() => true);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        60_000,
+        "The WebDriver session did not become responsive",
+        500
+      );
+      await driver.manage().setTimeouts({ implicit: 0, pageLoad: 90_000, script: 90_000 });
+      console.log("WebDriver: session is responsive");
       console.log("WebDriver: waiting for the desktop UI to become interactive");
       await driver.wait(
         () =>
