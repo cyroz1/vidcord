@@ -266,5 +266,5 @@ async function exportAndSave(
     );
   }
   await download.saveAs(outputPath);
-  await expect(page.locator(".web-export-button")).toBeVisible();
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
 }
