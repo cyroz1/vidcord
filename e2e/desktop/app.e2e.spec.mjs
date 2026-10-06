@@ -308,6 +308,9 @@ describe("vidcord desktop end-to-end workflow", function () {
       timeoutMsg: "No probed video was ready for the keyboard shortcut scenario",
     });
 
+    // The trim time inputs only render in Advanced/Lossless Trim mode.
+    await clickMode("Advanced");
+
     // Ctrl/Cmd+Z undoes a trim change, Ctrl/Cmd+Shift+Z redoes it.
     await commitTrimTime('input[aria-label="Trim start time"]', "2");
     const startInput = await browser.$('input[aria-label="Trim start time"]');
