@@ -856,10 +856,12 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       vid.onseeked = null;
       vid.onerror = null;
       vid.pause();
-      if (!preserveDirectSource) {
+      if (!preserveDirectSource && (vid.readyState ?? 0) < 2) {
         vid.src = "";
         vid.load(); // abort any in-flight load
       }
+      // When the media already has data (readyState >= 2), keep the source so
+      // the paused frame stays visible instead of jumping back to the start.
     }
     if (!preserveDirectSource) {
       scrubVideoSrcRef.current = null;

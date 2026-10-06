@@ -5,6 +5,11 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ## v7.6
 
+### Preview
+
+- Stopping preview playback now holds on the current frame instead of jumping
+  back to the start.
+
 ### Export completion
 
 - Added **Do nothing** as an export action and a separate **Close app when done**
