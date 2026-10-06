@@ -436,7 +436,7 @@ when the running process has not received the updated `PATH`.
 ### Windows (aarch64 — Surface Pro X, Snapdragon PCs)
 
 vidcord tries the same `winget` setup first. If the package is unavailable for
-your ARM64 PC, see [FFMPEG_SETUP.md](FFMPEG_SETUP.md) for the community build
+your ARM64 PC, see [FFMPEG_SETUP.md](docs/FFMPEG_SETUP.md) for the community build
 and manual PATH steps.
 
 ### macOS
@@ -454,7 +454,7 @@ sudo pacman -S ffmpeg          # Arch / Manjaro
 ```
 
 For more distros, manual installs, or troubleshooting, read
-[FFMPEG_SETUP.md](FFMPEG_SETUP.md).
+[FFMPEG_SETUP.md](docs/FFMPEG_SETUP.md).
 
 ## Usage
 
@@ -669,7 +669,7 @@ frontend build, consolidated Rust formatting/audit/clippy/test checks, and a
 x86_64/aarch64). Release builds attest their installer provenance, and the
 release job verifies those attestations and creates detached Ed25519 signatures
 before drafting a GitHub release from the matching `CHANGELOG.md` section. See
-[`RELEASE_SIGNING.md`](RELEASE_SIGNING.md) for the signing-key contract.
+[`RELEASE_SIGNING.md`](docs/RELEASE_SIGNING.md) for the signing-key contract.
 
 ## Project layout
 
@@ -714,7 +714,7 @@ aliases and `Gyan.FFmpeg` package directory directly. On ARM64, it also checks
 `C:\ffmpeg` for a native build. For other install methods, quit vidcord fully
 and relaunch it so the new `PATH` is loaded; if a newly opened terminal cannot
 run both `ffmpeg -version` and `ffprobe -version`, repair the install or its
-PATH entry using the [setup guide](FFMPEG_SETUP.md).
+PATH entry using the [setup guide](docs/FFMPEG_SETUP.md).
 
 **The output file exceeds the target size.**
 Both editions retry target-based exports automatically and report when the

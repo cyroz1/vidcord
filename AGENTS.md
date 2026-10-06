@@ -95,7 +95,10 @@ Guidance for AI assistants working in this repository. Read this before making c
 ├── eslint.config.js           # ESLint flat config (TS + react-hooks)
 ├── .prettierrc                # 100-col, 2-space, double-quote, ES5 trailing commas
 ├── tsconfig.json              # Strict TS, ES2021 target, react-jsx
-├── FFMPEG_SETUP.md            # End-user FFmpeg install guide (per platform)
+├── docs/                      # End-user and contributor guides
+│   ├── FFMPEG_SETUP.md        # End-user FFmpeg install guide (per platform)
+│   ├── RELEASE_SIGNING.md     # Release signing-key contract
+│   └── THIRD_PARTY_NOTICES.md # Third-party license notices
 ├── CHANGELOG.md               # User-facing release notes
 ├── .env.example               # Optional Vite/Tauri development build variables
 └── README.md                  # Public overview

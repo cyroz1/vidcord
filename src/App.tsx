@@ -3770,7 +3770,7 @@ export default function App() {
               type="button"
               onClick={() =>
                 void openExternalUrl(
-                  "https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
+                  "https://github.com/cyroz1/vidcord/blob/main/docs/FFMPEG_SETUP.md"
                 ).catch(() => {})
               }
             >

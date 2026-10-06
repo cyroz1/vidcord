@@ -62,7 +62,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - [Browser editor demo](https://vidcord.app/#web-editor): Client-side WebAssembly video editor with local processing and browser downloads.
 - [Desktop app download section](https://vidcord.app/#download): Native application download CTA, setup notes, and platform downloads.
 - [Latest release](https://github.com/cyroz1/vidcord/releases/latest): Canonical desktop release page and binary assets.
-- [FFmpeg setup guide](https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md): Native desktop FFmpeg installation instructions.
+- [FFmpeg setup guide](https://github.com/cyroz1/vidcord/blob/main/docs/FFMPEG_SETUP.md): Native desktop FFmpeg installation instructions.
 - [README](https://github.com/cyroz1/vidcord/blob/main/README.md): Project overview, browser/desktop capability matrix, and development instructions.
 - [Changelog](https://github.com/cyroz1/vidcord/blob/main/CHANGELOG.md): User-facing release notes.
 - [Issues](https://github.com/cyroz1/vidcord/issues): Bug reports and feature requests.

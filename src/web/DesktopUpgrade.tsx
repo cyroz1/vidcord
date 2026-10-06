@@ -628,7 +628,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
               {ffmpegInfo.command ? <InlineCopyCommand command={ffmpegInfo.command} /> : null}
               <div className="ffmpeg-prereq-links">
                 <a
-                  href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
+                  href="https://github.com/cyroz1/vidcord/blob/main/docs/FFMPEG_SETUP.md"
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -1057,7 +1057,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           </div>
           <a
             className="text-link"
-            href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
+            href="https://github.com/cyroz1/vidcord/blob/main/docs/FFMPEG_SETUP.md"
             target="_blank"
             rel="noreferrer"
           >
@@ -1153,7 +1153,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <div className="ffmpeg-callout-actions">
             <a href="#ffmpeg-install">Setup steps</a>
             <a
-              href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
+              href="https://github.com/cyroz1/vidcord/blob/main/docs/FFMPEG_SETUP.md"
               target="_blank"
               rel="noreferrer"
             >
