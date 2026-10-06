@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readdirSync, statSync } from "node:fs";
+import { mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   assertGifOutput,
@@ -287,7 +287,237 @@ describe("vidcord desktop end-to-end workflow", function () {
     await browser.$('button[aria-label="Clear all videos from the queue"]').click();
     await browser.$(".batch-queue").waitForDisplayed({ reverse: true });
   });
+
+  it("imports a video through the drop handler", async function () {
+    this.timeout(12 * 60 * 1000);
+    assert.ok(sampleA, "sample video fixture was not configured");
+    await dropFiles([sampleA]);
+    await browser.$(".loaded-file-card").waitForDisplayed({ timeout: 60_000 });
+    await browser.waitUntil(async () => await browser.$(".compress-btn").isEnabled(), {
+      timeout: 60_000,
+      timeoutMsg: "The dropped sample video did not finish probing",
+    });
+    assert.match(await browser.$(".loaded-file-card").getText(), /sample-a\.mp4/);
+    console.log("Desktop E2E: drop handler imported and probed the sample");
+  });
+
+  it("handles keyboard shortcuts", async function () {
+    this.timeout(12 * 60 * 1000);
+    await browser.waitUntil(async () => await browser.$(".compress-btn").isEnabled(), {
+      timeout: 60_000,
+      timeoutMsg: "No probed video was ready for the keyboard shortcut scenario",
+    });
+
+    // Ctrl/Cmd+Z undoes a trim change, Ctrl/Cmd+Shift+Z redoes it.
+    await commitTrimTime('input[aria-label="Trim start time"]', "2");
+    const startInput = await browser.$('input[aria-label="Trim start time"]');
+    await browser.waitUntil(async () => (await startInput.getValue()).includes("2.0"), {
+      timeout: 10_000,
+      timeoutMsg: "The trim start control did not commit 2 seconds",
+    });
+    await pressShortcut({ key: "z", ctrlKey: true });
+    await browser.waitUntil(async () => (await startInput.getValue()).includes("0.0"), {
+      timeout: 10_000,
+      timeoutMsg: "Ctrl+Z did not undo the trim change",
+    });
+    await pressShortcut({ key: "z", ctrlKey: true, shiftKey: true });
+    await browser.waitUntil(async () => (await startInput.getValue()).includes("2.0"), {
+      timeout: 10_000,
+      timeoutMsg: "Ctrl+Shift+Z did not redo the trim change",
+    });
+    console.log("Desktop E2E: trim undo/redo keyboard shortcuts");
+
+    // Ctrl/Cmd+Shift+S captures a snapshot through the save dialog mock.
+    const snapshotPath = path.join(outputDirectory, "desktop-shortcut-snapshot.png");
+    await setTauriDialogMocks([[]], [[snapshotPath]]);
+    const pngBefore = fileSet(outputDirectory, ".png");
+    await pressShortcut({ key: "S", ctrlKey: true, shiftKey: true });
+    await browser.waitUntil(
+      async () => newOutputs(outputDirectory, pngBefore, ".png").length >= 1,
+      { timeout: 60_000, timeoutMsg: "The snapshot shortcut did not produce a PNG" }
+    );
+    assertPngOutput(newestOutput(outputDirectory, pngBefore, ".png"));
+    console.log("Desktop E2E: snapshot keyboard shortcut");
+  });
+
+  it("rejects corrupt and unsupported files with clear errors", async function () {
+    this.timeout(12 * 60 * 1000);
+    const corruptPath = path.join(outputDirectory, "corrupt-sample.mp4");
+    writeFileSync(corruptPath, "this is not video data, only garbage bytes");
+    await dropFiles([corruptPath]);
+    await browser.waitUntil(
+      async () => (await browser.$(".drop-label").getText()).includes("Error loading video"),
+      { timeout: 60_000, timeoutMsg: "The corrupt file did not surface a load error" }
+    );
+    console.log("Desktop E2E: corrupt file load error");
+
+    const textPath = path.join(outputDirectory, "not-a-video.txt");
+    writeFileSync(textPath, "hello");
+    await dropFiles([textPath]);
+    await browser.waitUntil(
+      async () =>
+        (await browser.execute(() =>
+          Array.from(document.querySelectorAll(".toast")).map((element) => element.textContent)
+        ).catch(() => [])
+        ).some((text) => text?.includes("No Videos Found")),
+      { timeout: 30_000, timeoutMsg: "The unsupported file did not trigger a No Videos Found toast" }
+    );
+    await dismissAllToasts();
+    console.log("Desktop E2E: unsupported file toast");
+  });
+
+  it("checks for updates against the live release feed", async function () {
+    this.timeout(12 * 60 * 1000);
+    const outdated = await invokeTauri("check_for_updates", { currentVersion: "0.0.1" });
+    assert.equal(outdated.update_available, true);
+    assert.match(outdated.latest_version ?? "", /^\d+\.\d+\.\d+$/);
+    assert.match(
+      outdated.release_url ?? "",
+      /^https:\/\/github\.com\/cyroz1\/vidcord\/releases\/tag\//
+    );
+    assert.equal(outdated.installer_available, true);
+    assert.ok((outdated.installer_name ?? "").length > 0);
+    console.log("Desktop E2E: update check found", outdated.latest_version);
+
+    const current = await invokeTauri("check_for_updates", { currentVersion: "7.6.0" });
+    assert.equal(typeof current.update_available, "boolean");
+    console.log("Desktop E2E: update check shape for the current version");
+  });
+
+  it("delivers a system notification command without throwing", async function () {
+    this.timeout(12 * 60 * 1000);
+    const delivered = await invokeTauri("send_system_notification", {
+      title: "Vidcord E2E",
+      body: "notification smoke test",
+    });
+    assert.equal(typeof delivered, "boolean");
+    console.log("Desktop E2E: system notification command resolved:", delivered);
+  });
+
+  it("reports FFmpeg availability and install status", async function () {
+    this.timeout(12 * 60 * 1000);
+    assert.equal(await invokeTauri("check_ffmpeg_available", {}), true);
+    const install = await invokeTauri("install_ffmpeg_dependency", {
+      opts: { allow_privileged: false },
+    });
+    assert.equal(install.status, "already_available");
+    const dropZoneVisible = await browser.$(".drop-zone").isDisplayed().catch(() => false);
+    const cardVisible = await browser.$(".loaded-file-card").isDisplayed().catch(() => false);
+    assert.ok(
+      dropZoneVisible || cardVisible,
+      "Expected the import UI without an FFmpeg-missing state"
+    );
+    console.log("Desktop E2E: FFmpeg available, no missing-binary UI");
+  });
+
+  it("syncs the native window theme", async function () {
+    this.timeout(12 * 60 * 1000);
+    await invokeTauri("sync_native_window_theme", { dark: true });
+    await invokeTauri("sync_native_window_theme", { dark: false });
+    const theme = await browser.execute(() => {
+      const query = window.matchMedia("(prefers-color-scheme: dark)");
+      const lightRule = Array.from(document.styleSheets).some((sheet) => {
+        try {
+          return Array.from(sheet.cssRules).some(
+            (rule) =>
+              rule instanceof CSSMediaRule &&
+              rule.media.mediaText.includes("prefers-color-scheme: light") &&
+              rule.cssText.includes("--bg")
+          );
+        } catch {
+          return false;
+        }
+      });
+      return {
+        queryWorks: query.media === "(prefers-color-scheme: dark)",
+        darkMatches: query.matches,
+        bgVar: getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(),
+        lightRuleSetsBg: lightRule,
+      };
+    });
+    assert.ok(theme.queryWorks, "The prefers-color-scheme media query is not functional");
+    assert.ok(theme.bgVar.length > 0, "Expected the --bg theme variable to be set");
+    assert.ok(theme.lightRuleSetsBg, "Expected a light-mode rule overriding --bg");
+    console.log("Desktop E2E: native theme bridge and CSS theme wiring");
+  });
+
+  it("exercises completion-action commands", async function () {
+    this.timeout(12 * 60 * 1000);
+    const target = path.join(outputDirectory, "completion-action-target.txt");
+    writeFileSync(target, "completion action probe");
+
+    // Missing files are rejected with a clear validation error.
+    const missingError = await invokeTauri("copy_file_to_clipboard", {
+      path: path.join(outputDirectory, "does-not-exist.mp4"),
+    }).then(
+      () => null,
+      (error) => String(error)
+    );
+    assert.ok(
+      missingError?.includes("no longer available"),
+      `Expected a validation error for a missing file, got: ${missingError}`
+    );
+
+    // A real file reaches the platform clipboard path. Whether the copy
+    // succeeds depends on the CI environment providing a clipboard provider.
+    const copyError = await invokeTauri("copy_file_to_clipboard", { path: target }).then(
+      () => null,
+      (error) => String(error)
+    );
+    assert.ok(
+      !copyError || !copyError.includes("no longer available"),
+      `Clipboard copy failed input validation unexpectedly: ${copyError}`
+    );
+    console.log(
+      "Desktop E2E: copy-to-clipboard",
+      copyError ? `unavailable in CI (${copyError})` : "succeeded"
+    );
+
+    // Revealing opens the OS file manager; the desktop command timeout bounds it.
+    const revealError = await invokeTauri("show_in_file_explorer", { path: target }).then(
+      () => null,
+      (error) => String(error)
+    );
+    console.log(
+      "Desktop E2E: reveal-in-explorer",
+      revealError ? `returned: ${revealError}` : "succeeded"
+    );
+  });
 });
+
+async function invokeTauri(command, args = {}) {
+  return browser.execute(
+    (cmd, cmdArgs) => {
+      const tauri = window.__TAURI__;
+      if (!tauri?.core?.invoke) throw new Error("Tauri invoke bridge is not available");
+      return tauri.core.invoke(cmd, cmdArgs);
+    },
+    command,
+    args
+  );
+}
+
+async function dropFiles(paths) {
+  const target = await browser.execute((dropPaths) => {
+    const zone = document.querySelector(".drop-zone") ?? document.querySelector(".loaded-file-card");
+    if (!zone) return null;
+    const files = dropPaths.map((filePath) => ({
+      path: filePath,
+      name: String(filePath).split(/[\\/]/).pop() ?? String(filePath),
+    }));
+    const dropEvent = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(dropEvent, "dataTransfer", { value: { files } });
+    zone.dispatchEvent(dropEvent);
+    return zone.className;
+  }, paths);
+  assert.ok(target, "No drop target was visible for the synthetic drop");
+}
+
+async function pressShortcut(eventInit) {
+  await browser.execute((init) => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true }));
+  }, eventInit);
+}
 
 async function clickMode(name) {
   const buttons = await browser.$$(".workflow-mode-selector button");
