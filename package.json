@@ -52,5 +52,8 @@
     "typescript": "^5",
     "vite": "^8.0.8",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "source-map-js": "^1.2.2"
   }
 }
