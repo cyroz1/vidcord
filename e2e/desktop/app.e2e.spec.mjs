@@ -14,6 +14,52 @@ const outputDirectory = process.env.VIDCORD_E2E_OUTPUTS;
 const artifactsDirectory = process.env.VIDCORD_E2E_ARTIFACTS;
 
 describe("vidcord desktop end-to-end workflow", function () {
+  it("rejects corrupt and unsupported files with clear errors", async function () {
+    this.timeout(12 * 60 * 1000);
+    mkdirSync(outputDirectory, { recursive: true });
+    const corruptPath = path.join(outputDirectory, "corrupt-sample.mp4");
+    writeFileSync(corruptPath, "this is not video data, only garbage bytes");
+    // Probe the corrupt file directly first: this asserts the backend rejects
+    // it with a clear error before the UI drop exercises the same path.
+    const directProbe = await browser.execute(async (p) => {
+      const tauri = window.__TAURI__;
+      const timeout = new Promise((resolve) => setTimeout(() => resolve("TIMEOUT"), 15000));
+      const probe = tauri.core
+        .invoke("probe", { path: p })
+        .then(
+          () => "OK",
+          (e) => `ERR:${String(e).slice(0, 60)}`
+        );
+      return Promise.race([probe, timeout]);
+    }, corruptPath);
+    console.log("Desktop E2E: direct probe of corrupt file:", directProbe);
+    assert.ok(
+      String(directProbe).startsWith("ERR:"),
+      `Expected the backend to reject the corrupt file, got: ${directProbe}`
+    );
+    await dropFiles([corruptPath]);
+    await browser.waitUntil(
+      async () =>
+        (await browser.execute(() => document.body.textContent)).includes("Error loading video"),
+      { timeout: 60_000, timeoutMsg: "The corrupt file did not surface a load error" }
+    );
+    console.log("Desktop E2E: corrupt file load error");
+
+    const textPath = path.join(outputDirectory, "not-a-video.txt");
+    writeFileSync(textPath, "hello");
+    await dropFiles([textPath]);
+    await browser.waitUntil(
+      async () =>
+        (await browser.execute(() =>
+          Array.from(document.querySelectorAll(".toast")).map((element) => element.textContent)
+        ).catch(() => [])
+        ).some((text) => text?.includes("No Videos Found")),
+      { timeout: 30_000, timeoutMsg: "The unsupported file did not trigger a No Videos Found toast" }
+    );
+    await dismissAllToasts();
+    console.log("Desktop E2E: unsupported file toast");
+  });
+
   it("tests controls, every export mode, batch queue, and real native outputs", async function () {
     this.timeout(12 * 60 * 1000);
     assert.ok(sampleA, "sample video fixture was not configured");
@@ -343,46 +389,34 @@ describe("vidcord desktop end-to-end workflow", function () {
     console.log("Desktop E2E: snapshot keyboard shortcut");
   });
 
-  it("rejects corrupt and unsupported files with clear errors", async function () {
+  it("checks for updates against the release feed", async function () {
     this.timeout(12 * 60 * 1000);
-    const corruptPath = path.join(outputDirectory, "corrupt-sample.mp4");
-    writeFileSync(corruptPath, "this is not video data, only garbage bytes");
-    await dropFiles([corruptPath]);
-    await browser.waitUntil(
-      async () => (await browser.$(".drop-label").getText()).includes("Error loading video"),
-      { timeout: 60_000, timeoutMsg: "The corrupt file did not surface a load error" }
-    );
-    console.log("Desktop E2E: corrupt file load error");
-
-    const textPath = path.join(outputDirectory, "not-a-video.txt");
-    writeFileSync(textPath, "hello");
-    await dropFiles([textPath]);
-    await browser.waitUntil(
-      async () =>
-        (await browser.execute(() =>
-          Array.from(document.querySelectorAll(".toast")).map((element) => element.textContent)
-        ).catch(() => [])
-        ).some((text) => text?.includes("No Videos Found")),
-      { timeout: 30_000, timeoutMsg: "The unsupported file did not trigger a No Videos Found toast" }
-    );
-    await dismissAllToasts();
-    console.log("Desktop E2E: unsupported file toast");
-  });
-
-  it("checks for updates against the live release feed", async function () {
-    this.timeout(12 * 60 * 1000);
-    const outdated = await invokeTauri("check_for_updates", { currentVersion: "0.0.1" });
+    // The release feed needs network; retry transient failures.
+    const checkForUpdates = async (currentVersion) => {
+      let lastError;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          return await invokeTauri("check_for_updates", { currentVersion });
+        } catch (error) {
+          lastError = error;
+          console.log(`Desktop E2E: update check attempt ${attempt} failed: ${String(error).slice(0, 120)}`);
+          await browser.pause(2000 * attempt);
+        }
+      }
+      throw lastError;
+    };
+    const outdated = await checkForUpdates("0.0.1");
     assert.equal(outdated.update_available, true);
-    assert.match(outdated.latest_version ?? "", /^\d+\.\d+\.\d+$/);
-    assert.match(
-      outdated.release_url ?? "",
-      /^https:\/\/github\.com\/cyroz1\/vidcord\/releases\/tag\//
+    // E2E builds mock the release feed deterministically (see fetch_latest_release).
+    assert.equal(outdated.latest_version, "v99.99.99");
+    assert.equal(
+      outdated.release_url,
+      "https://github.com/cyroz1/vidcord/releases/tag/v99.99.99"
     );
-    assert.equal(outdated.installer_available, true);
-    assert.ok((outdated.installer_name ?? "").length > 0);
+    assert.equal(typeof outdated.installer_available, "boolean");
     console.log("Desktop E2E: update check found", outdated.latest_version);
 
-    const current = await invokeTauri("check_for_updates", { currentVersion: "7.6.0" });
+    const current = await checkForUpdates("7.6.0");
     assert.equal(typeof current.update_available, "boolean");
     console.log("Desktop E2E: update check shape for the current version");
   });

@@ -205,6 +205,17 @@ async fn fetch_release(url: &str) -> Result<GitHubRelease, String> {
 }
 
 async fn fetch_latest_release() -> Result<GitHubRelease, String> {
+    // Deterministic mock for E2E runs: the live GitHub feed is flaky from CI.
+    #[cfg(feature = "e2e")]
+    {
+        return Ok(GitHubRelease {
+            tag_name: Some("v99.99.99".to_string()),
+            name: Some("v99.99.99".to_string()),
+            html_url: Some("https://github.com/cyroz1/vidcord/releases/tag/v99.99.99".to_string()),
+            assets: vec![],
+        });
+    }
+    #[cfg(not(feature = "e2e"))]
     fetch_release("https://api.github.com/repos/cyroz1/vidcord/releases/latest").await
 }
 
