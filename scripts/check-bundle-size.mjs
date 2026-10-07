@@ -40,7 +40,11 @@ const limits = {
   // in the web export planner) adds a small amount of export code; allow 1 KiB for it.
   // The target-size refinement (best-fit output tracking, sibling-file refinement passes,
   // and refinement failure fallbacks) adds a little more; allow 1 KiB for it.
-  javascriptRaw: 515 * 1024,
+  // The in-app bug-report dialog (desktop footer button, accessible dialog, log
+  // collection) and the website feedback section (form posting to the same
+  // report endpoint) add user-visible reporting UI to both editions; allow
+  // 7 KiB for them.
+  javascriptRaw: 522 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
   // Keep 1 KiB of cross-runtime margin while retaining the tight raw-byte guard above.
   // The donate footer link and website support section add a shared links module plus
@@ -49,7 +53,9 @@ const limits = {
   // 7.5's per-pass progress/ETA and preview-clip audio add a little more; allow 1 KiB for them.
   // 7.6 adds recursive folder imports and queue controls; allow 2 KiB for their compressed code.
   // The direct playback updates add a small amount of compressed code without per-frame React work.
-  javascriptGzip: 162 * 1024,
+  // The in-app bug-report dialog and website feedback section add reporting UI
+  // to both editions; allow 2 KiB for their compressed code.
+  javascriptGzip: 164 * 1024,
   // The browser editor also carries the integrated desktop feature story, responsive layout,
   // and the platform-aware download/architecture-choice surfaces.
   cssGzip: 18.5 * 1024,
