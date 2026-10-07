@@ -329,10 +329,126 @@ fn ffmpeg_available_fresh() -> bool {
 }
 
 #[cfg(target_os = "linux")]
-fn run_shell(command: &str) -> std::io::Result<std::process::ExitStatus> {
-    std::process::Command::new("sh")
-        .args(["-lc", command])
+fn shell_quote(arg: &str) -> String {
+    format!("'{}'", arg.replace('\'', "'\\''"))
+}
+
+/// `apt-get update` plus a package install can take minutes on slow mirrors.
+#[cfg(target_os = "linux")]
+const PRIVILEGED_INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// True when sudo can run without prompting (NOPASSWD entry or a cached
+/// timestamp), so `sudo -n` will not fail outright.
+#[cfg(target_os = "linux")]
+fn passwordless_sudo_available() -> bool {
+    std::process::Command::new("sudo")
+        .args(["-n", "true"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+/// Terminal emulators that stay in the foreground, with the extra args needed
+/// to run a command in them. `gnome-terminal` daemonizes by default, so it
+/// needs `--wait`; `x-terminal-emulator` is the Debian alternatives shim and
+/// is only a last resort because it can resolve to a daemonizing terminal.
+#[cfg(target_os = "linux")]
+fn find_terminal_emulator() -> Option<(&'static str, &'static [&'static str])> {
+    const TERMINALS: &[(&str, &[&str])] = &[
+        ("konsole", &["-e"]),
+        ("xfce4-terminal", &["-e"]),
+        ("xterm", &["-e"]),
+        ("alacritty", &["-e"]),
+        ("gnome-terminal", &["--wait", "--"]),
+        ("x-terminal-emulator", &["-e"]),
+    ];
+    TERMINALS
+        .iter()
+        .copied()
+        .find(|(binary, _)| command_exists(binary))
+}
+
+/// Run the package-manager install command with elevated privileges, trying
+/// each escalation method in turn:
+/// 1. passwordless `sudo -n` (NOPASSWD entry or cached credentials),
+/// 2. `pkexec` (graphical polkit prompt),
+/// 3. interactive `sudo` inside a terminal emulator, where the user types
+///    their password at a real sudo prompt.
+///
+/// Install commands are idempotent (`apt-get update`, `install -y`), so a
+/// method that fails cleanly falls through to the next one. Returns the first
+/// successful output; otherwise the most informative failure output (sudo and
+/// pkexec capture the real stderr, a terminal emulator's own output is
+/// empty); `None` on timeout; or an error when no escalation method could be
+/// launched at all.
+#[cfg(target_os = "linux")]
+fn run_privileged_install(install_cmd: &str) -> std::io::Result<Option<std::process::Output>> {
+    let quoted = shell_quote(install_cmd);
+    let mut attempts: Vec<std::process::Command> = Vec::new();
+
+    if passwordless_sudo_available() {
+        let mut cmd = std::process::Command::new("sh");
+        cmd.args(["-lc", format!("sudo -n sh -lc {quoted}").as_str()]);
+        attempts.push(cmd);
+    }
+
+    if command_exists("pkexec") {
+        let mut cmd = std::process::Command::new("sh");
+        cmd.args(["-lc", format!("pkexec sh -lc {quoted}").as_str()]);
+        attempts.push(cmd);
+    }
+
+    if let Some((terminal, extra_args)) = find_terminal_emulator() {
+        let mut cmd = std::process::Command::new(terminal);
+        let inner = format!("sudo sh -lc {quoted}");
+        let mut args: Vec<&str> = extra_args.to_vec();
+        args.extend(["sh", "-lc", inner.as_str()]);
+        cmd.args(args);
+        attempts.push(cmd);
+    }
+
+    if attempts.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "no privilege escalation method found (need pkexec, sudo, or a terminal emulator)",
+        ));
+    }
+
+    let mut informative_failure: Option<std::process::Output> = None;
+    for mut attempt in attempts {
+        match spawn_captured_command(&mut attempt)
+            .and_then(|child| child.wait_for_output(PRIVILEGED_INSTALL_TIMEOUT))
+        {
+            Ok(Some(output)) if output.status.success() => return Ok(Some(output)),
+            Ok(Some(output)) => {
+                if informative_failure.is_none() {
+                    informative_failure = Some(output);
+                }
+            }
+            Ok(None) | Err(_) => {}
+        }
+    }
+    Ok(informative_failure)
+}
+
+/// Last few lines of stderr for failure diagnostics. Package-manager errors
+/// ("a password is required", "Unable to locate package", ...) are what the
+/// user needs to see instead of a bare exit code.
+#[cfg(target_os = "linux")]
+fn stderr_tail(stderr: &[u8]) -> String {
+    const MAX_LINES: usize = 6;
+    const MAX_CHARS: usize = 600;
+    let text = String::from_utf8_lossy(stderr);
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(MAX_LINES);
+    let mut tail = lines[start..].join("\n").trim().to_string();
+    let char_count = tail.chars().count();
+    if char_count > MAX_CHARS {
+        tail = tail.chars().skip(char_count - MAX_CHARS).collect();
+    }
+    tail
 }
 
 #[tauri::command]
@@ -564,20 +680,7 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
                 };
             }
 
-            let status_result = if command_exists("pkexec") {
-                run_shell(&format!("pkexec sh -lc '{}'", install_cmd.replace('\'', "'\\''")))
-            } else if command_exists("sudo") {
-                run_shell(&format!("sudo -n sh -lc '{}'", install_cmd.replace('\'', "'\\''")))
-            } else {
-                return FfmpegInstallResult {
-                    status: "failed".to_string(),
-                    message:
-                        "No privilege escalation tool found (pkexec/sudo). Install FFmpeg manually."
-                            .to_string(),
-                    hint_command: Some(format!("sudo {install_cmd}")),
-                    guide_url: Some("https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md".to_string()),
-                };
-            };
+            let install_result = run_privileged_install(install_cmd);
 
             // Fedora's official repos do not ship ffmpeg, so a bare dnf install
             // fails on stock systems. Point dnf users at the RPM Fusion
@@ -591,8 +694,8 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
                 Some(format!("sudo {install_cmd}"))
             };
 
-            match status_result {
-                Ok(status) if status.success() => {
+            match install_result {
+                Ok(Some(output)) if output.status.success() => {
                     if ffmpeg_available_fresh() {
                         FfmpegInstallResult {
                             status: "installed".to_string(),
@@ -611,19 +714,35 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
                         }
                     }
                 }
-                Ok(status) => FfmpegInstallResult {
+                Ok(Some(output)) => {
+                    let code = output
+                        .status
+                        .code()
+                        .map(|c| c.to_string())
+                        .unwrap_or_else(|| "terminated by signal".to_string());
+                    let detail = stderr_tail(&output.stderr);
+                    let message = if detail.is_empty() {
+                        format!("Linux install command failed with exit code {code}.")
+                    } else {
+                        format!("Linux install command failed with exit code {code}:\n{detail}")
+                    };
+                    FfmpegInstallResult {
+                        status: "failed".to_string(),
+                        message,
+                        hint_command: failure_hint.clone(),
+                        guide_url: Some("https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md".to_string()),
+                    }
+                }
+                Ok(None) => FfmpegInstallResult {
                     status: "failed".to_string(),
-                    message: format!(
-                        "Linux install command failed with exit code {}.",
-                        status.code().unwrap_or(-1)
-                    ),
+                    message: "Linux install command timed out after 10 minutes. If a terminal opened for your sudo password, finish it there and retry.".to_string(),
                     hint_command: failure_hint.clone(),
                     guide_url: Some("https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md".to_string()),
                 },
                 Err(err) => FfmpegInstallResult {
                     status: "failed".to_string(),
-                    message: format!("Failed to run Linux install command: {err}"),
-                    hint_command: failure_hint,
+                    message: format!("Could not elevate privileges: {err}. Install FFmpeg manually."),
+                    hint_command: Some(format!("sudo {install_cmd}")),
                     guide_url: Some("https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md".to_string()),
                 },
             }

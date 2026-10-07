@@ -131,6 +131,9 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   quit, replace, and relaunch instructions instead of opening a second instance that exits.
 - Improved Linux FFmpeg installation by refreshing apt package lists first and pointing Fedora
   users to the RPM Fusion setup step when ffmpeg is unavailable from the default repositories.
+- Fixed the Linux FFmpeg installer failing with a bare exit code when sudo requires a
+  password. It now tries passwordless sudo, then a polkit prompt, then interactive sudo
+  in a terminal emulator, and reports the package manager's actual error on failure.
 - Documented AppImage executable and FUSE requirements, updated the Tauri CLI to 2.11.5 to fix
   missing AppImage icon metadata, and the release workflow now publishes tagged releases
   immediately so the in-app updater can see them.
