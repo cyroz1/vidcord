@@ -2,6 +2,9 @@ name: Multi-Platform Build
 
 on:
   push:
+    # NOTE: the "+" here is a one-or-more quantifier in GitHub's filter
+    # matching (verified: pushes to 7.6 trigger this workflow), not a
+    # literal plus. It matches exactly X.Y version branches.
     branches: [main, "[0-9]+.[0-9]+"]
     tags:
       - "v*"
@@ -25,6 +28,7 @@ on:
       - "tools/tauri-cli/**"
       - ".github/workflows/**"
   pull_request:
+    # Same "+" quantifier semantics as the push filter above.
     branches: [main, "[0-9]+.[0-9]+"]
     paths:
       # Same app-source filter as push: PRs that only touch docs, the site,
@@ -60,6 +64,7 @@ jobs:
   # surfaces TypeScript / lint errors before any Rust compilation starts.
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -115,6 +120,7 @@ jobs:
     # Match the Linux x86_64 bundle runner so both apt and Rust caches are
     # distro-compatible and reusable by the gated build job.
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -223,6 +229,9 @@ jobs:
             artifact-name: vidcord-macos
 
     runs-on: ${{ matrix.platform }}
+    # Full Tauri builds are the slowest jobs here; bound them well below the
+    # 6-hour runner default so a hang fails fast instead of burning minutes.
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -316,8 +325,10 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts
+          # Single-quoted: backslash is literal in PowerShell wildcards, so
+          # this matches the ...\bundle\nsis\ output directory explicitly.
           Get-ChildItem -Path src-tauri\target -Recurse -Filter *.exe |
-            Where-Object { $_.DirectoryName -like "*bundle\nsis*" } |
+            Where-Object { $_.DirectoryName -like '*\bundle\nsis\*' } |
             ForEach-Object { Copy-Item $_.FullName -Destination artifacts\ }
 
       - name: Normalize AppImage payload permissions (Linux)
@@ -330,7 +341,22 @@ jobs:
           # Extract the payload, normalize to world-readable/executable, and
           # repack with appimagetool so the shipped AppImage works for everyone.
           arch_name="${{ matrix.arch == 'x86_64' && 'amd64' || 'aarch64' }}"
-          appimage="$(ls artifacts/vidcord_*"${arch_name}".AppImage)"
+          tool_arch="${{ matrix.arch == 'x86_64' && 'x86_64' || 'aarch64' }}"
+
+          # Pinned appimagetool 1.9.1 with SHA-256 verification. The rolling
+          # "continuous" build is a supply-chain risk for a tool that repacks
+          # the shipped AppImage, so never go back to unpinned continuous.
+          declare -A appimagetool_sha256=(
+            [x86_64]=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb
+            [aarch64]=f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158
+          )
+
+          mapfile -t appimages < <(compgen -G "artifacts/vidcord_*_${arch_name}.AppImage" || true)
+          if [ "${#appimages[@]}" -ne 1 ]; then
+            echo "expected exactly one AppImage, found ${#appimages[@]}" >&2
+            exit 1
+          fi
+          appimage="${appimages[0]}"
           asset_name="$(basename "$appimage")"
           appimage_abs="$(realpath "$appimage")"
           chmod +x "$appimage_abs"
@@ -339,9 +365,9 @@ jobs:
           trap 'rm -rf "$work"' EXIT
           cd "$work"
 
-          tool_arch="${{ matrix.arch == 'x86_64' && 'x86_64' || 'aarch64' }}"
-          curl -sSL -o appimagetool.AppImage \
-            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${tool_arch}.AppImage"
+          curl -fsSL -o appimagetool.AppImage \
+            "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-${tool_arch}.AppImage"
+          echo "${appimagetool_sha256[$tool_arch]}  appimagetool.AppImage" | sha256sum -c -
           chmod +x appimagetool.AppImage
 
           "$appimage_abs" --appimage-extract >/dev/null
@@ -375,6 +401,7 @@ jobs:
   sign-release-artifacts:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: read
@@ -451,6 +478,7 @@ jobs:
   publish-release:
     needs: sign-release-artifacts
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write

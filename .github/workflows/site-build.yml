@@ -40,6 +40,7 @@ concurrency:
 jobs:
   verify-generated-browser-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -68,6 +69,7 @@ jobs:
     needs: verify-generated-browser-build
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
