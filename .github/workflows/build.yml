@@ -326,9 +326,11 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path artifacts
           # Single-quoted: backslash is literal in PowerShell wildcards, so
-          # this matches the ...\bundle\nsis\ output directory explicitly.
+          # this matches executables directly inside the ...\bundle\nsis
+          # output directory. (No trailing backslash: DirectoryName never
+          # ends with a separator.)
           Get-ChildItem -Path src-tauri\target -Recurse -Filter *.exe |
-            Where-Object { $_.DirectoryName -like '*\bundle\nsis\*' } |
+            Where-Object { $_.DirectoryName -like '*\bundle\nsis' } |
             ForEach-Object { Copy-Item $_.FullName -Destination artifacts\ }
 
       - name: Normalize AppImage payload permissions (Linux)
@@ -347,7 +349,7 @@ jobs:
           # "continuous" build is a supply-chain risk for a tool that repacks
           # the shipped AppImage, so never go back to unpinned continuous.
           declare -A appimagetool_sha256=(
-            [x86_64]=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb
+            [x86_64]=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
             [aarch64]=f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158
           )
 
