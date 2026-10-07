@@ -25,7 +25,6 @@ const dialogStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   boxShadow: "var(--shadow-overlay)",
-  background: "var(--surface)",
 };
 
 const titleBarStyle: CSSProperties = {

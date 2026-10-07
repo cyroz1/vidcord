@@ -1607,6 +1607,16 @@ select optgroup {
   }
 }
 
+.feedback-dialog {
+  background: rgb(28, 28, 32);
+}
+
+@media (prefers-color-scheme: light) {
+  .feedback-dialog {
+    background: rgb(248, 248, 250);
+  }
+}
+
 /* ── Trim section (Glass Card) ───────────────────────────────────────── */
 .trim-section {
   position: relative;
