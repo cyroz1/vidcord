@@ -374,6 +374,16 @@ export function sendSystemNotification(title: string, body: string): Promise<boo
   return invoke<boolean>("send_system_notification", { title, body });
 }
 
+export type BugReport = {
+  subject: string;
+  body: string;
+  reportPath: string;
+};
+
+export function collectBugReport(description: string | null): Promise<BugReport> {
+  return invoke<BugReport>("collect_bug_report", { description });
+}
+
 export function captureSnapshot(
   inputPath: string,
   time: number,

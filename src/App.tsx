@@ -13,6 +13,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 import Toast from "./components/Toast";
+import FeedbackDialog from "./components/FeedbackDialog";
 import ExportSection from "./components/ExportSection";
 import PreviewPane, { type PreviewHandle } from "./components/PreviewPane";
 import TrimTimeline, { type SnapMode } from "./components/TrimTimeline";
@@ -123,9 +124,30 @@ const DISPLAY_VERSION = (() => {
   return patch ? `v${major}.${minor}.${patch}` : `v${major}.${minor}`;
 })();
 
-const FOOTER_META = (
-  <div className="footer-meta">
-    <span className="version">{DISPLAY_VERSION}</span>
+function FooterMeta({ onFeedbackClick }: { onFeedbackClick: () => void }) {
+  return (
+    <div className="footer-meta">
+      <span className="version">{DISPLAY_VERSION}</span>
+      <button
+        type="button"
+        onClick={onFeedbackClick}
+        className="gh-link feedback-button"
+        aria-label="Report a bug"
+        title="Report a bug"
+      >
+        <svg
+          viewBox="0 0 16 16"
+          width="16"
+          height="16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          aria-hidden="true"
+        >
+          <rect x="1.5" y="3.5" width="13" height="9" rx="1.5" />
+          <path d="m2.5 5 5.5 4 5.5-4" />
+        </svg>
+      </button>
     <a
       href="https://vidcord.app/"
       onClick={(e) => {
@@ -175,8 +197,9 @@ const FOOTER_META = (
         <path d="M8 14C4 10.5 2 8 2 5.8 2 3.8 3.6 2.4 5.4 2.4c1.2 0 2.2.7 2.6 1.8.4-1.1 1.4-1.8 2.6-1.8 1.8 0 3.4 1.4 3.4 3.4 0 2.2-2 4.7-6 8.2Z" />
       </svg>
     </a>
-  </div>
-);
+    </div>
+  );
+}
 
 const QUALITY_PRESETS = [
   { index: 0, label: "20MB, 480p", size_mb: 20, target_h: 480 },
@@ -491,6 +514,7 @@ export default function App() {
   // File state is declared before encoder discovery so the startup refresh can
   // yield to a cold Open With / drag-drop probe instead of competing for FFmpeg.
   const [filePath, setFilePath] = useState<string | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [batchPaths, setBatchPaths] = useState<string[]>([]);
   const [batchQueue, setBatchQueue] = useState<BatchQueueItem[]>([]);
   const [pathPlatform, setPathPlatform] = useState<VideoPathPlatform>(() =>
@@ -4621,7 +4645,7 @@ export default function App() {
 
         {/* Footer stays outside the scroll area so it remains anchored to the window. */}
         <div className="footer">
-          {FOOTER_META}
+          <FooterMeta onFeedbackClick={() => setFeedbackOpen(true)} />
           <Suspense
             fallback={
               <span className="settings-presets" aria-hidden="true">
@@ -4654,6 +4678,9 @@ export default function App() {
           <EncodersDialog text={encodersDialogText} onClose={closeEncodersDialog} />
         </Suspense>
       )}
+
+      {/* Bug report dialog */}
+      {feedbackOpen && <FeedbackDialog onClose={() => setFeedbackOpen(false)} />}
     </div>
   );
 }

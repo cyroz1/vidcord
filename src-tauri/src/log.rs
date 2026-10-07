@@ -7,6 +7,11 @@ static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
 // Persistent file handle — opened once in setup_crash_log(), reused for every write.
 static LOG_FILE: OnceLock<Mutex<Option<File>>> = OnceLock::new();
 
+/// Filesystem location of the app log, for bug-report collection.
+pub fn log_file_path() -> PathBuf {
+    log_path().clone()
+}
+
 fn log_path() -> &'static PathBuf {
     LOG_PATH.get_or_init(|| {
         let base = dirs::data_local_dir()

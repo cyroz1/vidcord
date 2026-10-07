@@ -2410,6 +2410,13 @@ select optgroup {
   opacity: 1;
   color: var(--accent);
 }
+button.gh-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
 
 .preview-pane {
   align-self: center;
