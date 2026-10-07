@@ -30,7 +30,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: https://asset.localhost http://asset.localhost file:; media-src 'self' blob: asset: https://asset.localhost http://asset.localhost file:; connect-src ipc: http://ipc.localhost",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: https://asset.localhost http://asset.localhost file:; media-src 'self' blob: asset: https://asset.localhost http://asset.localhost file:; connect-src ipc: http://ipc.localhost https://vidcord.app",
       "assetProtocol": {
         "enable": true,
         "scope": [
