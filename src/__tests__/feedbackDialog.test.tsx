@@ -3,7 +3,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
-import FeedbackDialog, { FEEDBACK_EMAIL } from "../components/FeedbackDialog";
+import FeedbackDialog from "../components/FeedbackDialog";
+import { FEEDBACK_EMAIL, FEEDBACK_ENDPOINT } from "../feedback";
 import { collectBugReport } from "../ipc";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
@@ -22,12 +23,31 @@ function mount() {
   return act(async () => root!.render(<FeedbackDialog onClose={() => {}} />));
 }
 
+function setTextarea(text: string) {
+  const textarea = container!.querySelector("textarea")!;
+  return act(async () => {
+    const nativeSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLTextAreaElement.prototype,
+      "value"
+    )!.set!;
+    nativeSetter.call(textarea, text);
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function sendButton() {
+  return Array.from(container!.querySelectorAll("button")).find((b) =>
+    b.textContent?.includes("Send report")
+  )!;
+}
+
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = null;
   container?.remove();
   container = null;
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 const REPORT = {
@@ -38,61 +58,62 @@ const REPORT = {
 
 it("renders the description box and explains what gets included", async () => {
   await mount();
-  const textarea = container!.querySelector("textarea");
-  expect(textarea).not.toBeNull();
+  expect(container!.querySelector("textarea")).not.toBeNull();
   expect(container!.textContent).toContain("last 100 lines of the app log");
-  expect(container!.textContent).toContain(FEEDBACK_EMAIL);
+  expect(container!.textContent).toContain("Sends directly to the developer");
 });
 
-it("sends the typed description and opens the mail app with the report", async () => {
+it("sends the typed description to the endpoint", async () => {
   vi.mocked(collectBugReport).mockResolvedValue(REPORT);
+  const fetchMock = vi.fn(
+    async (_url: string, _init: RequestInit): Promise<Response> =>
+      new Response(JSON.stringify({ ok: true }), { status: 200 })
+  );
+  vi.stubGlobal("fetch", fetchMock);
   await mount();
-
-  const textarea = container!.querySelector("textarea")!;
-  // Set the value the React way so onChange fires.
-  await act(async () => {
-    const nativeSetter = Object.getOwnPropertyDescriptor(
-      window.HTMLTextAreaElement.prototype,
-      "value"
-    )!.set!;
-    nativeSetter.call(textarea, "export blew up");
-    textarea.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-
-  const sendButton = Array.from(container!.querySelectorAll("button")).find((b) =>
-    b.textContent?.includes("Open email app")
-  )!;
-  await act(async () => sendButton.click());
+  await setTextarea("export blew up");
+  await act(async () => sendButton().click());
 
   expect(collectBugReport).toHaveBeenCalledWith("export blew up");
-  const mailto = vi.mocked(openUrl).mock.calls[0][0] as string;
-  expect(mailto.startsWith(`mailto:${FEEDBACK_EMAIL}?subject=`)).toBe(true);
-  expect(mailto).toContain(encodeURIComponent(REPORT.subject));
-  expect(mailto).toContain(encodeURIComponent(REPORT.body));
+  expect(fetchMock).toHaveBeenCalledOnce();
+  const [url, init] = fetchMock.mock.calls[0];
+  expect(url).toBe(FEEDBACK_ENDPOINT);
+  expect(init.method).toBe("POST");
+  expect(new Headers(init.headers).get("X-Vidcord-Feedback")).toBeTruthy();
+  expect(JSON.parse(init.body as string)).toEqual({ subject: REPORT.subject, body: REPORT.body });
+  expect(container!.textContent).toContain("Report sent");
   expect(container!.textContent).toContain(REPORT.reportPath);
 });
 
 it("passes null when the description is left empty", async () => {
   vi.mocked(collectBugReport).mockResolvedValue(REPORT);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("{}", { status: 200 }))
+  );
   await mount();
-
-  const sendButton = Array.from(container!.querySelectorAll("button")).find((b) =>
-    b.textContent?.includes("Open email app")
-  )!;
-  await act(async () => sendButton.click());
-
+  await act(async () => sendButton().click());
   expect(collectBugReport).toHaveBeenCalledWith(null);
 });
 
-it("shows an error when report collection fails", async () => {
-  vi.mocked(collectBugReport).mockRejectedValue(new Error("disk full"));
+it("falls back to the mail app when the endpoint fails", async () => {
+  vi.mocked(collectBugReport).mockResolvedValue(REPORT);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("nope", { status: 503 }))
+  );
   await mount();
+  await act(async () => sendButton().click());
 
-  const sendButton = Array.from(container!.querySelectorAll("button")).find((b) =>
-    b.textContent?.includes("Open email app")
+  expect(container!.querySelector('[role="alert"]')?.textContent).toContain("503");
+  const fallback = Array.from(container!.querySelectorAll("button")).find((b) =>
+    b.textContent?.includes("Open in mail app instead")
   )!;
-  await act(async () => sendButton.click());
+  await act(async () => fallback.click());
 
-  expect(container!.querySelector('[role="alert"]')?.textContent).toContain("disk full");
-  expect(openUrl).not.toHaveBeenCalled();
+  const mailto = vi.mocked(openUrl).mock.calls[0][0] as string;
+  expect(mailto.startsWith(`mailto:${FEEDBACK_EMAIL}?subject=`)).toBe(true);
+  expect(mailto).toContain(encodeURIComponent(REPORT.subject));
+  expect(mailto).toContain(encodeURIComponent(REPORT.body));
+  expect(container!.textContent).toContain(REPORT.reportPath);
 });

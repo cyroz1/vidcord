@@ -1,0 +1,13 @@
+{
+  "compatibility_date": "2026-10-01",
+  "main": "src/index.js",
+  "name": "vidcord-feedback",
+  "routes": [
+    {
+      "pattern": "vidcord.app/api/feedback*",
+      "zone_name": "vidcord.app"
+    }
+  ],
+  "workers_dev": false,
+  "account_id": "9bd9bff3d5ed7690dbe84745332eec01"
+}

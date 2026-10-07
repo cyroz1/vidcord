@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { collectBugReport } from "../ipc";
+import { buildMailto, FEEDBACK_EMAIL, sendBugReport } from "../feedback";
+import { collectBugReport, type BugReport } from "../ipc";
 
 type Props = { onClose: () => void };
-
-export const FEEDBACK_EMAIL = "owner@vidcord.app";
 
 const FOCUSABLE_SELECTOR =
   "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), " +
@@ -131,7 +130,9 @@ export default function FeedbackDialog({ onClose }: Props) {
   const [description, setDescription] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sentPath, setSentPath] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
+  const [report, setReport] = useState<BugReport | null>(null);
+  const [mailed, setMailed] = useState(false);
 
   const requestClose = useCallback(() => {
     if (closingRef.current) return;
@@ -199,20 +200,28 @@ export default function FeedbackDialog({ onClose }: Props) {
     setSending(true);
     setError(null);
     try {
-      const report = await collectBugReport(description.trim() === "" ? null : description);
-      const mailto =
-        `mailto:${FEEDBACK_EMAIL}` +
-        `?subject=${encodeURIComponent(report.subject)}` +
-        `&body=${encodeURIComponent(report.body)}`;
-      const { openUrl } = await import("@tauri-apps/plugin-opener");
-      await openUrl(mailto);
-      setSentPath(report.reportPath);
+      const collected = await collectBugReport(description.trim() === "" ? null : description);
+      setReport(collected);
+      await sendBugReport(collected);
+      setSent(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSending(false);
     }
   }, [description]);
+
+  const handleMailtoFallback = useCallback(async () => {
+    if (!report) return;
+    try {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      await openUrl(buildMailto(report));
+      setMailed(true);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [report]);
 
   return (
     <div
@@ -249,7 +258,7 @@ export default function FeedbackDialog({ onClose }: Props) {
         </div>
 
         <div style={contentStyle}>
-          {sentPath === null ? (
+          {!sent && !mailed ? (
             <>
               <label
                 htmlFor="feedback-description"
@@ -267,49 +276,71 @@ export default function FeedbackDialog({ onClose }: Props) {
                 disabled={sending}
               />
               <p style={noteStyle}>
-                The report includes your Vidcord version, operating system, and the last 100 lines
-                of the app log. It opens in your mail app addressed to {FEEDBACK_EMAIL} — review
-                everything before you hit send. A full copy is also saved on disk.
+                Sends directly to the developer. The report includes your Vidcord version, operating
+                system, and the last 100 lines of the app log. A full copy is also saved on your
+                disk.
               </p>
               {error !== null && (
-                <p style={errorStyle} role="alert">
-                  Couldn't build the report: {error}
-                </p>
+                <>
+                  <p style={errorStyle} role="alert">
+                    Couldn't send the report: {error}
+                  </p>
+                  {report !== null && (
+                    <p style={noteStyle}>
+                      You can still send it through your mail app instead — everything is already
+                      filled in, addressed to {FEEDBACK_EMAIL}.
+                    </p>
+                  )}
+                </>
               )}
             </>
           ) : (
             <>
               <p style={{ ...noteStyle, fontSize: "13px", color: "var(--text)" }}>
-                Your mail app should now have the report ready — review it and hit send there.
+                {sent
+                  ? "Report sent — thanks for helping improve Vidcord."
+                  : "Your mail app should now have the report ready — review it and hit send there."}
               </p>
-              <p style={noteStyle}>
-                A full copy was saved to:
-                <br />
-                <span style={pathStyle}>{sentPath}</span>
-              </p>
+              {report !== null && (
+                <p style={noteStyle}>
+                  A full copy was saved to:
+                  <br />
+                  <span style={pathStyle}>{report.reportPath}</span>
+                </p>
+              )}
             </>
           )}
         </div>
 
         <div style={footerStyle}>
-          {sentPath === null ? (
+          {sent || mailed ? (
+            <button type="button" onClick={requestClose} style={buttonStyle}>
+              Done
+            </button>
+          ) : (
             <>
               <button type="button" onClick={requestClose} style={buttonStyle} disabled={sending}>
                 Cancel
               </button>
+              {error !== null && report !== null && (
+                <button
+                  type="button"
+                  onClick={() => void handleMailtoFallback()}
+                  style={buttonStyle}
+                  disabled={sending}
+                >
+                  Open in mail app instead
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => void handleSend()}
                 style={primaryButtonStyle}
                 disabled={sending}
               >
-                {sending ? "Preparing…" : "Open email app"}
+                {sending ? "Sending…" : "Send report"}
               </button>
             </>
-          ) : (
-            <button type="button" onClick={requestClose} style={buttonStyle}>
-              Done
-            </button>
           )}
         </div>
       </div>
