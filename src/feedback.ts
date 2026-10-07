@@ -8,7 +8,7 @@ export const FEEDBACK_EMAIL = "owner@vidcord.app";
 // and update this file if it is ever abused.
 const FEEDBACK_TOKEN = "f22f96ae239e38e444762f18c399cec9e74ee5302a9f4300998639b0364a277a";
 
-export async function sendBugReport(report: BugReport): Promise<void> {
+export async function sendBugReport(report: Pick<BugReport, "subject" | "body">): Promise<void> {
   const res = await fetch(FEEDBACK_ENDPOINT, {
     method: "POST",
     headers: {

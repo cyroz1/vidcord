@@ -1248,6 +1248,81 @@ main {
   text-decoration: none;
 }
 
+.feedback-section {
+  scroll-margin-top: 84px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 36px 24px;
+  border-top: 1px solid rgba(139, 177, 222, 0.14);
+}
+
+.feedback-section h2 {
+  margin: 0 0 6px;
+  font-size: 22px;
+}
+
+.feedback-section p {
+  margin: 0;
+  max-width: 52ch;
+  color: var(--subtle);
+  font-size: 14px;
+}
+
+.feedback-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  max-width: 480px;
+}
+
+.feedback-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.feedback-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  border-radius: 10px;
+  border: 1px solid rgba(139, 177, 222, 0.25);
+  background: rgba(10, 18, 32, 0.6);
+  color: inherit;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  min-height: 110px;
+}
+
+.feedback-textarea:focus-visible {
+  outline: 2px solid var(--accent, #7aa2f7);
+  outline-offset: 1px;
+}
+
+.feedback-send {
+  align-self: flex-start;
+}
+
+.feedback-send:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.feedback-error {
+  color: #f07a7a;
+  font-size: 13px;
+}
+
+.feedback-success {
+  color: var(--subtle);
+  font-size: 14px;
+}
+
 .donate-actions .button svg {
   width: 17px;
   height: 17px;
@@ -1561,6 +1636,15 @@ main {
 
   .donate-actions {
     margin-top: 18px;
+  }
+
+  .feedback-section {
+    display: block;
+  }
+
+  .feedback-form {
+    margin-top: 18px;
+    max-width: none;
   }
 }
 
