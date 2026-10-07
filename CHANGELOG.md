@@ -9,6 +9,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 - Stopping preview playback now holds on the current frame instead of jumping
   back to the start.
+- Fixed the browser preview time display so playback and scrubbing keep the
+  timestamp in sync with the selected video.
 
 ### Export completion
 
@@ -23,6 +25,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   and supported file-manager context menus. Supported videos are queued, and import
   results report skipped or unreadable items.
 - Added **Clear queue** to remove all queued videos at once.
+- Fixed browser Batch imports when a new selection includes the clip that is
+  already active.
 - Folder scans now report progress, and desktop batch imports probe up to two videos
   concurrently while cancelling stale work when a new selection replaces the current one.
 - Saved presets are disabled during Batch mode so every queued video keeps the shared
@@ -43,6 +47,17 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Cleaned up the update dialog's version label so it no longer repeats the leading
   `v` from the release tag.
 
+### Linux
+
+- Fixed the Linux FFmpeg installer when `sudo` requires a password. It now tries
+  passwordless sudo, a graphical polkit prompt, then an interactive terminal, and
+  reports package-manager errors instead of only an exit code.
+
+### File handling
+
+- Fixed FFprobe treating video filenames that begin with a hyphen as command
+  options.
+
 ### Performance
 
 - The browser editor warms the local encoder after video metadata is ready, reports
@@ -50,11 +65,25 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   memory, and keeps progress moving across export stages.
 - Browser trim controls stay responsive during preview playback; only the playhead and
   time display update with media time.
+- The desktop preview stays responsive while moving trim controls.
 
 ### Interface
 
 - Fixed the main controls shifting horizontally when compression starts and the
   scroll area overflows.
+
+### Feedback and diagnostics
+
+- Added **Report a bug** to the desktop app. Reports include the app version, OS,
+  architecture, and recent app-log lines; a full report is also saved locally.
+  If direct delivery fails, the app can open a prefilled email instead.
+- FFmpeg command log entries now use input and output file names instead of
+  absolute paths, keeping home-directory paths out of shared reports.
+- Added a website report form that sends feedback with basic browser context.
+
+### Website
+
+- Added scroll-reveal motion and shortened copy across the marketing page.
 
 ## v7.5
 
@@ -131,9 +160,6 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   quit, replace, and relaunch instructions instead of opening a second instance that exits.
 - Improved Linux FFmpeg installation by refreshing apt package lists first and pointing Fedora
   users to the RPM Fusion setup step when ffmpeg is unavailable from the default repositories.
-- Fixed the Linux FFmpeg installer failing with a bare exit code when sudo requires a
-  password. It now tries passwordless sudo, then a polkit prompt, then interactive sudo
-  in a terminal emulator, and reports the package manager's actual error on failure.
 - Documented AppImage executable and FUSE requirements, updated the Tauri CLI to 2.11.5 to fix
   missing AppImage icon metadata, and the release workflow now publishes tagged releases
   immediately so the in-app updater can see them.
