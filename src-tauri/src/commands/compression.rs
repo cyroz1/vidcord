@@ -7,7 +7,7 @@ use crate::ffmpeg::{
 use crate::log::vidcord_log;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -219,6 +219,131 @@ impl Drop for OutputReservation {
     fn drop(&mut self) {
         if !self.committed {
             let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn is_cross_device_error(error: &std::io::Error) -> bool {
+    error.raw_os_error() == Some(libc::EXDEV)
+}
+
+#[cfg(unix)]
+fn copy_candidate_to_output(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::sync::atomic::Ordering;
+
+    static PUBLISH_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let destination = private_destination_path(destination)?;
+    let directory = destination.parent().expect("resolved output has a parent");
+    let destination_mode = std::fs::symlink_metadata(&destination)
+        .ok()
+        .filter(|metadata| metadata.file_type().is_file())
+        .map(|metadata| metadata.permissions());
+
+    for _ in 0..32 {
+        let suffix = PUBLISH_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let temporary_path = directory.join(format!(
+            ".vidcord-publish-{}-{suffix}.tmp",
+            std::process::id()
+        ));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut output = match options.open(&temporary_path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+
+        let copy_result = (|| {
+            let mut input = std::fs::File::open(source)?;
+            std::io::copy(&mut input, &mut output)?;
+            output.sync_all()?;
+            Ok(())
+        })();
+        drop(output);
+        if let Err(error) = copy_result {
+            let _ = std::fs::remove_file(&temporary_path);
+            return Err(error);
+        }
+
+        if let Err(error) = crate::settings::replace_file(&temporary_path, &destination) {
+            let _ = std::fs::remove_file(&temporary_path);
+            return Err(error);
+        }
+        restore_published_permissions(&destination, destination_mode);
+        return Ok(());
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not choose a temporary output name",
+    ))
+}
+
+fn publish_candidate_output(source: &Path, destination: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let destination = private_destination_path(destination)?;
+        let destination_mode = std::fs::symlink_metadata(&destination)
+            .ok()
+            .filter(|metadata| metadata.file_type().is_file())
+            .map(|metadata| metadata.permissions());
+
+        // FFmpeg may recreate the candidate with a permissive umask. Keep it
+        // private until the atomic publish has placed it at its final path.
+        std::fs::set_permissions(source, std::fs::Permissions::from_mode(0o600))?;
+        match crate::settings::replace_file(source, &destination) {
+            Ok(()) => {
+                restore_published_permissions(&destination, destination_mode);
+                Ok(())
+            }
+            Err(error) if is_cross_device_error(&error) => {
+                copy_candidate_to_output(source, &destination)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    // Non-Unix targets fail closed on cross-volume moves. They do not create
+    // a sibling staging pathname with inherited destination ACLs.
+    #[cfg(not(unix))]
+    match crate::settings::replace_file(source, destination) {
+        Ok(()) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(unix)]
+fn private_destination_path(destination: &Path) -> std::io::Result<PathBuf> {
+    let directory = destination
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let filename = destination.file_name().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "output path does not name a file",
+        )
+    })?;
+    let protected_directory = private_output_parent(directory)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::PermissionDenied, error))?;
+    Ok(protected_directory.join(filename))
+}
+
+#[cfg(unix)]
+fn restore_published_permissions(path: &Path, permissions: Option<std::fs::Permissions>) {
+    if let Some(permissions) = permissions {
+        if let Err(error) = std::fs::set_permissions(path, permissions) {
+            vidcord_log(&format!(
+                "Could not restore published output permissions; it remains private: {error}"
+            ));
         }
     }
 }
@@ -976,34 +1101,171 @@ fn is_mp4_output(path: &str) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"))
 }
 
-struct TemporaryOutput(std::path::PathBuf);
+#[cfg(any(target_os = "macos", test))]
+fn acl_text_has_allow_entry(text: &str) -> bool {
+    text.split(|character: char| character == ':' || character.is_ascii_whitespace())
+        .any(|token| token == "allow")
+}
+
+#[cfg(unix)]
+fn private_output_parent(preferred: &Path) -> Result<PathBuf, String> {
+    #[cfg(target_os = "macos")]
+    fn has_allow_extended_acl(path: &Path) -> bool {
+        use std::ffi::{CStr, CString};
+        use std::os::unix::ffi::OsStrExt;
+
+        #[link(name = "System")]
+        extern "C" {
+            fn acl_get_file(path: *const libc::c_char, acl_type: libc::c_int) -> *mut libc::c_void;
+            fn acl_to_text(acl: *mut libc::c_void, length: *mut libc::ssize_t)
+                -> *mut libc::c_char;
+            fn acl_free(object: *mut libc::c_void) -> libc::c_int;
+        }
+
+        const ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
+
+        let Ok(path) = CString::new(path.as_os_str().as_bytes()) else {
+            return true;
+        };
+        // Apple reports ENOENT when a filesystem object has no extended ACL.
+        // Treat every other lookup failure as unsafe so ACL support failures
+        // cannot make an unverified output directory appear private.
+        let acl = unsafe { acl_get_file(path.as_ptr(), ACL_TYPE_EXTENDED) };
+        if acl.is_null() {
+            return std::io::Error::last_os_error().raw_os_error() != Some(libc::ENOENT);
+        }
+
+        let acl_text = unsafe { acl_to_text(acl, std::ptr::null_mut()) };
+        let has_allow = if acl_text.is_null() {
+            true
+        } else {
+            let text = unsafe { CStr::from_ptr(acl_text) }.to_string_lossy();
+            let has_allow = acl_text_has_allow_entry(&text);
+            unsafe {
+                acl_free(acl_text.cast());
+            }
+            has_allow
+        };
+        unsafe {
+            acl_free(acl);
+        }
+        // Reject allow ACEs, including inherited grants that could make a
+        // future staged file readable or replaceable. Deny-only ACLs remain
+        // compatible with the mode and ownership checks above.
+        has_allow
+    }
+
+    fn parent_protects_entries(path: &Path) -> bool {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let absolute = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            let Ok(current_dir) = std::env::current_dir() else {
+                return false;
+            };
+            current_dir.join(path)
+        };
+        let mut current = PathBuf::new();
+        let effective_uid = unsafe { libc::geteuid() };
+        for component in absolute.components() {
+            match component {
+                std::path::Component::CurDir => continue,
+                component => current.push(component.as_os_str()),
+            }
+            let Ok(metadata) = std::fs::metadata(&current) else {
+                return false;
+            };
+            if metadata.uid() != effective_uid && metadata.uid() != 0 {
+                return false;
+            }
+            let mode = metadata.permissions().mode();
+            if mode & 0o022 != 0 && mode & 0o1000 == 0 {
+                return false;
+            }
+            #[cfg(target_os = "macos")]
+            if has_allow_extended_acl(&current) {
+                return false;
+            }
+        }
+        true
+    }
+
+    let resolved = std::fs::canonicalize(preferred)
+        .map_err(|error| format!("Could not resolve temporary path parent: {error}"))?;
+    if parent_protects_entries(&resolved) {
+        return Ok(resolved);
+    }
+    Err("A temporary path ancestor can be changed by other users.".to_string())
+}
+
+#[cfg(not(unix))]
+fn private_output_parent(_preferred: &Path) -> Result<PathBuf, String> {
+    // Keep FFmpeg candidates in the user's application cache, whose ACL is
+    // inherited from the per-user profile. Cross-volume publication fails
+    // closed rather than staging a replaceable sibling path.
+    let directory = dirs::cache_dir()
+        .ok_or_else(|| "Could not locate the per-user cache directory.".to_string())?
+        .join("vidcord")
+        .join("tmp");
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("Could not prepare private temporary output: {error}"))?;
+    Ok(directory)
+}
+
+struct TemporaryOutput {
+    path: PathBuf,
+    private_directory: Option<PathBuf>,
+}
 
 impl TemporaryOutput {
     fn create(extension: &str) -> Result<Self, String> {
         use std::sync::atomic::Ordering;
 
-        let directory = std::env::temp_dir().join("vidcord");
-        std::fs::create_dir_all(&directory)
-            .map_err(|error| format!("Could not prepare temporary output: {error}"))?;
+        let directory_parent = private_output_parent(&std::env::temp_dir())?;
         for _ in 0..32 {
             let suffix = GIF_PREFLIGHT_COUNTER.fetch_add(1, Ordering::Relaxed);
-            let path = directory.join(format!(
-                "vidcord-preflight-{}-{suffix}.{extension}",
-                std::process::id()
-            ));
-            match std::fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&path)
+            let directory =
+                directory_parent.join(format!("vidcord-preflight-{}-{suffix}", std::process::id()));
+            let mut builder = std::fs::DirBuilder::new();
+            #[cfg(unix)]
             {
-                Ok(_) => return Ok(Self(path)),
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            match builder.create(&directory) {
+                Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(error) => {
+                    return Err(format!(
+                        "Could not prepare private temporary output: {error}"
+                    ));
+                }
+            }
+
+            let path = directory.join(format!("sample.{extension}"));
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            match options.open(&path) {
+                Ok(file) => {
+                    drop(file);
+                    return Ok(Self {
+                        path,
+                        private_directory: Some(directory),
+                    });
+                }
+                Err(error) => {
+                    let _ = std::fs::remove_dir(&directory);
                     return Err(format!("Could not reserve temporary output: {error}"));
                 }
             }
         }
-        Err("Could not choose a temporary output filename.".to_string())
+        Err("Could not choose a private temporary output directory.".to_string())
     }
 
     fn create_sibling(output_path: &str) -> Result<Self, String> {
@@ -1019,20 +1281,48 @@ impl TemporaryOutput {
             .and_then(|extension| extension.to_str())
             .filter(|extension| !extension.is_empty())
             .unwrap_or("mp4");
+        let directory = match private_output_parent(directory) {
+            Ok(directory) => directory,
+            Err(_) => private_output_parent(&std::env::temp_dir())?,
+        };
         for _ in 0..32 {
             let suffix = GIF_PREFLIGHT_COUNTER.fetch_add(1, Ordering::Relaxed);
-            let path = directory.join(format!(
-                ".vidcord-attempt-{}-{suffix}.{extension}",
-                std::process::id()
-            ));
-            match std::fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&path)
+            let private_directory =
+                directory.join(format!(".vidcord-attempt-{}-{suffix}", std::process::id()));
+            let mut builder = std::fs::DirBuilder::new();
+            #[cfg(unix)]
             {
-                Ok(_) => return Ok(Self(path)),
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            match builder.create(&private_directory) {
+                Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(error) => {
+                    return Err(format!(
+                        "Could not prepare private encoding attempt directory: {error}"
+                    ));
+                }
+            }
+
+            let path = private_directory.join(format!("sample.{extension}"));
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            match options.open(&path) {
+                Ok(file) => {
+                    drop(file);
+                    return Ok(Self {
+                        path,
+                        private_directory: Some(private_directory),
+                    });
+                }
+                Err(error) => {
+                    let _ = std::fs::remove_dir(&private_directory);
                     return Err(format!(
                         "Could not reserve an encoding attempt file: {error}"
                     ));
@@ -1043,17 +1333,20 @@ impl TemporaryOutput {
     }
 
     fn as_string(&self) -> String {
-        self.0.to_string_lossy().into_owned()
+        self.path.to_string_lossy().into_owned()
     }
 
     fn as_path(&self) -> &Path {
-        &self.0
+        &self.path
     }
 }
 
 impl Drop for TemporaryOutput {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+        let _ = std::fs::remove_file(&self.path);
+        if let Some(directory) = &self.private_directory {
+            let _ = std::fs::remove_dir(directory);
+        }
     }
 }
 
@@ -1985,7 +2278,7 @@ async fn estimate_size_from_sample(
         return Ok(None);
     }
 
-    let Ok(metadata) = std::fs::metadata(&sample_output.0) else {
+    let Ok(metadata) = std::fs::metadata(sample_output.as_path()) else {
         return Ok(None);
     };
     if metadata.len() == 0 || sample_duration <= 0.0 || !sample_duration.is_finite() {
@@ -2572,10 +2865,9 @@ async fn run_batch_item(
             };
             if improved {
                 if let Some(candidate) = &candidate_output {
-                    if let Err(error) = crate::settings::replace_file(
-                        candidate.as_path(),
-                        Path::new(&opts.output_path),
-                    ) {
+                    if let Err(error) =
+                        publish_candidate_output(candidate.as_path(), Path::new(&opts.output_path))
+                    {
                         vidcord_log(&format!(
                             "Could not publish a better in-range output; keeping the previous target fit: {error}"
                         ));
@@ -3404,10 +3696,9 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             };
             if improved {
                 if let Some(candidate) = &candidate_output {
-                    if let Err(error) = crate::settings::replace_file(
-                        candidate.as_path(),
-                        Path::new(&opts.output_path),
-                    ) {
+                    if let Err(error) =
+                        publish_candidate_output(candidate.as_path(), Path::new(&opts.output_path))
+                    {
                         vidcord_log(&format!(
                             "Could not publish a better in-range output; keeping the previous target fit: {error}"
                         ));
@@ -3831,6 +4122,202 @@ pub async fn capture_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn acl_text_detection_handles_colon_delimited_allow_entries() {
+        assert!(acl_text_has_allow_entry("group:alice:admin:80:allow:write"));
+        assert!(!acl_text_has_allow_entry("group:everyone:deny:delete"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn temporary_output_uses_private_directory_and_cleans_up() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (path, directory) = {
+            let output = TemporaryOutput::create("gif").unwrap();
+            let path = output.path.clone();
+            let directory = output.private_directory.clone().unwrap();
+            assert!(path.ends_with("sample.gif"));
+            assert_eq!(
+                std::fs::metadata(&directory).unwrap().permissions().mode() & 0o077,
+                0
+            );
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o077,
+                0
+            );
+            (path, directory)
+        };
+
+        assert!(!path.exists());
+        assert!(!directory.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_output_parent_rejects_shared_non_sticky_directories() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let shared_parent = std::env::temp_dir().join(format!(
+            "vidcord-shared-output-test-{}-{unique}",
+            std::process::id()
+        ));
+        let protected_child = shared_parent.join("protected");
+        std::fs::create_dir(&shared_parent).unwrap();
+        std::fs::set_permissions(&shared_parent, std::fs::Permissions::from_mode(0o777)).unwrap();
+        std::fs::create_dir(&protected_child).unwrap();
+        std::fs::set_permissions(&protected_child, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        assert!(private_output_parent(&protected_child).is_err());
+        std::fs::set_permissions(&shared_parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::remove_dir(&protected_child).unwrap();
+        std::fs::remove_dir(shared_parent).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_output_parent_resolves_symlinks_before_validation() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir();
+        let target = temp_dir.join(format!(
+            "vidcord-private-target-{}-{unique}",
+            std::process::id()
+        ));
+        let alias = temp_dir.join(format!(
+            "vidcord-private-alias-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, &alias).unwrap();
+
+        let resolved = private_output_parent(&alias).unwrap();
+        assert_eq!(resolved, std::fs::canonicalize(&target).unwrap());
+
+        std::fs::remove_file(alias).unwrap();
+        std::fs::remove_dir(target).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn candidate_publish_does_not_inherit_symlink_target_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "vidcord-publish-symlink-test-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let target = directory.join("target.txt");
+        let destination = directory.join("output.mp4");
+        let candidate = directory.join("candidate.mp4");
+        std::fs::write(&target, b"private target").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();
+        std::os::unix::fs::symlink(&target, &destination).unwrap();
+        std::fs::write(&candidate, b"candidate output").unwrap();
+
+        publish_candidate_output(&candidate, &destination).unwrap();
+
+        assert!(!std::fs::symlink_metadata(&destination)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            std::fs::metadata(&destination)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), b"private target");
+
+        std::fs::remove_file(destination).unwrap();
+        std::fs::remove_file(target).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn candidate_publish_recreates_a_missing_destination() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir();
+        let candidate = temp_dir.join(format!(
+            "vidcord-missing-candidate-{}-{unique}.tmp",
+            std::process::id()
+        ));
+        let destination = temp_dir.join(format!(
+            "vidcord-missing-output-{}-{unique}.tmp",
+            std::process::id()
+        ));
+        std::fs::write(&candidate, b"candidate").unwrap();
+
+        publish_candidate_output(&candidate, &destination).unwrap();
+
+        assert_eq!(std::fs::read(&destination).unwrap(), b"candidate");
+        std::fs::remove_file(destination).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn candidate_copy_replaces_output_without_changing_unix_permissions() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir();
+        let candidate = temp_dir.join(format!(
+            "vidcord-candidate-test-{}-{unique}.tmp",
+            std::process::id()
+        ));
+        let destination = temp_dir.join(format!(
+            "vidcord-destination-test-{}-{unique}.tmp",
+            std::process::id()
+        ));
+        std::fs::write(&candidate, b"candidate").unwrap();
+        std::fs::write(&destination, b"previous output").unwrap();
+        #[cfg(unix)]
+        let permissions = {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::metadata(&destination)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777
+        };
+
+        copy_candidate_to_output(&candidate, &destination).unwrap();
+
+        assert_eq!(std::fs::read(&destination).unwrap(), b"candidate");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&destination)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                permissions
+            );
+        }
+        std::fs::remove_file(candidate).unwrap();
+        std::fs::remove_file(destination).unwrap();
+    }
 
     #[test]
     fn test_parse_ffmpeg_time_normal() {

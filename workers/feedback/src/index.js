@@ -29,6 +29,42 @@ function json(data, status = 200) {
   });
 }
 
+async function readBodyWithinLimit(body, maxBytes) {
+  if (!body) return { raw: "", tooLarge: false };
+
+  const reader = body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
+      totalBytes += chunk.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel().catch(() => {});
+        return { raw: null, tooLarge: true };
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // The stream may already have released its reader while being canceled.
+    }
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { raw: new TextDecoder().decode(bytes), tooLarge: false };
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -48,19 +84,24 @@ export default {
       return json({ error: "expected application/json" }, 415);
     }
 
-    let raw;
+    const contentLength = request.headers.get("content-length");
+    if (/^\d+$/.test(contentLength || "") && Number(contentLength) > MAX_BODY_BYTES) {
+      return json({ error: "report too large" }, 413);
+    }
+
+    let bodyRead;
     try {
-      raw = await request.text();
+      bodyRead = await readBodyWithinLimit(request.body, MAX_BODY_BYTES);
     } catch {
       return json({ error: "could not read body" }, 400);
     }
-    if (raw.length > MAX_BODY_BYTES) {
+    if (bodyRead.tooLarge) {
       return json({ error: "report too large" }, 413);
     }
 
     let data;
     try {
-      data = JSON.parse(raw);
+      data = JSON.parse(bodyRead.raw);
     } catch {
       return json({ error: "invalid json" }, 400);
     }

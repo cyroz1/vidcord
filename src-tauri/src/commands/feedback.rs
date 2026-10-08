@@ -1,12 +1,11 @@
 //! Feedback / bug-report collection.
 //!
-//! Gathers the app log tail plus system info into a report the user reviews
-//! in their own mail app before sending. Vidcord never sends email silently:
-//! there are no SMTP credentials in the app, so the report is handed to the
-//! OS mail client via a `mailto:` link composed by the frontend.
+//! Gathers the app log tail plus system info into a report. The user explicitly
+//! submits it through the feedback endpoint; the frontend can open a `mailto:`
+//! link as a fallback. This command also saves a full local report copy.
 
 use std::collections::VecDeque;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 
 pub const FEEDBACK_EMAIL: &str = "owner@vidcord.app";
 /// Log lines embedded in the email body (kept small so mailto: URLs stay usable).
@@ -76,6 +75,47 @@ fn utc_timestamp() -> String {
     )
 }
 
+fn open_private_report_file(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
+
+fn write_report_file(contents: &str) -> Result<std::path::PathBuf, String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static REPORT_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let temp_dir = std::env::temp_dir();
+    for _ in 0..32 {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let suffix = REPORT_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = temp_dir.join(format!(
+            "vidcord-bug-report-{}-{nanos}-{suffix}.txt",
+            std::process::id()
+        ));
+        let mut file = match open_private_report_file(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(format!("could not create bug report: {error}")),
+        };
+        if let Err(error) = file.write_all(contents.as_bytes()) {
+            drop(file);
+            let _ = std::fs::remove_file(&path);
+            return Err(format!("could not write bug report: {error}"));
+        }
+        return Ok(path);
+    }
+    Err("could not choose a private bug report filename".to_string())
+}
+
 fn format_report(
     description: Option<&str>,
     version: &str,
@@ -122,13 +162,7 @@ pub fn collect_bug_report(description: Option<String>) -> Result<BugReport, Stri
     // Full report on disk in case the mail client truncates the mailto: body.
     let file_tail = tail_lines(&log_path, FILE_LOG_LINES);
     let full = format_report(description.as_deref(), version, os, arch, &file_tail);
-    let report_path = std::env::temp_dir().join(format!(
-        "vidcord-bug-report-{}.txt",
-        utc_timestamp()
-            .replace(['-', ':', ' '], "_")
-            .replace("__", "_")
-    ));
-    std::fs::write(&report_path, full).map_err(|e| format!("could not write bug report: {e}"))?;
+    let report_path = write_report_file(&full)?;
 
     Ok(BugReport {
         subject: format!("Vidcord {version} bug report"),
@@ -219,5 +253,39 @@ mod tests {
         assert!(ts.len() == "2026-10-07 13:00:00 UTC".len());
         let year: i32 = ts[0..4].parse().unwrap();
         assert!((2024..=2030).contains(&year));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn report_file_is_private_and_does_not_follow_symlinks() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir();
+        let report = temp_dir.join(format!(
+            "vidcord-report-test-{}-{unique}",
+            std::process::id()
+        ));
+        let target = temp_dir.join(format!(
+            "vidcord-report-target-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::write(&target, "unchanged").unwrap();
+        symlink(&target, &report).unwrap();
+
+        let error = open_private_report_file(&report).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "unchanged");
+
+        std::fs::remove_file(&report).unwrap();
+        let created = write_report_file("private report").unwrap();
+        let mode = std::fs::metadata(&created).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        assert_eq!(std::fs::read_to_string(&created).unwrap(), "private report");
+        std::fs::remove_file(created).unwrap();
+        std::fs::remove_file(target).unwrap();
     }
 }
