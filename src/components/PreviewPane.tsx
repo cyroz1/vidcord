@@ -28,6 +28,7 @@ import {
   shouldFetchReleasedScrubFrame,
   shouldFetchScrubFrame,
   shouldGenerateFilmstrip,
+  shouldHoldPausedFrame,
   shouldShowDirectPreviewVideo,
 } from "../previewScrub";
 
@@ -240,6 +241,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     onPlaybackErrorRef.current = onPlaybackError;
   }, [onPlaybackError]);
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
+  // True while the video element is showing a paused frame from a stopped
+  // playback whose source was not preserved for scrub preview (typically a
+  // generated clip). While held, the video stays visible and the scrub-preview
+  // effect must not steal the element, or the frame jumps back to the start.
+  const [pausedFrameHeld, setPausedFrameHeld] = useState(false);
   // WebKitGTK on Linux initialises a GStreamer audio pipeline even for muted
   // video elements. When autoaudiosink is missing the pipeline returns a NULL
   // element, a GLib-GObject-CRITICAL fires inside WebKitWebProcess, and the
@@ -445,9 +451,26 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         : clamped;
 
       if (!Number.isFinite(mediaTime)) return;
+      if (pausedFrameHeld) {
+        // A held paused frame means the video still has the stopped clip's
+        // source. Release it so the preview follows the scrub position.
+        setPausedFrameHeld(false);
+        if (livePreviewSupported) {
+          // Queue the seek: the scrub-preview effect loads the direct source
+          // and the pending seek applies on load. Seeking the stale element
+          // here would target the wrong media.
+          pendingScrubVideoSeekRef.current = mediaTime;
+        } else {
+          // No live scrub preview: drop the video element entirely; the
+          // static frame preview takes over.
+          vid.src = "";
+          vid.load();
+        }
+        return;
+      }
       seekVideoElement(mediaTime);
     },
-    [probeData, seekVideoElement]
+    [probeData, pausedFrameHeld, livePreviewSupported, seekVideoElement]
   );
 
   const stepBy = useCallback(
@@ -513,6 +536,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     // swapping through the static preview first.
     if (playing) return;
 
+    // A stopped playback may be holding its paused frame in the video element
+    // (generated clip or another non-preserved source). Don't steal the
+    // element for scrub preview here — replacing the source is what snapped
+    // the preview back to the start frame. The hold is released on scrub,
+    // play, or file change.
+    if (pausedFrameHeld) return;
+
     const vid = videoRef.current;
     if (!vid || usingGeneratedClipRef.current || clipUrlRef.current) return;
 
@@ -525,7 +555,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     vid.preload = "auto";
     vid.src = src;
     vid.load();
-  }, [buildPlaybackUrls, filePath, isScrubbing, playing, probeData, livePreviewSupported]);
+  }, [buildPlaybackUrls, filePath, isScrubbing, pausedFrameHeld, playing, probeData, livePreviewSupported]);
 
   const handleVideoReady = useCallback(
     (event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -714,6 +744,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         return null;
       });
       stopPlayback();
+      // No file: never hold a paused frame from the previous source.
+      setPausedFrameHeld(false);
       return;
     }
     if (livePreviewSupported && scrubVideoReady && !directPreviewFailed) {
@@ -726,6 +758,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const requestId = frameRequestIdRef.current + 1;
     frameRequestIdRef.current = requestId;
     const isNewFile = filePath !== prevFilePathRef.current;
+    if (isNewFile) {
+      // A new file invalidates any held paused frame from the old source.
+      setPausedFrameHeld(false);
+    }
     const isInitialRange =
       prevStartTimeRef.current === 0 &&
       prevEndTimeRef.current === 0 &&
@@ -863,6 +899,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       // When the media already has data (readyState >= 2), keep the source so
       // the paused frame stays visible instead of jumping back to the start.
     }
+    // Hold the paused frame on screen when the video kept a non-preserved
+    // source (e.g. a generated clip). The scrub-preview effect must not
+    // replace the element's source until the user scrubs or plays again.
+    setPausedFrameHeld(shouldHoldPausedFrame(preserveDirectSource, vid?.readyState));
     if (!preserveDirectSource) {
       scrubVideoSrcRef.current = null;
       setScrubVideoReady(false);
@@ -912,6 +952,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   }, [endTime, loopPlayback, seekTo, startTime, stopPlayback]);
 
   const startPlayback = useCallback(() => {
+    // A new playback takes over the video element; release any held frame.
+    setPausedFrameHeld(false);
     if (generatingClipRef.current) return;
     if (!filePath || !probeData) return;
     const vid = videoRef.current;
@@ -1186,6 +1228,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     scrubVideoReady,
     playing
   );
+  // While a paused frame is held after stopping, keep the video element
+  // visible so the held frame stays on screen instead of swapping to a
+  // stale static preview.
+  const showHeldPausedFrame = !playing && pausedFrameHeld;
 
   // Static previews remain the fallback for Linux and unsupported codecs. When
   // direct seeking works, the ready media element stays visible without
@@ -1204,9 +1250,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     >
       <PreviewCrop crop={cropAspectRatio}>
         {/* Static frame preview */}
-        {!loadingVideo && displayUrl && !playing && !showDirectPreviewVideo ? (
+        {!loadingVideo &&
+        displayUrl &&
+        !playing &&
+        !showDirectPreviewVideo &&
+        !showHeldPausedFrame ? (
           <img src={displayUrl} alt="Video frame preview" style={imgStyle} />
-        ) : !playing && !showDirectPreviewVideo ? (
+        ) : !playing && !showDirectPreviewVideo && !showHeldPausedFrame ? (
           <span className="preview-placeholder" role="status" aria-live="polite">
             {!filePath && (
               <svg
@@ -1244,7 +1294,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
           muted={removeAudio}
           playsInline
           preload="metadata"
-          style={playing || showDirectPreviewVideo ? videoVisibleStyle : videoHiddenStyle}
+          style={
+            playing || showDirectPreviewVideo || showHeldPausedFrame
+              ? videoVisibleStyle
+              : videoHiddenStyle
+          }
           onLoadedMetadata={handleVideoReady}
           onCanPlay={handleVideoReady}
           onError={(event) => {

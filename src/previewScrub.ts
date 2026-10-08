@@ -68,6 +68,17 @@ export function canPreserveDirectVideoSource(
   return supportsLiveScrubPreview && mediaReady && !usingGeneratedClip && sourceMatches;
 }
 
+export function shouldHoldPausedFrame(
+  preserveDirectSource: boolean,
+  readyState: number | undefined
+): boolean {
+  // After stopping, keep the video element on screen when it still holds a
+  // valid paused frame: the source was not preserved for scrub preview, but
+  // the media already has data (readyState >= HAVE_CURRENT_DATA), so the
+  // current frame stays visible instead of jumping back to the start.
+  return !preserveDirectSource && (readyState ?? 0) >= 2;
+}
+
 export function getStoppedPlaybackTime(
   currentTime: number,
   startTime: number,
