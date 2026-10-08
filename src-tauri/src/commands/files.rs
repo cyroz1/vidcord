@@ -496,6 +496,12 @@ pub(crate) fn show_files_in_file_explorer_linux(
             .unwrap_or_else(|| files[0].to_string_lossy().into_owned());
         let mut open_command = Command::new("xdg-open");
         open_command.arg(&parent);
+        // This helper outlives the command that launches it. Keep its inherited
+        // stdio from holding the app's log pipes open during shutdown.
+        open_command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
         configure_desktop_command(&mut open_command);
         open_command.spawn().map_err(|e| e.to_string())?;
     }
