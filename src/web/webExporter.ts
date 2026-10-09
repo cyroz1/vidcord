@@ -433,7 +433,7 @@ export async function exportBrowserFile({
             typeof createSession === "function"
           ) {
             stallRetries += 1;
-            onProgress?.(attemptStart, "The encoder stalled; restarting it and retrying…", {
+            onProgress?.(attemptStart, "Encoder stalled; retrying…", {
               start: attemptStart,
               end: attemptEnd,
             });

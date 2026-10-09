@@ -26,22 +26,10 @@ export type BrowserEncoderLoadProgress = {
  */
 const ENCODER_STALL_SILENCE_MS = 4 * 60_000;
 
-const ENCODER_STALL_ERROR_CODE = "vidcord-encoder-stalled";
+export class EncoderStallError extends Error {}
 
-export function createEncoderStallError(label: string): Error {
-  const error = new Error(
-    `The browser encoder stopped responding while ${label}. Your video never left this device. Please try the export again, or use the desktop app for large videos.`
-  );
-  (error as { code?: string }).code = ENCODER_STALL_ERROR_CODE;
-  return error;
-}
-
-export function isEncoderStallError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    (error as { code?: unknown }).code === ENCODER_STALL_ERROR_CODE
-  );
+export function isEncoderStallError(error: unknown): error is EncoderStallError {
+  return error instanceof EncoderStallError;
 }
 
 export type BrowserFfmpegSession = {
@@ -217,11 +205,8 @@ export class BrowserFfmpegEngine {
 
   private runLogHandler: ((message: string) => void) | null = null;
 
-  private stallTimer: ReturnType<typeof setTimeout> | null = null;
-
-  private stallLabel: string | null = null;
-
-  private stallFire: (() => void) | null = null;
+  private stallWatch: { timer: ReturnType<typeof setTimeout>; fire: () => void } | null =
+    null;
 
   private readonly handleProgress = ({ progress, time }: FfmpegProgressEvent) => {
     const event = {
@@ -229,7 +214,8 @@ export class BrowserFfmpegEngine {
       time: Number.isFinite(time) ? Math.max(0, time) : Number.NaN,
     };
     // Any progress event proves the worker is alive; restart the stall silence window.
-    this.pokeStallWatchdog();
+    const watch = this.stallWatch;
+    if (watch) this.armStallWatchdog(watch.fire);
     this.operationProgressHandler?.(event);
   };
 
@@ -349,7 +335,7 @@ export class BrowserFfmpegEngine {
       this.runLogHandler = null;
       try {
         this.operationProgressHandler = onProgress ?? null;
-        const exitCode = await this.execWithStallWatchdog("encoding the video", () =>
+        const exitCode = await this.execWithStallWatchdog(() =>
           ffmpeg.exec(argsForInput(inputName))
         );
         ensureActive();
@@ -387,7 +373,7 @@ export class BrowserFfmpegEngine {
       try {
         this.runLogHandler = onLog ?? null;
         this.operationProgressHandler = onProgress ?? null;
-        const exitCode = await this.execWithStallWatchdog("running the encoder", () =>
+        const exitCode = await this.execWithStallWatchdog(() =>
           ffmpeg.exec(argsForInput(inputName), timeoutMs)
         );
         ensureActive();
@@ -488,80 +474,64 @@ export class BrowserFfmpegEngine {
    * "Continuing…" forever. The watchdog fails loudly instead, and tears the
    * wedged worker down so the next export reloads fresh.
    */
-  private execWithStallWatchdog(
-    label: string,
-    exec: () => Promise<number>
-  ): Promise<number> {
+  private execWithStallWatchdog(exec: () => Promise<number>): Promise<number> {
     return new Promise<number>((resolve, reject) => {
-      let done = false;
-      const finish = (settleFn: () => void) => {
-        if (done) return;
-        done = true;
+      let settled = false;
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
         this.disarmStallWatchdog();
-        settleFn();
+        fn();
       };
       // If the watchdog fires first it rejects with the stall error and the
       // wedged worker is torn down; a late exec result is then ignored.
-      this.armStallWatchdog(label, () => finish(() => reject(createEncoderStallError(label))));
+      const onStall = () =>
+        settle(() =>
+          reject(
+            new EncoderStallError(
+              "The browser encoder stopped responding. Your video never left this device. Try the export again."
+            )
+          )
+        );
+      this.armStallWatchdog(onStall);
       exec().then(
-        (exitCode) => finish(() => resolve(exitCode)),
-        (error) => finish(() => reject(error))
+        (exitCode) => settle(() => resolve(exitCode)),
+        (error) => settle(() => reject(error))
       );
     });
   }
 
-  private armStallWatchdog(label: string, onFire: () => void): void {
-    if (this.stallTimer !== null) clearTimeout(this.stallTimer);
-    this.stallLabel = label;
-    this.stallFire = onFire;
+  private armStallWatchdog(fire: () => void): void {
+    this.disarmStallWatchdog();
     const timer: ReturnType<typeof setTimeout> = setTimeout(
       () => this.fireStallWatchdog(),
       ENCODER_STALL_SILENCE_MS
     );
-    // Never keep a process alive just for the watchdog.
-    (timer as unknown as { unref?: () => void }).unref?.();
-    this.stallTimer = timer;
-  }
-
-  private pokeStallWatchdog(): void {
-    if (this.stallTimer === null || this.stallFire === null || this.stallLabel === null) {
-      return;
-    }
-    this.armStallWatchdog(this.stallLabel, this.stallFire);
+    this.stallWatch = { timer, fire };
   }
 
   private disarmStallWatchdog(): void {
-    if (this.stallTimer !== null) clearTimeout(this.stallTimer);
-    this.stallTimer = null;
-    this.stallLabel = null;
-    this.stallFire = null;
+    const watch = this.stallWatch;
+    if (watch) clearTimeout(watch.timer);
+    this.stallWatch = null;
   }
 
   private fireStallWatchdog(): void {
-    const onFire = this.stallFire;
-    this.stallTimer = null;
-    this.stallLabel = null;
-    this.stallFire = null;
-    onFire?.();
+    const watch = this.stallWatch;
+    this.stallWatch = null;
     // The worker thread is wedged: on phones the OS can kill it under memory
     // pressure (typically right after the final 100% progress event, during
     // mux/finalization) without ever replying, which used to park exports at
-    // 100% on "Continuing…" forever. Tear it down to release its memory so
-    // the next export reloads a fresh worker instead of reusing this one.
+    // 100% on "Continuing…" forever. Terminate it to release its memory, then
+    // reuse cancel()'s teardown (its controller is already null here) so the
+    // next export reloads a fresh worker instead of reusing this one.
     try {
       this.ffmpeg?.terminate();
     } catch {
       // The worker is already gone; the teardown below still applies.
     }
-    // Mirror cancel()'s teardown. The load controller is dropped without
-    // aborting: this was not a user cancellation.
-    this.loadGeneration += 1;
-    this.loadController = null;
-    this.loading = null;
-    this.sessionOwner = null;
-    this.operationProgressHandler = null;
-    this.runLogHandler = null;
-    this.ffmpeg = null;
+    this.cancel();
+    watch?.fire();
   }
 
   cancel(): void {

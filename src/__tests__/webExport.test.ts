@@ -9,7 +9,7 @@ vi.mock("@ffmpeg/ffmpeg", () => ({
   FFmpeg: class {},
 }));
 
-import { createEncoderStallError } from "../web/ffmpegEngine";
+import { EncoderStallError } from "../web/ffmpegEngine";
 import {
   buildAudioPeakAnalysisArgs,
   buildCompressionArgs,
@@ -23,7 +23,6 @@ import {
   outputFileName,
   parsePeakNormalizationGain,
   targetBitrateKbps,
-  x264PresetForDevice,
   GIF_PRESETS,
 } from "../web/exportPlan";
 import {
@@ -697,8 +696,6 @@ describe("browser export planning", () => {
   });
 
   it("uses a faster x264 preset on mobile and keeps veryfast on desktop", () => {
-    expect(x264PresetForDevice(true)).toBe("superfast");
-    expect(x264PresetForDevice(false)).toBe("veryfast");
     const plan = createExportPlan(metadata, settings, "compress", 2, 20);
     const desktop = buildCompressionArgs(
       "input.mp4",
@@ -729,7 +726,7 @@ describe("browser export planning", () => {
       run: async () => "[volumedetect] max_volume: -6.0 dB",
       transcode: async () => {
         transcodeCalls += 1;
-        if (transcodeCalls === 1) throw createEncoderStallError("encoding the video");
+        if (transcodeCalls === 1) throw new EncoderStallError("encoding the video");
         return new Uint8Array(16_000);
       },
       prepareFile: async () => undefined,
@@ -762,7 +759,7 @@ describe("browser export planning", () => {
 
     expect(transcodeCalls).toBe(2);
     expect(sessionCount).toBe(2);
-    expect(statuses).toContain("The encoder stalled; restarting it and retrying…");
+    expect(statuses).toContain("Encoder stalled; retrying…");
     expect(result.bytes).toBe(16_000);
   });
 
@@ -772,7 +769,7 @@ describe("browser export planning", () => {
       run: async () => "[volumedetect] max_volume: -6.0 dB",
       transcode: async () => {
         transcodeCalls += 1;
-        throw createEncoderStallError("encoding the video");
+        throw new EncoderStallError("The browser encoder stopped responding while testing.");
       },
       prepareFile: async () => undefined,
       dispose: async () => undefined,

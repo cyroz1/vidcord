@@ -44,7 +44,11 @@ const limits = {
   // collection) and the website feedback section (form posting to the same
   // report endpoint) add user-visible reporting UI to both editions; allow
   // 7 KiB for them.
-  javascriptRaw: 522 * 1024,
+  // The browser encoder stall watchdog (loud failure + worker teardown instead
+  // of parking exports at 100% on "Continuing…"), the one automatic stall
+  // retry, and the mobile x264 preset add a small amount of export code;
+  // allow 2 KiB for them.
+  javascriptRaw: 524 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
   // Keep 1 KiB of cross-runtime margin while retaining the tight raw-byte guard above.
   // The donate footer link and website support section add a shared links module plus
