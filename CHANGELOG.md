@@ -60,6 +60,12 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ### Performance
 
+- Fixed browser exports getting stuck at 100% on "Continuing…" when the phone
+  silently killed the encoder worker: the export now detects the stall,
+  restarts the encoder, and retries the pass once before reporting an error.
+- Browser exports on phones now use the faster x264 superfast preset, since the
+  WebAssembly encoder is single-threaded software encoding. Desktop exports
+  keep the veryfast preset and unchanged quality.
 - The browser editor warms the local encoder after video metadata is ready, reports
   encoder download progress, warns before exports likely to need substantial working
   memory, and keeps progress moving across export stages.

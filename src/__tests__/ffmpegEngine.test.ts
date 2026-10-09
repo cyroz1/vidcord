@@ -28,7 +28,7 @@ vi.mock("@ffmpeg/ffmpeg", () => ({
 }));
 
 import { FFmpeg } from "@ffmpeg/ffmpeg";
-import { BrowserFfmpegEngine } from "../web/ffmpegEngine";
+import { BrowserFfmpegEngine, isEncoderStallError } from "../web/ffmpegEngine";
 
 const file = new File(["video"], "clip.mp4", { type: "video/mp4" });
 let engine: BrowserFfmpegEngine;
@@ -175,5 +175,84 @@ describe("browser encoder lifecycle", () => {
       "empty output"
     );
     await session.dispose();
+  });
+
+  it("fails loudly instead of hanging when the encoder worker goes silent", async () => {
+    vi.useFakeTimers();
+    const session = await engine.createSession(file);
+    const ffmpeg = currentFfmpeg();
+    // The worker never replies: on phones the OS can kill it under memory
+    // pressure without a final message.
+    vi.mocked(ffmpeg.exec).mockImplementationOnce(() => new Promise<number>(() => {}));
+    const pending = session.transcode(() => ["output.mp4"], "output.mp4");
+    const failure = expect(pending).rejects.toThrow("stopped responding");
+    await vi.advanceTimersByTimeAsync(4 * 60_000);
+    await failure;
+    await expect(pending).rejects.toSatisfy(isEncoderStallError);
+    // The wedged worker is torn down so the next export reloads fresh.
+    expect(engine.isLoaded).toBe(false);
+    await engine.load();
+    expect(engine.isLoaded).toBe(true);
+    const next = await engine.createSession(file);
+    const bytes = await next.transcode(() => ["output.mp4"], "output.mp4");
+    expect(bytes.byteLength).toBe(3);
+    await next.dispose();
+  });
+
+  it("restarts the stall silence window while progress events keep arriving", async () => {
+    vi.useFakeTimers();
+    const session = await engine.createSession(file);
+    const ffmpeg = currentFfmpeg();
+    vi.mocked(ffmpeg.exec).mockImplementationOnce(() => new Promise<number>(() => {}));
+    const { callbacks } = ffmpeg as unknown as {
+      callbacks: Map<string, (event: unknown) => void>;
+    };
+    let settled = false;
+    const original = session.transcode(() => ["output.mp4"], "output.mp4");
+    const pending = original.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+    // Nine minutes pass, but progress keeps arriving every three minutes.
+    for (let i = 0; i < 3; i += 1) {
+      await vi.advanceTimersByTimeAsync(3 * 60_000);
+      callbacks.get("progress")?.({ progress: 0.1 * (i + 1), time: i + 1 });
+    }
+    expect(settled).toBe(false);
+    expect(engine.isLoaded).toBe(true);
+    // Then silence: the watchdog fires.
+    const failure = expect(original).rejects.toThrow("stopped responding");
+    await vi.advanceTimersByTimeAsync(4 * 60_000 + 1);
+    await failure;
+    await pending;
+    await session.dispose().catch(() => undefined);
+  });
+
+  it("still reports cancellation promptly when the user cancels mid-encode", async () => {
+    vi.useFakeTimers();
+    const session = await engine.createSession(file);
+    const ffmpeg = currentFfmpeg();
+    let resolveExec!: (exitCode: number) => void;
+    vi.mocked(ffmpeg.exec).mockImplementationOnce(
+      () =>
+        new Promise<number>((resolve) => {
+          resolveExec = resolve;
+        })
+    );
+    const pending = session.transcode(() => ["output.mp4"], "output.mp4");
+    const failure = expect(pending).rejects.toThrow("cancelled");
+    engine.cancel();
+    resolveExec(0);
+    await failure;
+    // The disarmed watchdog must not fire into a later export.
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    await engine.load();
+    expect(engine.isLoaded).toBe(true);
+    const next = await engine.createSession(file);
+    await next.dispose();
   });
 });

@@ -1,4 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
+
+// The stall-error helpers live alongside the real engine module; mock the
+// native FFmpeg imports so the module loads in Node.
+vi.mock("@ffmpeg/core?url", () => ({ default: "/assets/core.js" }));
+vi.mock("@ffmpeg/core/wasm?url", () => ({ default: "/assets/core.wasm" }));
+vi.mock("@ffmpeg/ffmpeg", () => ({
+  FFFSType: { WORKERFS: "WORKERFS" },
+  FFmpeg: class {},
+}));
+
+import { createEncoderStallError } from "../web/ffmpegEngine";
 import {
   buildAudioPeakAnalysisArgs,
   buildCompressionArgs,
@@ -12,6 +23,7 @@ import {
   outputFileName,
   parsePeakNormalizationGain,
   targetBitrateKbps,
+  x264PresetForDevice,
   GIF_PRESETS,
 } from "../web/exportPlan";
 import {
@@ -682,5 +694,109 @@ describe("browser export planning", () => {
 
     expect(normalizeBrowserSettings({ fps: "240.01" }).fps).toBe("off");
     expect(normalizeBrowserSettings({ fps: "javascript:" }).fps).toBe("off");
+  });
+
+  it("uses a faster x264 preset on mobile and keeps veryfast on desktop", () => {
+    expect(x264PresetForDevice(true)).toBe("superfast");
+    expect(x264PresetForDevice(false)).toBe("veryfast");
+    const plan = createExportPlan(metadata, settings, "compress", 2, 20);
+    const desktop = buildCompressionArgs(
+      "input.mp4",
+      "output.mp4",
+      metadata,
+      settings,
+      plan,
+      3000
+    );
+    expect(desktop[desktop.indexOf("-preset") + 1]).toBe("veryfast");
+    const mobile = buildCompressionArgs(
+      "input.mp4",
+      "output.mp4",
+      metadata,
+      settings,
+      plan,
+      3000,
+      null,
+      true
+    );
+    expect(mobile[mobile.indexOf("-preset") + 1]).toBe("superfast");
+  });
+
+  it("restarts the encoder and retries the attempt once when the worker stalls", async () => {
+    let transcodeCalls = 0;
+    let sessionCount = 0;
+    const session = {
+      run: async () => "[volumedetect] max_volume: -6.0 dB",
+      transcode: async () => {
+        transcodeCalls += 1;
+        if (transcodeCalls === 1) throw createEncoderStallError("encoding the video");
+        return new Uint8Array(16_000);
+      },
+      prepareFile: async () => undefined,
+      dispose: async () => undefined,
+    };
+    const engine = {
+      createSession: async () => {
+        sessionCount += 1;
+        return session;
+      },
+    } as unknown as BrowserFfmpegEngine;
+
+    const statuses: string[] = [];
+    const result = await exportBrowserFile({
+      engine,
+      file: { name: "capture.mp4" } as File,
+      metadata,
+      settings: normalizeBrowserSettings({
+        mode: "advanced",
+        advancedTargetSize: "",
+        audioNormalize: true,
+      }),
+      mode: "advanced",
+      startTime: 2,
+      endTime: 20,
+      onProgress: (_progress, status) => {
+        statuses.push(status);
+      },
+    });
+
+    expect(transcodeCalls).toBe(2);
+    expect(sessionCount).toBe(2);
+    expect(statuses).toContain("The encoder stalled; restarting it and retrying…");
+    expect(result.bytes).toBe(16_000);
+  });
+
+  it("surfaces the stall error instead of retrying forever", async () => {
+    let transcodeCalls = 0;
+    const session = {
+      run: async () => "[volumedetect] max_volume: -6.0 dB",
+      transcode: async () => {
+        transcodeCalls += 1;
+        throw createEncoderStallError("encoding the video");
+      },
+      prepareFile: async () => undefined,
+      dispose: async () => undefined,
+    };
+    const engine = {
+      createSession: async () => session,
+    } as unknown as BrowserFfmpegEngine;
+
+    await expect(
+      exportBrowserFile({
+        engine,
+        file: { name: "capture.mp4" } as File,
+        metadata,
+        settings: normalizeBrowserSettings({
+          mode: "advanced",
+          advancedTargetSize: "",
+          audioNormalize: true,
+        }),
+        mode: "advanced",
+        startTime: 2,
+        endTime: 20,
+      })
+    ).rejects.toThrow("stopped responding");
+    // Initial attempt plus exactly one retry.
+    expect(transcodeCalls).toBe(2);
   });
 });

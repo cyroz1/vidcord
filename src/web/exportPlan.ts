@@ -348,6 +348,14 @@ export function buildAudioPeakAnalysisArgs(inputName: string, plan: ExportPlan):
   ];
 }
 
+export function x264PresetForDevice(isMobile: boolean): "superfast" | "veryfast" {
+  // The browser FFmpeg build is single-threaded software x264: at 1080p,
+  // veryfast needs several minutes per minute of video on a phone CPU.
+  // superfast roughly halves that at a modest efficiency cost, which the
+  // target-size bitrate controller absorbs. Desktops keep veryfast quality.
+  return isMobile ? "superfast" : "veryfast";
+}
+
 export function buildCompressionArgs(
   inputName: string,
   outputName: string,
@@ -355,7 +363,8 @@ export function buildCompressionArgs(
   settings: BrowserSettings,
   plan: ExportPlan,
   bitrateKbps: number | null,
-  audioGainDb: number | null = null
+  audioGainDb: number | null = null,
+  isMobile = false
 ): string[] {
   const args = [
     "-i",
@@ -370,7 +379,7 @@ export function buildCompressionArgs(
   ];
   const filter = buildVideoFilter(metadata, settings, plan.targetHeight, plan.mode);
   if (filter) args.push("-vf", filter);
-  args.push("-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p");
+  args.push("-c:v", "libx264", "-preset", x264PresetForDevice(isMobile), "-pix_fmt", "yuv420p");
   if (bitrateKbps !== null) {
     args.push("-b:v", `${bitrateKbps}k`);
     if (plan.targetSizeMb !== null) {

@@ -16,6 +16,34 @@ export type BrowserEncoderLoadProgress = {
   totalBytes: number | null;
 };
 
+/**
+ * How long an encoder worker may go without emitting a progress event or
+ * settling before it is declared stalled. Healthy encodes emit progress
+ * constantly; a worker that goes quiet for this long (on phones the OS can
+ * kill it under memory pressure, typically right after the final 100%
+ * progress event during mux/finalization, without ever replying) will never
+ * settle its exec promise on its own.
+ */
+const ENCODER_STALL_SILENCE_MS = 4 * 60_000;
+
+const ENCODER_STALL_ERROR_CODE = "vidcord-encoder-stalled";
+
+export function createEncoderStallError(label: string): Error {
+  const error = new Error(
+    `The browser encoder stopped responding while ${label}. Your video never left this device. Please try the export again, or use the desktop app for large videos.`
+  );
+  (error as { code?: string }).code = ENCODER_STALL_ERROR_CODE;
+  return error;
+}
+
+export function isEncoderStallError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === ENCODER_STALL_ERROR_CODE
+  );
+}
+
 export type BrowserFfmpegSession = {
   prepareFile: (
     argsForInput: (inputName: string) => string[],
@@ -189,11 +217,19 @@ export class BrowserFfmpegEngine {
 
   private runLogHandler: ((message: string) => void) | null = null;
 
+  private stallTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private stallLabel: string | null = null;
+
+  private stallFire: (() => void) | null = null;
+
   private readonly handleProgress = ({ progress, time }: FfmpegProgressEvent) => {
     const event = {
       progress: Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0,
       time: Number.isFinite(time) ? Math.max(0, time) : Number.NaN,
     };
+    // Any progress event proves the worker is alive; restart the stall silence window.
+    this.pokeStallWatchdog();
     this.operationProgressHandler?.(event);
   };
 
@@ -313,7 +349,9 @@ export class BrowserFfmpegEngine {
       this.runLogHandler = null;
       try {
         this.operationProgressHandler = onProgress ?? null;
-        const exitCode = await ffmpeg.exec(argsForInput(inputName));
+        const exitCode = await this.execWithStallWatchdog("encoding the video", () =>
+          ffmpeg.exec(argsForInput(inputName))
+        );
         ensureActive();
         if (exitCode !== 0) {
           throw new Error(
@@ -325,7 +363,9 @@ export class BrowserFfmpegEngine {
         if (bytes.byteLength === 0) throw new Error("FFmpeg produced an empty output file.");
         return bytes;
       } catch (error: unknown) {
-        ensureActive();
+        // A stalled worker already tore the engine down; report the stall
+        // as-is instead of masking it as a cancellation.
+        if (!isEncoderStallError(error)) ensureActive();
         throw error;
       } finally {
         if (this.ffmpeg === ffmpeg) {
@@ -347,7 +387,9 @@ export class BrowserFfmpegEngine {
       try {
         this.runLogHandler = onLog ?? null;
         this.operationProgressHandler = onProgress ?? null;
-        const exitCode = await ffmpeg.exec(argsForInput(inputName), timeoutMs);
+        const exitCode = await this.execWithStallWatchdog("running the encoder", () =>
+          ffmpeg.exec(argsForInput(inputName), timeoutMs)
+        );
         ensureActive();
         if (exitCode !== 0) {
           throw new Error(
@@ -356,7 +398,9 @@ export class BrowserFfmpegEngine {
         }
         return this.logBuffer;
       } catch (error: unknown) {
-        ensureActive();
+        // A stalled worker already tore the engine down; report the stall
+        // as-is instead of masking it as a cancellation.
+        if (!isEncoderStallError(error)) ensureActive();
         throw error;
       } finally {
         if (this.ffmpeg === ffmpeg) {
@@ -437,7 +481,91 @@ export class BrowserFfmpegEngine {
     }
   }
 
+  /**
+   * Runs one ffmpeg exec with a silence watchdog. The worker-side exec promise
+   * never settles when the browser kills the worker (phones under memory
+   * pressure do this silently), which used to park exports at 100% on
+   * "Continuing…" forever. The watchdog fails loudly instead, and tears the
+   * wedged worker down so the next export reloads fresh.
+   */
+  private execWithStallWatchdog(
+    label: string,
+    exec: () => Promise<number>
+  ): Promise<number> {
+    return new Promise<number>((resolve, reject) => {
+      let done = false;
+      const finish = (settleFn: () => void) => {
+        if (done) return;
+        done = true;
+        this.disarmStallWatchdog();
+        settleFn();
+      };
+      // If the watchdog fires first it rejects with the stall error and the
+      // wedged worker is torn down; a late exec result is then ignored.
+      this.armStallWatchdog(label, () => finish(() => reject(createEncoderStallError(label))));
+      exec().then(
+        (exitCode) => finish(() => resolve(exitCode)),
+        (error) => finish(() => reject(error))
+      );
+    });
+  }
+
+  private armStallWatchdog(label: string, onFire: () => void): void {
+    if (this.stallTimer !== null) clearTimeout(this.stallTimer);
+    this.stallLabel = label;
+    this.stallFire = onFire;
+    const timer: ReturnType<typeof setTimeout> = setTimeout(
+      () => this.fireStallWatchdog(),
+      ENCODER_STALL_SILENCE_MS
+    );
+    // Never keep a process alive just for the watchdog.
+    (timer as unknown as { unref?: () => void }).unref?.();
+    this.stallTimer = timer;
+  }
+
+  private pokeStallWatchdog(): void {
+    if (this.stallTimer === null || this.stallFire === null || this.stallLabel === null) {
+      return;
+    }
+    this.armStallWatchdog(this.stallLabel, this.stallFire);
+  }
+
+  private disarmStallWatchdog(): void {
+    if (this.stallTimer !== null) clearTimeout(this.stallTimer);
+    this.stallTimer = null;
+    this.stallLabel = null;
+    this.stallFire = null;
+  }
+
+  private fireStallWatchdog(): void {
+    const onFire = this.stallFire;
+    this.stallTimer = null;
+    this.stallLabel = null;
+    this.stallFire = null;
+    onFire?.();
+    // The worker thread is wedged: on phones the OS can kill it under memory
+    // pressure (typically right after the final 100% progress event, during
+    // mux/finalization) without ever replying, which used to park exports at
+    // 100% on "Continuing…" forever. Tear it down to release its memory so
+    // the next export reloads a fresh worker instead of reusing this one.
+    try {
+      this.ffmpeg?.terminate();
+    } catch {
+      // The worker is already gone; the teardown below still applies.
+    }
+    // Mirror cancel()'s teardown. The load controller is dropped without
+    // aborting: this was not a user cancellation.
+    this.loadGeneration += 1;
+    this.loadController = null;
+    this.loading = null;
+    this.sessionOwner = null;
+    this.operationProgressHandler = null;
+    this.runLogHandler = null;
+    this.ffmpeg = null;
+  }
+
   cancel(): void {
+    this.disarmStallWatchdog();
     this.loadGeneration += 1;
     this.loadController?.abort(new Error("Export cancelled."));
     this.loadController = null;

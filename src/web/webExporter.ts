@@ -3,6 +3,7 @@ import type {
   BrowserFfmpegSession,
   FfmpegProgressHandler,
 } from "./ffmpegEngine";
+import { isEncoderStallError } from "./ffmpegEngine";
 import {
   buildCompressionArgs,
   buildAudioPeakAnalysisArgs,
@@ -17,7 +18,7 @@ import {
   type ExportPlan,
 } from "./exportPlan";
 import { progressFromMediaTime } from "./browserProgress";
-import type { BrowserVideoMetadata } from "./webMedia";
+import { isMobileDevice, type BrowserVideoMetadata } from "./webMedia";
 import type { BrowserMode, BrowserSettings } from "./webSettings";
 
 const SIZE_SAMPLE_MIN_DURATION_SECONDS = 120;
@@ -124,6 +125,9 @@ export async function exportBrowserFile({
   const baseName = outputFileName(file.name, plan.outputExtension, fileIndex);
   // Keep user-facing filenames out of FFmpeg's option parser and virtual FS.
   const encodedName = `output.${plan.outputExtension}`;
+  // The browser FFmpeg build is single-threaded software x264; phones get a
+  // faster preset so 1080p exports don't take several minutes per minute of video.
+  const preferFastEncode = isMobileDevice();
 
   const engineWithSession = engine as BrowserFfmpegEngine & {
     createSession?: (file: File) => Promise<BrowserFfmpegSession>;
@@ -198,6 +202,7 @@ export async function exportBrowserFile({
     let bestAudioRemovedForCompatibility = false;
     let smallestOversizeBytes: number | null = null;
     let undersizeRetries = 0;
+    let stallRetries = 0;
     let lastOversizedBytes: Uint8Array<ArrayBuffer> | null = null;
 
     const shouldAnalyzeAudio =
@@ -303,7 +308,8 @@ export async function exportBrowserFile({
                   settings,
                   samplePlan,
                   bitrate,
-                  audioGainDb
+                  audioGainDb,
+                  preferFastEncode
                 ),
           sampleOutputName,
           sampleProgress
@@ -387,7 +393,8 @@ export async function exportBrowserFile({
                   encodeSettings,
                   plan,
                   bitrate,
-                  gainDb
+                  gainDb,
+                  preferFastEncode
                 ),
           outputName,
           operationProgressHandler(
@@ -415,6 +422,26 @@ export async function exportBrowserFile({
         } catch (error: unknown) {
           const errorMessage = String(error).toLowerCase();
           if (errorMessage.includes("cancel")) throw error;
+
+          // A wedged encoder worker (phones can kill it silently under memory
+          // pressure) fails the attempt loudly instead of parking the UI on
+          // "Continuing…". Give it one fresh worker and retry the same
+          // attempt before surfacing the error.
+          if (
+            isEncoderStallError(error) &&
+            stallRetries < 1 &&
+            typeof createSession === "function"
+          ) {
+            stallRetries += 1;
+            onProgress?.(attemptStart, "The encoder stalled; restarting it and retrying…", {
+              start: attemptStart,
+              end: attemptEnd,
+            });
+            await session?.dispose().catch(() => undefined);
+            session = await createSession.call(engine, file);
+            continue;
+          }
+
           const audioCompatibilityFailure = isAudioCompatibilityError(errorMessage);
 
           if (shouldAnalyzeAudio && audioCompatibilityFailure && !normalizationSkipped) {
