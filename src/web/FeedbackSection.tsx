@@ -38,7 +38,7 @@ export default function FeedbackSection() {
         <h2 id="feedback-title">Report a bug</h2>
         <p>
           Found something broken on the site or in the app? Send a note straight to the developer.
-          Your message goes out with basic browser info so the issue can be reproduced.
+          The report includes the page URL, browser, and language so the issue can be reproduced.
         </p>
       </div>
       <div className="feedback-form">

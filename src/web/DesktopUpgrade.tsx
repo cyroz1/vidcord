@@ -648,8 +648,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
               <dd>Small native desktop app</dd>
             </div>
             <div>
-              <dt>Offline</dt>
-              <dd>No uploads or telemetry</dd>
+              <dt>Local</dt>
+              <dd>Video processing stays local</dd>
             </div>
             <div>
               <dt>FFmpeg</dt>
@@ -767,8 +767,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
             <span className="step-number">1</span>
             <h3>Add your videos</h3>
             <p>
-              Browse or drop browser videos; desktop also imports folders recursively, from
-              the folder picker or file-manager context menu. Select multiple clips for Batch.
+              Browse or drop browser videos; desktop also imports folders recursively, from the
+              folder picker or file-manager context menu. Select multiple clips for Batch.
             </p>
           </article>
           <article>
@@ -968,7 +968,10 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <article>
             <h3>Does vidcord upload videos?</h3>
             <p>
-              No. Both editions process files locally; there are no uploads, accounts, or telemetry.
+              No. The browser and desktop editions process selected video files locally; videos are
+              not uploaded for compression. No account is required, and vidcord collects no
+              automatic usage telemetry. If you submit feedback, your report is sent to the
+              developer with diagnostics described in the form.
             </p>
           </article>
           <article>
@@ -995,9 +998,9 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <article>
             <h3>Can vidcord compress multiple videos at once?</h3>
             <p>
-              Yes. Select or drop browser files; desktop also imports folders recursively,
-              from the folder picker or file-manager context menu. Browser Batch supports up to 12
-              files; desktop adds per-file trims and parallel workers.
+              Yes. Select or drop browser files; desktop also imports folders recursively, from the
+              folder picker or file-manager context menu. Browser Batch supports up to 12 files;
+              desktop adds per-file trims and parallel workers.
             </p>
           </article>
           <article>

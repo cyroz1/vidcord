@@ -5,16 +5,15 @@
  * to owner@vidcord.app via Resend. The app never sends email directly and
  * holds no credentials; all secrets live here as worker secrets.
  *
- * Abuse protection is layered:
- *  1. A shared `X-Vidcord-Feedback` token (in the public repo, so this only
- *     stops drive-by curl spam — not real auth).
- *  2. A Cloudflare WAF rate-limiting rule on vidcord.app/api/feedback*
- *     (see README) — this is the real protection.
+ * The public-repo token is not authentication. The Worker enforces a
+ * per-source-IP, per-Cloudflare-location request limit before forwarding reports
+ * to Resend; a Cloudflare WAF rule can add another layer at the route.
  */
 
 const MAX_BODY_BYTES = 256 * 1024;
 const MAX_SUBJECT_CHARS = 120;
 const MAX_EMAIL_BODY_CHARS = 100_000;
+const RATE_LIMIT_REQUESTS_PER_MINUTE = 5;
 
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
@@ -77,6 +76,22 @@ export default {
     const token = request.headers.get("x-vidcord-feedback");
     if (!env.FEEDBACK_TOKEN || token !== env.FEEDBACK_TOKEN) {
       return json({ error: "unauthorized" }, 401);
+    }
+
+    if (!env.FEEDBACK_RATE_LIMITER?.limit) {
+      return json({ error: "feedback service unavailable" }, 503);
+    }
+
+    let rateLimit;
+    try {
+      rateLimit = await env.FEEDBACK_RATE_LIMITER.limit({
+        key: request.headers.get("cf-connecting-ip") || "unknown",
+      });
+    } catch {
+      return json({ error: "feedback service unavailable" }, 503);
+    }
+    if (!rateLimit?.success) {
+      return json({ error: "too many reports; try again later" }, 429);
     }
 
     const contentType = request.headers.get("content-type") || "";

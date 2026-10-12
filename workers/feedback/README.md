@@ -43,9 +43,15 @@ The `routes` in `wrangler.jsonc` attach it to `vidcord.app/api/feedback*`.
 - The `X-Vidcord-Feedback` token stops drive-by curl spam. It ships in the
   public repo, so it is obfuscation, not auth — rotate it with
   `cfw secret put FEEDBACK_TOKEN` and update `src/feedback.ts` if it leaks.
-- Real protection is a WAF rate-limiting rule on `vidcord.app/api/feedback*`
-  (e.g. 10 requests/minute per IP). Manage it in the Cloudflare dashboard
-  under Security → WAF → Rate limiting rules.
+- The Worker binding allows up to 5 reports per minute per source IP in each
+  Cloudflare location before forwarding requests to Resend. It fails closed if
+  the rate-limiting binding is missing or unavailable.
+- A Cloudflare WAF rule on `vidcord.app/api/feedback*` can add another layer
+  (for example, 10 requests/minute per IP). Manage it in the Cloudflare
+  dashboard under Security → WAF → Rate limiting rules.
+
+Deploy with Wrangler 4.36.0 or newer; that version is required for the
+rate-limiting binding configured in `wrangler.jsonc`.
 
 ## Test
 

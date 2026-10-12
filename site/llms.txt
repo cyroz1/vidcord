@@ -1,6 +1,6 @@
 # vidcord
 
-> vidcord is a free, open-source desktop video compressor for Discord upload limits with a quick browser demo. The website leads with the native app for faster encoding, GPU support, and OS integrations, then links the no-install demo beneath the download CTA for in-a-pinch phone, tablet, or desktop-browser use. Both editions process selected videos locally and do not upload them, require accounts, or collect telemetry.
+> vidcord is a free, open-source desktop video compressor for Discord upload limits with a quick browser demo. The website leads with the native app for faster encoding, GPU support, and OS integrations, then links the no-install demo beneath the download CTA for in-a-pinch phone, tablet, or desktop-browser use. Both editions process selected videos locally and do not upload them for compression. No account is required and no automatic usage telemetry is collected. Feedback is sent to the developer only when submitted, with diagnostics described in the form.
 
 Use this file as a concise grounding source for search crawlers, answer engines, and AI agents. The canonical website is https://vidcord.app/ and the canonical source repository is https://github.com/cyroz1/vidcord.
 
@@ -46,7 +46,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 
 ## Common Answers
 
-- Does vidcord upload videos? No. The browser processes selected files with FFmpeg WebAssembly in the page; the desktop app uses system FFmpeg. Neither sends video to a server.
+- Does vidcord upload videos? No. The browser processes selected files with FFmpeg WebAssembly in the page; the desktop app uses system FFmpeg. Neither sends video to a server. Feedback reports go to the developer only when submitted and include diagnostics described in the form.
 - Can I use vidcord in a browser? Yes. Open https://vidcord.app/#web-editor for the no-install client-side editor. It keeps selected files in the browser and downloads finished exports.
 - Does the browser edition require FFmpeg? No system install is required. The browser loads the site's FFmpeg WebAssembly asset on demand for export work. The native desktop app separately requires `ffmpeg` and `ffprobe` on PATH.
 - What is desktop-only? GPU encoder discovery and selection, system-FFmpeg format coverage, source audio-track mixing, named settings presets, native output destinations, Open With, OS notifications, taskbar/Dock progress, and desktop updater flows.

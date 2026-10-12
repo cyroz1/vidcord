@@ -1314,7 +1314,7 @@ export default function WebEditor({
             <li>
               <Icon name="check" size={16} />
               <span>
-                <strong>No uploads.</strong> FFmpeg WebAssembly runs on this device.
+                <strong>Videos stay local.</strong> FFmpeg WebAssembly runs on this device.
               </span>
             </li>
             <li>

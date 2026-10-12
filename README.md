@@ -37,8 +37,9 @@ other formats handled by your system [FFmpeg](https://ffmpeg.org) install. It
 adds hardware-accelerated encoding (NVIDIA NVENC, AMD AMF, Intel Quick Sync,
 Linux VAAPI, Apple VideoToolbox), automatic bitrate calculation, strict output
 size checks, output FPS controls, and platform-native installers. Both editions
-process locally with no accounts, uploads, or telemetry. The desktop app is
-built with [Tauri 2](https://tauri.app) (Rust + React); the browser edition is
+process videos locally; neither requires an account and vidcord collects no
+automatic usage telemetry. User-submitted feedback goes to the developer. The
+desktop app is built with [Tauri 2](https://tauri.app) (Rust + React); the browser edition is
 the same React frontend paired with FFmpeg WebAssembly.
 
 <p>
@@ -56,7 +57,7 @@ the same React frontend paired with FFmpeg WebAssembly.
 > Windows 10/11, macOS 11+, and Linux · x86_64 + aarch64 · Native installers ·
 > Discord targets 20 / 50 / 100 / 500 MB / 1 GB · Hardware acceleration and OS
 > integrations on desktop · Desktop requires system FFmpeg on `PATH` · Quick
-> browser demo with no install, no uploads, local FFmpeg WebAssembly, and browser
+> browser demo with no install, local FFmpeg WebAssembly, and browser
 > downloads · MIT licensed.
 
 ---
@@ -101,7 +102,9 @@ and retry oversized results with safer bitrates and CPU fallback.
   and the self-contained Linux AppImages are substantially larger.
 - **Desktop-speed encoding.** The native app auto-detects hardware encoders:
   NVENC, AMF, QSV, VAAPI, and VideoToolbox.
-- **No telemetry, no accounts, no uploads.** Files never leave your machine.
+- **Local video processing.** Selected videos stay on your device. No account is required, and
+  vidcord collects no automatic usage telemetry. If you submit feedback, the report goes to the
+  developer with diagnostics described in the form.
 
 ## Best for
 
@@ -771,10 +774,14 @@ source on GitHub. There are no paid tiers, accounts, or trials.
 
 ### Does vidcord upload my videos anywhere?
 
-No. The browser keeps selected files in the page while FFmpeg WebAssembly runs
-locally, and the desktop app runs system FFmpeg locally — no compression server,
-account, or telemetry. The app automatically checks the GitHub Releases API for
-updates at most once every six hours, deferred for eight seconds after startup.
+No. The browser keeps selected video files in the page while FFmpeg WebAssembly
+runs locally, and the desktop app runs system FFmpeg locally; neither uploads
+videos for compression. No account is required, and vidcord collects no automatic
+usage telemetry. If you submit feedback, your report goes to the developer;
+desktop reports include the app version, OS, and last 100 lines of the app log;
+browser reports include the page URL, browser user agent, and language. The app
+automatically checks the GitHub Releases API for updates at most once every six
+hours, deferred for eight seconds after startup.
 It only downloads an installer after you choose to install an available update.
 The website also requests public release metadata from GitHub and an aggregate
 download count from Shields.io; no video data is included in either request.

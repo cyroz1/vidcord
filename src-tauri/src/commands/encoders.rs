@@ -341,13 +341,13 @@ const PRIVILEGED_INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
 /// timestamp), so `sudo -n` will not fail outright.
 #[cfg(target_os = "linux")]
 fn passwordless_sudo_available() -> bool {
-    std::process::Command::new("sudo")
-        .args(["-n", "true"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+    let mut command = std::process::Command::new("sudo");
+    command.args(["-n", "true"]);
+    matches!(
+        spawn_captured_command(&mut command)
+            .and_then(|child| child.wait_for_output(COMMAND_PROBE_TIMEOUT)),
+        Ok(Some(output)) if output.status.success()
+    )
 }
 
 /// Terminal emulators that stay in the foreground, with the extra args needed
@@ -381,10 +381,11 @@ fn find_terminal_emulator() -> Option<(&'static str, &'static [&'static str])> {
 /// method that fails cleanly falls through to the next one. Returns the first
 /// successful output; otherwise the most informative failure output (sudo and
 /// pkexec capture the real stderr, a terminal emulator's own output is
-/// empty); `None` on timeout; or an error when no escalation method could be
-/// launched at all.
+/// empty); `None` on timeout (which stops further escalation attempts); or an
+/// error when no escalation method could be launched at all.
 #[cfg(target_os = "linux")]
 fn run_privileged_install(install_cmd: &str) -> std::io::Result<Option<std::process::Output>> {
+    let deadline = Instant::now() + PRIVILEGED_INSTALL_TIMEOUT;
     let quoted = shell_quote(install_cmd);
     let mut attempts: Vec<std::process::Command> = Vec::new();
 
@@ -418,8 +419,12 @@ fn run_privileged_install(install_cmd: &str) -> std::io::Result<Option<std::proc
 
     let mut informative_failure: Option<std::process::Output> = None;
     for mut attempt in attempts {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Ok(None);
+        }
         match spawn_captured_command(&mut attempt)
-            .and_then(|child| child.wait_for_output(PRIVILEGED_INSTALL_TIMEOUT))
+            .and_then(|child| child.wait_for_output(remaining))
         {
             Ok(Some(output)) if output.status.success() => return Ok(Some(output)),
             Ok(Some(output)) => {
@@ -427,7 +432,12 @@ fn run_privileged_install(install_cmd: &str) -> std::io::Result<Option<std::proc
                     informative_failure = Some(output);
                 }
             }
-            Ok(None) | Err(_) => {}
+            // A timed-out package-manager command may still have made partial
+            // changes. Do not start another copy of the same install through a
+            // different escalation path; the caller reports the shared
+            // ten-minute deadline accurately.
+            Ok(None) => return Ok(None),
+            Err(_) => {}
         }
     }
     Ok(informative_failure)

@@ -311,11 +311,212 @@ fn publish_candidate_output(source: &Path, destination: &Path) -> std::io::Resul
         }
     }
 
-    // Non-Unix targets fail closed on cross-volume moves. They do not create
-    // a sibling staging pathname with inherited destination ACLs.
-    #[cfg(not(unix))]
+    #[cfg(target_os = "windows")]
+    {
+        publish_candidate_output_windows(source, destination)
+    }
+
+    // Other non-Unix targets fail closed on cross-volume moves.
+    #[cfg(all(not(unix), not(target_os = "windows")))]
     match crate::settings::replace_file(source, destination) {
         Ok(()) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsFileDacl {
+    descriptor: windows_sys::Win32::Security::PSECURITY_DESCRIPTOR,
+    dacl: *mut windows_sys::Win32::Security::ACL,
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsFileDacl {
+    fn drop(&mut self) {
+        if !self.descriptor.is_null() {
+            unsafe {
+                windows_sys::Win32::Foundation::LocalFree(self.descriptor);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn read_windows_file_dacl(path: &Path) -> std::io::Result<WindowsFileDacl> {
+    use std::iter::once;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows_sys::Win32::Security::{ACL, DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR};
+
+    let path_wide: Vec<u16> = path.as_os_str().encode_wide().chain(once(0)).collect();
+    let mut dacl: *mut ACL = std::ptr::null_mut();
+    let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            path_wide.as_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut dacl,
+            std::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != 0 {
+        return Err(std::io::Error::from_raw_os_error(status as i32));
+    }
+    if dacl.is_null() {
+        if !descriptor.is_null() {
+            unsafe {
+                windows_sys::Win32::Foundation::LocalFree(descriptor);
+            }
+        }
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "The output file has no access-control list.",
+        ));
+    }
+
+    Ok(WindowsFileDacl { descriptor, dacl })
+}
+
+#[cfg(target_os = "windows")]
+fn set_windows_file_dacl(
+    path: &Path,
+    dacl: *const windows_sys::Win32::Security::ACL,
+) -> std::io::Result<()> {
+    use std::iter::once;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Security::Authorization::{SetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows_sys::Win32::Security::DACL_SECURITY_INFORMATION;
+
+    let path_wide: Vec<u16> = path.as_os_str().encode_wide().chain(once(0)).collect();
+    let status = unsafe {
+        SetNamedSecurityInfoW(
+            path_wide.as_ptr().cast_mut(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            dacl,
+            std::ptr::null_mut(),
+        )
+    };
+    if status != 0 {
+        return Err(std::io::Error::from_raw_os_error(status as i32));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn create_windows_private_output_file(
+    path: &Path,
+    private_descriptor: windows_sys::Win32::Security::PSECURITY_DESCRIPTOR,
+) -> std::io::Result<std::fs::File> {
+    use std::iter::once;
+    use std::os::windows::{ffi::OsStrExt, io::FromRawHandle};
+    use windows_sys::Win32::Foundation::{GENERIC_WRITE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, CREATE_NEW, FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_TEMPORARY,
+    };
+
+    let path_wide: Vec<u16> = path.as_os_str().encode_wide().chain(once(0)).collect();
+    let mut attributes = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: private_descriptor,
+        bInheritHandle: 0,
+    };
+    let handle = unsafe {
+        CreateFileW(
+            path_wide.as_ptr(),
+            GENERIC_WRITE,
+            0,
+            &mut attributes,
+            CREATE_NEW,
+            FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_TEMPORARY,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(unsafe { std::fs::File::from_raw_handle(handle.cast()) })
+}
+
+#[cfg(target_os = "windows")]
+fn copy_candidate_to_windows_output(
+    source: &Path,
+    destination: &Path,
+    destination_dacl: *const windows_sys::Win32::Security::ACL,
+) -> std::io::Result<()> {
+    use std::sync::atomic::Ordering;
+
+    static PUBLISH_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+    let source_parent = source.parent().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "candidate has no parent")
+    })?;
+    let private_security = read_windows_file_dacl(source_parent)?;
+
+    for _ in 0..32 {
+        let suffix = PUBLISH_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let temporary_path = parent.join(format!(
+            ".vidcord-publish-{}-{suffix}.tmp",
+            std::process::id()
+        ));
+        let mut output = match create_windows_private_output_file(
+            &temporary_path,
+            private_security.descriptor,
+        ) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+
+        let copy_result = (|| {
+            let mut input = std::fs::File::open(source)?;
+            std::io::copy(&mut input, &mut output)?;
+            output.sync_all()
+        })();
+        drop(output);
+        if let Err(error) = copy_result {
+            let _ = std::fs::remove_file(&temporary_path);
+            return Err(error);
+        }
+
+        if let Err(error) = set_windows_file_dacl(&temporary_path, destination_dacl) {
+            let _ = std::fs::remove_file(&temporary_path);
+            return Err(error);
+        }
+        if let Err(error) = crate::settings::replace_file(&temporary_path, destination) {
+            let _ = std::fs::remove_file(&temporary_path);
+            return Err(error);
+        }
+        return Ok(());
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not choose a temporary output name",
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn publish_candidate_output_windows(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use windows_sys::Win32::Foundation::ERROR_NOT_SAME_DEVICE;
+
+    // Candidates live in the private cache. Copy the reserved output's DACL
+    // onto the candidate before attempting a same-volume rename so the final
+    // file keeps the destination folder's access rules.
+    let destination_security = read_windows_file_dacl(destination)?;
+    set_windows_file_dacl(source, destination_security.dacl)?;
+    match crate::settings::replace_file(source, destination) {
+        Ok(()) => Ok(()),
+        Err(error) if error.raw_os_error() == Some(ERROR_NOT_SAME_DEVICE as i32) => {
+            copy_candidate_to_windows_output(source, destination, destination_security.dacl)
+        }
         Err(error) => Err(error),
     }
 }

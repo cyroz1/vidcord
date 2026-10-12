@@ -74,6 +74,15 @@ describe("vidcord desktop end-to-end workflow", function () {
     );
 
     await waitForDisplayed(".drop-zone");
+    // The E2E build always reports a newer release. Dismiss its expected modal
+    // before the workflow scenario interacts with the inert app content.
+    const dismissUpdate = await browser.$('button[aria-label="Dismiss update"]');
+    await dismissUpdate.waitForDisplayed({ timeout: 60_000 });
+    await dismissUpdate.click();
+    await browser.waitUntil(async () => !(await dismissUpdate.isDisplayed()), {
+      timeout: 10_000,
+      timeoutMsg: "The deterministic update modal did not close",
+    });
     await browser.$(".drop-zone").click();
     await browser.$(".loaded-file-card").waitForDisplayed({ timeout: 60_000 });
     await browser.waitUntil(async () => await browser.$(".compress-btn").isEnabled(), {

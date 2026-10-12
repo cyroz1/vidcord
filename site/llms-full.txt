@@ -1,6 +1,6 @@
 # vidcord full agent context
 
-> vidcord is a free, open-source desktop video compressor for Discord upload limits with a quick browser demo. The website leads with the native app for faster encoding, GPU support, and OS integrations, then links the no-install demo beneath the download CTA for in-a-pinch phone, tablet, or desktop-browser use. Both editions process selected videos locally and avoid uploads, accounts, and telemetry.
+> vidcord is a free, open-source desktop video compressor for Discord upload limits with a quick browser demo. The website leads with the native app for faster encoding, GPU support, and OS integrations, then links the no-install demo beneath the download CTA for in-a-pinch phone, tablet, or desktop-browser use. Both editions process selected videos locally and do not upload them for compression. No account is required and no automatic usage telemetry is collected. Feedback is sent to the developer only when submitted, with diagnostics described in the form.
 
 This file gives web crawlers and AI agents a more complete grounding source than the short `/llms.txt` summary. It is public and contains no secrets or private user data.
 
@@ -114,7 +114,7 @@ The desktop download section detects the operating system and fetches the latest
 
 ### Does vidcord upload videos?
 
-No. The browser keeps selected files in the page while FFmpeg WebAssembly runs locally. The desktop app uses system FFmpeg locally. Neither edition uploads video, requires an account, or collects telemetry.
+No. The browser keeps selected video files in the page while FFmpeg WebAssembly runs locally. The desktop app uses system FFmpeg locally. Neither edition uploads video for compression. No account is required, and vidcord collects no automatic usage telemetry. Feedback is sent to the developer only when submitted; the form explains which diagnostics accompany the report.
 
 ### Can I use vidcord in a browser?
 
