@@ -61,7 +61,9 @@ const limits = {
   // The direct playback updates add a small amount of compressed code without per-frame React work.
   // The in-app bug-report dialog and website feedback section add reporting UI
   // to both editions; allow 2 KiB for their compressed code.
-  javascriptGzip: 164 * 1024,
+  // Complete 7.6 release details add about 0.2 KiB compressed; allow for the copy
+  // while keeping 1 KiB of cross-runtime margin.
+  javascriptGzip: 165 * 1024,
   // The browser editor also carries the integrated desktop feature story, responsive layout,
   // and the platform-aware download/architecture-choice surfaces.
   cssGzip: 18.5 * 1024,
