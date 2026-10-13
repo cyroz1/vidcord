@@ -50,7 +50,9 @@ const limits = {
   // allow 2 KiB for them.
   // Complete 7.6 release details on the integrated home page add about 1 KiB of
   // user-facing copy across both desktop and browser workflows.
-  javascriptRaw: 525 * 1024,
+  // Paused-frame snapshots keep stopped playback visually stable in both previews;
+  // allow 1 KiB for the shared capture and overlay path.
+  javascriptRaw: 526 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
   // Keep 1 KiB of cross-runtime margin while retaining the tight raw-byte guard above.
   // The donate footer link and website support section add a shared links module plus
