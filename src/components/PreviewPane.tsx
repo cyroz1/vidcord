@@ -31,6 +31,7 @@ import {
   shouldHoldPausedFrame,
   shouldShowDirectPreviewVideo,
 } from "../previewScrub";
+import { capturePreviewFrameDataUrl } from "../previewFrame";
 
 const FIXED_PREVIEW_CSS_WIDTH = 432;
 const PREVIEW_ASPECT_WIDTH = 16;
@@ -86,6 +87,13 @@ const videoBaseStyle: React.CSSProperties = {
 };
 const videoVisibleStyle: React.CSSProperties = { ...videoBaseStyle, display: "block" };
 const videoHiddenStyle: React.CSSProperties = { ...videoBaseStyle, display: "none" };
+const pausedFrameOverlayStyle: React.CSSProperties = {
+  ...videoBaseStyle,
+  display: "block",
+  objectFit: "contain",
+  pointerEvents: "none",
+  zIndex: 2,
+};
 
 const overlayGroupStyle: React.CSSProperties = {
   position: "absolute",
@@ -241,6 +249,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     onPlaybackErrorRef.current = onPlaybackError;
   }, [onPlaybackError]);
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
+  const [pausedFrameDataUrl, setPausedFrameDataUrl] = useState<string | null>(null);
   // True while the video element is showing a paused frame from a stopped
   // playback whose source was not preserved for scrub preview (typically a
   // generated clip). While held, the video stays visible and the scrub-preview
@@ -289,6 +298,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   useEffect(() => {
     setDirectPreviewFailed(false);
     setInitialPreviewSettled(false);
+    setPausedFrameDataUrl(null);
     currentPlaybackTimeRef.current = 0;
     setCurrentPlaybackTime(0);
     onTimeUpdateRef.current?.(filePath ? 0 : null);
@@ -443,6 +453,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
       currentPlaybackTimeRef.current = clamped;
       setCurrentPlaybackTime(clamped);
+      setPausedFrameDataUrl(null);
       onTimeUpdateRef.current?.(clamped);
       if (!vid) return;
 
@@ -895,6 +906,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       vid.onseeked = null;
       vid.onerror = null;
       vid.pause();
+      const pausedFrame = capturePreviewFrameDataUrl(vid);
+      if (pausedFrame) setPausedFrameDataUrl(pausedFrame);
       if (!preserveDirectSource && (vid.readyState ?? 0) < 2) {
         vid.src = "";
         vid.load(); // abort any in-flight load
@@ -1087,6 +1100,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
           return;
         }
         if (playbackSessionRef.current !== session) return;
+        setPausedFrameDataUrl(null);
         playingRef.current = true;
         setPlaying(true);
         ensureStopTimer();
@@ -1134,6 +1148,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         .play()
         .then(() => {
           if (playbackSessionRef.current !== session) return;
+          setPausedFrameDataUrl(null);
           playingRef.current = true;
           setPlaying(true);
           ensureStopTimer();
@@ -1324,6 +1339,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
           }}
           onEnded={handleVideoEnded}
         />
+        {!playing && pausedFrameDataUrl && (
+          <img src={pausedFrameDataUrl} alt="" aria-hidden="true" style={pausedFrameOverlayStyle} />
+        )}
       </PreviewCrop>
 
       {/* Play/Stop overlay — shown on hover; disabled on Linux (GStreamer crash) */}

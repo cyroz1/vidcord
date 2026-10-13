@@ -1,4 +1,5 @@
 import PreviewCrop from "../components/PreviewCrop";
+import { capturePreviewFrameDataUrl } from "../previewFrame";
 import {
   useCallback,
   useEffect,
@@ -305,6 +306,7 @@ export default function WebEditor({
   const [losslessKeyframesLoading, setLosslessKeyframesLoading] = useState(false);
   const [losslessKeyframeError, setLosslessKeyframeError] = useState<string | null>(null);
   const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [pausedFrameDataUrl, setPausedFrameDataUrl] = useState<string | null>(null);
   const [loopPlayback, setLoopPlayback] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -483,6 +485,7 @@ export default function WebEditor({
     const generation = ++loadGenerationRef.current;
     if (!file) {
       setPreviewUrl(null);
+      setPausedFrameDataUrl(null);
       setPreviewError(null);
       setMetadata(null);
       setMetadataLoading(false);
@@ -495,6 +498,7 @@ export default function WebEditor({
     const url = getPreviewUrl(file);
     const controller = new AbortController();
     setPreviewUrl(url);
+    setPausedFrameDataUrl(null);
     setPreviewError(null);
     setMetadata(null);
     setMetadataLoading(true);
@@ -839,6 +843,7 @@ export default function WebEditor({
 
   const seekTo = useCallback(
     (time: number) => {
+      setPausedFrameDataUrl(null);
       const next = Math.max(0, Math.min(time, duration));
       if (videoRef.current) {
         try {
@@ -850,6 +855,13 @@ export default function WebEditor({
     },
     [duration]
   );
+
+  const capturePausedPreviewFrame = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || video.currentSrc !== previewUrl) return;
+    const frame = capturePreviewFrameDataUrl(video);
+    if (frame) setPausedFrameDataUrl(frame);
+  }, [previewUrl]);
 
   const snapTrimRange = useCallback(
     (requestedStart: number, requestedEnd: number) => {
@@ -941,6 +953,7 @@ export default function WebEditor({
   }, [duration, endTime, metadata, startTime]);
 
   const handleVideoEnded = useCallback(() => {
+    capturePausedPreviewFrame();
     const video = videoRef.current;
     if (!video) {
       setPreviewPlaying(false);
@@ -952,7 +965,7 @@ export default function WebEditor({
       return;
     }
     setPreviewPlaying(false);
-  }, [endTime, loopPlayback, metadata, startTime]);
+  }, [capturePausedPreviewFrame, endTime, loopPlayback, metadata, startTime]);
 
   const startExport = useCallback(
     async (retryItemIds?: readonly number[]) => {
@@ -1801,8 +1814,14 @@ export default function WebEditor({
                             preload="metadata"
                             onTimeUpdate={handleVideoTimeUpdate}
                             onSeeked={handleVideoTimeUpdate}
-                            onPlay={() => setPreviewPlaying(true)}
-                            onPause={() => setPreviewPlaying(false)}
+                            onPlay={() => {
+                              setPausedFrameDataUrl(null);
+                              setPreviewPlaying(true);
+                            }}
+                            onPause={() => {
+                              capturePausedPreviewFrame();
+                              setPreviewPlaying(false);
+                            }}
                             onEnded={handleVideoEnded}
                             onError={() =>
                               setPreviewError("The browser could not play this video.")
@@ -1813,6 +1832,14 @@ export default function WebEditor({
                               }
                             }}
                           />
+                          {!previewPlaying && pausedFrameDataUrl && (
+                            <img
+                              className="web-preview-paused-frame"
+                              src={pausedFrameDataUrl}
+                              alt=""
+                              aria-hidden="true"
+                            />
+                          )}
                         </PreviewCrop>
                         {metadata && (
                           <button
