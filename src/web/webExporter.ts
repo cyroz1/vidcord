@@ -3,6 +3,7 @@ import type {
   BrowserFfmpegSession,
   FfmpegProgressHandler,
 } from "./ffmpegEngine";
+import { isEncoderStallError } from "./ffmpegEngine";
 import {
   buildCompressionArgs,
   buildAudioPeakAnalysisArgs,
@@ -10,13 +11,23 @@ import {
   buildGifPaletteArgs,
   buildLosslessArgs,
   createExportPlan,
+  getFillBitrate,
   getRetryBitrate,
   outputFileName,
   parsePeakNormalizationGain,
+  type ExportPlan,
 } from "./exportPlan";
 import { progressFromMediaTime } from "./browserProgress";
-import type { BrowserVideoMetadata } from "./webMedia";
+import { isMobileDevice, type BrowserVideoMetadata } from "./webMedia";
 import type { BrowserMode, BrowserSettings } from "./webSettings";
+
+const SIZE_SAMPLE_MIN_DURATION_SECONDS = 120;
+const SIZE_SAMPLE_DURATION_SECONDS = 4;
+const GIF_SAMPLE_MIN_DURATION_SECONDS = 30;
+const GIF_SAMPLE_DURATION_SECONDS = 1;
+const SIZE_SAMPLE_SAFETY_MARGIN = 1.03;
+const SIZE_REFINE_RATIO = 0.95;
+const SIZE_UNDERSIZE_RETRY_LIMIT = 2;
 
 export type ExportProgressSegment = {
   /** Overall progress where the current operation starts (0-1). */
@@ -77,7 +88,12 @@ function operationProgressHandler(
 ): FfmpegProgressHandler {
   let lastProgress = 0;
   return ({ progress, time }) => {
-    const safeProgress = progressFromMediaTime(time, durationSeconds, progress, fullDurationSeconds);
+    const safeProgress = progressFromMediaTime(
+      time,
+      durationSeconds,
+      progress,
+      fullDurationSeconds
+    );
     const monotonicProgress = Math.max(lastProgress, safeProgress);
     lastProgress = monotonicProgress;
     onProgress?.(start + (end - start) * monotonicProgress, status, { start, end });
@@ -109,6 +125,9 @@ export async function exportBrowserFile({
   const baseName = outputFileName(file.name, plan.outputExtension, fileIndex);
   // Keep user-facing filenames out of FFmpeg's option parser and virtual FS.
   const encodedName = `output.${plan.outputExtension}`;
+  // The browser FFmpeg build is single-threaded software x264; phones get a
+  // faster preset so 1080p exports don't take several minutes per minute of video.
+  const preferFastEncode = isMobileDevice();
 
   const engineWithSession = engine as BrowserFfmpegEngine & {
     createSession?: (file: File) => Promise<BrowserFfmpegSession>;
@@ -140,7 +159,7 @@ export async function exportBrowserFile({
 
     if (mode === "lossless") {
       onProgress?.(0, "Encoding lossless trim…", { start: 0, end: 1 });
-      const bytes = await transcodeFile(
+      let bytes = await transcodeFile(
         (inputName) =>
           buildLosslessArgs(
             inputName,
@@ -150,31 +169,55 @@ export async function exportBrowserFile({
             settings.removeAudio
           ),
         encodedName,
-        operationProgressHandler(onProgress, 0, 1, "Encoding lossless trim…", plan.selectedDuration, metadata.duration)
+        operationProgressHandler(
+          onProgress,
+          0,
+          1,
+          "Encoding lossless trim…",
+          plan.selectedDuration,
+          metadata.duration
+        )
       );
       onProgress?.(1, "Finishing export…", { start: 0, end: 1 });
+      const outputBytes = bytes.byteLength;
+      const blob = new Blob([bytes], { type: extensionMimeType(plan.outputExtension) });
+      bytes = new Uint8Array();
       return {
-        blob: new Blob([bytes], { type: extensionMimeType(plan.outputExtension) }),
+        blob,
         fileName: baseName,
-        bytes: bytes.byteLength,
+        bytes: outputBytes,
         wasOversized: false,
         normalizationSkipped: false,
         audioRemovedForCompatibility: false,
       };
     }
 
-    const maximumAttempts = mode === "gif" ? 4 : plan.targetSizeMb === null ? 1 : 3;
+    const maximumAttempts = mode === "gif" ? 4 : plan.targetSizeMb === null ? 1 : 4;
     let bitrate = plan.bitrateKbps;
     let audioGainDb: number | null = null;
     let normalizationSkipped = false;
     let audioRemovedForCompatibility = false;
-    let lastBytes: Uint8Array<ArrayBuffer> = new Uint8Array();
+    let bestBytes: Uint8Array<ArrayBuffer> | null = null;
+    let bestNormalizationSkipped = false;
+    let bestAudioRemovedForCompatibility = false;
+    let smallestOversizeBytes: number | null = null;
+    let undersizeRetries = 0;
+    let stallRetries = 0;
+    let lastOversizedBytes: Uint8Array<ArrayBuffer> | null = null;
 
     const shouldAnalyzeAudio =
       settings.audioNormalize && !settings.removeAudio && metadata.hasAudio && mode !== "gif";
     const canDropAudio = mode !== "gif" && !settings.removeAudio && metadata.hasAudio;
     const analysisEnd = shouldAnalyzeAudio ? 0.12 : 0;
-    const encodingSpan = 1 - analysisEnd;
+    const preflightDuration =
+      mode === "gif" ? GIF_SAMPLE_DURATION_SECONDS : SIZE_SAMPLE_DURATION_SECONDS;
+    const shouldRunSizePreflight =
+      plan.targetSizeMb !== null &&
+      bitrate !== null &&
+      plan.selectedDuration >=
+        (mode === "gif" ? GIF_SAMPLE_MIN_DURATION_SECONDS : SIZE_SAMPLE_MIN_DURATION_SECONDS);
+    const preflightSpan = shouldRunSizePreflight ? 0.06 : 0;
+    const encodingSpan = 1 - analysisEnd - preflightSpan;
 
     if (shouldAnalyzeAudio) {
       onProgress?.(0, "Analyzing audio peak…", { start: 0, end: analysisEnd });
@@ -201,12 +244,109 @@ export async function exportBrowserFile({
       onProgress?.(analysisEnd, "Preparing encoder…", { start: analysisEnd, end: 1 });
     }
 
+    if (shouldRunSizePreflight && bitrate !== null && plan.targetSizeMb !== null) {
+      const sampleDuration = Math.min(preflightDuration, plan.selectedDuration);
+      const samplePlan: ExportPlan = {
+        ...plan,
+        endTime: plan.startTime + sampleDuration,
+        selectedDuration: sampleDuration,
+      };
+      const preflightStart = analysisEnd;
+      const preflightEnd = preflightStart + preflightSpan;
+      const sampleOutputName = mode === "gif" ? "size-sample.gif" : "size-sample.mp4";
+      const sampleProgress = operationProgressHandler(
+        onProgress,
+        preflightStart,
+        preflightEnd,
+        "Estimating output size…",
+        sampleDuration,
+        metadata.duration
+      );
+
+      onProgress?.(preflightStart, "Estimating output size…", {
+        start: preflightStart,
+        end: preflightEnd,
+      });
+      let sizeAdjusted = false;
+      try {
+        let paletteName: string | undefined;
+        if (mode === "gif" && session?.prepareFile) {
+          paletteName = "size-sample-palette.png";
+          const paletteEnd = preflightStart + preflightSpan * 0.35;
+          await session.prepareFile(
+            (inputName) =>
+              buildGifPaletteArgs(inputName, paletteName!, metadata, settings, samplePlan, bitrate),
+            paletteName,
+            operationProgressHandler(
+              onProgress,
+              preflightStart,
+              paletteEnd,
+              "Estimating GIF size…",
+              sampleDuration,
+              metadata.duration
+            )
+          );
+        }
+
+        const sampleBytes = await transcodeFile(
+          (inputName) =>
+            mode === "gif"
+              ? buildGifArgs(
+                  inputName,
+                  sampleOutputName,
+                  metadata,
+                  settings,
+                  samplePlan,
+                  plan.targetHeight ?? 480,
+                  bitrate,
+                  paletteName
+                )
+              : buildCompressionArgs(
+                  inputName,
+                  sampleOutputName,
+                  metadata,
+                  settings,
+                  samplePlan,
+                  bitrate,
+                  audioGainDb,
+                  preferFastEncode
+                ),
+          sampleOutputName,
+          sampleProgress
+        );
+        const projectedBytes = Math.ceil(
+          (sampleBytes.byteLength * plan.selectedDuration * SIZE_SAMPLE_SAFETY_MARGIN) /
+            sampleDuration
+        );
+        const targetBytes = plan.targetSizeMb * 1024 * 1024;
+        const adjustedBitrate =
+          projectedBytes > targetBytes
+            ? getRetryBitrate(bitrate, projectedBytes, plan.targetSizeMb)
+            : getFillBitrate(bitrate, projectedBytes, plan.targetSizeMb, plan.sourceBitrateKbps);
+        if (adjustedBitrate !== bitrate) {
+          bitrate = adjustedBitrate;
+          sizeAdjusted = true;
+        }
+      } catch (error: unknown) {
+        if (String(error).toLowerCase().includes("cancel")) throw error;
+      }
+      onProgress?.(
+        preflightEnd,
+        sizeAdjusted
+          ? "Starting full export with an adjusted size estimate…"
+          : "Starting full export…",
+        {
+          start: preflightStart,
+          end: preflightEnd,
+        }
+      );
+    }
+
     for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
-      // A rejected large output must not stay alive during the next encode.
-      lastBytes = new Uint8Array();
       const attemptLabel = maximumAttempts > 1 ? ` · pass ${attempt + 1}/${maximumAttempts}` : "";
-      const attemptStart = analysisEnd + (encodingSpan * attempt) / maximumAttempts;
-      const attemptEnd = analysisEnd + (encodingSpan * (attempt + 1)) / maximumAttempts;
+      const attemptStart = analysisEnd + preflightSpan + (encodingSpan * attempt) / maximumAttempts;
+      const attemptEnd =
+        analysisEnd + preflightSpan + (encodingSpan * (attempt + 1)) / maximumAttempts;
       const encodingStatus =
         mode === "gif" ? `Rendering GIF${attemptLabel}` : `Encoding${attemptLabel}`;
       onProgress?.(attemptStart, encodingStatus, { start: attemptStart, end: attemptEnd });
@@ -253,7 +393,8 @@ export async function exportBrowserFile({
                   encodeSettings,
                   plan,
                   bitrate,
-                  gainDb
+                  gainDb,
+                  preferFastEncode
                 ),
           outputName,
           operationProgressHandler(
@@ -281,6 +422,26 @@ export async function exportBrowserFile({
         } catch (error: unknown) {
           const errorMessage = String(error).toLowerCase();
           if (errorMessage.includes("cancel")) throw error;
+
+          // A wedged encoder worker (phones can kill it silently under memory
+          // pressure) fails the attempt loudly instead of parking the UI on
+          // "Continuing…". Give it one fresh worker and retry the same
+          // attempt before surfacing the error.
+          if (
+            isEncoderStallError(error) &&
+            stallRetries < 1 &&
+            typeof createSession === "function"
+          ) {
+            stallRetries += 1;
+            onProgress?.(attemptStart, "Encoder stalled; retrying…", {
+              start: attemptStart,
+              end: attemptEnd,
+            });
+            await session?.dispose().catch(() => undefined);
+            session = await createSession.call(engine, file);
+            continue;
+          }
+
           const audioCompatibilityFailure = isAudioCompatibilityError(errorMessage);
 
           if (shouldAnalyzeAudio && audioCompatibilityFailure && !normalizationSkipped) {
@@ -301,40 +462,97 @@ export async function exportBrowserFile({
             continue;
           }
 
+          if (bestBytes) {
+            bytes = bestBytes;
+            break;
+          }
+
           throw error;
         }
       }
-      lastBytes = bytes;
       onProgress?.(attemptEnd, "Checking output size…", { start: attemptStart, end: attemptEnd });
 
       if (isTargetMet(bytes.byteLength, plan.targetSizeMb)) {
-        onProgress?.(1, "Finishing export…", { start: 0, end: 1 });
-        return {
-          blob: new Blob([bytes], { type: extensionMimeType(plan.outputExtension) }),
-          fileName: baseName,
-          bytes: bytes.byteLength,
-          wasOversized: false,
-          normalizationSkipped,
-          audioRemovedForCompatibility,
-        };
+        lastOversizedBytes = null;
+        const improved = bestBytes === null || bytes.byteLength > bestBytes.byteLength;
+        if (improved) {
+          bestBytes = bytes;
+          bestNormalizationSkipped = normalizationSkipped;
+          bestAudioRemovedForCompatibility = audioRemovedForCompatibility;
+        }
+
+        if (
+          improved &&
+          mode !== "gif" &&
+          bitrate !== null &&
+          plan.targetSizeMb !== null &&
+          undersizeRetries < SIZE_UNDERSIZE_RETRY_LIMIT &&
+          attempt + 1 < maximumAttempts &&
+          bytes.byteLength < plan.targetSizeMb * 1024 * 1024 * SIZE_REFINE_RATIO
+        ) {
+          const nextBitrate = getFillBitrate(
+            bitrate,
+            bytes.byteLength,
+            plan.targetSizeMb,
+            plan.sourceBitrateKbps
+          );
+          if (nextBitrate > bitrate) {
+            bitrate = nextBitrate;
+            undersizeRetries += 1;
+            continue;
+          }
+        }
+        break;
       }
 
       if (bitrate !== null && plan.targetSizeMb !== null) {
+        lastOversizedBytes = bytes;
+        smallestOversizeBytes =
+          smallestOversizeBytes === null
+            ? bytes.byteLength
+            : Math.min(smallestOversizeBytes, bytes.byteLength);
         const nextBitrate = getRetryBitrate(bitrate, bytes.byteLength, plan.targetSizeMb);
-        if (nextBitrate >= bitrate) break;
+        if (nextBitrate >= bitrate || attempt + 1 >= maximumAttempts) break;
         bitrate = nextBitrate;
+      } else {
+        break;
       }
     }
 
     onProgress?.(1, "Finishing export…", { start: 0, end: 1 });
-    return {
-      blob: new Blob([lastBytes], { type: extensionMimeType(plan.outputExtension) }),
-      fileName: baseName,
-      bytes: lastBytes.byteLength,
-      wasOversized: true,
-      normalizationSkipped,
-      audioRemovedForCompatibility,
-    };
+    if (bestBytes) {
+      const outputBytes = bestBytes.byteLength;
+      const blob = new Blob([bestBytes], { type: extensionMimeType(plan.outputExtension) });
+      bestBytes = null;
+      return {
+        blob,
+        fileName: baseName,
+        bytes: outputBytes,
+        wasOversized: false,
+        normalizationSkipped: bestNormalizationSkipped,
+        audioRemovedForCompatibility: bestAudioRemovedForCompatibility,
+      };
+    }
+    if (mode === "gif" && lastOversizedBytes) {
+      const outputBytes = lastOversizedBytes.byteLength;
+      const blob = new Blob([lastOversizedBytes], {
+        type: extensionMimeType(plan.outputExtension),
+      });
+      return {
+        blob,
+        fileName: baseName,
+        bytes: outputBytes,
+        wasOversized: true,
+        normalizationSkipped,
+        audioRemovedForCompatibility,
+      };
+    }
+    if (plan.targetSizeMb !== null && smallestOversizeBytes !== null) {
+      throw new Error(
+        `Could not reach the selected ${plan.targetSizeMb} MB target. The smallest attempt was ${(smallestOversizeBytes / (1024 * 1024)).toFixed(2)} MB.`
+      );
+    }
+    throw new Error("The video export did not produce an output file.");
   } finally {
     if (session) await session.dispose().catch(() => undefined);
   }

@@ -13,6 +13,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 import Toast from "./components/Toast";
+import FeedbackDialog from "./components/FeedbackDialog";
 import ExportSection from "./components/ExportSection";
 import PreviewPane, { type PreviewHandle } from "./components/PreviewPane";
 import TrimTimeline, { type SnapMode } from "./components/TrimTimeline";
@@ -29,6 +30,7 @@ import {
 import {
   useCompression,
   resolveVideoBitrate,
+  resolveSourceBitrateCeiling,
   resolutionToShortSide,
   computeTargetDimensions,
   type ProbeData,
@@ -43,6 +45,8 @@ import {
   copyFilesToClipboard,
   discardStagedOutput,
   downloadAndOpenUpdateInstaller,
+  exitApp,
+  expandImportPaths,
   frontendReady,
   getLosslessTrimInfo,
   getOs,
@@ -50,6 +54,7 @@ import {
   installFfmpegDependency,
   isTauriRuntime,
   listFfmpegVideoEncoders,
+  probeBatch as probeBatchVideos,
   probe as probeVideo,
   publishBatchStagedOutputs,
   publishStagedOutput,
@@ -58,6 +63,8 @@ import {
   resolveStagingOutputPath,
   showFilesInFileExplorer,
   showInFileExplorer,
+  type ExpandedImportPaths,
+  type ImportScanProgress,
   type OutputExtension,
   type FfmpegInstallResult,
   type BatchCompressItem,
@@ -117,9 +124,30 @@ const DISPLAY_VERSION = (() => {
   return patch ? `v${major}.${minor}.${patch}` : `v${major}.${minor}`;
 })();
 
-const FOOTER_META = (
-  <div className="footer-meta">
-    <span className="version">{DISPLAY_VERSION}</span>
+function FooterMeta({ onFeedbackClick }: { onFeedbackClick: () => void }) {
+  return (
+    <div className="footer-meta">
+      <span className="version">{DISPLAY_VERSION}</span>
+      <button
+        type="button"
+        onClick={onFeedbackClick}
+        className="gh-link feedback-button"
+        aria-label="Report a bug"
+        title="Report a bug"
+      >
+        <svg
+          viewBox="0 0 16 16"
+          width="16"
+          height="16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          aria-hidden="true"
+        >
+          <rect x="1.5" y="3.5" width="13" height="9" rx="1.5" />
+          <path d="m2.5 5 5.5 4 5.5-4" />
+        </svg>
+      </button>
     <a
       href="https://vidcord.app/"
       onClick={(e) => {
@@ -169,8 +197,9 @@ const FOOTER_META = (
         <path d="M8 14C4 10.5 2 8 2 5.8 2 3.8 3.6 2.4 5.4 2.4c1.2 0 2.2.7 2.6 1.8.4-1.1 1.4-1.8 2.6-1.8 1.8 0 3.4 1.4 3.4 3.4 0 2.2-2 4.7-6 8.2Z" />
       </svg>
     </a>
-  </div>
-);
+    </div>
+  );
+}
 
 const QUALITY_PRESETS = [
   { index: 0, label: "20MB, 480p", size_mb: 20, target_h: 480 },
@@ -323,6 +352,17 @@ const VIDEO_FILE_ICON = (
   </svg>
 );
 
+const FOLDER_ICON = (
+  <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden="true">
+    <path
+      d="M3.5 6.5h6l2 2H20a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 20 18.5H4A1.5 1.5 0 0 1 2.5 17V8A1.5 1.5 0 0 1 4 6.5Z"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 const WorkflowModeSelector = memo(function WorkflowModeSelector({
   mode,
   batchMode,
@@ -432,13 +472,24 @@ export default function App() {
     setCustomOutputDirectory,
     completionAction,
     setCompletionAction,
+    closeAppAfterExport,
+    setCloseAppAfterExport,
     presets,
     getSettingsSnapshot,
     restoreSettings,
     savePreset,
     deletePreset,
     saveSettings,
+    flushSettings,
   } = useSettings();
+  const closeProgram = useCallback(async () => {
+    await flushSettings().catch(() => {});
+    try {
+      await exitApp();
+    } catch (error) {
+      addToast("error", "Could Not Close App", String(error));
+    }
+  }, [addToast, flushSettings]);
   const persistDetectedEncoders = useCallback(
     (detected: Encoder[]) => {
       saveSettings({ encoder_capabilities: detected });
@@ -463,6 +514,7 @@ export default function App() {
   // File state is declared before encoder discovery so the startup refresh can
   // yield to a cold Open With / drag-drop probe instead of competing for FFmpeg.
   const [filePath, setFilePath] = useState<string | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [batchPaths, setBatchPaths] = useState<string[]>([]);
   const [batchQueue, setBatchQueue] = useState<BatchQueueItem[]>([]);
   const [pathPlatform, setPathPlatform] = useState<VideoPathPlatform>(() =>
@@ -471,13 +523,18 @@ export default function App() {
   const batchProbeDataRef = useRef<Map<number, ProbeData>>(new Map());
   const settingsLoadedRef = useRef(settingsLoaded);
   const pendingSelectionRef = useRef<readonly string[] | null>(null);
+  const importScanGenerationRef = useRef(0);
   const openFileListenerReadyRef = useRef(false);
   const frontendReadySentRef = useRef(false);
   const [fileLoadGeneration, setFileLoadGeneration] = useState(0);
-  const [fileName, setFileName] = useState("Drag a video here or click Browse");
+  const [fileName, setFileName] = useState("Drop videos or a folder, or click Browse");
   const [probeData, setProbeData] = useState<ProbeData | null>(null);
   const [audioTrackSelection, setAudioTrackSelection] = useState<number[] | null>(null);
   const [loadingVideo, setLoadingVideo] = useState(false);
+  const [selectionScanning, setSelectionScanning] = useState(false);
+  const [selectionScanProgress, setSelectionScanProgress] = useState<ImportScanProgress | null>(
+    null
+  );
   const [losslessInfo, setLosslessInfo] = useState<LosslessTrimInfo | null>(null);
   const [losslessInfoLoading, setLosslessInfoLoading] = useState(false);
   const [losslessInfoError, setLosslessInfoError] = useState<string | null>(null);
@@ -1018,7 +1075,11 @@ export default function App() {
         const savedPath = await captureSnapshot(filePath, timeSec, targetPath);
         const displayFileName = savedPath.split(/[/\\]/).pop() ?? "snapshot.png";
 
-        if (completionAction === "copy") {
+        if (completionAction === "none") {
+          addToast("info", "Snapshot Saved", `Saved ${displayFileName}.`, {
+            notifySystem: false,
+          });
+        } else if (completionAction === "copy") {
           try {
             await copyFileToClipboard(savedPath);
             addToast(
@@ -1034,13 +1095,24 @@ export default function App() {
           await showInFileExplorer(savedPath).catch(() => {});
           addToast("info", "Snapshot Saved", `Saved ${displayFileName}.`);
         }
+
+        if (closeAppAfterExport) await closeProgram();
       } catch (err: unknown) {
         addToast("error", "Snapshot Failed", String(err));
       } finally {
         snapshotInFlightRef.current = false;
       }
     },
-    [filePath, fileName, outputDestination, customOutputDirectory, completionAction, addToast]
+    [
+      filePath,
+      fileName,
+      outputDestination,
+      customOutputDirectory,
+      completionAction,
+      closeAppAfterExport,
+      addToast,
+      closeProgram,
+    ]
   );
 
   useEffect(() => {
@@ -1365,42 +1437,58 @@ export default function App() {
       resetProgress();
 
       try {
-        for (let id = 0; id < normalizedPaths.length; id += 1) {
+        const probeGroupSize = 2;
+        for (let offset = 0; offset < normalizedPaths.length; offset += probeGroupSize) {
           if (loadGenerationRef.current !== loadGeneration) return;
-          const inputPath = normalizedPaths[id];
+          const pathsToProbe = normalizedPaths.slice(offset, offset + probeGroupSize);
           setBatchQueue((items) =>
             items.map((item) =>
-              item.id === id ? { ...item, status: "probing", message: "Reading details..." } : item
+              item.id >= offset && item.id < offset + pathsToProbe.length
+                ? { ...item, status: "probing", message: "Reading details…" }
+                : item
             )
           );
+
+          let results: Awaited<ReturnType<typeof probeBatchVideos>>;
           try {
-            const data = await probeVideo(inputPath);
-            if (loadGenerationRef.current !== loadGeneration) return;
-            batchProbeDataRef.current.set(id, data);
-            setBatchQueue((items) =>
-              items.map((item) =>
-                item.id === id
-                  ? {
-                      ...item,
-                      status: "queued",
-                      progress: 0,
-                      details: formatBatchVideoDetails(data),
-                      message: "Ready",
-                    }
-                  : item
-              )
-            );
+            results = await probeBatchVideos(pathsToProbe);
           } catch (error: unknown) {
             if (loadGenerationRef.current !== loadGeneration) return;
             if (isFfmpegMissingError(error)) markFfmpegMissing();
+            const message = String(error);
             setBatchQueue((items) =>
               items.map((item) =>
-                item.id === id
-                  ? { ...item, status: "failed", progress: 0, message: String(error) }
+                item.id >= offset && item.id < offset + pathsToProbe.length
+                  ? { ...item, status: "failed", progress: 0, message }
                   : item
               )
             );
+            continue;
           }
+
+          if (loadGenerationRef.current !== loadGeneration) return;
+          results.forEach((result, resultIndex) => {
+            if (result.data) batchProbeDataRef.current.set(offset + resultIndex, result.data);
+            if (result.error && isFfmpegMissingError(result.error)) markFfmpegMissing();
+          });
+          setBatchQueue((items) =>
+            items.map((item) => {
+              const resultIndex = item.id - offset;
+              if (resultIndex < 0 || resultIndex >= pathsToProbe.length) return item;
+              const result = results[resultIndex];
+              if (result?.data) {
+                return {
+                  ...item,
+                  status: "queued",
+                  progress: 0,
+                  details: formatBatchVideoDetails(result.data),
+                  message: "Ready",
+                };
+              }
+              const message = result?.error ?? "FFprobe could not read this video.";
+              return { ...item, status: "failed", progress: 0, message };
+            })
+          );
         }
       } finally {
         if (loadGenerationRef.current === loadGeneration) setLoadingVideo(false);
@@ -1426,14 +1514,122 @@ export default function App() {
         pendingSelectionRef.current = [...paths];
         return;
       }
-      const normalizedPaths = normalizeVideoPaths(paths, SUPPORTED_VIDEO_EXTENSION, pathPlatform);
+
+      if (compressing || cancelling || finalizingOutput) {
+        addToast(
+          "info",
+          "Compression In Progress",
+          "Cancel the current export before choosing another video."
+        );
+        return;
+      }
+
+      const scanGeneration = ++importScanGenerationRef.current;
+      setSelectionScanning(true);
+      setSelectionScanProgress({
+        scanId: scanGeneration,
+        itemsDiscovered: paths.length,
+        videosFound: 0,
+        foldersScanned: 0,
+      });
+      let expanded: ExpandedImportPaths;
+      let unlisten: (() => void) | undefined;
+      try {
+        try {
+          unlisten = await listen<ImportScanProgress>(
+            "import-scan-progress",
+            ({ payload }) => {
+              if (
+                payload.scanId !== scanGeneration ||
+                scanGeneration !== importScanGenerationRef.current
+              ) {
+                return;
+              }
+              setSelectionScanProgress(payload);
+            }
+          );
+        } catch {
+          // Importing still works when progress events are unavailable.
+        }
+        expanded = await expandImportPaths([...paths], scanGeneration);
+      } catch (error) {
+        if (scanGeneration === importScanGenerationRef.current) {
+          setSelectionScanning(false);
+          setSelectionScanProgress(null);
+          addToast("error", "Could Not Import Selection", String(error));
+        }
+        return;
+      } finally {
+        unlisten?.();
+      }
+      if (scanGeneration !== importScanGenerationRef.current) return;
+
+      const normalizedPaths = normalizeVideoPaths(
+        expanded.videoPaths,
+        SUPPORTED_VIDEO_EXTENSION,
+        pathPlatform
+      );
+      const videoLabel = normalizedPaths.length === 1 ? "video" : "videos";
+      const importSummary =
+        normalizedPaths.length > 0
+          ? [`Queued ${normalizedPaths.length} ${videoLabel}`]
+          : ["No supported videos found"];
+      if (expanded.skippedNonVideoFiles > 0) {
+        const fileLabel = expanded.skippedNonVideoFiles === 1 ? "file" : "files";
+        importSummary.push(
+          `skipped ${expanded.skippedNonVideoFiles} non-video ${fileLabel}`
+        );
+      }
+      if (expanded.skippedFolderLinks > 0) {
+        const folderLabel = expanded.skippedFolderLinks === 1 ? "folder link" : "folder links";
+        importSummary.push(`skipped ${expanded.skippedFolderLinks} ${folderLabel}`);
+      }
+      if (expanded.unreadableItems > 0) {
+        const itemLabel = expanded.unreadableItems === 1 ? "item" : "items";
+        importSummary.push(
+          `could not read ${expanded.unreadableItems} ${itemLabel}`
+        );
+      }
+      const shouldReportImport =
+        expanded.foldersScanned > 0 ||
+        expanded.skippedNonVideoFiles > 0 ||
+        expanded.skippedFolderLinks > 0 ||
+        expanded.unreadableItems > 0 ||
+        normalizedPaths.length === 0;
+
+      if (shouldReportImport) {
+        const foundVideos = normalizedPaths.length > 0;
+        const hasSkippedItems =
+          expanded.skippedNonVideoFiles > 0 ||
+          expanded.skippedFolderLinks > 0 ||
+          expanded.unreadableItems > 0;
+        const title = foundVideos
+          ? expanded.foldersScanned > 0
+            ? "Folder Import Complete"
+            : "Import Results"
+          : "No Videos Found";
+        const details = importSummary.join(" · ");
+        const folderLabel = expanded.foldersScanned === 1 ? "folder" : "folders";
+        const folderSummary =
+          expanded.foldersScanned > 0
+            ? ` · scanned ${expanded.foldersScanned} ${folderLabel}`
+            : "";
+        addToast(
+          hasSkippedItems || !foundVideos ? "warning" : "success",
+          title,
+          `${details}${folderSummary}`
+        );
+      }
+
+      setSelectionScanning(false);
+      setSelectionScanProgress(null);
       if (normalizedPaths.length > 1) {
         await loadBatch(normalizedPaths);
       } else if (normalizedPaths.length === 1) {
         await loadVideo(normalizedPaths[0]);
       }
     },
-    [loadBatch, loadVideo, pathPlatform]
+    [addToast, cancelling, compressing, finalizingOutput, loadBatch, loadVideo, pathPlatform]
   );
 
   const markFrontendReady = useCallback(() => {
@@ -1456,6 +1652,33 @@ export default function App() {
     pendingSelectionRef.current = null;
     if (pending && pending.length > 0) void loadSelection(pending);
   }, [loadSelection, markFrontendReady, settingsLoaded]);
+
+  const clearBatchQueue = useCallback(() => {
+    if (loadingVideo || selectionScanning || compressing || cancelling || finalizingOutput) return;
+    previewRef.current?.stopPlayback();
+    selectedFilePathRef.current = null;
+    probeDataRef.current = null;
+    losslessInfoRef.current = null;
+    setFilePath(null);
+    setFileName("Drop videos or a folder, or click Browse");
+    setProbeData(null);
+    setAudioTrackSelection(null);
+    setLosslessInfo(null);
+    setLosslessInfoLoading(false);
+    setLosslessInfoError(null);
+    clearLosslessOfferMode();
+    resetProgress();
+    leaveBatchMode();
+  }, [
+    cancelling,
+    clearLosslessOfferMode,
+    compressing,
+    finalizingOutput,
+    leaveBatchMode,
+    loadingVideo,
+    resetProgress,
+    selectionScanning,
+  ]);
 
   const removeBatchItem = useCallback(
     async (itemId: number) => {
@@ -1532,6 +1755,22 @@ export default function App() {
     }
   }, [addToast, loadSelection]);
 
+  const browseFolder = useCallback(async () => {
+    try {
+      const selected = await openDialog({
+        title: "Choose folders to import",
+        directory: true,
+        multiple: true,
+        recursive: true,
+      });
+      if (selected) {
+        await loadSelection(typeof selected === "string" ? [selected] : selected);
+      }
+    } catch (error) {
+      addToast("error", "Could Not Choose Folder", String(error));
+    }
+  }, [addToast, loadSelection]);
+
   const chooseCustomOutputDirectory = useCallback(async (): Promise<string | null> => {
     try {
       const selected = await openDialog({ directory: true, multiple: false });
@@ -1566,16 +1805,18 @@ export default function App() {
     [saveSettings, setCompletionAction]
   );
 
+  const changeCloseAppAfterExport = useCallback(
+    (close: boolean) => {
+      setCloseAppAfterExport(close);
+      saveSettings({ close_app_after_export: close });
+    },
+    [saveSettings, setCloseAppAfterExport]
+  );
+
   const restoreSettingsPreset = useCallback(
     (preset: SettingsPreset) => {
+      if (isBatchMode) return;
       clearLosslessOfferMode();
-      const previousModeSettings = isBatchMode
-        ? {
-            gif_mode: settingsRef.current.gif_mode,
-            advanced_mode: settingsRef.current.advanced_mode,
-            lossless_mode: settingsRef.current.lossless_mode,
-          }
-        : null;
       const restored = restoreSettings(preset.settings);
       const matchingEncoderIndex = restored.encoder_label
         ? encoders.findIndex((encoder) => encoder.label === restored.encoder_label)
@@ -1585,14 +1826,7 @@ export default function App() {
           ? matchingEncoderIndex
           : Math.max(0, Math.min(restored.encoder_index, Math.max(encoders.length - 1, 0)));
       setEncoderIdx(nextEncoderIndex);
-      if (isBatchMode) {
-        setGifMode(false);
-        setAdvancedMode(false);
-        setLosslessMode(false);
-        saveSettings({ ...restored, ...previousModeSettings });
-      } else {
-        saveSettings(restored);
-      }
+      saveSettings(restored);
       addToast("success", "Preset Restored", `Loaded “${preset.name}”.`);
     },
     [
@@ -1602,11 +1836,7 @@ export default function App() {
       isBatchMode,
       restoreSettings,
       saveSettings,
-      setAdvancedMode,
       setEncoderIdx,
-      setGifMode,
-      setLosslessMode,
-      settingsRef,
     ]
   );
 
@@ -1651,7 +1881,6 @@ export default function App() {
             "Compression Complete",
             "The output file was copied to the clipboard."
           );
-          return;
         } catch (clipboardError) {
           try {
             await showInFileExplorer(outputPath);
@@ -1660,7 +1889,6 @@ export default function App() {
               "Clipboard Unavailable",
               "The output file was saved and revealed instead."
             );
-            return;
           } catch (revealError) {
             addToast("success", "Compression Complete", "The output file was saved.");
             addToast(
@@ -1668,25 +1896,32 @@ export default function App() {
               "Complete Action Failed",
               `${String(clipboardError)} Reveal also failed: ${String(revealError)}`
             );
-            return;
           }
         }
+      } else if (completionAction === "reveal") {
+        try {
+          await showInFileExplorer(outputPath);
+          addToast("success", "Compression Complete", "The output file was revealed.");
+        } catch (error) {
+          addToast("success", "Compression Complete", "The output file was saved.");
+          addToast("error", "Complete Action Failed", String(error));
+        }
+      } else {
+        addToast("success", "Compression Complete", "The output file was saved.", {
+          notifySystem: false,
+        });
       }
 
-      try {
-        await showInFileExplorer(outputPath);
-        addToast("success", "Compression Complete", "The output file was revealed.");
-      } catch (error) {
-        addToast("success", "Compression Complete", "The output file was saved.");
-        addToast("error", "Complete Action Failed", String(error));
-      }
+      if (closeAppAfterExport) await closeProgram();
     },
-    [addToast, completionAction]
+    [addToast, closeAppAfterExport, closeProgram, completionAction]
   );
 
   const completeBatchOutputs = useCallback(
     async (outputPaths: readonly string[]) => {
       if (outputPaths.length === 0) return;
+      if (completionAction === "none") return;
+
       if (completionAction === "copy") {
         try {
           await copyFilesToClipboard([...outputPaths]);
@@ -2197,6 +2432,7 @@ export default function App() {
               item.probe.bitrate,
               item.audioTrackIndices.length
             ) ?? 100,
+          source_video_bitrate_k: resolveSourceBitrateCeiling(item.probe.bitrate),
           target_size_mb: item.targetSize,
           start_time: item.startTime,
           end_time: item.endTime,
@@ -2375,8 +2611,19 @@ export default function App() {
       addToast(
         done.cancelled || publicationCancelled || failedCount > 0 ? "warning" : "success",
         "Batch Summary",
-        summary
+        summary,
+        { notifySystem: completionAction !== "none" }
       );
+      if (
+        !done.cancelled &&
+        !publicationCancelled &&
+        failedCount === 0 &&
+        cancelledCount === 0 &&
+        outputPathsForCompletion.length > 0 &&
+        closeAppAfterExport
+      ) {
+        await closeProgram();
+      }
     } catch (error: unknown) {
       if (stagedOutputPaths.length > 0) {
         await Promise.all(
@@ -2405,6 +2652,9 @@ export default function App() {
     batchTrimEndSeconds,
     batchTrimStartSeconds,
     completeBatchOutputs,
+    closeAppAfterExport,
+    closeProgram,
+    completionAction,
     cropAspectRatio,
     customOutputDirectory,
     encoderIdx,
@@ -2440,6 +2690,14 @@ export default function App() {
   startBatchRef.current = startBatch;
 
   const startCompress = useCallback(async () => {
+    if (selectionScanning) {
+      addToast(
+        "info",
+        "Folder Scan In Progress",
+        "Wait for the folder scan to finish before exporting."
+      );
+      return;
+    }
     if (isBatchMode) {
       await startBatchRef.current();
       return;
@@ -2664,6 +2922,7 @@ export default function App() {
       output_path: resolvedOutput,
       encoder: encoderName,
       video_bitrate_k: requestedVideoBitrate,
+      source_video_bitrate_k: gifMode ? null : resolveSourceBitrateCeiling(probeData.bitrate),
       target_size_mb: losslessTrim ? null : targetSize,
       start_time: startTime,
       end_time: endTime,
@@ -2779,6 +3038,7 @@ export default function App() {
     setAdvancedMode,
     setCompressing,
     resetProgress,
+    selectionScanning,
   ]);
   startCompressRef.current = startCompress;
 
@@ -2815,10 +3075,10 @@ export default function App() {
     loadListedEncoders().catch(() => {});
   }, [advancedMode, listedEncoderNames.length, loadListedEncoders, settingsLoaded]);
 
-  const installUpdate = useCallback(async () => {
+  const installUpdate = useCallback(async (releaseTag: string) => {
     setInstallingUpdate(true);
     try {
-      const result = await downloadAndOpenUpdateInstaller();
+      const result = await downloadAndOpenUpdateInstaller(releaseTag);
       if (pathPlatform === "linux") {
         // Linux AppImages cannot be relaunched in place: the single-instance
         // guard would kill the new copy, so the backend reveals the download
@@ -3096,6 +3356,13 @@ export default function App() {
   // directly instead of re-rendering the entire App and trim subtree for every
   // native `timeupdate` event. Only the two derived button-enabled booleans
   // enter React state, and React bails out while they remain unchanged.
+  // Stable identity: PreviewPane is memoized, so an inline arrow here would
+  // re-render it on every App render (e.g. every trim-slider move).
+  const handlePreviewPlaybackError = useCallback(
+    (message: string) => addToast("error", "Preview failed", message),
+    [addToast]
+  );
+
   const handlePreviewTimeUpdate = useCallback(
     (next: number | null) => {
       playheadTimeRef.current = next;
@@ -3452,7 +3719,7 @@ export default function App() {
             <div className="update-modal-header">
               <div>
                 <div className="update-modal-kicker">Update available</div>
-                <h2 id="update-title">Version {updateInfo.version}</h2>
+                <h2 id="update-title">Version {updateInfo.version.replace(/^v/, "")}</h2>
               </div>
               <button
                 className="update-close-btn"
@@ -3476,7 +3743,7 @@ export default function App() {
                 ref={updatePrimaryActionRef}
                 className="update-primary-btn"
                 type="button"
-                onClick={installUpdate}
+                onClick={() => installUpdate(updateInfo.version)}
                 disabled={installingUpdate || !updateInfo.installerAvailable}
               >
                 {installingUpdate ? "Opening..." : "Install"}
@@ -3527,7 +3794,7 @@ export default function App() {
               type="button"
               onClick={() =>
                 void openExternalUrl(
-                  "https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
+                  "https://github.com/cyroz1/vidcord/blob/main/docs/FFMPEG_SETUP.md"
                 ).catch(() => {})
               }
             >
@@ -3547,7 +3814,9 @@ export default function App() {
                 importDetails,
                 loadingVideo,
                 browseFile,
+                browseFolder,
                 loadSelection,
+                selectionScanning,
                 isBatchMode,
                 gifMode,
                 losslessTrim,
@@ -3688,6 +3957,16 @@ export default function App() {
                         </span>
                       </button>
                     )}
+                    <button
+                      type="button"
+                      className="folder-import-button"
+                      onClick={browseFolder}
+                      aria-label="Import videos from a folder"
+                      title="Import videos from a folder"
+                    >
+                      {FOLDER_ICON}
+                      <span>Add Folder</span>
+                    </button>
                   </div>
 
                   <WorkflowModeSelector
@@ -4211,12 +4490,15 @@ export default function App() {
           {isBatchMode ? (
             <BatchQueue
               items={batchQueue}
+              onClearQueue={clearBatchQueue}
               onRemoveItem={removeBatchItem}
               onMoveItem={moveBatchItem}
               onReorderItem={reorderBatchItem}
               onRetryItem={retryBatchItem}
               onRetryFailed={retryFailedBatchItems}
-              actionsDisabled={loadingVideo || compressing || cancelling || finalizingOutput}
+              actionsDisabled={
+                loadingVideo || selectionScanning || compressing || cancelling || finalizingOutput
+              }
             />
           ) : (
             <>
@@ -4236,7 +4518,7 @@ export default function App() {
                 removeAudio={gifMode || removeAudio}
                 onTimeUpdate={handlePreviewTimeUpdate}
                 onSnapshot={handleSnapshot}
-                onPlaybackError={(message) => addToast("error", "Preview failed", message)}
+                onPlaybackError={handlePreviewPlaybackError}
               />
 
               <TrimTimeline
@@ -4329,12 +4611,15 @@ export default function App() {
             outputDestination={outputDestination}
             customOutputDirectory={customOutputDirectory}
             completionAction={completionAction}
+            closeAppAfterExport={closeAppAfterExport}
             exportSummary={exportSummary}
             readyActionLabel={readyActionLabel}
             showProgress={showProgress}
             compressing={compressing}
             cancelling={cancelling}
             finalizingOutput={finalizingOutput}
+            selectionScanning={selectionScanning}
+            selectionScanProgress={selectionScanProgress}
             ffmpegMissing={ffmpegMissing}
             batchMode={isBatchMode}
             batchReady={
@@ -4352,6 +4637,7 @@ export default function App() {
             onOutputDestinationChange={changeOutputDestination}
             onChooseCustomOutputDirectory={chooseCustomOutputDirectory}
             onCompletionActionChange={changeCompletionAction}
+            onCloseAppAfterExportChange={changeCloseAppAfterExport}
             onStartCompression={startCompress}
             onCancelCompression={handleCancelCompression}
           />
@@ -4359,7 +4645,7 @@ export default function App() {
 
         {/* Footer stays outside the scroll area so it remains anchored to the window. */}
         <div className="footer">
-          {FOOTER_META}
+          <FooterMeta onFeedbackClick={() => setFeedbackOpen(true)} />
           <Suspense
             fallback={
               <span className="settings-presets" aria-hidden="true">
@@ -4369,6 +4655,7 @@ export default function App() {
           >
             <SettingsPresets
               currentSettings={currentPresetSettings}
+              batchMode={isBatchMode}
               presets={presets}
               onRestore={restoreSettingsPreset}
               onSave={saveSettingsPreset}
@@ -4391,6 +4678,9 @@ export default function App() {
           <EncodersDialog text={encodersDialogText} onClose={closeEncodersDialog} />
         </Suspense>
       )}
+
+      {/* Bug report dialog */}
+      {feedbackOpen && <FeedbackDialog onClose={() => setFeedbackOpen(false)} />}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import {
   shouldFetchReleasedScrubFrame,
   shouldFetchScrubFrame,
   shouldGenerateFilmstrip,
+  shouldHoldPausedFrame,
   shouldShowDirectPreviewVideo,
 } from "../previewScrub";
 
@@ -124,6 +125,24 @@ describe("canPreserveDirectVideoSource", () => {
   it("requires direct preview support and loaded media", () => {
     expect(canPreserveDirectVideoSource(false, true, false, true)).toBe(false);
     expect(canPreserveDirectVideoSource(true, false, false, true)).toBe(false);
+  });
+});
+
+describe("shouldHoldPausedFrame", () => {
+  it("holds the frame when a non-preserved source already has media data", () => {
+    expect(shouldHoldPausedFrame(false, 2)).toBe(true);
+    expect(shouldHoldPausedFrame(false, 3)).toBe(true);
+    expect(shouldHoldPausedFrame(false, 4)).toBe(true);
+  });
+
+  it("does not hold when the source was preserved for scrub preview", () => {
+    expect(shouldHoldPausedFrame(true, 4)).toBe(false);
+  });
+
+  it("does not hold when the media has not loaded yet", () => {
+    expect(shouldHoldPausedFrame(false, 0)).toBe(false);
+    expect(shouldHoldPausedFrame(false, 1)).toBe(false);
+    expect(shouldHoldPausedFrame(false, undefined)).toBe(false);
   });
 });
 

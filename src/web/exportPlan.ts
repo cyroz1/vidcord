@@ -30,6 +30,7 @@ export type ExportPlan = {
   targetSizeMb: number | null;
   targetHeight: number | null;
   bitrateKbps: number | null;
+  sourceBitrateKbps: number | null;
   startTime: number;
   endTime: number;
   selectedDuration: number;
@@ -67,7 +68,7 @@ export function targetBitrateKbps(
   const audioKbits = removeAudio ? 0 : 128 * audioTracks * duration;
   const targetBitrate = Math.max(
     100,
-    Math.floor(((totalKbits - audioKbits) / Math.max(duration, 0.1)) * 0.9)
+    Math.floor(((totalKbits - audioKbits) / Math.max(duration, 0.1)) * 0.95)
   );
   if (!Number.isFinite(sourceBitrateKbps) || sourceBitrateKbps <= 0) return targetBitrate;
   return Math.min(targetBitrate, Math.max(100, Math.floor(sourceBitrateKbps)));
@@ -126,6 +127,7 @@ export function createExportPlan(
       targetSizeMb: null,
       targetHeight: null,
       bitrateKbps: null,
+      sourceBitrateKbps: null,
       startTime: range.startTime,
       endTime: range.endTime,
       selectedDuration: duration,
@@ -144,6 +146,7 @@ export function createExportPlan(
       targetSizeMb: preset.sizeMb,
       targetHeight: preset.targetHeight,
       bitrateKbps: targetBitrateKbps(preset.sizeMb, duration, true, 0),
+      sourceBitrateKbps: null,
       startTime: range.startTime,
       endTime: range.endTime,
       selectedDuration: duration,
@@ -178,13 +181,16 @@ export function createExportPlan(
           outputAudioTrackCount,
           sourceBitrateKbps
         );
-
   return {
     mode,
     outputExtension: "mp4",
     targetSizeMb,
     targetHeight,
     bitrateKbps,
+    sourceBitrateKbps:
+      Number.isFinite(sourceBitrateKbps) && sourceBitrateKbps > 0
+        ? Math.max(100, Math.floor(sourceBitrateKbps))
+        : null,
     startTime: range.startTime,
     endTime: range.endTime,
     selectedDuration: duration,
@@ -256,7 +262,7 @@ function scaleFilter(
 }
 
 function evenDimension(value: number): number {
-  return Math.max(2, Math.floor(value / 2) * 2);
+  return Math.max(2, Math.round(value / 2) * 2);
 }
 
 function gifScaleFilter(
@@ -349,7 +355,8 @@ export function buildCompressionArgs(
   settings: BrowserSettings,
   plan: ExportPlan,
   bitrateKbps: number | null,
-  audioGainDb: number | null = null
+  audioGainDb: number | null = null,
+  isMobile = false
 ): string[] {
   const args = [
     "-i",
@@ -364,7 +371,11 @@ export function buildCompressionArgs(
   ];
   const filter = buildVideoFilter(metadata, settings, plan.targetHeight, plan.mode);
   if (filter) args.push("-vf", filter);
-  args.push("-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p");
+  // The browser FFmpeg build is single-threaded software x264: at 1080p,
+  // veryfast needs several minutes per minute of video on a phone CPU.
+  // superfast roughly halves that at a modest efficiency cost, which the
+  // target-size bitrate controller absorbs. Desktops keep veryfast quality.
+  args.push("-c:v", "libx264", "-preset", isMobile ? "superfast" : "veryfast", "-pix_fmt", "yuv420p");
   if (bitrateKbps !== null) {
     args.push("-b:v", `${bitrateKbps}k`);
     if (plan.targetSizeMb !== null) {
@@ -433,12 +444,12 @@ export function buildGifPaletteArgs(
     qualityBitrateKbps
   );
   return [
-    "-i",
-    inputName,
     "-ss",
     plan.startTime.toFixed(3),
     "-t",
     plan.selectedDuration.toFixed(3),
+    "-i",
+    inputName,
     "-vf",
     `${visual},palettegen=max_colors=${colors}:stats_mode=diff`,
     "-frames:v",
@@ -515,7 +526,25 @@ export function getRetryBitrate(
 ): number {
   const targetBytes = targetSizeMb * 1024 * 1024;
   const correction = targetBytes / Math.max(outputBytes, targetBytes);
-  return Math.max(100, Math.floor(currentKbps * correction * 0.9));
+  return Math.max(100, Math.floor(currentKbps * correction * 0.95));
+}
+
+export function getFillBitrate(
+  currentKbps: number,
+  outputBytes: number,
+  targetSizeMb: number,
+  sourceBitrateKbps: number | null
+): number {
+  const targetBytes = targetSizeMb * 1024 * 1024;
+  if (outputBytes <= 0 || outputBytes >= targetBytes * 0.95) return currentKbps;
+
+  const estimate = Math.floor(currentKbps * (targetBytes / outputBytes) * 0.92);
+  const stepLimit = Math.floor(currentKbps * 1.5);
+  const sourceLimit =
+    sourceBitrateKbps !== null && Number.isFinite(sourceBitrateKbps) && sourceBitrateKbps > 0
+      ? Math.floor(sourceBitrateKbps)
+      : Number.MAX_SAFE_INTEGER;
+  return Math.max(currentKbps, Math.min(estimate, stepLimit, sourceLimit));
 }
 
 export function outputFileName(name: string, extension: string, index = 0): string {

@@ -38,4 +38,11 @@
   ${EndIf}
 
 vidcord_ffmpeg_done:
+  WriteRegStr HKCU "Software\Classes\Directory\shell\vidcord" "" "Import folder in vidcord"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\vidcord" "Icon" "$INSTDIR\vidcord.exe"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\vidcord\command" "" "$\"$INSTDIR\vidcord.exe$\" $\"%1$\""
+!macroend
+
+!macro NSIS_HOOK_PREUNINSTALL
+  DeleteRegKey HKCU "Software\Classes\Directory\shell\vidcord"
 !macroend

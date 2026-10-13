@@ -13,6 +13,7 @@ import {
 import DesktopUpgrade from "./DesktopUpgrade";
 import type { PageDropHandler, PendingPageDrop } from "./WebEditor";
 import { getDonateLinks } from "../donate";
+import FeedbackSection from "./FeedbackSection";
 import "./WebApp.css";
 
 const MARKETING_ASSET_BASE = import.meta.env.DEV ? "/site/marketing-assets" : "/marketing-assets";
@@ -45,6 +46,7 @@ const SITE_NAV_LINKS: readonly SiteNavLink[] = [
   { href: "#workflow", label: "How It Works" },
   { href: "#integrations", label: "Open With" },
   { href: "#faq", label: "FAQ" },
+  { href: "#feedback", label: "Feedback" },
   { href: "#support", label: "Support" },
   { href: "https://github.com/cyroz1/vidcord", label: "GitHub", external: true },
 ] as const;
@@ -69,6 +71,7 @@ const PAGE_REVEAL_SELECTOR = [
   ".web-marketing > .download-section > .ffmpeg-callout",
   ".web-marketing > .download-section .download-card",
   ".web-app > .donate-section",
+  ".web-app > .feedback-section",
   ".web-app > .site-footer",
 ].join(", ");
 
@@ -307,6 +310,8 @@ function WebApp() {
           ))}
         </div>
       </section>
+
+      <FeedbackSection />
 
       <footer className="site-footer">
         <div>

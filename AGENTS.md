@@ -48,6 +48,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   ├── src/
 │   │   ├── main.rs            # Thin entry — calls lib::run()
 │   │   ├── lib.rs             # Tauri builder, platform shims/theme, file-open routing
+│   │   ├── desktop_integration.rs # Linux AppImage folder Open With registration
 │   │   ├── ffmpeg.rs          # probe / preview / filmstrip / VAAPI discovery + caches
 │   │   ├── ffmpeg/
 │   │   │   └── encoders.rs    # FFmpeg encoder detection + encoder cache invalidation
@@ -55,6 +56,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   │   ├── log.rs             # Rotating ~/…/vidcord/vidcord.log (5 MB cap)
 │   │   ├── settings.rs        # Typed settings persisted via atomic rename
 │   │   └── commands/          # #[tauri::command] handlers
+│   │       ├── app.rs         # Application-level actions
 │   │       ├── compression.rs # compression jobs/retries/reservations + preview/probe commands
 │   │       ├── encoders.rs    # detect/install/list FFmpeg; platform install flows
 │   │       ├── files.rs       # output locations/staging, file reveal/clipboard, get_os, PendingFile
@@ -83,7 +85,9 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   └── _redirects              # Static redirects for historical entry-point aliases
 ├── wrangler.jsonc             # Cloudflare Worker static-assets deployment config
 ├── .github/workflows/build.yml# Multi-platform CI + release workflow
-├── .github/workflows/site.yml # Site-only validation workflow
+├── .github/workflows/site.yml # Static site validation workflow
+├── .github/workflows/site-build.yml # Browser bundle regeneration and parity workflow
+├── tools/tauri-cli/           # Minimal locked CLI install for platform CI builds
 ├── scripts/                   # Bundle, version, asset, sitemap, and structured-data checks
 ├── index.html                 # Vite entry
 ├── vite.config.ts             # React plugin, manual chunks (react / tauri / tauri-opener)
@@ -91,7 +95,10 @@ Guidance for AI assistants working in this repository. Read this before making c
 ├── eslint.config.js           # ESLint flat config (TS + react-hooks)
 ├── .prettierrc                # 100-col, 2-space, double-quote, ES5 trailing commas
 ├── tsconfig.json              # Strict TS, ES2021 target, react-jsx
-├── FFMPEG_SETUP.md            # End-user FFmpeg install guide (per platform)
+├── docs/                      # End-user and contributor guides
+│   ├── FFMPEG_SETUP.md        # End-user FFmpeg install guide (per platform)
+│   ├── RELEASE_SIGNING.md     # Release signing-key contract
+│   └── THIRD_PARTY_NOTICES.md # Third-party license notices
 ├── CHANGELOG.md               # User-facing release notes
 ├── .env.example               # Optional Vite/Tauri development build variables
 └── README.md                  # Public overview
@@ -372,14 +379,19 @@ Output handling has two paths:
   Cancelling the save dialog or failing finalization must call `discard_staged_output`; retain the
   backend validation and partial-file cleanup.
 
-The persisted completion action is either `copy` (default) or `reveal`. Clipboard copy validates
-that the output is still a file, then uses CF_HDROP on Windows, AppleScript on macOS, and
-`wl-copy`/`xclip` on Linux. A copy failure falls back to revealing the saved file; a completion
-action failure must not be reported as a compression failure.
+The persisted completion action is `copy` (default), `reveal`, or `none`. Clipboard copy
+validates that the output is still a file, then uses CF_HDROP on Windows, AppleScript on macOS, and
+`wl-copy`/`xclip` on Linux. A copy failure falls back to revealing the saved file. `none` leaves
+the output saved without copying, revealing, or sending a system notification; in-app completion
+feedback may remain visible. The separate `close_app_after_export` setting defaults to false; when
+enabled, it exits the app after a successful export, including a completed batch or saved snapshot,
+and flushes pending settings before exit. Failed and cancelled exports must not trigger it. A
+completion-action failure must not be reported as a compression failure.
 
 `useSettings` persists `output_destination` (`downloads`, `source`, `ask`, or `custom`), the custom
-directory, and `completion_action` (`copy` or `reveal`). Keep the frontend's allowlist validation
-when loading these string values; invalid or older persisted values must fall back to safe defaults.
+directory, `completion_action` (`copy`, `reveal`, or `none`), and
+`close_app_after_export` (boolean). Keep the frontend's allowlist validation when loading action
+values; invalid or older persisted values must fall back to safe defaults.
 
 ### File-open routing (tricky)
 
@@ -391,25 +403,33 @@ Open-with / right-click → Open must work across three delivery mechanisms:
 
 The frontend registers its `open-file` listener and then invokes `frontend_ready`; that command marks the listener ready and drains `PendingFile` under the same mutex used by event delivery. `on_page_load` resets readiness at `PageLoadEvent::Started` so a WebView reload cannot emit into a stale React listener. Do **not** collapse these paths into one — each handles a real race that exists on at least one platform.
 
+Folder imports are registered as an alternate `public.folder` handler in the macOS app bundle and as `inode/directory` in Linux desktop metadata. A directly launched Linux AppImage also writes a per-user desktop entry on first launch so file managers can offer vidcord in **Open With** without requiring an AppImage integration utility. Linux file-manager arguments may arrive as `file://` URLs; normalize them before checking paths and forwarding them to the frontend. Do not make vidcord the default handler for all folders.
+
 ### Update downloads
 
 The app checks the fixed `cyroz1/vidcord` GitHub Releases API endpoint and only downloads an
-installer after explicit user approval. Preserve all of these controls when changing the updater:
+installer after explicit user approval. Resolve and download the exact release tag approved in the
+update prompt; do not switch to a newer release if one appears while installation is underway.
+Preserve all of these controls when changing the updater:
 
 1. Select only the expected `vidcord_` asset suffix for the current OS/architecture and validate
    the asset filename before using it locally.
 2. Require GitHub's `sha256:` release-asset digest, hash the response incrementally, and reject
    missing, malformed, or mismatched digests before the file becomes visible or executable.
-3. Enforce the 512 MB limit and response completeness while streaming to a create-new temporary
+3. Require the detached `<installer filename>.sig` release asset. Verify its Ed25519 signature
+   with the committed public key over the release tag, installer filename, and lowercase SHA-256
+   digest; reject invalid or missing signatures before publication or execution.
+4. Enforce the 512 MB limit and response completeness while streaming to a create-new temporary
    file; never buffer a full installer in memory.
-4. Publish under a collision-safe Downloads filename without replacing an existing file. Keep the
+5. Publish under a collision-safe Downloads filename without replacing an existing file. Keep the
    hard-link path and create-new copy fallback for FAT, exFAT, and network filesystems.
-5. Open the installer only after verification and publication, using `spawn_blocking` for the
+6. Open the installer only after verification and publication, using `spawn_blocking` for the
    platform opener. Remove temporary or partial files on every failure path.
 
-The repository does not configure platform signing credentials. Documentation may say downloads
-are verified against GitHub's published SHA-256 digest, but must not claim code signing or
-notarization unless the release workflow actually adds and verifies those controls.
+The Ed25519 update signature is separate from platform code signing or notarization. Documentation
+may describe GitHub digest verification, independent release-signature verification, and release
+artifact provenance checks. Do not claim OS code signing or notarization unless the workflow adds
+and verifies those controls.
 
 ### FFmpeg invocations
 
@@ -447,7 +467,9 @@ Call `clear_preview_caches_for_path(path)` when the frontend loads a new file
 (already done in `probe`) so preview reuse survives switching sources without
 retaining stale entries for the file being re-probed.
 FFprobe child PIDs have a separate generation token and a six-second deadline. Starting a newer
-import must terminate the older probe so stale metadata work cannot consume the full timeout.
+import must terminate older probes so stale metadata work cannot consume the full timeout. Desktop
+batch import uses the `probe_batch` IPC command to run at most two FFprobe jobs concurrently under
+one generation; preserve generation-wide cancellation when that batch is superseded.
 Preview FFmpeg child PIDs are tracked by a generation token. Call `cancel_preview_jobs()` before
 starting work that should supersede previews; `probe` and `compress_video` already do this, and the
 frontend invokes `cancel_preview_generation` when the preview unmounts.
@@ -519,14 +541,15 @@ The app re-renders on every trim-slider move. Established patterns:
   branch; `CHANGELOG.md` may use either a top-level `## WIP` section or the matching `## vX.Y`
   section while that release is under development. Do not develop application code on `main`, a
   detached HEAD, `feature/...`, or `vX.Y` branches. Site-only changes may be made directly on
-  `main` when they are limited to `site/**`, `wrangler.jsonc`, the site validator scripts, or
-  `.github/workflows/site.yml`; run `npm run site:check` for those changes. For application work,
+  `main` when they are limited to `site/**`, `wrangler.jsonc`, the site validator scripts,
+  `scripts/build-web-site.mjs`, `.github/workflows/site.yml`, or
+  `.github/workflows/site-build.yml`; run `npm run site:check` for those changes. For application work,
   verify the branch name and that the changelog's leading release section matches the active work;
   if either check fails, stop and ask the user to switch to or create the appropriate `X.Y`
   branch/worktree. Merge the completed `X.Y` branch into `main` only after all quality gates pass
   and version references are aligned. This keeps application WIP commits isolated while allowing
   the GitHub-connected site deployment to continue from `main`.
-- **Run the relevant quality gates before every commit.** If Rust changed: `cargo fmt --check --manifest-path src-tauri/Cargo.toml`, `cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings`, `cargo test --manifest-path src-tauri/Cargo.toml`. If frontend changed: `npm run lint`, `npm run typecheck`, `npm test`. Fix failures before committing — never push and let CI catch it.
+- **Run the relevant quality gates before every commit.** If Rust changed: `cargo fmt --check --manifest-path src-tauri/Cargo.toml`, `cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings`, `cargo test --manifest-path src-tauri/Cargo.toml`. If frontend changed: `npm run lint`, `npm run typecheck`, `npm test`, then `npm run build` and `npm run bundle:check` — the bundle-size budgets are enforced in CI, so never push frontend changes without a local bundle check. Fix failures before committing — never push and let CI catch it.
 - Document significant changes where future users and agents will look for them. Update `AGENTS.md` for workflow, architecture, release, or repository-practice changes; update `README.md` for public product behavior, install/setup, supported-platform, or development changes; and update the root website (`index.html`, generated `site/index.html`, JSON-LD, `llms.txt`, `llms-full.txt`, and related site assets) when public-facing product facts or download behavior change.
 - Keep a WIP changelog in `CHANGELOG.md` for meaningful user-visible changes made after the latest release. Use the latest `vX.Y` tag as the baseline, keep notes concise and release-note-ready, and exclude pure refactors, tests, chores, internal-only work, and iterative refinements of an already-documented change within the current WIP version. Consolidate those iterations into the broader release note when appropriate.
 - Don't bump the version casually. A version bump implies a release; only do it when explicitly requested. Follow the "Bumping the version" steps below — partial bumps cause CI/release mismatches.
@@ -571,18 +594,27 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 
 1. **frontend** (ubuntu-latest) — `npm ci`, audit (high), version and asset checks, lint, typecheck, test, build, and bundle-size budget; uploads `dist/` as an artifact for every platform matrix job to download.
 2. **rust-compile-checks** (ubuntu-22.04) — `cargo fmt --check`, `cargo audit`, `cargo clippy -D warnings`, and `cargo test`. Clippy and tests use the `ci` profile and explicit Linux x86_64 target, sharing the `rust-linux-ubuntu-22.04-v1` `Swatinem/rust-cache` key and compatible artifacts with the Linux x86_64 build job.
-3. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. Branch and pull-request runs compile every target with the `ci` profile but skip installer bundling. Tagged `v*` refs build release-profile installers; explicit manual runs build CI-profile installers for testing.
+3. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. App-source pushes and pull requests build, stage, and upload CI-profile installers for inspection; tagged `v*` refs build release-profile installers; explicit manual runs build CI-profile installers for testing. Build artifacts are retained for seven days. Only tags run signing and release publication.
 4. **sign-release-artifacts** (ubuntu-latest, only on tags) — verifies build provenance attestations and Ed25519-signs the installers; uploads the signed bundle.
 5. **publish-release** (ubuntu-latest, only on tags) — downloads the signed artifacts, extracts the matching CHANGELOG section, and publishes the signed GitHub release.
+
+`.github/workflows/e2e.yml` runs the browser end-to-end suite and the native desktop suite on Linux,
+macOS, and Windows for app-source changes; the suites upload screenshots, logs, traces, and reports
+as workflow artifacts. See `scripts/e2e/README.md` for local prerequisites and commands.
 
 Concurrency groups branch pushes and pull-request synchronization events by head commit so the same
 revision is not built twice. Release tags and explicit manual packaging runs use isolated groups and
 are never cancelled.
 
 The app workflow runs only when app source changes — `src/**`, `src-tauri/**`, `index.html`,
-`public/**`, packaging and config files, the validator scripts the build runs, and the workflow
-itself. Pushes that only touch docs, the site, or repo metadata do not trigger a platform build.
-Site changes run the separate Site Checks workflow.
+`public/**`, packaging and config files, `tools/tauri-cli/**`, the validator scripts the build runs,
+and the workflow itself. Pushes that only touch docs, the site, or repo metadata do not trigger a
+platform build.
+Each platform build installs the locked Tauri CLI from `tools/tauri-cli/package-lock.json` instead
+of installing the full frontend toolchain again; `scripts/check-build-tools.mjs` verifies that its
+package integrity matches the root lockfile. Site changes run Site Checks. Browser source and
+generated browser-asset changes also run Site Browser Build, which rebuilds and checks the committed
+browser output. Content and marketing-asset changes therefore avoid rebuilding FFmpeg WebAssembly.
 
 ## Known pitfalls
 

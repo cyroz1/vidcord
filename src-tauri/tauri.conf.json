@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "vidcord",
-  "version": "7.5.0",
+  "version": "7.6.0",
   "identifier": "com.cyroz1.vidcord",
   "build": {
     "frontendDist": "../dist",
@@ -30,7 +30,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: https://asset.localhost http://asset.localhost file:; media-src 'self' blob: asset: https://asset.localhost http://asset.localhost file:; connect-src ipc: http://ipc.localhost",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: https://asset.localhost http://asset.localhost file:; media-src 'self' blob: asset: https://asset.localhost http://asset.localhost file:; connect-src ipc: http://ipc.localhost https://vidcord.app",
       "assetProtocol": {
         "enable": true,
         "scope": [
@@ -103,15 +103,16 @@
     "fileAssociations": [
       {
         "name": "Video",
-        "ext": [
-          "mp4",
-          "avi",
-          "mov",
-          "mkv",
-          "flv",
-          "wmv",
-          "webm"
-        ]
+        "ext": ["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"]
+      },
+      {
+        "name": "Folder",
+        "description": "Folder of videos",
+        "ext": [],
+        "contentTypes": ["public.folder"],
+        "mimeType": "inode/directory",
+        "role": "Viewer",
+        "rank": "Alternate"
       }
     ]
   }

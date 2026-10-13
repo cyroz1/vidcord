@@ -1,8 +1,19 @@
+import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig(async () => ({
   plugins: [react()],
+  resolve: {
+    alias:
+      process.env.VITE_VIDCORD_E2E === "1"
+        ? {
+            "@tauri-apps/plugin-dialog": fileURLToPath(
+              new URL("./src/e2eDialog.ts", import.meta.url)
+            ),
+          }
+        : {},
+  },
   clearScreen: false,
   server: {
     port: 5173,

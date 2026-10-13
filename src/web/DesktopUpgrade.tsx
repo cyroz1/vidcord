@@ -628,7 +628,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
               {ffmpegInfo.command ? <InlineCopyCommand command={ffmpegInfo.command} /> : null}
               <div className="ffmpeg-prereq-links">
                 <a
-                  href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
+                  href="https://github.com/cyroz1/vidcord/blob/main/docs/FFMPEG_SETUP.md"
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -648,8 +648,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
               <dd>Small native desktop app</dd>
             </div>
             <div>
-              <dt>Offline</dt>
-              <dd>No uploads or telemetry</dd>
+              <dt>Local</dt>
+              <dd>Video processing stays local</dd>
             </div>
             <div>
               <dt>FFmpeg</dt>
@@ -710,7 +710,9 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
               the first audio track. Batch supports 12 full-length files on one Compress profile;
               keyframe search is capped at 60 seconds or 100,000 keys. Desktop adds GPU/encoder
               choice, track mixing, presets, native folders and completion actions, Open With,
-              notifications, Dock/taskbar progress, and updates.
+              notifications, Dock/taskbar progress, and updates. Browser exports show encoder-load
+              and stage progress, warn before exports that may need substantial memory, and use a
+              faster x264 preset on phones.
             </span>
           </div>
         </div>
@@ -767,8 +769,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
             <span className="step-number">1</span>
             <h3>Add your videos</h3>
             <p>
-              Browse or drop browser videos; desktop also imports folders recursively or opens
-              videos from Finder or Explorer. Select multiple clips for Batch.
+              Browse or drop browser videos; desktop also imports folders recursively, from the
+              folder picker or file-manager context menu. Select multiple clips for Batch.
             </p>
           </article>
           <article>
@@ -792,14 +794,16 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
 
       <DetailSection
         title="Simple when you want it. Precise when you need it."
-        copy="Both editions offer crop, size, resolution, FPS, and audio controls. Desktop adds encoder selection, source-track mixing, presets, native destinations, and copy/reveal/no-action completion choices."
+        copy="Both editions offer crop, size, resolution, FPS, and audio controls. Desktop adds encoder selection, source-track mixing, presets, native destinations, copy/reveal/no-action completion choices, and an optional close-after-export setting."
         items={[
           "Browser Batch: up to 12 full-length files, one Compress profile, per-file details, and aggregate ETA. Desktop adds per-file trims and parallel encoding.",
-          "Output-size checks with adaptive retries; safe cancellation and collision-safe native filenames.",
+          "Long target-size exports sample a short segment for the initial bitrate estimate, then refine undersized results while keeping the best in-range output.",
+          "Safe cancellation and collision-safe native filenames.",
           "Desktop presets: Autosave, restore, and delete. FPS: 24, 30, 60, or custom (browser source metadata permitting).",
           "Crop presets: 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, and 5:4.",
           "Normalize or remove audio in either edition; desktop Advanced can mix source tracks.",
-          "Desktop updates are user-approved and verified against GitHub’s published SHA-256 digest.",
+          "A separate desktop setting can close the app after successful exports, snapshots, and batches.",
+          "User-approved desktop updates verify GitHub’s published SHA-256 digest and an independent Ed25519 release signature before opening.",
         ]}
         image={{
           fallback: "advancedmode.png",
@@ -862,7 +866,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
         title="Compress a whole queue in Batch mode."
         copy="Queue clips with per-file status and aggregate progress. Desktop adds folder scanning, separate trims, parallel encoding, and native outputs."
         items={[
-          "Browse or drop browser files; desktop opens files or folders from Explorer or Finder and scans folders recursively.",
+          "Browse or drop browser files; desktop opens files or folders from Explorer or Finder, the folder picker, or the file-manager context menu, and scans folders recursively.",
           "Desktop flags skipped, linked, or unreadable files; it runs two encodes at once with serial fallback.",
           "Continue after failures, retry failed browser jobs, or cancel and skip queued work.",
           "Browser Batch uses one Compress profile; desktop adds per-file trims and collision-safe MP4 outputs.",
@@ -888,10 +892,11 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
       >
         <div className="section-heading">
           <div>
-            <h2 id="integrations-title">Open one or more videos from Explorer or Finder</h2>
+            <h2 id="integrations-title">Open videos and folders from desktop file managers</h2>
             <p>
-              Open videos from Explorer or Finder, then save compressed MP4s to Downloads or a
-              chosen desktop folder.
+              Open video files from Explorer or Finder, or use the folder picker and drag-and-drop.
+              macOS and Linux support folder Open With; Linux AppImages register a per-user entry on
+              first launch. Folder imports scan subfolders and report skipped items.
             </p>
           </div>
         </div>
@@ -968,7 +973,10 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <article>
             <h3>Does vidcord upload videos?</h3>
             <p>
-              No. Both editions process files locally; there are no uploads, accounts, or telemetry.
+              No. The browser and desktop editions process selected video files locally; videos are
+              not uploaded for compression. No account is required, and vidcord collects no
+              automatic usage telemetry. If you submit feedback, your report is sent to the
+              developer with diagnostics described in the form.
             </p>
           </article>
           <article>
@@ -995,8 +1003,9 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <article>
             <h3>Can vidcord compress multiple videos at once?</h3>
             <p>
-              Yes. Select or drop browser files; desktop also imports folders recursively. Browser
-              Batch supports up to 12 files; desktop adds per-file trims and parallel workers.
+              Yes. Select or drop browser files; desktop also imports folders recursively, from the
+              folder picker or file-manager context menu. Browser Batch supports up to 12 files;
+              desktop adds per-file trims and parallel workers.
             </p>
           </article>
           <article>
@@ -1036,10 +1045,19 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
             </p>
           </article>
           <article>
+            <h3>Can vidcord close after an export?</h3>
+            <p>
+              Yes. An optional desktop setting closes the app after successful exports, including
+              snapshots and completed batches. Failed or cancelled exports do not close it.
+            </p>
+          </article>
+          <article>
             <h3>How do desktop updates work?</h3>
             <p>
-              After your approval, vidcord verifies the installer&apos;s SHA-256 digest before
-              saving and opening it.
+              After your approval, vidcord fetches that exact release tag, then verifies the
+              installer against GitHub&apos;s published SHA-256 digest and an independent Ed25519
+              release signature before saving and opening it. This is separate from platform code
+              signing.
             </p>
           </article>
         </div>
@@ -1056,7 +1074,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           </div>
           <a
             className="text-link"
-            href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
+            href="https://github.com/cyroz1/vidcord/blob/main/docs/FFMPEG_SETUP.md"
             target="_blank"
             rel="noreferrer"
           >
@@ -1152,7 +1170,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <div className="ffmpeg-callout-actions">
             <a href="#ffmpeg-install">Setup steps</a>
             <a
-              href="https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md"
+              href="https://github.com/cyroz1/vidcord/blob/main/docs/FFMPEG_SETUP.md"
               target="_blank"
               rel="noreferrer"
             >

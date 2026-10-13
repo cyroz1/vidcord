@@ -3,6 +3,98 @@
 Release dates are taken from the corresponding repository release tags. The duplicate
 numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
+## v7.6
+
+### Preview
+
+- Stopping or pausing desktop and browser preview playback now holds on the
+  current frame and resumes from that position instead of jumping back to the
+  start.
+- Fixed the browser preview time display so playback and scrubbing keep the
+  timestamp in sync with the selected video.
+
+### Export completion
+
+- Added **Do nothing** as an export action and a separate **Close app when done**
+  control. It can be combined with Copy file, Show in folder, or Do nothing,
+  and applies to frame snapshots and batch output too.
+- Adjusted the output and completion controls to fit the app's fixed-size window.
+
+### Batch and folder imports
+
+- Added recursive desktop folder imports through **Add Folder**, folder drag-and-drop,
+  and supported file-manager context menus. Supported videos are queued, and import
+  results report skipped or unreadable items. Linux AppImages add a per-user folder
+  **Open With** entry on first launch.
+- Added **Clear queue** to remove all queued videos at once.
+- Fixed browser Batch imports when a new selection includes the clip that is
+  already active.
+- Folder scans now report progress, and desktop batch imports probe up to two videos
+  concurrently while cancelling stale work when a new selection replaces the current one.
+- Saved presets are disabled during Batch mode so every queued video keeps the shared
+  Compress profile.
+
+### Target-size exports
+
+- Long size-target exports use a short sample to improve the initial bitrate estimate
+  and reduce full-length retries.
+- Desktop, batch, and browser exports can make bounded refinements when an output is
+  well below its size limit, and keep the best in-range result if a later refinement
+  fails or produces a worse fit.
+
+### Updates
+
+- Update installers are now fetched from the exact release selected in the update
+  prompt, even if a newer release appears before installation begins.
+- Cleaned up the update dialog's version label so it no longer repeats the leading
+  `v` from the release tag.
+
+### Linux
+
+- Fixed the Linux FFmpeg installer when `sudo` requires a password. It now tries
+  passwordless sudo, a graphical polkit prompt, then an interactive terminal, and
+  reports package-manager errors instead of only an exit code.
+
+### File handling
+
+- Fixed FFprobe treating video filenames that begin with a hyphen as command
+  options.
+
+### Performance
+
+- Fixed browser exports getting stuck at 100% on "Continuing…" when the phone
+  silently killed the encoder worker: the export now detects the stall,
+  restarts the encoder, and retries the pass once before reporting an error.
+- Browser exports on phones now use the faster x264 superfast preset, since the
+  WebAssembly encoder is single-threaded software encoding. Desktop exports
+  keep the veryfast preset and unchanged quality.
+- The browser editor warms the local encoder after video metadata is ready, reports
+  encoder download progress, warns before exports likely to need substantial working
+  memory, and keeps progress moving across export stages.
+- Browser trim controls stay responsive during preview playback; only the playhead and
+  time display update with media time.
+- The desktop preview stays responsive while moving trim controls.
+
+### Interface
+
+- Fixed the main controls shifting horizontally when compression starts and the
+  scroll area overflows.
+- Fixed the Linux preset selector ignoring the app theme and kept export status
+  visible above the footer in the fixed-size window.
+
+### Feedback and diagnostics
+
+- Added **Report a bug** to the desktop app. Reports include the app version, OS,
+  architecture, and recent app-log lines; a full report is also saved locally.
+  If direct delivery fails, the app can open a prefilled email instead.
+- FFmpeg command log entries now use input and output file names instead of
+  absolute paths, keeping home-directory paths out of shared reports.
+- Added a website report form that sends feedback with basic browser context.
+
+### Website
+
+- Added scroll-reveal motion and shortened copy across the marketing page.
+
 ## v7.5
 
 ### Preview

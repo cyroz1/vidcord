@@ -2,9 +2,11 @@ use std::collections::HashSet;
 #[cfg(target_os = "linux")]
 use std::process::{Command, Stdio};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
 use crate::log::vidcord_log;
+use tauri::{AppHandle, Emitter};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 const DESKTOP_COMMAND_TIMEOUT: Duration = Duration::from_secs(4);
@@ -57,7 +59,7 @@ fn without_appimage_library_paths(appdir: &str, library_path: &str) -> String {
 }
 
 #[cfg(target_os = "linux")]
-fn configure_desktop_command(command: &mut Command) {
+pub(crate) fn configure_desktop_command(command: &mut Command) {
     if let (Ok(appdir), Ok(library_path)) =
         (std::env::var("APPDIR"), std::env::var("LD_LIBRARY_PATH"))
     {
@@ -75,6 +77,207 @@ fn configure_desktop_command(command: &mut Command) {
 /// State bucket for files received via Apple Events or CLI args before the
 /// frontend listener is registered.
 pub struct PendingFile(pub std::sync::Mutex<Option<Vec<String>>>);
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpandedImportPaths {
+    pub video_paths: Vec<String>,
+    pub skipped_non_video_files: usize,
+    pub skipped_folder_links: usize,
+    pub unreadable_items: usize,
+    pub folders_scanned: usize,
+}
+
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ImportScanProgress {
+    scan_id: u64,
+    items_discovered: usize,
+    videos_found: usize,
+    folders_scanned: usize,
+}
+
+struct ImportScanReporter {
+    app: AppHandle,
+    scan_id: u64,
+    items_discovered: usize,
+    videos_found: usize,
+    folders_scanned: usize,
+    last_emitted_at: Instant,
+}
+
+impl ImportScanReporter {
+    fn emit_if_due(&mut self, force: bool) {
+        let now = Instant::now();
+        if !force
+            && now.duration_since(self.last_emitted_at) < std::time::Duration::from_millis(500)
+        {
+            return;
+        }
+
+        let progress = ImportScanProgress {
+            scan_id: self.scan_id,
+            items_discovered: self.items_discovered,
+            videos_found: self.videos_found,
+            folders_scanned: self.folders_scanned,
+        };
+        let _ = self.app.emit("import-scan-progress", progress);
+        self.last_emitted_at = now;
+    }
+}
+
+#[tauri::command]
+pub async fn expand_import_paths(
+    app: AppHandle,
+    paths: Vec<String>,
+    scan_id: u64,
+) -> Result<ExpandedImportPaths, String> {
+    tokio::task::spawn_blocking(move || expand_import_paths_blocking(app, paths, scan_id))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+fn expand_import_paths_blocking(
+    app: AppHandle,
+    paths: Vec<String>,
+    scan_id: u64,
+) -> ExpandedImportPaths {
+    const VIDEO_EXTENSIONS: &[&str] = &["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"];
+
+    let mut reporter = ImportScanReporter {
+        app,
+        scan_id,
+        items_discovered: paths.len(),
+        videos_found: 0,
+        folders_scanned: 0,
+        last_emitted_at: Instant::now(),
+    };
+    reporter.emit_if_due(true);
+
+    let mut pending = paths
+        .into_iter()
+        .rev()
+        .map(|path| (std::path::PathBuf::from(path), true))
+        .collect::<Vec<_>>();
+    let mut visited_directories = HashSet::new();
+    let mut seen_videos = HashSet::new();
+    let mut video_paths = Vec::new();
+    let mut skipped_non_video_files = 0;
+    let mut skipped_folder_links = 0;
+    let mut unreadable_items = 0;
+    let mut folders_scanned = 0;
+
+    while let Some((path, is_selected_root)) = pending.pop() {
+        let metadata_result = if is_selected_root {
+            std::fs::metadata(&path)
+        } else {
+            std::fs::symlink_metadata(&path)
+        };
+        let entry_metadata = match metadata_result {
+            Ok(metadata) => metadata,
+            Err(_) => {
+                unreadable_items += 1;
+                continue;
+            }
+        };
+        let metadata = if entry_metadata.file_type().is_symlink() {
+            match std::fs::metadata(&path) {
+                Ok(metadata) if metadata.is_dir() => {
+                    skipped_folder_links += 1;
+                    continue;
+                }
+                Ok(metadata) => metadata,
+                Err(_) => {
+                    unreadable_items += 1;
+                    continue;
+                }
+            }
+        } else {
+            entry_metadata
+        };
+
+        if metadata.is_dir() {
+            let directory = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+            if !visited_directories.insert(import_path_key(&directory)) {
+                continue;
+            }
+            folders_scanned += 1;
+            reporter.folders_scanned = folders_scanned;
+
+            let entries = match std::fs::read_dir(&path) {
+                Ok(entries) => entries,
+                Err(_) => {
+                    unreadable_items += 1;
+                    continue;
+                }
+            };
+            let mut children = Vec::new();
+            for entry in entries {
+                match entry {
+                    Ok(entry) => {
+                        children.push(entry.path());
+                        reporter.items_discovered += 1;
+                        reporter.emit_if_due(false);
+                    }
+                    Err(_) => unreadable_items += 1,
+                }
+            }
+            children.sort();
+            pending.extend(children.into_iter().rev().map(|child| (child, false)));
+            continue;
+        }
+
+        if !metadata.is_file() {
+            continue;
+        }
+
+        let is_video = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                VIDEO_EXTENSIONS
+                    .iter()
+                    .any(|supported| extension.eq_ignore_ascii_case(supported))
+            });
+        if !is_video {
+            skipped_non_video_files += 1;
+            continue;
+        }
+
+        let canonical_path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        if seen_videos.insert(import_path_key(&canonical_path)) {
+            let video_path = if path.is_absolute() {
+                path
+            } else {
+                canonical_path
+            };
+            video_paths.push(video_path.to_string_lossy().into_owned());
+            reporter.videos_found = video_paths.len();
+            reporter.emit_if_due(false);
+        }
+    }
+
+    reporter.emit_if_due(true);
+    ExpandedImportPaths {
+        video_paths,
+        skipped_non_video_files,
+        skipped_folder_links,
+        unreadable_items,
+        folders_scanned,
+    }
+}
+
+fn import_path_key(path: &std::path::Path) -> String {
+    let path = path.to_string_lossy().into_owned();
+    #[cfg(target_os = "windows")]
+    {
+        path.to_lowercase()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        path
+    }
+}
 
 #[tauri::command]
 pub async fn show_in_file_explorer(path: String) -> Result<(), String> {
@@ -293,6 +496,12 @@ pub(crate) fn show_files_in_file_explorer_linux(
             .unwrap_or_else(|| files[0].to_string_lossy().into_owned());
         let mut open_command = Command::new("xdg-open");
         open_command.arg(&parent);
+        // This helper outlives the command that launches it. Keep its inherited
+        // stdio from holding the app's log pipes open during shutdown.
+        open_command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
         configure_desktop_command(&mut open_command);
         open_command.spawn().map_err(|e| e.to_string())?;
     }

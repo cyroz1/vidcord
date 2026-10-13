@@ -10,6 +10,28 @@ export type FfmpegProgressEvent = {
 
 export type FfmpegProgressHandler = (event: FfmpegProgressEvent) => void;
 
+export type BrowserEncoderLoadProgress = {
+  stage: "downloading" | "starting";
+  loadedBytes: number;
+  totalBytes: number | null;
+};
+
+/**
+ * How long an encoder worker may go without emitting a progress event or
+ * settling before it is declared stalled. Healthy encodes emit progress
+ * constantly; a worker that goes quiet for this long (on phones the OS can
+ * kill it under memory pressure, typically right after the final 100%
+ * progress event during mux/finalization, without ever replying) will never
+ * settle its exec promise on its own.
+ */
+const ENCODER_STALL_SILENCE_MS = 4 * 60_000;
+
+export class EncoderStallError extends Error {}
+
+export function isEncoderStallError(error: unknown): error is EncoderStallError {
+  return error instanceof EncoderStallError;
+}
+
 export type BrowserFfmpegSession = {
   prepareFile: (
     argsForInput: (inputName: string) => string[],
@@ -49,7 +71,58 @@ function isWasmBytes(bytes: Uint8Array): boolean {
   );
 }
 
-async function resolveWasmSource(signal: AbortSignal): Promise<WasmSource> {
+async function readResponseBytes(
+  response: Response,
+  signal: AbortSignal,
+  onProgress?: (loadedBytes: number, totalBytes: number | null) => void
+): Promise<Uint8Array<ArrayBuffer>> {
+  const totalBytes = responseContentLength(response);
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    onProgress?.(bytes.byteLength, totalBytes);
+    return bytes;
+  }
+
+  const bytes = totalBytes === null ? null : new Uint8Array(totalBytes);
+  const chunks: Uint8Array[] = [];
+  let loadedBytes = 0;
+  while (true) {
+    signal.throwIfAborted();
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (bytes) {
+      if (loadedBytes + value.byteLength > bytes.byteLength) {
+        throw new Error("The browser encoder download exceeded its declared size.");
+      }
+      bytes.set(value, loadedBytes);
+    } else {
+      chunks.push(value);
+    }
+    loadedBytes += value.byteLength;
+    onProgress?.(loadedBytes, totalBytes);
+  }
+
+  if (bytes) return loadedBytes === bytes.byteLength ? bytes : bytes.slice(0, loadedBytes);
+
+  const assembledBytes = new Uint8Array(loadedBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    assembledBytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return assembledBytes;
+}
+
+function responseContentLength(response: Response): number | null {
+  const contentLength = Number(response.headers.get("content-length"));
+  return Number.isFinite(contentLength) && contentLength > 0 ? contentLength : null;
+}
+
+async function resolveWasmSource(
+  signal: AbortSignal,
+  onProgress?: (progress: BrowserEncoderLoadProgress) => void
+): Promise<WasmSource> {
   let response: Response;
 
   try {
@@ -63,7 +136,14 @@ async function resolveWasmSource(signal: AbortSignal): Promise<WasmSource> {
 
   if (!response.ok) return directWasmSource();
 
-  const compressedBytes = new Uint8Array(await response.arrayBuffer());
+  onProgress?.({
+    stage: "downloading",
+    loadedBytes: 0,
+    totalBytes: responseContentLength(response),
+  });
+  const compressedBytes = await readResponseBytes(response, signal, (loadedBytes, totalBytes) => {
+    onProgress?.({ stage: "downloading", loadedBytes, totalBytes });
+  });
   const isGzip = compressedBytes[0] === 0x1f && compressedBytes[1] === 0x8b;
   if (!isGzip && !isWasmBytes(compressedBytes)) return directWasmSource();
   const wasmBytes = isGzip
@@ -79,6 +159,7 @@ async function resolveWasmSource(signal: AbortSignal): Promise<WasmSource> {
       })()
     : compressedBytes;
   signal.throwIfAborted();
+  onProgress?.({ stage: "starting", loadedBytes: compressedBytes.byteLength, totalBytes: null });
   const blobURL = URL.createObjectURL(new Blob([wasmBytes], { type: "application/wasm" }));
 
   return {
@@ -124,11 +205,17 @@ export class BrowserFfmpegEngine {
 
   private runLogHandler: ((message: string) => void) | null = null;
 
+  private stallWatch: { timer: ReturnType<typeof setTimeout>; fire: () => void } | null =
+    null;
+
   private readonly handleProgress = ({ progress, time }: FfmpegProgressEvent) => {
     const event = {
       progress: Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0,
       time: Number.isFinite(time) ? Math.max(0, time) : Number.NaN,
     };
+    // Any progress event proves the worker is alive; restart the stall silence window.
+    const watch = this.stallWatch;
+    if (watch) this.armStallWatchdog(watch.fire);
     this.operationProgressHandler?.(event);
   };
 
@@ -141,7 +228,7 @@ export class BrowserFfmpegEngine {
     return this.ffmpeg?.loaded === true;
   }
 
-  async load(): Promise<void> {
+  async load(onProgress?: (progress: BrowserEncoderLoadProgress) => void): Promise<void> {
     if (this.ffmpeg?.loaded) return;
     if (this.loading) return this.loading;
 
@@ -160,11 +247,12 @@ export class BrowserFfmpegEngine {
       let wasmSource: WasmSource | null = null;
 
       try {
-        wasmSource = await resolveWasmSource(controller.signal);
+        wasmSource = await resolveWasmSource(controller.signal, onProgress);
         if (this.loadGeneration !== loadGeneration || this.ffmpeg !== ffmpeg) {
           ffmpeg.terminate();
           throw new Error("The browser encoder load was cancelled.");
         }
+        onProgress?.({ stage: "starting", loadedBytes: 0, totalBytes: null });
         await ffmpeg.load({ coreURL, wasmURL: wasmSource.url }, { signal: controller.signal });
         controller.signal.throwIfAborted();
       } catch (error: unknown) {
@@ -247,7 +335,9 @@ export class BrowserFfmpegEngine {
       this.runLogHandler = null;
       try {
         this.operationProgressHandler = onProgress ?? null;
-        const exitCode = await ffmpeg.exec(argsForInput(inputName));
+        const exitCode = await this.execWithStallWatchdog(() =>
+          ffmpeg.exec(argsForInput(inputName))
+        );
         ensureActive();
         if (exitCode !== 0) {
           throw new Error(
@@ -259,7 +349,9 @@ export class BrowserFfmpegEngine {
         if (bytes.byteLength === 0) throw new Error("FFmpeg produced an empty output file.");
         return bytes;
       } catch (error: unknown) {
-        ensureActive();
+        // A stalled worker already tore the engine down; report the stall
+        // as-is instead of masking it as a cancellation.
+        if (!isEncoderStallError(error)) ensureActive();
         throw error;
       } finally {
         if (this.ffmpeg === ffmpeg) {
@@ -281,7 +373,9 @@ export class BrowserFfmpegEngine {
       try {
         this.runLogHandler = onLog ?? null;
         this.operationProgressHandler = onProgress ?? null;
-        const exitCode = await ffmpeg.exec(argsForInput(inputName), timeoutMs);
+        const exitCode = await this.execWithStallWatchdog(() =>
+          ffmpeg.exec(argsForInput(inputName), timeoutMs)
+        );
         ensureActive();
         if (exitCode !== 0) {
           throw new Error(
@@ -290,7 +384,9 @@ export class BrowserFfmpegEngine {
         }
         return this.logBuffer;
       } catch (error: unknown) {
-        ensureActive();
+        // A stalled worker already tore the engine down; report the stall
+        // as-is instead of masking it as a cancellation.
+        if (!isEncoderStallError(error)) ensureActive();
         throw error;
       } finally {
         if (this.ffmpeg === ffmpeg) {
@@ -320,6 +416,17 @@ export class BrowserFfmpegEngine {
     ) => {
       preparedFiles.add(outputName);
       await run(argsForInput, onProgress);
+      let bytes: Uint8Array<ArrayBuffer>;
+      try {
+        bytes = readBytes(await ffmpeg.readFile(outputName));
+      } catch (error: unknown) {
+        throw new Error(
+          `FFmpeg did not create the intermediate file ${outputName}.\n${this.logBuffer.slice(-4000)}\n${String(error)}`
+        );
+      }
+      if (bytes.byteLength === 0) {
+        throw new Error(`FFmpeg produced an empty intermediate file: ${outputName}`);
+      }
     };
 
     return { transcode, run, prepareFile, dispose };
@@ -360,7 +467,75 @@ export class BrowserFfmpegEngine {
     }
   }
 
+  /**
+   * Runs one ffmpeg exec with a silence watchdog. The worker-side exec promise
+   * never settles when the browser kills the worker (phones under memory
+   * pressure do this silently), which used to park exports at 100% on
+   * "Continuing…" forever. The watchdog fails loudly instead, and tears the
+   * wedged worker down so the next export reloads fresh.
+   */
+  private execWithStallWatchdog(exec: () => Promise<number>): Promise<number> {
+    return new Promise<number>((resolve, reject) => {
+      let settled = false;
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        this.disarmStallWatchdog();
+        fn();
+      };
+      // If the watchdog fires first it rejects with the stall error and the
+      // wedged worker is torn down; a late exec result is then ignored.
+      const onStall = () =>
+        settle(() =>
+          reject(
+            new EncoderStallError(
+              "The browser encoder stopped responding. Your video never left this device. Try the export again."
+            )
+          )
+        );
+      this.armStallWatchdog(onStall);
+      exec().then(
+        (exitCode) => settle(() => resolve(exitCode)),
+        (error) => settle(() => reject(error))
+      );
+    });
+  }
+
+  private armStallWatchdog(fire: () => void): void {
+    this.disarmStallWatchdog();
+    const timer: ReturnType<typeof setTimeout> = setTimeout(
+      () => this.fireStallWatchdog(),
+      ENCODER_STALL_SILENCE_MS
+    );
+    this.stallWatch = { timer, fire };
+  }
+
+  private disarmStallWatchdog(): void {
+    const watch = this.stallWatch;
+    if (watch) clearTimeout(watch.timer);
+    this.stallWatch = null;
+  }
+
+  private fireStallWatchdog(): void {
+    const watch = this.stallWatch;
+    this.stallWatch = null;
+    // The worker thread is wedged: on phones the OS can kill it under memory
+    // pressure (typically right after the final 100% progress event, during
+    // mux/finalization) without ever replying, which used to park exports at
+    // 100% on "Continuing…" forever. Terminate it to release its memory, then
+    // reuse cancel()'s teardown (its controller is already null here) so the
+    // next export reloads a fresh worker instead of reusing this one.
+    try {
+      this.ffmpeg?.terminate();
+    } catch {
+      // The worker is already gone; the teardown below still applies.
+    }
+    this.cancel();
+    watch?.fire();
+  }
+
   cancel(): void {
+    this.disarmStallWatchdog();
     this.loadGeneration += 1;
     this.loadController?.abort(new Error("Export cancelled."));
     this.loadController = null;

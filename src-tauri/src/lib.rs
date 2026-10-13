@@ -5,23 +5,27 @@ use tauri::{webview::PageLoadEvent, AppHandle, Emitter, Manager};
 use tauri_plugin_window_state::StateFlags;
 
 pub mod commands;
+#[cfg(target_os = "linux")]
+mod desktop_integration;
 mod ffmpeg;
 mod gpu;
 mod log;
 mod settings;
 
+use commands::app::exit_app;
 use commands::compression::{
     cancel_compression, cancel_lossless_trim_probe, cancel_preview_frame_generation,
     cancel_preview_generation, capture_snapshot, compress_batch, compress_video, get_filmstrip,
-    get_lossless_trim_info, get_preview_clip, get_preview_frame, probe,
+    get_lossless_trim_info, get_preview_clip, get_preview_frame, probe, probe_batch,
 };
 use commands::encoders::{
     check_ffmpeg_available, detect_encoders, get_vaapi_device, install_ffmpeg_dependency,
     list_ffmpeg_video_encoders,
 };
+use commands::feedback::collect_bug_report;
 use commands::files::{
-    copy_file_to_clipboard, copy_files_to_clipboard, discard_staged_output, get_os,
-    publish_batch_staged_outputs, publish_staged_output, resolve_batch_output_paths,
+    copy_file_to_clipboard, copy_files_to_clipboard, discard_staged_output, expand_import_paths,
+    get_os, publish_batch_staged_outputs, publish_staged_output, resolve_batch_output_paths,
     resolve_output_path, resolve_staging_output_path, send_system_notification,
     show_files_in_file_explorer, show_in_file_explorer, PendingFile,
 };
@@ -67,6 +71,26 @@ fn append_pending_files(pending: &mut Option<Vec<String>>, paths: Vec<String>) {
     } else {
         *pending = Some(paths);
     }
+}
+
+fn existing_open_path(argument: &str) -> Option<String> {
+    if argument.starts_with('-') {
+        return None;
+    }
+
+    let path = match url::Url::parse(argument) {
+        Ok(url) if url.scheme() == "file" => url.to_file_path().ok()?,
+        _ => std::path::PathBuf::from(argument),
+    };
+
+    path.exists().then(|| path.to_string_lossy().into_owned())
+}
+
+fn existing_open_paths(arguments: impl IntoIterator<Item = String>) -> Vec<String> {
+    arguments
+        .into_iter()
+        .filter_map(|argument| existing_open_path(&argument))
+        .collect()
 }
 
 fn emit_or_defer_open_files(app: &AppHandle, paths: Vec<String>) {
@@ -261,7 +285,7 @@ pub fn run() {
         }
     }
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(StateFlags::POSITION)
@@ -275,11 +299,7 @@ pub fn run() {
             }
             // If the second instance was opened with a file (e.g. right-click → Open With),
             // forward that file path to the already-running frontend.
-            let paths = argv
-                .into_iter()
-                .skip(1)
-                .filter(|a| !a.starts_with('-') && std::path::Path::new(a).exists())
-                .collect::<Vec<_>>();
+            let paths = existing_open_paths(argv.into_iter().skip(1));
             if !paths.is_empty() {
                 vidcord_log(&format!(
                     "Single-instance: forwarding {} file(s) from second instance",
@@ -289,7 +309,12 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_opener::init());
+
+    #[cfg(feature = "e2e")]
+    let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
+
+    builder
         .manage(PendingFile(Mutex::new(None)))
         .manage(WebviewReady(AtomicBool::new(false)))
         .manage(StartupTiming {
@@ -310,13 +335,13 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            #[cfg(target_os = "linux")]
+            desktop_integration::register_appimage_folder_open_with();
+
             // Handle CLI file argument: `vidcord myfile.mp4`
-            // Filter out macOS -psn_* pseudo-args and flag args while retaining
-            // every selected existing video for batch mode.
-            let paths = std::env::args()
-                .skip(1)
-                .filter(|arg| !arg.starts_with('-') && std::path::Path::new(arg).exists())
-                .collect::<Vec<_>>();
+            // File managers may pass local files as `file://` URLs; normalize
+            // those while retaining every selected path for batch mode.
+            let paths = existing_open_paths(std::env::args().skip(1));
             if !paths.is_empty() {
                 vidcord_log(&format!("Received {} open-file path(s)", paths.len()));
                 *app.state::<PendingFile>()
@@ -329,9 +354,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_settings,
             save_settings,
+            exit_app,
             frontend_ready,
             sync_native_window_theme,
             probe,
+            probe_batch,
             get_lossless_trim_info,
             get_preview_frame,
             get_preview_clip,
@@ -349,6 +376,7 @@ pub fn run() {
             capture_snapshot,
             check_for_updates,
             download_and_open_update_installer,
+            expand_import_paths,
             show_files_in_file_explorer,
             show_in_file_explorer,
             copy_file_to_clipboard,
@@ -362,6 +390,7 @@ pub fn run() {
             discard_staged_output,
             get_os,
             send_system_notification,
+            collect_bug_report,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

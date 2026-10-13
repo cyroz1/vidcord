@@ -56,6 +56,15 @@ export function isBrowserFileSizeSupported(file: Pick<File, "size">): boolean {
   return Number.isFinite(file.size) && file.size > 0 && file.size <= MAX_BROWSER_INPUT_BYTES;
 }
 
+export function isMobileDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const userAgent = navigator.userAgent || "";
+  if (/android|iphone|ipad|ipod|mobile/i.test(userAgent)) return true;
+  // iPadOS 13+ reports a desktop "Macintosh" user agent; a touchscreen tells
+  // it apart from a real Mac.
+  return /macintosh/i.test(userAgent) && (navigator.maxTouchPoints ?? 0) > 1;
+}
+
 export function formatFileSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return "0 B";
   if (bytes < 1024) return `${bytes} B`;

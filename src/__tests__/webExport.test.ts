@@ -1,8 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
+
+// The stall-error helpers live alongside the real engine module; mock the
+// native FFmpeg imports so the module loads in Node.
+vi.mock("@ffmpeg/core?url", () => ({ default: "/assets/core.js" }));
+vi.mock("@ffmpeg/core/wasm?url", () => ({ default: "/assets/core.wasm" }));
+vi.mock("@ffmpeg/ffmpeg", () => ({
+  FFFSType: { WORKERFS: "WORKERFS" },
+  FFmpeg: class {},
+}));
+
+import { EncoderStallError } from "../web/ffmpegEngine";
 import {
   buildAudioPeakAnalysisArgs,
   buildCompressionArgs,
   buildGifArgs,
+  buildGifPaletteArgs,
   buildLosslessArgs,
   createExportPlan,
   buildVideoFilter,
@@ -13,7 +25,12 @@ import {
   targetBitrateKbps,
   GIF_PRESETS,
 } from "../web/exportPlan";
-import { formatBrowserEta, formatPassEta, progressFromMediaTime, progressInSegment } from "../web/browserProgress";
+import {
+  formatBrowserEta,
+  formatPassEta,
+  progressFromMediaTime,
+  progressInSegment,
+} from "../web/browserProgress";
 import { exportBrowserFile } from "../web/webExporter";
 import { isAudioCompatibilityError } from "../web/webExporter";
 import type { BrowserFfmpegEngine } from "../web/ffmpegEngine";
@@ -88,9 +105,9 @@ describe("browser export planning", () => {
   });
 
   it("calculates a target-aware bitrate with an audio allowance", () => {
-    expect(targetBitrateKbps(20, 30, false)).toBe(4800);
+    expect(targetBitrateKbps(20, 30, false)).toBe(5066);
     expect(targetBitrateKbps(20, 30, true)).toBeGreaterThan(targetBitrateKbps(20, 30, false));
-    expect(targetBitrateKbps(20, 30, false, 2)).toBe(4684);
+    expect(targetBitrateKbps(20, 30, false, 2)).toBe(4945);
     expect(targetBitrateKbps(20, 30, false, 1, 3_200)).toBe(3_200);
   });
 
@@ -112,6 +129,14 @@ describe("browser export planning", () => {
       createExportPlan(metadata, settings, "gif", 2, 20),
       480
     );
+    const gifPalette = buildGifPaletteArgs(
+      "input.mp4",
+      "palette.png",
+      metadata,
+      settings,
+      createExportPlan(metadata, settings, "gif", 2, 20),
+      null
+    );
     const lossless = buildLosslessArgs("input.mp4", "output.mp4", 2, 20);
     const losslessWithoutAudio = buildLosslessArgs("input.mp4", "output.mp4", 2, 20, true);
 
@@ -129,6 +154,8 @@ describe("browser export planning", () => {
     expect(gif).toContain("-an");
     expect(gif.indexOf("-i")).toBeLessThan(gif.indexOf("-ss"));
     expect(gif.indexOf("-ss")).toBeLessThan(gif.indexOf("-t"));
+    expect(gifPalette.indexOf("-ss")).toBeLessThan(gifPalette.indexOf("-t"));
+    expect(gifPalette.indexOf("-t")).toBeLessThan(gifPalette.indexOf("-i"));
     expect(lossless).toContain("copy");
     expect(lossless).not.toContain("-vf");
     expect(lossless).not.toContain("-an");
@@ -458,22 +485,23 @@ describe("browser export planning", () => {
       },
     } as unknown as BrowserFfmpegEngine;
 
-    const result = await exportBrowserFile({
-      engine,
-      file: { name: "capture.mp4" } as File,
-      metadata,
-      settings: normalizeBrowserSettings({ mode: "advanced", advancedTargetSize: "0.0001" }),
-      mode: "advanced",
-      startTime: 0,
-      endTime: 30,
-    });
+    await expect(
+      exportBrowserFile({
+        engine,
+        file: { name: "capture.mp4" } as File,
+        metadata,
+        settings: normalizeBrowserSettings({ mode: "advanced", advancedTargetSize: "0.0001" }),
+        mode: "advanced",
+        startTime: 0,
+        endTime: 30,
+      })
+    ).rejects.toThrow("Could not reach the selected 0.0001 MB target");
 
     expect(transcodeCount).toBe(1);
-    expect(result.wasOversized).toBe(true);
   });
 
   it("corrects oversized target encodes and sanitizes browser downloads", () => {
-    expect(getRetryBitrate(4000, 30 * 1024 * 1024, 20)).toBe(2400);
+    expect(getRetryBitrate(4000, 30 * 1024 * 1024, 20)).toBe(2533);
     expect(outputFileName("my capture (final).mov", "mp4", 0)).toBe(
       "my capture - final-vidcord.mp4"
     );
@@ -514,7 +542,7 @@ describe("browser export planning", () => {
         },
         transcode: async (args: (input: string) => string[]) => {
           operations.push(args("input.mp4"));
-          return new Uint8Array(100);
+          return new Uint8Array(5 * 1024 * 1024 * 0.95);
         },
         dispose,
       }),
@@ -523,7 +551,7 @@ describe("browser export planning", () => {
       engine,
       file: { name: "clip.mp4" } as File,
       metadata,
-      settings: normalizeBrowserSettings({ crop: "1:1" }),
+      settings: normalizeBrowserSettings({ crop: "1:1", gifTargetMb: 5 }),
       mode: "gif",
       startTime: 0,
       endTime: 10,
@@ -557,21 +585,22 @@ describe("browser export planning", () => {
       mode: "advanced",
       advancedTargetSize: "20",
     });
-    const result = await exportBrowserFile({
-      engine,
-      file: { name: "capture.mp4" } as File,
-      metadata,
-      settings: advanced,
-      mode: "advanced",
-      startTime: 0,
-      endTime: 30,
-      onProgress: (value) => progress.push(value),
-    });
+    await expect(
+      exportBrowserFile({
+        engine,
+        file: { name: "capture.mp4" } as File,
+        metadata,
+        settings: advanced,
+        mode: "advanced",
+        startTime: 0,
+        endTime: 30,
+        onProgress: (value) => progress.push(value),
+      })
+    ).rejects.toThrow("Could not reach the selected 20 MB target");
 
-    expect(transcodeCount).toBe(3);
+    expect(transcodeCount).toBe(4);
     expect(progress.some((value) => value > 0 && value < 1)).toBe(true);
     expect(progress[progress.length - 1]).toBe(1);
-    expect(result.wasOversized).toBe(true);
   });
 
   it("maps the encoded timestamp instead of the unreliable FFmpeg ratio", async () => {
@@ -624,21 +653,23 @@ describe("browser export planning", () => {
       }),
     } as unknown as BrowserFfmpegEngine;
 
-    await exportBrowserFile({
-      engine,
-      file: { name: "capture.mp4" } as File,
-      metadata,
-      settings: normalizeBrowserSettings({
+    await expect(
+      exportBrowserFile({
+        engine,
+        file: { name: "capture.mp4" } as File,
+        metadata,
+        settings: normalizeBrowserSettings({
+          mode: "advanced",
+          advancedTargetSize: "20",
+          audioNormalize: true,
+        }),
         mode: "advanced",
-        advancedTargetSize: "20",
-        audioNormalize: true,
-      }),
-      mode: "advanced",
-      startTime: 0,
-      endTime: 30,
-    });
+        startTime: 0,
+        endTime: 30,
+      })
+    ).rejects.toThrow("Could not reach the selected 20 MB target");
 
-    expect(sessionTranscodes).toBe(3);
+    expect(sessionTranscodes).toBe(4);
     expect(new Set(inputNames)).toEqual(new Set(["input-1.mp4"]));
   });
 
@@ -662,5 +693,107 @@ describe("browser export planning", () => {
 
     expect(normalizeBrowserSettings({ fps: "240.01" }).fps).toBe("off");
     expect(normalizeBrowserSettings({ fps: "javascript:" }).fps).toBe("off");
+  });
+
+  it("uses a faster x264 preset on mobile and keeps veryfast on desktop", () => {
+    const plan = createExportPlan(metadata, settings, "compress", 2, 20);
+    const desktop = buildCompressionArgs(
+      "input.mp4",
+      "output.mp4",
+      metadata,
+      settings,
+      plan,
+      3000
+    );
+    expect(desktop[desktop.indexOf("-preset") + 1]).toBe("veryfast");
+    const mobile = buildCompressionArgs(
+      "input.mp4",
+      "output.mp4",
+      metadata,
+      settings,
+      plan,
+      3000,
+      null,
+      true
+    );
+    expect(mobile[mobile.indexOf("-preset") + 1]).toBe("superfast");
+  });
+
+  it("restarts the encoder and retries the attempt once when the worker stalls", async () => {
+    let transcodeCalls = 0;
+    let sessionCount = 0;
+    const session = {
+      run: async () => "[volumedetect] max_volume: -6.0 dB",
+      transcode: async () => {
+        transcodeCalls += 1;
+        if (transcodeCalls === 1) throw new EncoderStallError("encoding the video");
+        return new Uint8Array(16_000);
+      },
+      prepareFile: async () => undefined,
+      dispose: async () => undefined,
+    };
+    const engine = {
+      createSession: async () => {
+        sessionCount += 1;
+        return session;
+      },
+    } as unknown as BrowserFfmpegEngine;
+
+    const statuses: string[] = [];
+    const result = await exportBrowserFile({
+      engine,
+      file: { name: "capture.mp4" } as File,
+      metadata,
+      settings: normalizeBrowserSettings({
+        mode: "advanced",
+        advancedTargetSize: "",
+        audioNormalize: true,
+      }),
+      mode: "advanced",
+      startTime: 2,
+      endTime: 20,
+      onProgress: (_progress, status) => {
+        statuses.push(status);
+      },
+    });
+
+    expect(transcodeCalls).toBe(2);
+    expect(sessionCount).toBe(2);
+    expect(statuses).toContain("Encoder stalled; retrying…");
+    expect(result.bytes).toBe(16_000);
+  });
+
+  it("surfaces the stall error instead of retrying forever", async () => {
+    let transcodeCalls = 0;
+    const session = {
+      run: async () => "[volumedetect] max_volume: -6.0 dB",
+      transcode: async () => {
+        transcodeCalls += 1;
+        throw new EncoderStallError("The browser encoder stopped responding while testing.");
+      },
+      prepareFile: async () => undefined,
+      dispose: async () => undefined,
+    };
+    const engine = {
+      createSession: async () => session,
+    } as unknown as BrowserFfmpegEngine;
+
+    await expect(
+      exportBrowserFile({
+        engine,
+        file: { name: "capture.mp4" } as File,
+        metadata,
+        settings: normalizeBrowserSettings({
+          mode: "advanced",
+          advancedTargetSize: "",
+          audioNormalize: true,
+        }),
+        mode: "advanced",
+        startTime: 2,
+        endTime: 20,
+      })
+    ).rejects.toThrow("stopped responding");
+    // Initial attempt plus exactly one retry.
+    expect(transcodeCalls).toBe(2);
   });
 });

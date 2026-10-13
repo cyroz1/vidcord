@@ -36,7 +36,7 @@
     />
     <meta
       property="og:description"
-      content="Download vidcord's native desktop app for local FFmpeg compression, or use the quick no-install browser demo for in-a-pinch phone, tablet, or desktop use. No uploads, accounts, or telemetry."
+      content="Native FFmpeg desktop app and quick browser demo. Videos stay on device; no account is required and no automatic usage telemetry is collected. Bug reports are user-submitted."
     />
     <meta property="og:site_name" content="vidcord" />
     <meta property="og:locale" content="en_US" />
@@ -53,7 +53,7 @@
     />
     <meta
       name="twitter:description"
-      content="Native desktop Discord video compression with system FFmpeg, plus a quick no-install browser demo for mobile or desktop. Free, open-source, no uploads, no telemetry."
+      content="Native desktop Discord video compression with system FFmpeg, plus a quick no-install browser demo. Videos stay local; optional bug reports are user-submitted."
     />
     <meta name="twitter:image" content="https://vidcord.app/icon.png" />
     <meta name="twitter:image:alt" content="vidcord app logo" />
@@ -80,7 +80,7 @@
             "url": "https://vidcord.app/",
             "codeRepository": "https://github.com/cyroz1/vidcord",
             "downloadUrl": "https://github.com/cyroz1/vidcord/releases/latest",
-            "softwareVersion": "7.5.0",
+            "softwareVersion": "7.6.0",
             "applicationCategory": "MultimediaApplication",
             "operatingSystem": ["Windows", "macOS", "Linux"],
             "license": "https://github.com/cyroz1/vidcord/blob/main/LICENSE",
@@ -93,8 +93,14 @@
               "Animated GIF exports with 5 MB, 10 MB, or 20 MB size targets",
               "Desktop GPU encoder detection for NVENC, AMF, QSV, VAAPI, and VideoToolbox",
               "Desktop Open With integration, native output locations, notifications, and taskbar or Dock progress",
+              "Desktop recursive video folder imports through drag-and-drop, folder selection, and file-manager context menus",
+              "Linux AppImages register a per-user folder Open With entry on first launch",
+              "Desktop close-after-export option for successful exports, snapshots, and completed batches",
+              "Desktop in-app updates verify GitHub's published SHA-256 digest and an independent Ed25519 release signature",
               "Browser trim, crop, audio normalization, snapshots, and reorderable/retryable same-profile batches for up to 12 browser-readable files",
-              "No uploads, accounts, or telemetry"
+              "Browser encoder-load and export-stage progress, memory warnings, and a faster x264 preset on phones",
+              "Selected videos stay on the device and are not uploaded for compression",
+              "No account is required and no automatic usage telemetry is collected; submitted feedback includes diagnostics described in the form"
             ],
             "image": [
               "https://vidcord.app/icon.png",
@@ -123,7 +129,7 @@
                 "name": "Does vidcord upload videos?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "No. The browser edition keeps selected files in the page while FFmpeg WebAssembly runs locally, and the desktop edition runs system FFmpeg locally. Neither edition uploads video, requires an account, or uses telemetry."
+                  "text": "No. The browser and desktop editions process selected video files locally; videos are not uploaded for compression. No account is required, and vidcord collects no automatic usage telemetry. Feedback is sent to the developer only when submitted, with diagnostics described in the form."
                 }
               },
               {
@@ -165,20 +171,36 @@
                   "@type": "Answer",
                   "text": "Make it executable with chmod +x vidcord_*.AppImage, then launch it. AppImages need FUSE on the host: sudo apt install libfuse2 on Debian/Ubuntu, sudo dnf install fuse-libs on Fedora, or sudo pacman -S fuse2 on Arch. The x86_64 build runs on older distributions; the ARM64 build targets newer ones."
                 }
+              },
+              {
+                "@type": "Question",
+                "name": "Can vidcord close after an export?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. An optional desktop setting closes the app after successful exports, including snapshots and completed batches. Failed or cancelled exports do not close it."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How do desktop updates work?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "After your approval, vidcord fetches that exact release tag, then verifies the installer against GitHub's published SHA-256 digest and an independent Ed25519 release signature before saving and opening it. This is separate from platform code signing."
+                }
               }
             ]
           }
         ]
       }
     </script>
-    <script type="module" crossorigin src="/assets/index-CG7QMUWd.js"></script>
+    <script type="module" crossorigin src="/assets/index-DomZyOH7.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-b3L32Ng1.js" />
     <link rel="modulepreload" crossorigin href="/assets/react-DVZbHsjx.js" />
     <link rel="stylesheet" crossorigin href="/assets/index-D4kHkHgZ.css" />
     <link rel="stylesheet" href="/marketing.css" data-vidcord-marketing-styles="true" />
-    <link rel="modulepreload" href="/assets/WebApp-DO-F7j-F.js" crossorigin />
-    <link rel="stylesheet" href="/assets/WebApp-D8BVnLfs.css" crossorigin />
-    <link rel="modulepreload" href="/assets/donate-BDX2c1I4.js" crossorigin />
+    <link rel="modulepreload" href="/assets/WebApp-BBoSbitu.js" crossorigin />
+    <link rel="stylesheet" href="/assets/WebApp-BKHwdwM3.css" crossorigin />
+    <link rel="modulepreload" href="/assets/donate-Bmo-m2Ww.js" crossorigin />
     <link
       rel="preload"
       as="image"

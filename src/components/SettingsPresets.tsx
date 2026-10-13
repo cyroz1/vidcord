@@ -7,6 +7,7 @@ import {
 
 type Props = {
   currentSettings: PresetSettings;
+  batchMode: boolean;
   presets: SettingsPreset[];
   onRestore: (preset: SettingsPreset) => void;
   onSave: (name: string) => SettingsPreset | null;
@@ -15,6 +16,7 @@ type Props = {
 
 export default memo(function SettingsPresets({
   currentSettings,
+  batchMode,
   presets,
   onRestore,
   onSave,
@@ -23,13 +25,19 @@ export default memo(function SettingsPresets({
   const [saveFormOpen, setSaveFormOpen] = useState(false);
   const [name, setName] = useState("");
   const [selectedPresetId, setSelectedPresetId] = useState("autosave");
-  const selectedPreset = presets.find((preset) => preset.id === selectedPresetId);
+  const selectedPreset = batchMode
+    ? undefined
+    : presets.find((preset) => preset.id === selectedPresetId);
 
   useEffect(() => {
+    if (batchMode) {
+      setSelectedPresetId("autosave");
+      return;
+    }
     if (selectedPreset && !arePresetSettingsEqual(currentSettings, selectedPreset.settings)) {
       setSelectedPresetId("autosave");
     }
-  }, [currentSettings, selectedPreset]);
+  }, [batchMode, currentSettings, selectedPreset]);
 
   const submitSave = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -53,7 +61,7 @@ export default memo(function SettingsPresets({
     }
 
     const preset = presets.find((item) => item.id === value);
-    if (preset) {
+    if (preset && !batchMode) {
       setSelectedPresetId(preset.id);
       onRestore(preset);
     }
@@ -88,7 +96,7 @@ export default memo(function SettingsPresets({
       >
         <option value="autosave">Autosave</option>
         {presets.length > 0 && (
-          <optgroup label="Saved presets">
+          <optgroup label="Saved presets" disabled={batchMode}>
             {presets.map((preset) => (
               <option key={preset.id} value={preset.id}>
                 {preset.name}

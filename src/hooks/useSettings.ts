@@ -48,6 +48,7 @@ export function useSettings() {
   const [outputDestination, setOutputDestination] = useState<OutputDestination>("downloads");
   const [customOutputDirectory, setCustomOutputDirectory] = useState("");
   const [completionAction, setCompletionAction] = useState<CompletionAction>("copy");
+  const [closeAppAfterExport, setCloseAppAfterExport] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -56,15 +57,23 @@ export function useSettings() {
         s.gif_target_mb,
         migrateLegacyGifQualityIndex(s.gif_quality_index) ?? 5
       );
+      const legacyCloseAction = s.completion_action === "close";
+      const hasCloseAppPreference = typeof s.close_app_after_export === "boolean";
       const migratedSettings = {
         ...s,
         gif_target_mb: gifTargetMb,
+        ...(legacyCloseAction ? { completion_action: "none" } : {}),
+        ...(legacyCloseAction && !hasCloseAppPreference ? { close_app_after_export: true } : {}),
         // The 7.4 schema is semantic. JSON serialization omits this undefined
         // legacy field while the typed Rust loader still accepts old files.
         gif_quality_index: undefined,
       };
       settingsRef.current = migratedSettings;
-      if (s.gif_target_mb !== gifTargetMb || s.gif_quality_index !== undefined) {
+      if (
+        s.gif_target_mb !== gifTargetMb ||
+        s.gif_quality_index !== undefined ||
+        legacyCloseAction
+      ) {
         void persistSettings(migratedSettings).catch(() => {});
       }
       const loadedPresets = parseSettingsPresets(s.presets);
@@ -133,8 +142,19 @@ export function useSettings() {
         if (typeof s.custom_output_directory === "string") {
           setCustomOutputDirectory(s.custom_output_directory);
         }
-        if (s.completion_action === "reveal" || s.completion_action === "copy") {
+        if (
+          s.completion_action === "reveal" ||
+          s.completion_action === "copy" ||
+          s.completion_action === "none"
+        ) {
           setCompletionAction(s.completion_action);
+        } else if (legacyCloseAction) {
+          setCompletionAction("none");
+        }
+        if (typeof s.close_app_after_export === "boolean") {
+          setCloseAppAfterExport(s.close_app_after_export);
+        } else if (legacyCloseAction) {
+          setCloseAppAfterExport(true);
         }
         setSettingsLoaded(true);
       });
@@ -149,6 +169,12 @@ export function useSettings() {
     saveTimerRef.current = setTimeout(() => {
       persistSettings(settingsRef.current).catch(() => {});
     }, 250);
+  }, []);
+
+  const flushSettings = useCallback(async () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = null;
+    await persistSettings(settingsRef.current);
   }, []);
 
   const getSettingsSnapshot = useCallback(
@@ -309,7 +335,10 @@ export function useSettings() {
     setCustomOutputDirectory,
     completionAction,
     setCompletionAction,
+    closeAppAfterExport,
+    setCloseAppAfterExport,
     presets,
+    flushSettings,
     getSettingsSnapshot,
     restoreSettings,
     savePreset,

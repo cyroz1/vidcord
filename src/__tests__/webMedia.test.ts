@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   browserContainerLabel,
   estimateAverageBitrateKbps,
   estimateVideoBitrateKbps,
   inferBrowserAudioMetadata,
   isBrowserFileSizeSupported,
+  isMobileDevice,
   MAX_BROWSER_INPUT_BYTES,
   VIDEO_FILE_ACCEPT,
 } from "../web/webMedia";
@@ -53,5 +54,41 @@ describe("browser media metadata helpers", () => {
       hasAudio: true,
       audioTrackCount: 1,
     });
+  });
+
+  it("detects mobile devices including iPadOS desktop-mode user agents", () => {
+    vi.stubGlobal("navigator", {
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+      maxTouchPoints: 5,
+    });
+    expect(isMobileDevice()).toBe(true);
+    vi.stubGlobal("navigator", {
+      userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 8)",
+      maxTouchPoints: 5,
+    });
+    expect(isMobileDevice()).toBe(true);
+    // iPadOS 13+ reports a desktop Macintosh user agent.
+    vi.stubGlobal("navigator", {
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+      maxTouchPoints: 5,
+    });
+    expect(isMobileDevice()).toBe(true);
+    vi.stubGlobal("navigator", {
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+      maxTouchPoints: 0,
+    });
+    expect(isMobileDevice()).toBe(false);
+    vi.stubGlobal("navigator", {
+      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+      maxTouchPoints: 0,
+    });
+    expect(isMobileDevice()).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it("treats a missing navigator as non-mobile", () => {
+    vi.stubGlobal("navigator", undefined);
+    expect(isMobileDevice()).toBe(false);
+    vi.unstubAllGlobals();
   });
 });

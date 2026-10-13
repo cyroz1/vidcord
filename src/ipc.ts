@@ -3,8 +3,27 @@ import type { LosslessTrimInfo, LosslessVideoExtension } from "./losslessTrim";
 
 export type Settings = Record<string, unknown>;
 
+export type ExpandedImportPaths = {
+  videoPaths: string[];
+  skippedNonVideoFiles: number;
+  skippedFolderLinks: number;
+  unreadableItems: number;
+  foldersScanned: number;
+};
+
+export type ImportScanProgress = {
+  scanId: number;
+  itemsDiscovered: number;
+  videosFound: number;
+  foldersScanned: number;
+};
+
 export function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+export function exitApp(): Promise<void> {
+  return invoke<void>("exit_app");
 }
 
 export type OutputExtension = LosslessVideoExtension | "gif" | "png";
@@ -21,6 +40,11 @@ export type ProbeData = {
   pix_fmt?: string | null;
   color_transfer?: string | null;
   audio_tracks: AudioTrack[];
+};
+
+export type BatchProbeResult = {
+  data: ProbeData | null;
+  error: string | null;
 };
 
 export type AudioTrack = {
@@ -58,6 +82,7 @@ export type CompressOptions = {
   output_path: string;
   encoder: string;
   video_bitrate_k: number;
+  source_video_bitrate_k?: number | null;
   target_size_mb: number | null;
   start_time: number;
   end_time: number;
@@ -149,12 +174,20 @@ export function frontendReady(): Promise<void> {
   return invoke("frontend_ready");
 }
 
+export function expandImportPaths(paths: string[], scanId: number): Promise<ExpandedImportPaths> {
+  return invoke<ExpandedImportPaths>("expand_import_paths", { paths, scanId });
+}
+
 export function syncNativeWindowTheme(dark: boolean): Promise<void> {
   return invoke("sync_native_window_theme", { dark });
 }
 
 export function probe(path: string): Promise<ProbeData> {
   return invoke<ProbeData>("probe", { path });
+}
+
+export function probeBatch(paths: string[]): Promise<BatchProbeResult[]> {
+  return invoke<BatchProbeResult[]>("probe_batch", { paths });
 }
 
 export function getLosslessTrimInfo(path: string, requestId?: number): Promise<LosslessTrimInfo> {
@@ -253,8 +286,10 @@ export function checkForUpdates(currentVersion: string): Promise<UpdateCheckResu
   return invoke<UpdateCheckResult>("check_for_updates", { currentVersion });
 }
 
-export function downloadAndOpenUpdateInstaller(): Promise<UpdateInstallResult> {
-  return invoke<UpdateInstallResult>("download_and_open_update_installer");
+export function downloadAndOpenUpdateInstaller(releaseTag: string): Promise<UpdateInstallResult> {
+  return invoke<UpdateInstallResult>("download_and_open_update_installer", {
+    approvedReleaseTag: releaseTag,
+  });
 }
 
 export function showInFileExplorer(path: string): Promise<void> {
@@ -337,6 +372,16 @@ export function getOs(): Promise<string> {
 
 export function sendSystemNotification(title: string, body: string): Promise<boolean> {
   return invoke<boolean>("send_system_notification", { title, body });
+}
+
+export type BugReport = {
+  subject: string;
+  body: string;
+  reportPath: string;
+};
+
+export function collectBugReport(description: string | null): Promise<BugReport> {
+  return invoke<BugReport>("collect_bug_report", { description });
 }
 
 export function captureSnapshot(

@@ -26,17 +26,20 @@ enter browser **Batch mode** automatically. The browser queue applies the same
 standard Compress profile to each full-duration video and downloads each MP4.
 Reorder the queue with drag-and-drop or arrow controls, and retry failed or
 cancelled files without rerunning completed downloads.
-The desktop app additionally supports Open With, command-line file arguments,
-second-instance forwarding, per-video batch trims, native output handling, and
-native parallel workers.
+The desktop app additionally supports folder imports from drag-and-drop, the
+folder picker, and file-manager context menus, plus Open With, command-line file
+arguments, second-instance forwarding, per-video batch trims, native output
+handling, and native parallel workers. Folder imports scan subfolders, queue
+supported videos, and report skipped files.
 
 The native desktop app supports **MP4, MOV, MKV, AVI, WebM, FLV, WMV**, and
 other formats handled by your system [FFmpeg](https://ffmpeg.org) install. It
 adds hardware-accelerated encoding (NVIDIA NVENC, AMD AMF, Intel Quick Sync,
 Linux VAAPI, Apple VideoToolbox), automatic bitrate calculation, strict output
 size checks, output FPS controls, and platform-native installers. Both editions
-process locally with no accounts, uploads, or telemetry. The desktop app is
-built with [Tauri 2](https://tauri.app) (Rust + React); the browser edition is
+process videos locally; neither requires an account and vidcord collects no
+automatic usage telemetry. User-submitted feedback goes to the developer. The
+desktop app is built with [Tauri 2](https://tauri.app) (Rust + React); the browser edition is
 the same React frontend paired with FFmpeg WebAssembly.
 
 <p>
@@ -54,7 +57,7 @@ the same React frontend paired with FFmpeg WebAssembly.
 > Windows 10/11, macOS 11+, and Linux · x86_64 + aarch64 · Native installers ·
 > Discord targets 20 / 50 / 100 / 500 MB / 1 GB · Hardware acceleration and OS
 > integrations on desktop · Desktop requires system FFmpeg on `PATH` · Quick
-> browser demo with no install, no uploads, local FFmpeg WebAssembly, and browser
+> browser demo with no install, local FFmpeg WebAssembly, and browser
 > downloads · MIT licensed.
 
 ---
@@ -99,7 +102,9 @@ and retry oversized results with safer bitrates and CPU fallback.
   and the self-contained Linux AppImages are substantially larger.
 - **Desktop-speed encoding.** The native app auto-detects hardware encoders:
   NVENC, AMF, QSV, VAAPI, and VideoToolbox.
-- **No telemetry, no accounts, no uploads.** Files never leave your machine.
+- **Local video processing.** Selected videos stay on your device. No account is required, and
+  vidcord collects no automatic usage telemetry. If you submit feedback, the report goes to the
+  developer with diagnostics described in the form.
 
 ## Best for
 
@@ -121,21 +126,28 @@ and retry oversized results with safer bitrates and CPU fallback.
 - **Desktop saved settings presets** — the native app autosaves the last settings used by default;
   use the bottom-right preset dropdown to save, restore, and delete up to 20 named compression and
   mode configurations. Names are limited to 40 characters; changing a saved preset's settings
-  returns the selector to Autosave, while output destination and completion action remain separate
-  autosaved preferences.
+  returns the selector to Autosave, while output destination, completion action, and close-app
+  preference remain separate autosaved settings.
 
 - **Desktop Batch mode** — selecting two or more videos switches from the single-video
   workflows automatically. The queue probes and shows each file's resolution, frame rate, codec,
   bitrate, and duration, with per-file queued, encoding, completed, failed, or cancelled states.
   Batch uses standard Compress controls only, always writes MP4 output, and provides separate
   start-trim and end-trim seconds that default to `0`. Reorder items with drag-and-drop or the
-  keyboard arrow controls, remove queued items before export, and retry failed or cancelled items
-  individually or together without rerunning completed outputs. When a trim would leave less than
-  one second, the two trim values are reduced proportionally.
+  keyboard arrow controls, remove queued items before export, or use **Clear queue** to remove all
+  queued videos at once. Retry failed or cancelled items individually or together without rerunning
+  completed outputs. Saved presets cannot be restored while Batch is active, keeping its shared
+  Compress profile intact. When a trim would leave less than one second, the two trim values are
+  reduced proportionally.
 - **Desktop parallel batch encoding** — up to two videos encode concurrently by default. If the selected
   encoder reports a device, session, or resource-contention error, remaining work continues one
   video at a time. Individual probe or encode failures do not stop the queue, and aggregate
   progress and ETA cover the whole remaining batch rather than only the currently active item.
+- **Desktop folder imports** — drop a folder, choose one or more folders with **Add Folder**, or
+  choose **Import folder in vidcord** from a Windows folder menu, **Open With → vidcord** in Finder,
+  or **Open With → vidcord** in a Linux file manager. Linux AppImages register the folder action the
+  first time vidcord launches. vidcord scans subfolders, shows scan progress, queues supported
+  videos, and reports skipped or unreadable items.
 - **Five Discord target profiles** covering current Discord tiers:
   - 20 MB @ 480p — Discord free tier
   - 50 MB @ 720p — Nitro Basic / Boost Level 2
@@ -166,8 +178,8 @@ and retry oversized results with safer bitrates and CPU fallback.
   media APIs and uses the first audio stream for re-encoded exports.
 - **Full-resolution frame snapshots** — save the frame at the playhead as a
   PNG with the preview overlay. Desktop snapshots follow the configured output
-  destination and copy/reveal completion action; browser snapshots download
-  through the browser.
+  destination and completion action, and follow the separate close-app setting;
+  browser snapshots download through the browser.
 - **Output FPS controls** — standard mode can leave FPS unchanged or cap it
   at 24, 30, or 60 FPS. The desktop app hides choices at or above the FFprobe
   frame rate when they would be redundant. When browser frame-rate metadata is
@@ -175,9 +187,10 @@ and retry oversized results with safer bitrates and CPU fallback.
   disables typed Advanced FPS rather than upsampling by accident. Advanced
   mode otherwise accepts a custom FPS value, or an empty field shown as Off
   for no change.
-- **Desktop completion actions** — copy the finished output file itself to the
-  system clipboard by default, with an automatic reveal fallback, or always
-  reveal it in Explorer/Finder instead.
+- **Desktop completion actions** — copy the finished output file to the system
+  clipboard by default, with an automatic reveal fallback; show it in
+  Explorer/Finder; or do nothing. A separate setting can close the app after a
+  successful export.
 - **Desktop trim timeline** with fine-grained handles, draggable playhead, snap
   controls, zoom, pan, undo/redo, and optional looped playback. The browser
   editor keeps handles, a playhead, history, loop playback, snap intervals,
@@ -209,10 +222,12 @@ and retry oversized results with safer bitrates and CPU fallback.
   - Intel Quick Sync (`h264_qsv`, `hevc_qsv`)
   - Linux VAAPI (`h264_vaapi`, `hevc_vaapi`)
   - macOS VideoToolbox (`h264_videotoolbox`, `hevc_videotoolbox`)
-- **Desktop ways to open videos:** drag-and-drop onto the window, "Open with
-  vidcord" from Explorer/Finder, command-line file arguments, a second-instance
-  launch, or the in-app **Browse** button. Selecting one video preserves the
-  normal workflow; selecting multiple videos activates Batch mode.
+- **Desktop ways to open videos:** drag-and-drop videos or folders onto the
+  window, use **Browse File** or **Add Folder**, choose vidcord from the folder
+  context menu, pass command-line file arguments, or launch a second instance.
+  macOS uses Finder's **Open With** menu; Linux AppImages register their folder
+  action on first launch. Selecting one video preserves the normal workflow;
+  multiple videos activate Batch mode.
 - **Source details at import** — the desktop app shows resolution, frame rate,
   codec, average bitrate, and duration from FFprobe. The browser shows the
   dimensions, container information, file-size-based bitrate estimate, and
@@ -225,10 +240,13 @@ and retry oversized results with safer bitrates and CPU fallback.
   and Dark appearances together with the app surface.
 - **Remove audio in re-encoded modes** — strip the audio track to reclaim space.
 - **Strict size checks with bounded retries** — finished files are measured
-  against the selected target. Target-size encodes apply encoder-specific
-  peak-rate bounds before adaptive correction. Hardware jobs use at most four
-  full attempts and CPU jobs use at most two, including measured bitrate
-  correction and CPU fallback before reporting the smallest result.
+  against the selected target. Long target-size video exports use a short sample
+  to improve the initial bitrate estimate. When an output is well below its size
+  limit, bounded refinement passes can use more of the available size while
+  preserving the best in-range result if a later pass fails. Target-size encodes
+  apply encoder-specific peak-rate bounds and bounded measured-bitrate correction.
+  Hardware output can fall back to CPU; if no attempt fits, vidcord reports the
+  smallest result.
 - **Real-time desktop progress** with ETA, current attempt number, encoder, and
   bitrate parsed from FFmpeg's stderr. Browser exports show in-page progress and
   ETA; Batch progress is aggregated across the applicable queue.
@@ -299,7 +317,9 @@ progress and aggregate ETA, continues after individual failures, and supports
 queue reordering, removal, and retrying failed or cancelled files without
 rerunning completed downloads. Cancellation also stops encoder loading and
 metadata reads. It does not expose per-file batch trim fields or a batch preview
-timeline.
+timeline. After metadata is ready, the editor warms the local encoder and shows
+encoder-load and export-stage progress. It warns before exports estimated to
+need substantial memory; phones use a faster x264 preset to reduce encode time.
 
 The browser encoder is intentionally fixed to `libx264` in WebAssembly. Advanced
 mode can set a custom target size, resolution, and FPS, but cannot select a
@@ -421,7 +441,7 @@ when the running process has not received the updated `PATH`.
 ### Windows (aarch64 — Surface Pro X, Snapdragon PCs)
 
 vidcord tries the same `winget` setup first. If the package is unavailable for
-your ARM64 PC, see [FFMPEG_SETUP.md](FFMPEG_SETUP.md) for the community build
+your ARM64 PC, see [FFMPEG_SETUP.md](docs/FFMPEG_SETUP.md) for the community build
 and manual PATH steps.
 
 ### macOS
@@ -439,7 +459,7 @@ sudo pacman -S ffmpeg          # Arch / Manjaro
 ```
 
 For more distros, manual installs, or troubleshooting, read
-[FFMPEG_SETUP.md](FFMPEG_SETUP.md).
+[FFMPEG_SETUP.md](docs/FFMPEG_SETUP.md).
 
 ## Usage
 
@@ -472,11 +492,16 @@ supported videos to activate Batch mode automatically; Browse, drag-and-drop,
 Open With, command-line file arguments, and second-instance forwarding all
 preserve the full selection.
 
-1. **Open a video** — drop it onto the window, right-click → _Open with
-   vidcord_ from Explorer/Finder, or click **Browse File**.
+1. **Open videos** — drop videos or a folder onto the window, choose **Import
+   folder in vidcord** from a Windows folder menu, **Open With → vidcord** in
+   Finder or a Linux file manager, or click **Browse File** or **Add Folder**.
+   Linux AppImages register the folder action on first launch. Folder imports scan
+   subfolders, show progress, and report skipped files, linked folders, or
+   unreadable items in a notification.
 2. **Choose where to save** — use Downloads, the imported clip's folder, a
-   remembered custom folder, or **Ask when done**. Choose whether completion
-   copies the output file or reveals it.
+   remembered custom folder, or **Ask when done**. After export, choose **Copy file**,
+   **Show in folder**, or **Do nothing**; optionally enable **Close app** after a
+   successful export.
 3. **Pick a mode or target** — choose **Compress**, **Advanced**, **Lossless
    Trim**, or **GIF**, then select a target size for that mode: 20/50/100/500 MB or 1 GB for video or
    5/10/20 MB for GIF. Compress, Advanced, and GIF Mode expose the aspect-ratio crop selector;
@@ -504,16 +529,17 @@ separate start/end trim settings. Up to two encodes run in parallel by default;
 resource contention switches the remaining queue to one-at-a-time processing.
 The queue continues after individual probe or encode failures, reports an
 aggregate ETA for the remaining work, and skips queued items when cancelled.
-Drag items or use the per-row arrows to choose the execution order before starting. After a run,
-Retry reprocesses only failed or cancelled entries; completed items and their outputs remain in
-place.
+Drag items or use the per-row arrows to choose the execution order before starting. **Clear queue**
+removes every queued video at once. After a run, Retry reprocesses only failed or cancelled entries;
+completed items and their outputs remain in place. Saved presets are disabled while Batch mode is
+active so all queued videos use the shared Compress profile.
 
 The desktop footer preset selector starts at **Autosave**. Save the current
 compression and mode settings as a named preset, restore it later, or delete it;
 if you change one of those settings afterward, the selector returns to Autosave
 to show that the saved preset no longer matches. Output destination, custom
-folder, and completion action are saved independently for the next launch. The
-browser editor has no saved setting-preset UI.
+folder, completion action, and close-app preference are saved independently for
+the next launch. The browser editor has no saved setting-preset UI.
 
 Compression goes to `~/Downloads/<original-name>-vidcord.mp4` by default, with
 `-1`, `-2`, … appended if the name is taken. Lossless Trim uses the same
@@ -525,7 +551,10 @@ unique path for every successful item. With **Ask when done**, all successful
 outputs are staged until one destination folder is chosen, then published
 together without overwriting existing files. The default completion action
 copies successful outputs as one clipboard group; the reveal action opens each
-distinct output folder once and selects every successful output in it.
+distinct output folder once and selects every successful output in it. Do
+nothing leaves the outputs saved without copying, opening a folder, or sending
+a system notification. The independent close-app setting exits after a fully
+successful batch.
 
 ## Native desktop keyboard shortcuts
 
@@ -625,7 +654,9 @@ asset, lint, typecheck, test, build-tool integrity, artifact provenance, and
 build checks. The separate Site Checks workflow rebuilds the browser bundle,
 verifies that generated root assets are committed, and validates the root
 HTML, JSON-LD, sitemap, asset layout, and Cloudflare size limits. Keep new Rust
-code warning-clean.
+code warning-clean. The End-to-End UI Tests workflow exercises the browser demo
+and the native app on Linux, macOS, and Windows. See
+[`scripts/e2e/README.md`](scripts/e2e/README.md) for local setup and commands.
 
 ### Build profiles
 
@@ -645,7 +676,7 @@ frontend build, consolidated Rust formatting/audit/clippy/test checks, and a
 x86_64/aarch64). Release builds attest their installer provenance, and the
 release job verifies those attestations and creates detached Ed25519 signatures
 before drafting a GitHub release from the matching `CHANGELOG.md` section. See
-[`RELEASE_SIGNING.md`](RELEASE_SIGNING.md) for the signing-key contract.
+[`RELEASE_SIGNING.md`](docs/RELEASE_SIGNING.md) for the signing-key contract.
 
 ## Project layout
 
@@ -690,7 +721,7 @@ aliases and `Gyan.FFmpeg` package directory directly. On ARM64, it also checks
 `C:\ffmpeg` for a native build. For other install methods, quit vidcord fully
 and relaunch it so the new `PATH` is loaded; if a newly opened terminal cannot
 run both `ffmpeg -version` and `ffprobe -version`, repair the install or its
-PATH entry using the [setup guide](FFMPEG_SETUP.md).
+PATH entry using the [setup guide](docs/FFMPEG_SETUP.md).
 
 **The output file exceeds the target size.**
 Both editions retry target-based exports automatically and report when the
@@ -747,10 +778,14 @@ source on GitHub. There are no paid tiers, accounts, or trials.
 
 ### Does vidcord upload my videos anywhere?
 
-No. The browser keeps selected files in the page while FFmpeg WebAssembly runs
-locally, and the desktop app runs system FFmpeg locally — no compression server,
-account, or telemetry. The app automatically checks the GitHub Releases API for
-updates at most once every six hours, deferred for eight seconds after startup.
+No. The browser keeps selected video files in the page while FFmpeg WebAssembly
+runs locally, and the desktop app runs system FFmpeg locally; neither uploads
+videos for compression. No account is required, and vidcord collects no automatic
+usage telemetry. If you submit feedback, your report goes to the developer;
+desktop reports include the app version, OS, and last 100 lines of the app log;
+browser reports include the page URL, browser user agent, and language. The app
+automatically checks the GitHub Releases API for updates at most once every six
+hours, deferred for eight seconds after startup.
 It only downloads an installer after you choose to install an available update.
 The website also requests public release metadata from GitHub and an aggregate
 download count from Shields.io; no video data is included in either request.
@@ -786,11 +821,13 @@ the other desktop integrations.
 
 When an update is available, the desktop app offers the matching Windows, macOS, or
 Linux installer and keeps the GitHub release page as a fallback. After you
-approve the download, the app streams it to Downloads, enforces size and
-completeness limits, compares the bytes with the SHA-256 digest published in
-GitHub release metadata, verifies the pinned independent Ed25519 release
-signature, and only then gives the installer an unused filename and opens it.
-This independent release signature does not replace platform code signing.
+approve the download, the app fetches that exact release tag even if a newer
+release appears before installation begins. It streams the installer to
+Downloads, enforces size and completeness limits, compares the bytes with the
+SHA-256 digest published in GitHub release metadata, verifies the pinned
+independent Ed25519 release signature, and only then gives the installer an
+unused filename and opens it. This independent release signature does not
+replace platform code signing.
 
 ### What are Discord's video upload size limits?
 
@@ -825,9 +862,11 @@ limit, and export a smaller `.mp4` ready to upload.
 Yes. In the browser, select two or more files through Browse or drag-and-drop;
 the reorderable queue applies the same standard Compress target, crop, FPS, and
 audio settings to each full-duration file, reports per-file progress plus an
-aggregate ETA, and can retry failed or cancelled items. The desktop app also accepts Open With, command-line file
-arguments, and second-instance launches; its Batch mode adds separate
-start/end trims, up to two native workers, and native output handling.
+aggregate ETA, and can retry failed or cancelled items. The desktop app also
+accepts Open With, command-line file arguments, and second-instance launches;
+folders can be imported recursively from drag-and-drop, the folder picker, and
+file-manager context menus. Its Batch mode adds separate start/end trims, up to
+two native workers, and native output handling.
 
 ### Does vidcord require Discord Nitro?
 
@@ -850,9 +889,10 @@ the target bitrate, detects CPU and hardware encoders, remembers settings,
 streams attempt details and ETA, verifies the final file size, retries
 oversized results, handles visual trimming, and writes to a predictable
 auto-incremented path in Downloads, beside the source clip, or in a remembered
-custom folder. It can also ask for the final filename and copy or reveal the
-completed file. Under the hood the desktop app is still FFmpeg; Advanced mode
-exposes the encoder string so you can override any of it.
+custom folder. It can also ask for the final filename, then copy or reveal the
+completed file, or do nothing; a separate preference can close the app after
+the export finishes. Under the hood the desktop app is still FFmpeg; Advanced
+mode exposes the encoder string so you can override any of it.
 
 ### Can vidcord compress a video without re-encoding?
 

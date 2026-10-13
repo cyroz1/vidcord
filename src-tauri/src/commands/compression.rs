@@ -7,7 +7,7 @@ use crate::ffmpeg::{
 use crate::log::vidcord_log;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -223,6 +223,332 @@ impl Drop for OutputReservation {
     }
 }
 
+#[cfg(unix)]
+fn is_cross_device_error(error: &std::io::Error) -> bool {
+    error.raw_os_error() == Some(libc::EXDEV)
+}
+
+#[cfg(unix)]
+fn copy_candidate_to_output(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::sync::atomic::Ordering;
+
+    static PUBLISH_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let destination = private_destination_path(destination)?;
+    let directory = destination.parent().expect("resolved output has a parent");
+    let destination_mode = std::fs::symlink_metadata(&destination)
+        .ok()
+        .filter(|metadata| metadata.file_type().is_file())
+        .map(|metadata| metadata.permissions());
+
+    for _ in 0..32 {
+        let suffix = PUBLISH_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let temporary_path = directory.join(format!(
+            ".vidcord-publish-{}-{suffix}.tmp",
+            std::process::id()
+        ));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut output = match options.open(&temporary_path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+
+        let copy_result = (|| {
+            let mut input = std::fs::File::open(source)?;
+            std::io::copy(&mut input, &mut output)?;
+            output.sync_all()?;
+            Ok(())
+        })();
+        drop(output);
+        if let Err(error) = copy_result {
+            let _ = std::fs::remove_file(&temporary_path);
+            return Err(error);
+        }
+
+        if let Err(error) = crate::settings::replace_file(&temporary_path, &destination) {
+            let _ = std::fs::remove_file(&temporary_path);
+            return Err(error);
+        }
+        restore_published_permissions(&destination, destination_mode);
+        return Ok(());
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not choose a temporary output name",
+    ))
+}
+
+fn publish_candidate_output(source: &Path, destination: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let destination = private_destination_path(destination)?;
+        let destination_mode = std::fs::symlink_metadata(&destination)
+            .ok()
+            .filter(|metadata| metadata.file_type().is_file())
+            .map(|metadata| metadata.permissions());
+
+        // FFmpeg may recreate the candidate with a permissive umask. Keep it
+        // private until the atomic publish has placed it at its final path.
+        std::fs::set_permissions(source, std::fs::Permissions::from_mode(0o600))?;
+        match crate::settings::replace_file(source, &destination) {
+            Ok(()) => {
+                restore_published_permissions(&destination, destination_mode);
+                Ok(())
+            }
+            Err(error) if is_cross_device_error(&error) => {
+                copy_candidate_to_output(source, &destination)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        publish_candidate_output_windows(source, destination)
+    }
+
+    // Other non-Unix targets fail closed on cross-volume moves.
+    #[cfg(all(not(unix), not(target_os = "windows")))]
+    match crate::settings::replace_file(source, destination) {
+        Ok(()) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsFileDacl {
+    descriptor: windows_sys::Win32::Security::PSECURITY_DESCRIPTOR,
+    dacl: *mut windows_sys::Win32::Security::ACL,
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsFileDacl {
+    fn drop(&mut self) {
+        if !self.descriptor.is_null() {
+            unsafe {
+                windows_sys::Win32::Foundation::LocalFree(self.descriptor);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn read_windows_file_dacl(path: &Path) -> std::io::Result<WindowsFileDacl> {
+    use std::iter::once;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows_sys::Win32::Security::{ACL, DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR};
+
+    let path_wide: Vec<u16> = path.as_os_str().encode_wide().chain(once(0)).collect();
+    let mut dacl: *mut ACL = std::ptr::null_mut();
+    let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            path_wide.as_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut dacl,
+            std::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != 0 {
+        return Err(std::io::Error::from_raw_os_error(status as i32));
+    }
+    if dacl.is_null() {
+        if !descriptor.is_null() {
+            unsafe {
+                windows_sys::Win32::Foundation::LocalFree(descriptor);
+            }
+        }
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "The output file has no access-control list.",
+        ));
+    }
+
+    Ok(WindowsFileDacl { descriptor, dacl })
+}
+
+#[cfg(target_os = "windows")]
+fn set_windows_file_dacl(
+    path: &Path,
+    dacl: *const windows_sys::Win32::Security::ACL,
+) -> std::io::Result<()> {
+    use std::iter::once;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Security::Authorization::{SetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows_sys::Win32::Security::DACL_SECURITY_INFORMATION;
+
+    let path_wide: Vec<u16> = path.as_os_str().encode_wide().chain(once(0)).collect();
+    let status = unsafe {
+        SetNamedSecurityInfoW(
+            path_wide.as_ptr().cast_mut(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            dacl,
+            std::ptr::null_mut(),
+        )
+    };
+    if status != 0 {
+        return Err(std::io::Error::from_raw_os_error(status as i32));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn create_windows_private_output_file(
+    path: &Path,
+    private_descriptor: windows_sys::Win32::Security::PSECURITY_DESCRIPTOR,
+) -> std::io::Result<std::fs::File> {
+    use std::iter::once;
+    use std::os::windows::{ffi::OsStrExt, io::FromRawHandle};
+    use windows_sys::Win32::Foundation::{GENERIC_WRITE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, CREATE_NEW, FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_TEMPORARY,
+    };
+
+    let path_wide: Vec<u16> = path.as_os_str().encode_wide().chain(once(0)).collect();
+    let mut attributes = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: private_descriptor,
+        bInheritHandle: 0,
+    };
+    let handle = unsafe {
+        CreateFileW(
+            path_wide.as_ptr(),
+            GENERIC_WRITE,
+            0,
+            &mut attributes,
+            CREATE_NEW,
+            FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_TEMPORARY,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(unsafe { std::fs::File::from_raw_handle(handle.cast()) })
+}
+
+#[cfg(target_os = "windows")]
+fn copy_candidate_to_windows_output(
+    source: &Path,
+    destination: &Path,
+    destination_dacl: *const windows_sys::Win32::Security::ACL,
+) -> std::io::Result<()> {
+    use std::sync::atomic::Ordering;
+
+    static PUBLISH_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+    let source_parent = source.parent().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "candidate has no parent")
+    })?;
+    let private_security = read_windows_file_dacl(source_parent)?;
+
+    for _ in 0..32 {
+        let suffix = PUBLISH_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let temporary_path = parent.join(format!(
+            ".vidcord-publish-{}-{suffix}.tmp",
+            std::process::id()
+        ));
+        let mut output = match create_windows_private_output_file(
+            &temporary_path,
+            private_security.descriptor,
+        ) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+
+        let copy_result = (|| {
+            let mut input = std::fs::File::open(source)?;
+            std::io::copy(&mut input, &mut output)?;
+            output.sync_all()
+        })();
+        drop(output);
+        if let Err(error) = copy_result {
+            let _ = std::fs::remove_file(&temporary_path);
+            return Err(error);
+        }
+
+        if let Err(error) = set_windows_file_dacl(&temporary_path, destination_dacl) {
+            let _ = std::fs::remove_file(&temporary_path);
+            return Err(error);
+        }
+        if let Err(error) = crate::settings::replace_file(&temporary_path, destination) {
+            let _ = std::fs::remove_file(&temporary_path);
+            return Err(error);
+        }
+        return Ok(());
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not choose a temporary output name",
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn publish_candidate_output_windows(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use windows_sys::Win32::Foundation::ERROR_NOT_SAME_DEVICE;
+
+    // Candidates live in the private cache. Copy the reserved output's DACL
+    // onto the candidate before attempting a same-volume rename so the final
+    // file keeps the destination folder's access rules.
+    let destination_security = read_windows_file_dacl(destination)?;
+    set_windows_file_dacl(source, destination_security.dacl)?;
+    match crate::settings::replace_file(source, destination) {
+        Ok(()) => Ok(()),
+        Err(error) if error.raw_os_error() == Some(ERROR_NOT_SAME_DEVICE as i32) => {
+            copy_candidate_to_windows_output(source, destination, destination_security.dacl)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(unix)]
+fn private_destination_path(destination: &Path) -> std::io::Result<PathBuf> {
+    let directory = destination
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let filename = destination.file_name().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "output path does not name a file",
+        )
+    })?;
+    let protected_directory = private_output_parent(directory)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::PermissionDenied, error))?;
+    Ok(protected_directory.join(filename))
+}
+
+#[cfg(unix)]
+fn restore_published_permissions(path: &Path, permissions: Option<std::fs::Permissions>) {
+    if let Some(permissions) = permissions {
+        if let Err(error) = std::fs::set_permissions(path, permissions) {
+            vidcord_log(&format!(
+                "Could not restore published output permissions; it remains private: {error}"
+            ));
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands — video info & preview
 // ---------------------------------------------------------------------------
@@ -251,6 +577,75 @@ pub async fn probe(path: String) -> Result<serde_json::Value, String> {
         started_at.elapsed().as_millis()
     ));
     result
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchProbeResult {
+    pub data: Option<serde_json::Value>,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub async fn probe_batch(paths: Vec<String>) -> Result<Vec<BatchProbeResult>, String> {
+    const PROBE_CONCURRENCY: usize = 2;
+
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let count = paths.len();
+    let started_at = Instant::now();
+    let generation = start_probe_generation();
+    let results = tokio::task::spawn_blocking(move || {
+        cancel_superseded_probe_jobs(generation);
+        cancel_preview_jobs();
+        for path in &paths {
+            clear_preview_caches_for_path(path);
+        }
+
+        let mut results = Vec::with_capacity(paths.len());
+        for chunk in paths.chunks(PROBE_CONCURRENCY) {
+            let chunk_results = std::thread::scope(|scope| {
+                let handles = chunk
+                    .iter()
+                    .map(|path| {
+                        scope.spawn(move || {
+                            probe_video(path, generation).map_err(|error| error.to_string())
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                handles
+                    .into_iter()
+                    .map(|handle| {
+                        handle.join().unwrap_or_else(|_| {
+                            Err("FFprobe could not read this video.".to_string())
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            });
+
+            results.extend(chunk_results.into_iter().map(|result| match result {
+                Ok(data) => BatchProbeResult {
+                    data: Some(data),
+                    error: None,
+                },
+                Err(error) => BatchProbeResult {
+                    data: None,
+                    error: Some(error),
+                },
+            }));
+        }
+        results
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+
+    vidcord_log(&format!(
+        "File import: batch probe completed for {count} files in {} ms",
+        started_at.elapsed().as_millis()
+    ));
+    Ok(results)
 }
 
 #[tauri::command]
@@ -364,6 +759,7 @@ pub struct CompressOptions {
     pub output_path: String,
     pub encoder: String,
     pub video_bitrate_k: u32,
+    pub source_video_bitrate_k: Option<u32>,
     pub target_size_mb: Option<f64>,
     pub start_time: f64,
     pub end_time: f64,
@@ -877,9 +1273,16 @@ fn gif_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> String {
     )
 }
 
-const OVERSIZE_RETRY_LIMIT_PER_ENCODER: usize = 1;
-const OVERSIZE_RETRY_SAFETY: f64 = 0.90;
+const SIZE_RETRY_LIMIT_PER_ENCODER: usize = 2;
+const OVERSIZE_RETRY_SAFETY: f64 = 0.95;
+const UNDERFILL_RETRY_SAFETY: f64 = 0.92;
+// Fill target, matching the browser export planner (getFillBitrate):
+// keep refining while the output is under 95% of the target.
+const UNDERFILL_RETRY_THRESHOLD: f64 = 0.95;
 const LOSSLESS_FASTSTART_MAX_INPUT_BYTES: u64 = 256 * 1024 * 1024;
+const SIZE_PREFLIGHT_MIN_DURATION_SECONDS: f64 = 120.0;
+const SIZE_PREFLIGHT_SAMPLE_SECONDS: f64 = 4.0;
+const SIZE_PREFLIGHT_SAFETY_MARGIN: f64 = 1.03;
 const GIF_PREFLIGHT_INITIAL_SECONDS: f64 = 1.0;
 const GIF_PREFLIGHT_EXTENDED_SECONDS: f64 = 3.0;
 const GIF_PREFLIGHT_UNCERTAINTY_LOW: f64 = 0.80;
@@ -899,44 +1302,252 @@ fn is_mp4_output(path: &str) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"))
 }
 
-struct TemporaryOutput(std::path::PathBuf);
+#[cfg(any(target_os = "macos", test))]
+fn acl_text_has_allow_entry(text: &str) -> bool {
+    text.split(|character: char| character == ':' || character.is_ascii_whitespace())
+        .any(|token| token == "allow")
+}
+
+#[cfg(unix)]
+fn private_output_parent(preferred: &Path) -> Result<PathBuf, String> {
+    #[cfg(target_os = "macos")]
+    fn has_allow_extended_acl(path: &Path) -> bool {
+        use std::ffi::{CStr, CString};
+        use std::os::unix::ffi::OsStrExt;
+
+        #[link(name = "System")]
+        extern "C" {
+            fn acl_get_file(path: *const libc::c_char, acl_type: libc::c_int) -> *mut libc::c_void;
+            fn acl_to_text(acl: *mut libc::c_void, length: *mut libc::ssize_t)
+                -> *mut libc::c_char;
+            fn acl_free(object: *mut libc::c_void) -> libc::c_int;
+        }
+
+        const ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
+
+        let Ok(path) = CString::new(path.as_os_str().as_bytes()) else {
+            return true;
+        };
+        // Apple reports ENOENT when a filesystem object has no extended ACL.
+        // Treat every other lookup failure as unsafe so ACL support failures
+        // cannot make an unverified output directory appear private.
+        let acl = unsafe { acl_get_file(path.as_ptr(), ACL_TYPE_EXTENDED) };
+        if acl.is_null() {
+            return std::io::Error::last_os_error().raw_os_error() != Some(libc::ENOENT);
+        }
+
+        let acl_text = unsafe { acl_to_text(acl, std::ptr::null_mut()) };
+        let has_allow = if acl_text.is_null() {
+            true
+        } else {
+            let text = unsafe { CStr::from_ptr(acl_text) }.to_string_lossy();
+            let has_allow = acl_text_has_allow_entry(&text);
+            unsafe {
+                acl_free(acl_text.cast());
+            }
+            has_allow
+        };
+        unsafe {
+            acl_free(acl);
+        }
+        // Reject allow ACEs, including inherited grants that could make a
+        // future staged file readable or replaceable. Deny-only ACLs remain
+        // compatible with the mode and ownership checks above.
+        has_allow
+    }
+
+    fn parent_protects_entries(path: &Path) -> bool {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let absolute = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            let Ok(current_dir) = std::env::current_dir() else {
+                return false;
+            };
+            current_dir.join(path)
+        };
+        let mut current = PathBuf::new();
+        let effective_uid = unsafe { libc::geteuid() };
+        for component in absolute.components() {
+            match component {
+                std::path::Component::CurDir => continue,
+                component => current.push(component.as_os_str()),
+            }
+            let Ok(metadata) = std::fs::metadata(&current) else {
+                return false;
+            };
+            if metadata.uid() != effective_uid && metadata.uid() != 0 {
+                return false;
+            }
+            let mode = metadata.permissions().mode();
+            if mode & 0o022 != 0 && mode & 0o1000 == 0 {
+                return false;
+            }
+            #[cfg(target_os = "macos")]
+            if has_allow_extended_acl(&current) {
+                return false;
+            }
+        }
+        true
+    }
+
+    let resolved = std::fs::canonicalize(preferred)
+        .map_err(|error| format!("Could not resolve temporary path parent: {error}"))?;
+    if parent_protects_entries(&resolved) {
+        return Ok(resolved);
+    }
+    Err("A temporary path ancestor can be changed by other users.".to_string())
+}
+
+#[cfg(not(unix))]
+fn private_output_parent(_preferred: &Path) -> Result<PathBuf, String> {
+    // Keep FFmpeg candidates in the user's application cache, whose ACL is
+    // inherited from the per-user profile. Cross-volume publication fails
+    // closed rather than staging a replaceable sibling path.
+    let directory = dirs::cache_dir()
+        .ok_or_else(|| "Could not locate the per-user cache directory.".to_string())?
+        .join("vidcord")
+        .join("tmp");
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("Could not prepare private temporary output: {error}"))?;
+    Ok(directory)
+}
+
+struct TemporaryOutput {
+    path: PathBuf,
+    private_directory: Option<PathBuf>,
+}
 
 impl TemporaryOutput {
     fn create(extension: &str) -> Result<Self, String> {
         use std::sync::atomic::Ordering;
 
-        let directory = std::env::temp_dir().join("vidcord");
-        std::fs::create_dir_all(&directory)
-            .map_err(|error| format!("Could not prepare temporary output: {error}"))?;
+        let directory_parent = private_output_parent(&std::env::temp_dir())?;
         for _ in 0..32 {
             let suffix = GIF_PREFLIGHT_COUNTER.fetch_add(1, Ordering::Relaxed);
-            let path = directory.join(format!(
-                "gif-preflight-{}-{suffix}.{extension}",
-                std::process::id()
-            ));
-            match std::fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&path)
+            let directory =
+                directory_parent.join(format!("vidcord-preflight-{}-{suffix}", std::process::id()));
+            let mut builder = std::fs::DirBuilder::new();
+            #[cfg(unix)]
             {
-                Ok(_) => return Ok(Self(path)),
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            match builder.create(&directory) {
+                Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(error) => {
+                    return Err(format!(
+                        "Could not prepare private temporary output: {error}"
+                    ));
+                }
+            }
+
+            let path = directory.join(format!("sample.{extension}"));
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            match options.open(&path) {
+                Ok(file) => {
+                    drop(file);
+                    return Ok(Self {
+                        path,
+                        private_directory: Some(directory),
+                    });
+                }
+                Err(error) => {
+                    let _ = std::fs::remove_dir(&directory);
                     return Err(format!("Could not reserve temporary output: {error}"));
                 }
             }
         }
-        Err("Could not choose a temporary output filename.".to_string())
+        Err("Could not choose a private temporary output directory.".to_string())
+    }
+
+    fn create_sibling(output_path: &str) -> Result<Self, String> {
+        use std::sync::atomic::Ordering;
+
+        let output_path = Path::new(output_path);
+        let directory = output_path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let extension = output_path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .filter(|extension| !extension.is_empty())
+            .unwrap_or("mp4");
+        let directory = match private_output_parent(directory) {
+            Ok(directory) => directory,
+            Err(_) => private_output_parent(&std::env::temp_dir())?,
+        };
+        for _ in 0..32 {
+            let suffix = GIF_PREFLIGHT_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let private_directory =
+                directory.join(format!(".vidcord-attempt-{}-{suffix}", std::process::id()));
+            let mut builder = std::fs::DirBuilder::new();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            match builder.create(&private_directory) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => {
+                    return Err(format!(
+                        "Could not prepare private encoding attempt directory: {error}"
+                    ));
+                }
+            }
+
+            let path = private_directory.join(format!("sample.{extension}"));
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            match options.open(&path) {
+                Ok(file) => {
+                    drop(file);
+                    return Ok(Self {
+                        path,
+                        private_directory: Some(private_directory),
+                    });
+                }
+                Err(error) => {
+                    let _ = std::fs::remove_dir(&private_directory);
+                    return Err(format!(
+                        "Could not reserve an encoding attempt file: {error}"
+                    ));
+                }
+            }
+        }
+        Err("Could not choose a temporary encoding filename.".to_string())
     }
 
     fn as_string(&self) -> String {
-        self.0.to_string_lossy().into_owned()
+        self.path.to_string_lossy().into_owned()
+    }
+
+    fn as_path(&self) -> &Path {
+        &self.path
     }
 }
 
 impl Drop for TemporaryOutput {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+        let _ = std::fs::remove_file(&self.path);
+        if let Some(directory) = &self.private_directory {
+            let _ = std::fs::remove_dir(directory);
+        }
     }
 }
 
@@ -976,18 +1587,29 @@ fn max_adaptive_attempts(opts: &CompressOptions, has_target: bool) -> usize {
     }
     // A hardware selection has two encoder phases: the requested encoder and
     // a CPU fallback. Each phase gets its initial encode, and target-size jobs
-    // get the same bounded number of adaptive bitrate retries per encoder.
+    // get the same bounded number of size-correction retries per encoder.
     // Deriving the cap from that policy keeps it aligned with
     // `next_oversize_attempt` instead of silently discarding its final CPU
     // retry.
     let encoder_phases = if opts.encoder == "libx264" { 1 } else { 2 };
     let attempts_per_encoder = if has_target {
-        1 + OVERSIZE_RETRY_LIMIT_PER_ENCODER
+        1 + SIZE_RETRY_LIMIT_PER_ENCODER
     } else {
         1
     };
     encoder_phases * attempts_per_encoder
         + usize::from(supports_auto_hardware_decode(opts, &opts.encoder))
+}
+
+fn should_preflight_standard_size(
+    opts: &CompressOptions,
+    target_bytes: Option<u64>,
+    clip_duration: f64,
+) -> bool {
+    target_bytes.is_some()
+        && !opts.gif_mode
+        && !opts.lossless_trim
+        && clip_duration >= SIZE_PREFLIGHT_MIN_DURATION_SECONDS
 }
 
 fn target_rate_control_args(encoder: &str, bitrate_k: u32, has_target: bool) -> Vec<String> {
@@ -1048,6 +1670,60 @@ fn adaptive_bitrate_for_oversize(
     ((current_bitrate_k as f64 * ratio * OVERSIZE_RETRY_SAFETY).floor() as u32).max(100)
 }
 
+fn adaptive_bitrate_for_underfill(
+    current_bitrate_k: u32,
+    target_bytes: u64,
+    output_bytes: u64,
+    source_bitrate_k: Option<u32>,
+) -> u32 {
+    if output_bytes == 0 || target_bytes == 0 {
+        return current_bitrate_k.max(100);
+    }
+    let ratio = target_bytes as f64 / output_bytes as f64;
+    let estimated = (current_bitrate_k as f64 * ratio * UNDERFILL_RETRY_SAFETY)
+        .floor()
+        .min(u32::MAX as f64) as u32;
+    // 1.5x per-pass step cap, matching the browser export planner.
+    let step_limit = current_bitrate_k.saturating_mul(3) / 2;
+    let source_limit = source_bitrate_k.unwrap_or(u32::MAX);
+    estimated
+        .min(step_limit)
+        .min(source_limit)
+        .max(current_bitrate_k)
+}
+
+fn next_underfill_attempt(
+    current: &CompressionAttempt,
+    target_bytes: u64,
+    output_bytes: u64,
+    size_retries_for_encoder: usize,
+    source_bitrate_k: Option<u32>,
+) -> Option<(CompressionAttempt, usize)> {
+    if size_retries_for_encoder >= SIZE_RETRY_LIMIT_PER_ENCODER
+        || output_bytes == 0
+        || output_bytes as f64 >= target_bytes as f64 * UNDERFILL_RETRY_THRESHOLD
+    {
+        return None;
+    }
+    let next_bitrate = adaptive_bitrate_for_underfill(
+        current.video_bitrate_k,
+        target_bytes,
+        output_bytes,
+        source_bitrate_k,
+    );
+    (next_bitrate > current.video_bitrate_k).then(|| {
+        (
+            CompressionAttempt {
+                encoder: current.encoder.clone(),
+                video_bitrate_k: next_bitrate,
+                status: format!("Using more of the target at {next_bitrate} kbps..."),
+                try_hardware_decode: current.try_hardware_decode,
+            },
+            size_retries_for_encoder + 1,
+        )
+    })
+}
+
 fn projected_gif_size(sample_bytes: u64, sample_duration: f64, clip_duration: f64) -> u64 {
     if sample_duration <= 0.0 || !sample_duration.is_finite() || !clip_duration.is_finite() {
         return sample_bytes;
@@ -1069,13 +1745,13 @@ fn next_oversize_attempt(
     current: &CompressionAttempt,
     target_bytes: u64,
     output_bytes: u64,
-    oversize_retries_for_encoder: usize,
+    size_retries_for_encoder: usize,
     cpu_fallback_used: bool,
 ) -> Option<(CompressionAttempt, usize, bool)> {
     let next_bitrate =
         adaptive_bitrate_for_oversize(current.video_bitrate_k, target_bytes, output_bytes);
 
-    if oversize_retries_for_encoder < OVERSIZE_RETRY_LIMIT_PER_ENCODER
+    if size_retries_for_encoder < SIZE_RETRY_LIMIT_PER_ENCODER
         && next_bitrate < current.video_bitrate_k
     {
         return Some((
@@ -1085,7 +1761,7 @@ fn next_oversize_attempt(
                 status: format!("Retrying at {next_bitrate} kbps after size check..."),
                 try_hardware_decode: current.try_hardware_decode,
             },
-            oversize_retries_for_encoder + 1,
+            size_retries_for_encoder + 1,
             cpu_fallback_used,
         ));
     }
@@ -1578,7 +2254,22 @@ async fn run_ffmpeg_attempt(
         });
     }
 
-    vidcord_log(&format!("FFmpeg command: ffmpeg {}", cmd_args.join(" ")));
+    // Log file names only: absolute paths embed the user's home directory,
+    // and this log is often shared for debugging.
+    let log_args: Vec<String> = cmd_args
+        .iter()
+        .map(|arg| {
+            if arg == &opts.input_path || arg == &opts.output_path {
+                std::path::Path::new(arg)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "<redacted>".to_string())
+            } else {
+                arg.clone()
+            }
+        })
+        .collect();
+    vidcord_log(&format!("FFmpeg command: ffmpeg {}", log_args.join(" ")));
 
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
@@ -1763,6 +2454,44 @@ async fn run_ffmpeg_attempt(
         last_lines,
         cancelled,
     })
+}
+
+async fn estimate_size_from_sample(
+    app: &AppHandle,
+    opts: &CompressOptions,
+    attempt: &CompressionAttempt,
+    sample_duration: f64,
+    mut run_context: FfmpegRunContext,
+) -> Result<Option<u64>, String> {
+    let sample_output = TemporaryOutput::create("mp4")?;
+    let mut sample_opts = opts.clone();
+    sample_opts.end_time = sample_opts.start_time + sample_duration;
+    sample_opts.output_path = sample_output.as_string();
+    run_context.attempt_index = 0;
+    run_context.clip_duration = sample_duration;
+    run_context.emit_progress = false;
+    let run = run_ffmpeg_attempt(app, &sample_opts, attempt, run_context).await?;
+
+    if run.cancelled {
+        return Err("Cancelled".to_string());
+    }
+    if !run.exit_status.success() {
+        return Ok(None);
+    }
+
+    let Ok(metadata) = std::fs::metadata(sample_output.as_path()) else {
+        return Ok(None);
+    };
+    if metadata.len() == 0 || sample_duration <= 0.0 || !sample_duration.is_finite() {
+        return Ok(None);
+    }
+
+    let clip_duration = opts.end_time - opts.start_time;
+    let projected = ((metadata.len() as f64 * clip_duration / sample_duration)
+        * SIZE_PREFLIGHT_SAFETY_MARGIN)
+        .ceil()
+        .min(u64::MAX as f64) as u64;
+    Ok(Some(projected))
 }
 
 #[cfg(unix)]
@@ -2065,8 +2794,10 @@ async fn run_batch_item(
     let mut smallest_oversize_bytes: Option<u64> = None;
     let mut attempt = initial_attempt(&opts);
     let mut attempt_index = 0usize;
-    let mut oversize_retries_for_encoder = 0usize;
+    let mut size_retries_for_encoder = 0usize;
     let mut cpu_fallback_used = opts.encoder == "libx264";
+    let mut best_fit_bytes = None;
+    let mut best_fit_bitrate_k = None;
     let mut seen_attempts: HashSet<(String, u32, bool)> = HashSet::new();
 
     let audio_gain_db = if should_peak_normalize_audio(&opts) {
@@ -2098,6 +2829,79 @@ async fn run_batch_item(
         None
     };
 
+    if should_preflight_standard_size(&opts, target_bytes, clip_duration) {
+        emit_batch_progress(
+            app,
+            &context,
+            BatchProgressUpdate {
+                item_percent: 0,
+                phase: "encoding",
+                status: "Estimating output size…",
+                eta: "Calculating…",
+                attempt: Some(1),
+                attempt_total: Some(total_attempts),
+                encoder: Some(attempt.encoder.as_str()),
+                video_bitrate_k: Some(attempt.video_bitrate_k),
+            },
+        );
+        match estimate_size_from_sample(
+            app,
+            &opts,
+            &attempt,
+            SIZE_PREFLIGHT_SAMPLE_SECONDS.min(clip_duration),
+            FfmpegRunContext {
+                attempt_index: 0,
+                total_attempts,
+                clip_duration,
+                job_id,
+                emit_progress: false,
+                audio_gain_db,
+                batch: Some(context.clone()),
+            },
+        )
+        .await
+        {
+            Ok(Some(projected_bytes)) => {
+                let target_bytes = target_bytes.expect("preflight requires a target size");
+                if projected_bytes > target_bytes {
+                    let next_bitrate = adaptive_bitrate_for_oversize(
+                        attempt.video_bitrate_k,
+                        target_bytes,
+                        projected_bytes,
+                    );
+                    if next_bitrate < attempt.video_bitrate_k {
+                        attempt.video_bitrate_k = next_bitrate;
+                        attempt.status =
+                            format!("Compressing at {next_bitrate} kbps after size estimate...");
+                    }
+                } else if (projected_bytes as f64) < target_bytes as f64 * UNDERFILL_RETRY_THRESHOLD
+                {
+                    let next_bitrate = adaptive_bitrate_for_underfill(
+                        attempt.video_bitrate_k,
+                        target_bytes,
+                        projected_bytes,
+                        opts.source_video_bitrate_k,
+                    );
+                    if next_bitrate > attempt.video_bitrate_k {
+                        attempt.video_bitrate_k = next_bitrate;
+                        attempt.status =
+                            format!("Using more of the target at {next_bitrate} kbps...");
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(error) if error == "Cancelled" => return Err(error),
+            Err(error) => {
+                if is_resource_contention_error(&error) {
+                    mark_batch_resource_contention(&context);
+                }
+                vidcord_log(&format!(
+                    "Batch size estimate could not run; continuing with normal encoding: {error}"
+                ));
+            }
+        }
+    }
+
     loop {
         if attempt_index >= total_attempts {
             break;
@@ -2108,6 +2912,24 @@ async fn run_batch_item(
             attempt.try_hardware_decode,
         )) {
             break;
+        }
+
+        let candidate_output = if best_fit_bytes.is_some() {
+            match TemporaryOutput::create_sibling(&opts.output_path) {
+                Ok(output) => Some(output),
+                Err(error) => {
+                    vidcord_log(&format!(
+                        "Could not reserve a refinement output; keeping the best target fit: {error}"
+                    ));
+                    break;
+                }
+            }
+        } else {
+            None
+        };
+        let mut attempt_opts = opts.clone();
+        if let Some(output) = &candidate_output {
+            attempt_opts.output_path = output.as_string();
         }
 
         emit_batch_progress(
@@ -2127,7 +2949,7 @@ async fn run_batch_item(
 
         let run = match run_ffmpeg_attempt(
             app,
-            &opts,
+            &attempt_opts,
             &attempt,
             FfmpegRunContext {
                 attempt_index,
@@ -2145,6 +2967,12 @@ async fn run_batch_item(
             Err(error) => {
                 if is_resource_contention_error(&error) {
                     mark_batch_resource_contention(&context);
+                }
+                if best_fit_bytes.is_some() {
+                    vidcord_log(&format!(
+                        "Target-size refinement failed; keeping the previous in-range output: {error}"
+                    ));
+                    break;
                 }
                 remove_partial_output(&opts.output_path);
                 return Err(error);
@@ -2173,7 +3001,7 @@ async fn run_batch_item(
             }
             if !cpu_fallback_used && attempt.encoder != "libx264" {
                 cpu_fallback_used = true;
-                oversize_retries_for_encoder = 0;
+                size_retries_for_encoder = 0;
                 attempt_index += 1;
                 attempt = cpu_fallback_attempt(
                     attempt.video_bitrate_k,
@@ -2193,15 +3021,27 @@ async fn run_batch_item(
                 "Compression failed.\n\nFFmpeg Error:\n{}",
                 err_lines.join("\n")
             );
+            if best_fit_bytes.is_some() {
+                vidcord_log(&format!(
+                    "Target-size refinement failed; keeping the previous in-range output: {message}"
+                ));
+                break;
+            }
             remove_partial_output(&opts.output_path);
             return Err(message);
         }
 
-        let output_size = match std::fs::metadata(&opts.output_path) {
+        let output_size = match std::fs::metadata(&attempt_opts.output_path) {
             Ok(metadata) => metadata.len(),
             Err(error) => {
                 let message =
                     format!("Compression finished but output file could not be read: {error}");
+                if best_fit_bytes.is_some() {
+                    vidcord_log(&format!(
+                        "Target-size refinement output could not be read; keeping the previous in-range output: {message}"
+                    ));
+                    break;
+                }
                 remove_partial_output(&opts.output_path);
                 return Err(message);
             }
@@ -2211,35 +3051,91 @@ async fn run_batch_item(
             None => true,
         };
         if output_is_small_enough {
-            output_reservation.commit();
-            return Ok(BatchEncodedOutput {
-                output_path: opts.output_path,
-                input_size_bytes,
-                output_size_bytes: output_size,
-                message: format!("Compressed to {}.", format_size_mb(output_size)),
-            });
+            let Some(limit) = target_bytes else {
+                output_reservation.commit();
+                return Ok(BatchEncodedOutput {
+                    output_path: opts.output_path,
+                    input_size_bytes,
+                    output_size_bytes: output_size,
+                    message: format!("Compressed to {}.", format_size_mb(output_size)),
+                });
+            };
+            let improved = match best_fit_bytes {
+                Some(best) => output_size > best,
+                None => true,
+            };
+            if improved {
+                if let Some(candidate) = &candidate_output {
+                    if let Err(error) =
+                        publish_candidate_output(candidate.as_path(), Path::new(&opts.output_path))
+                    {
+                        vidcord_log(&format!(
+                            "Could not publish a better in-range output; keeping the previous target fit: {error}"
+                        ));
+                        break;
+                    }
+                }
+                best_fit_bytes = Some(output_size);
+                best_fit_bitrate_k = Some(attempt.video_bitrate_k);
+            }
+
+            if improved {
+                if let Some((next_attempt, next_retries)) = next_underfill_attempt(
+                    &attempt,
+                    limit,
+                    output_size,
+                    size_retries_for_encoder,
+                    opts.source_video_bitrate_k,
+                ) {
+                    if !seen_attempts.contains(&(
+                        next_attempt.encoder.clone(),
+                        next_attempt.video_bitrate_k,
+                        next_attempt.try_hardware_decode,
+                    )) {
+                        attempt_index += 1;
+                        attempt = next_attempt;
+                        size_retries_for_encoder = next_retries;
+                        continue;
+                    }
+                }
+            }
+            break;
         }
 
         smallest_oversize_bytes = match smallest_oversize_bytes {
             Some(current) if current <= output_size => Some(current),
             _ => Some(output_size),
         };
-        let Some(limit) = target_bytes else {
-            break;
-        };
+        let limit = target_bytes.expect("oversize output requires a target size");
         let Some((next_attempt, next_retries, next_cpu_fallback_used)) = next_oversize_attempt(
             &attempt,
             limit,
             output_size,
-            oversize_retries_for_encoder,
+            size_retries_for_encoder,
             cpu_fallback_used,
         ) else {
             break;
         };
+        if best_fit_bytes.is_some()
+            && (next_attempt.encoder != attempt.encoder
+                || next_attempt.video_bitrate_k <= best_fit_bitrate_k.unwrap_or(0))
+        {
+            break;
+        }
         attempt_index += 1;
         attempt = next_attempt;
-        oversize_retries_for_encoder = next_retries;
+        size_retries_for_encoder = next_retries;
         cpu_fallback_used = next_cpu_fallback_used;
+    }
+
+    if let Some(output_size_bytes) = best_fit_bytes {
+        output_reservation.commit();
+        return Ok(BatchEncodedOutput {
+            output_path: opts.output_path,
+            input_size_bytes,
+            output_size_bytes,
+            message: format!("Compressed to {}.", format_size_mb(output_size_bytes)),
+        });
     }
 
     remove_partial_output(&opts.output_path);
@@ -2570,8 +3466,12 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     let mut smallest_oversize_bytes: Option<u64> = None;
     let mut attempt = initial_attempt(&opts);
     let mut attempt_index = 0usize;
-    let mut oversize_retries_for_encoder = 0usize;
+    let mut size_retries_for_encoder = 0usize;
     let mut cpu_fallback_used = opts.gif_mode || opts.encoder == "libx264";
+    let mut best_fit_bytes = None;
+    let mut best_fit_bitrate_k = None;
+    let mut best_fit_attempt: Option<CompressionAttempt> = None;
+    let mut best_fit_attempt_index = None;
     let mut seen_attempts: std::collections::HashSet<(String, u32, bool)> =
         std::collections::HashSet::new();
 
@@ -2688,7 +3588,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                                     "GIF sizing sample projected {projected} bytes; starting the full encode at quality step {retries}."
                                 ));
                                 attempt = adjusted;
-                                oversize_retries_for_encoder = retries;
+                                size_retries_for_encoder = retries;
                             }
                             break;
                         }
@@ -2714,6 +3614,85 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         }
     }
 
+    if should_preflight_standard_size(&opts, target_bytes, clip_duration) {
+        let _ = app.emit(
+            "compress-progress",
+            serde_json::json!({
+                "percent": 0,
+                "eta": "Calculating...",
+                "status": "Estimating output size…",
+                "attempt": 1,
+                "attempt_total": total_attempts,
+                "encoder": attempt.encoder.as_str(),
+                "video_bitrate_k": attempt.video_bitrate_k,
+                "gif_mode": false,
+                "lossless_trim": false
+            }),
+        );
+        match estimate_size_from_sample(
+            &app,
+            &opts,
+            &attempt,
+            SIZE_PREFLIGHT_SAMPLE_SECONDS.min(clip_duration),
+            FfmpegRunContext {
+                attempt_index: 0,
+                total_attempts,
+                clip_duration,
+                job_id,
+                emit_progress: false,
+                audio_gain_db,
+                batch: None,
+            },
+        )
+        .await
+        {
+            Ok(Some(projected_bytes)) => {
+                let target_bytes = target_bytes.expect("preflight requires a target size");
+                if projected_bytes > target_bytes {
+                    let next_bitrate = adaptive_bitrate_for_oversize(
+                        attempt.video_bitrate_k,
+                        target_bytes,
+                        projected_bytes,
+                    );
+                    if next_bitrate < attempt.video_bitrate_k {
+                        attempt.video_bitrate_k = next_bitrate;
+                        attempt.status =
+                            format!("Compressing at {next_bitrate} kbps after size estimate...");
+                    }
+                } else if (projected_bytes as f64) < target_bytes as f64 * UNDERFILL_RETRY_THRESHOLD
+                {
+                    let next_bitrate = adaptive_bitrate_for_underfill(
+                        attempt.video_bitrate_k,
+                        target_bytes,
+                        projected_bytes,
+                        opts.source_video_bitrate_k,
+                    );
+                    if next_bitrate > attempt.video_bitrate_k {
+                        attempt.video_bitrate_k = next_bitrate;
+                        attempt.status =
+                            format!("Using more of the target at {next_bitrate} kbps...");
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(error) if error == "Cancelled" => {
+                remove_partial_output(&opts.output_path);
+                let _ = app.emit(
+                    "compress-done",
+                    serde_json::json!({
+                        "success": false,
+                        "cancelled": true,
+                        "message": "Cancelled."
+                    }),
+                );
+                return Err(error);
+            }
+            Err(error) => vidcord_log(&format!(
+                "Size estimate could not run; continuing with normal encoding: {error}"
+            )),
+        }
+    }
+
     loop {
         if attempt_index >= total_attempts {
             break;
@@ -2724,6 +3703,24 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             attempt.try_hardware_decode,
         )) {
             break;
+        }
+
+        let candidate_output = if best_fit_bytes.is_some() {
+            match TemporaryOutput::create_sibling(&opts.output_path) {
+                Ok(output) => Some(output),
+                Err(error) => {
+                    vidcord_log(&format!(
+                        "Could not reserve a refinement output; keeping the best target fit: {error}"
+                    ));
+                    break;
+                }
+            }
+        } else {
+            None
+        };
+        let mut attempt_opts = opts.clone();
+        if let Some(output) = &candidate_output {
+            attempt_opts.output_path = output.as_string();
         }
 
         let _ = app.emit(
@@ -2742,7 +3739,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
 
         let run = match run_ffmpeg_attempt(
             &app,
-            &opts,
+            &attempt_opts,
             &attempt,
             FfmpegRunContext {
                 attempt_index,
@@ -2759,6 +3756,12 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             Ok(run) => run,
             Err(error) => {
                 vidcord_log(&format!("Compression worker failed: {error}"));
+                if best_fit_bytes.is_some() {
+                    vidcord_log(&format!(
+                        "Target-size refinement failed; keeping the previous in-range output: {error}"
+                    ));
+                    break;
+                }
                 remove_partial_output(&opts.output_path);
                 let _ = app.emit(
                     "compress-done",
@@ -2800,7 +3803,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                     all_lines.join("\n")
                 ));
                 cpu_fallback_used = true;
-                oversize_retries_for_encoder = 0;
+                size_retries_for_encoder = 0;
                 attempt_index += 1;
                 attempt = cpu_fallback_attempt(
                     attempt.video_bitrate_k,
@@ -2826,6 +3829,10 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 run.exit_status.code(),
                 all_lines.join("\n")
             ));
+            if best_fit_bytes.is_some() {
+                vidcord_log("Target-size refinement failed; keeping the previous in-range output.");
+                break;
+            }
             remove_partial_output(&opts.output_path);
             let _ = app.emit(
                 "compress-done",
@@ -2834,12 +3841,18 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             return Err(err_msg);
         }
 
-        let output_size = match std::fs::metadata(&opts.output_path) {
+        let output_size = match std::fs::metadata(&attempt_opts.output_path) {
             Ok(metadata) => metadata.len(),
             Err(error) => {
                 let message =
                     format!("Compression finished but output file could not be read: {error}");
                 vidcord_log(&message);
+                if best_fit_bytes.is_some() {
+                    vidcord_log(
+                        "Target-size refinement output could not be read; keeping the previous in-range output.",
+                    );
+                    break;
+                }
                 remove_partial_output(&opts.output_path);
                 let _ = app.emit(
                     "compress-done",
@@ -2853,28 +3866,78 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             None => true,
         };
         if output_is_small_enough {
-            let message = format!("Compressed to {}.", format_size_mb(output_size));
-            vidcord_log(&format!(
-                "Compression finished successfully: {} bytes with {} at {}k.",
-                output_size, attempt.encoder, attempt.video_bitrate_k
-            ));
-            let _ = app.emit(
-                "compress-done",
-                serde_json::json!({
-                    "success": true,
-                    "message": message,
-                    "output_path": &opts.output_path,
-                    "input_size_bytes": input_size_bytes,
-                    "output_size_bytes": output_size,
-                    "target_size_bytes": target_bytes,
-                    "attempt": attempt_index + 1,
-                    "attempt_total": total_attempts,
-                    "encoder": attempt.encoder.as_str(),
-                    "video_bitrate_k": attempt.video_bitrate_k
-                }),
-            );
-            output_reservation.commit();
-            return Ok(opts.output_path);
+            let Some(limit) = target_bytes else {
+                let message = format!("Compressed to {}.", format_size_mb(output_size));
+                vidcord_log(&format!(
+                    "Compression finished successfully: {} bytes with {} at {}k.",
+                    output_size, attempt.encoder, attempt.video_bitrate_k
+                ));
+                let _ = app.emit(
+                    "compress-done",
+                    serde_json::json!({
+                        "success": true,
+                        "message": message,
+                        "output_path": &opts.output_path,
+                        "input_size_bytes": input_size_bytes,
+                        "output_size_bytes": output_size,
+                        "target_size_bytes": target_bytes,
+                        "attempt": attempt_index + 1,
+                        "attempt_total": total_attempts,
+                        "encoder": attempt.encoder.as_str(),
+                        "video_bitrate_k": attempt.video_bitrate_k
+                    }),
+                );
+                output_reservation.commit();
+                return Ok(opts.output_path);
+            };
+
+            let improved = match best_fit_bytes {
+                Some(best) => output_size > best,
+                None => true,
+            };
+            if improved {
+                if let Some(candidate) = &candidate_output {
+                    if let Err(error) =
+                        publish_candidate_output(candidate.as_path(), Path::new(&opts.output_path))
+                    {
+                        vidcord_log(&format!(
+                            "Could not publish a better in-range output; keeping the previous target fit: {error}"
+                        ));
+                        break;
+                    }
+                }
+                best_fit_bytes = Some(output_size);
+                best_fit_bitrate_k = Some(attempt.video_bitrate_k);
+                best_fit_attempt = Some(CompressionAttempt {
+                    encoder: attempt.encoder.clone(),
+                    video_bitrate_k: attempt.video_bitrate_k,
+                    status: attempt.status.clone(),
+                    try_hardware_decode: attempt.try_hardware_decode,
+                });
+                best_fit_attempt_index = Some(attempt_index + 1);
+            }
+
+            if improved && !opts.gif_mode {
+                if let Some((next_attempt, next_retries)) = next_underfill_attempt(
+                    &attempt,
+                    limit,
+                    output_size,
+                    size_retries_for_encoder,
+                    opts.source_video_bitrate_k,
+                ) {
+                    if !seen_attempts.contains(&(
+                        next_attempt.encoder.clone(),
+                        next_attempt.video_bitrate_k,
+                        next_attempt.try_hardware_decode,
+                    )) {
+                        attempt_index += 1;
+                        attempt = next_attempt;
+                        size_retries_for_encoder = next_retries;
+                        continue;
+                    }
+                }
+            }
+            break;
         }
 
         smallest_oversize_bytes = match smallest_oversize_bytes {
@@ -2888,12 +3951,10 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             target_bytes.unwrap_or(0)
         ));
 
-        let Some(limit) = target_bytes else {
-            break;
-        };
+        let limit = target_bytes.expect("oversize output requires a target size");
         let (next_attempt, next_oversize_retries, next_cpu_fallback_used) = if opts.gif_mode {
             let Some((next, retries)) =
-                next_gif_attempt(&attempt, limit, output_size, oversize_retries_for_encoder)
+                next_gif_attempt(&attempt, limit, output_size, size_retries_for_encoder)
             else {
                 break;
             };
@@ -2903,17 +3964,52 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 &attempt,
                 limit,
                 output_size,
-                oversize_retries_for_encoder,
+                size_retries_for_encoder,
                 cpu_fallback_used,
             ) else {
                 break;
             };
             next
         };
+        if best_fit_bytes.is_some()
+            && (next_attempt.encoder != attempt.encoder
+                || next_attempt.video_bitrate_k <= best_fit_bitrate_k.unwrap_or(0))
+        {
+            break;
+        }
         attempt_index += 1;
         attempt = next_attempt;
-        oversize_retries_for_encoder = next_oversize_retries;
+        size_retries_for_encoder = next_oversize_retries;
         cpu_fallback_used = next_cpu_fallback_used;
+    }
+
+    if let Some(output_size) = best_fit_bytes {
+        let selected_attempt = best_fit_attempt
+            .as_ref()
+            .expect("a saved best fit has an encoder attempt");
+        let selected_attempt_index = best_fit_attempt_index.unwrap_or(attempt_index + 1);
+        let message = format!("Compressed to {}.", format_size_mb(output_size));
+        vidcord_log(&format!(
+            "Compression finished within the size target: {output_size} bytes with {} at {}k.",
+            selected_attempt.encoder, selected_attempt.video_bitrate_k
+        ));
+        let _ = app.emit(
+            "compress-done",
+            serde_json::json!({
+                "success": true,
+                "message": message,
+                "output_path": &opts.output_path,
+                "input_size_bytes": input_size_bytes,
+                "output_size_bytes": output_size,
+                "target_size_bytes": target_bytes,
+                "attempt": selected_attempt_index,
+                "attempt_total": total_attempts,
+                "encoder": selected_attempt.encoder.as_str(),
+                "video_bitrate_k": selected_attempt.video_bitrate_k
+            }),
+        );
+        output_reservation.commit();
+        return Ok(opts.output_path);
     }
 
     let err_msg = match (smallest_oversize_bytes, target_bytes) {
@@ -3229,6 +4325,202 @@ mod tests {
     use super::*;
 
     #[test]
+    fn acl_text_detection_handles_colon_delimited_allow_entries() {
+        assert!(acl_text_has_allow_entry("group:alice:admin:80:allow:write"));
+        assert!(!acl_text_has_allow_entry("group:everyone:deny:delete"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn temporary_output_uses_private_directory_and_cleans_up() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (path, directory) = {
+            let output = TemporaryOutput::create("gif").unwrap();
+            let path = output.path.clone();
+            let directory = output.private_directory.clone().unwrap();
+            assert!(path.ends_with("sample.gif"));
+            assert_eq!(
+                std::fs::metadata(&directory).unwrap().permissions().mode() & 0o077,
+                0
+            );
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o077,
+                0
+            );
+            (path, directory)
+        };
+
+        assert!(!path.exists());
+        assert!(!directory.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_output_parent_rejects_shared_non_sticky_directories() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let shared_parent = std::env::temp_dir().join(format!(
+            "vidcord-shared-output-test-{}-{unique}",
+            std::process::id()
+        ));
+        let protected_child = shared_parent.join("protected");
+        std::fs::create_dir(&shared_parent).unwrap();
+        std::fs::set_permissions(&shared_parent, std::fs::Permissions::from_mode(0o777)).unwrap();
+        std::fs::create_dir(&protected_child).unwrap();
+        std::fs::set_permissions(&protected_child, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        assert!(private_output_parent(&protected_child).is_err());
+        std::fs::set_permissions(&shared_parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::remove_dir(&protected_child).unwrap();
+        std::fs::remove_dir(shared_parent).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_output_parent_resolves_symlinks_before_validation() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir();
+        let target = temp_dir.join(format!(
+            "vidcord-private-target-{}-{unique}",
+            std::process::id()
+        ));
+        let alias = temp_dir.join(format!(
+            "vidcord-private-alias-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, &alias).unwrap();
+
+        let resolved = private_output_parent(&alias).unwrap();
+        assert_eq!(resolved, std::fs::canonicalize(&target).unwrap());
+
+        std::fs::remove_file(alias).unwrap();
+        std::fs::remove_dir(target).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn candidate_publish_does_not_inherit_symlink_target_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "vidcord-publish-symlink-test-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let target = directory.join("target.txt");
+        let destination = directory.join("output.mp4");
+        let candidate = directory.join("candidate.mp4");
+        std::fs::write(&target, b"private target").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();
+        std::os::unix::fs::symlink(&target, &destination).unwrap();
+        std::fs::write(&candidate, b"candidate output").unwrap();
+
+        publish_candidate_output(&candidate, &destination).unwrap();
+
+        assert!(!std::fs::symlink_metadata(&destination)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            std::fs::metadata(&destination)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), b"private target");
+
+        std::fs::remove_file(destination).unwrap();
+        std::fs::remove_file(target).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn candidate_publish_recreates_a_missing_destination() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir();
+        let candidate = temp_dir.join(format!(
+            "vidcord-missing-candidate-{}-{unique}.tmp",
+            std::process::id()
+        ));
+        let destination = temp_dir.join(format!(
+            "vidcord-missing-output-{}-{unique}.tmp",
+            std::process::id()
+        ));
+        std::fs::write(&candidate, b"candidate").unwrap();
+
+        publish_candidate_output(&candidate, &destination).unwrap();
+
+        assert_eq!(std::fs::read(&destination).unwrap(), b"candidate");
+        std::fs::remove_file(destination).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn candidate_copy_replaces_output_without_changing_unix_permissions() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir();
+        let candidate = temp_dir.join(format!(
+            "vidcord-candidate-test-{}-{unique}.tmp",
+            std::process::id()
+        ));
+        let destination = temp_dir.join(format!(
+            "vidcord-destination-test-{}-{unique}.tmp",
+            std::process::id()
+        ));
+        std::fs::write(&candidate, b"candidate").unwrap();
+        std::fs::write(&destination, b"previous output").unwrap();
+        #[cfg(unix)]
+        let permissions = {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::metadata(&destination)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777
+        };
+
+        copy_candidate_to_output(&candidate, &destination).unwrap();
+
+        assert_eq!(std::fs::read(&destination).unwrap(), b"candidate");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&destination)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                permissions
+            );
+        }
+        std::fs::remove_file(candidate).unwrap();
+        std::fs::remove_file(destination).unwrap();
+    }
+
+    #[test]
     fn test_parse_ffmpeg_time_normal() {
         let line = "frame=  120 fps= 30 q=28.0 size=    512kB time=00:00:04.00 bitrate=1048.6kbits/s speed=1.5x";
         assert_eq!(parse_ffmpeg_time(line), Some(4.0));
@@ -3363,6 +4655,7 @@ mod tests {
             output_path: "output.mp4".into(),
             encoder: encoder.into(),
             video_bitrate_k: 900,
+            source_video_bitrate_k: None,
             target_size_mb,
             start_time: 0.0,
             end_time: 60.0,
@@ -3672,15 +4965,23 @@ mod tests {
         let (next, retries, cpu_used) =
             next_oversize_attempt(&attempt, 1_000, 2_000, 0, false).unwrap();
         assert_eq!(next.encoder, "h264_nvenc");
-        assert_eq!(next.video_bitrate_k, 405);
+        assert_eq!(next.video_bitrate_k, 427);
         assert_eq!(retries, 1);
         assert!(!cpu_used);
 
         attempt = next;
         let (next, retries, cpu_used) =
             next_oversize_attempt(&attempt, 1_000, 1_500, retries, cpu_used).unwrap();
+        assert_eq!(next.encoder, "h264_nvenc");
+        assert_eq!(next.video_bitrate_k, 270);
+        assert_eq!(retries, 2);
+        assert!(!cpu_used);
+
+        attempt = next;
+        let (next, retries, cpu_used) =
+            next_oversize_attempt(&attempt, 1_000, 1_500, retries, cpu_used).unwrap();
         assert_eq!(next.encoder, "libx264");
-        assert_eq!(next.video_bitrate_k, 243);
+        assert_eq!(next.video_bitrate_k, 171);
         assert_eq!(retries, 0);
         assert!(cpu_used);
     }
@@ -3696,16 +4997,20 @@ mod tests {
         let (second, retries, cpu_used) =
             next_oversize_attempt(&first, 1_000, 2_000, 0, true).unwrap();
         assert_eq!(second.encoder, "libx264");
-        assert_eq!(second.video_bitrate_k, 405);
+        assert_eq!(second.video_bitrate_k, 427);
         assert_eq!(retries, 1);
         assert!(cpu_used);
 
-        assert!(next_oversize_attempt(&second, 1_000, 2_000, retries, cpu_used).is_none());
+        let (third, retries, cpu_used) =
+            next_oversize_attempt(&second, 1_000, 2_000, retries, cpu_used).unwrap();
+        assert_eq!(third.video_bitrate_k, 202);
+        assert_eq!(retries, 2);
+        assert!(next_oversize_attempt(&third, 1_000, 2_000, retries, cpu_used).is_none());
     }
 
     #[test]
     fn test_adaptive_bitrate_has_safety_margin_and_minimum() {
-        assert_eq!(adaptive_bitrate_for_oversize(1_000, 900, 1_000), 810);
+        assert_eq!(adaptive_bitrate_for_oversize(1_000, 900, 1_000), 855);
         assert_eq!(adaptive_bitrate_for_oversize(120, 1, 10_000), 100);
     }
 
@@ -3717,9 +5022,9 @@ mod tests {
 
         assert_eq!(
             max_adaptive_attempts(&hardware, true),
-            4 + usize::from(!cfg!(any(target_os = "windows", target_os = "macos")))
+            6 + usize::from(!cfg!(any(target_os = "windows", target_os = "macos")))
         );
-        assert_eq!(max_adaptive_attempts(&cpu, true), 2);
+        assert_eq!(max_adaptive_attempts(&cpu, true), 3);
         assert_eq!(
             max_adaptive_attempts(&no_target, false),
             2 + usize::from(!cfg!(any(target_os = "windows", target_os = "macos")))
@@ -3739,7 +5044,7 @@ mod tests {
         let mut oversize_retries = 0;
         let mut cpu_fallback_used = false;
 
-        for output_size in [2_000, 1_500, 1_300] {
+        for output_size in [2_000, 1_500, 1_300, 1_300, 1_300] {
             let (next, next_retries, next_cpu_used) = next_oversize_attempt(
                 attempts.last().unwrap(),
                 1_000,
@@ -3762,7 +5067,14 @@ mod tests {
                 .iter()
                 .map(|attempt| attempt.encoder.as_str())
                 .collect::<Vec<_>>(),
-            vec!["h264_nvenc", "h264_nvenc", "libx264", "libx264"]
+            vec![
+                "h264_nvenc",
+                "h264_nvenc",
+                "h264_nvenc",
+                "libx264",
+                "libx264",
+                "libx264"
+            ]
         );
         assert!(attempts[3].video_bitrate_k < attempts[2].video_bitrate_k);
         assert!(next_oversize_attempt(

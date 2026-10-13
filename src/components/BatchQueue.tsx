@@ -7,6 +7,7 @@ import {
 
 type Props = {
   items: readonly BatchQueueItem[];
+  onClearQueue: () => void;
   onRemoveItem: (id: number) => void;
   onMoveItem: (id: number, direction: BatchQueueMoveDirection) => void;
   onReorderItem: (draggedId: number, targetId: number) => void;
@@ -30,6 +31,7 @@ function fileName(path: string): string {
 
 function BatchQueue({
   items,
+  onClearQueue,
   onRemoveItem,
   onMoveItem,
   onReorderItem,
@@ -63,6 +65,15 @@ function BatchQueue({
       </div>
       <div className="batch-queue-actions">
         <span className="batch-queue-hint">Drag items or use arrows to set the export order.</span>
+        <button
+          className="batch-queue-clear"
+          type="button"
+          onClick={onClearQueue}
+          disabled={actionsDisabled}
+          aria-label="Clear all videos from the queue"
+        >
+          Clear queue
+        </button>
         {retryable > 0 && (
           <button
             className="batch-queue-retry-all"
