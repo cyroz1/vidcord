@@ -18,7 +18,7 @@ const limits = {
   // Reorderable queues and selective retry controls add a bounded amount of UI/runtime code
   // to both the native and hosted batch workflows.
   // The v7.5 hosted root also carries the explicit mobile/no-install positioning and browser
-  // limitation disclosures; keep the raw budget below 0.5 MiB while allowing that public copy.
+  // limitation disclosures; keep the raw budget below 0.52 MiB while allowing that public copy.
   // v7.5 also routes H.264/HEVC 4:2:2+ sources through the FFmpeg preview path on macOS
   // (VideoToolbox corrupts those pixel formats instead of erroring); allow 1 KiB for it.
   // The donate footer link and website support section add a shared links module plus
@@ -48,7 +48,9 @@ const limits = {
   // of parking exports at 100% on "Continuing…"), the one automatic stall
   // retry, and the mobile x264 preset add a small amount of export code;
   // allow 2 KiB for them.
-  javascriptRaw: 524 * 1024,
+  // Complete 7.6 release details on the integrated home page add about 1 KiB of
+  // user-facing copy across both desktop and browser workflows.
+  javascriptRaw: 525 * 1024,
   // gzip output varies slightly between the supported Node/zlib versions used locally and in CI.
   // Keep 1 KiB of cross-runtime margin while retaining the tight raw-byte guard above.
   // The donate footer link and website support section add a shared links module plus
