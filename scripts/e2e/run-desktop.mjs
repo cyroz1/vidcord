@@ -292,5 +292,12 @@ try {
     }
   }
 } finally {
-  if (process.env.VIDCORD_E2E_KEEP !== "1") rmSync(runDirectory, { recursive: true, force: true });
+  if (process.env.VIDCORD_E2E_KEEP !== "1") {
+    rmSync(runDirectory, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100,
+    });
+  }
 }
