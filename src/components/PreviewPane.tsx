@@ -555,7 +555,15 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     vid.preload = "auto";
     vid.src = src;
     vid.load();
-  }, [buildPlaybackUrls, filePath, isScrubbing, pausedFrameHeld, playing, probeData, livePreviewSupported]);
+  }, [
+    buildPlaybackUrls,
+    filePath,
+    isScrubbing,
+    pausedFrameHeld,
+    playing,
+    probeData,
+    livePreviewSupported,
+  ]);
 
   const handleVideoReady = useCallback(
     (event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -864,11 +872,6 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   const stopPlayback = useCallback(() => {
     const vid = videoRef.current;
-    const preservedTime = getStoppedPlaybackTime(
-      currentPlaybackTimeRef.current,
-      startTime,
-      endTime
-    );
     const directSourceMatches =
       !!vid && scrubVideoSrcRef.current !== null && vid.src === scrubVideoSrcRef.current;
     const preserveDirectSource = canPreserveDirectVideoSource(
@@ -899,6 +902,12 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       // When the media already has data (readyState >= 2), keep the source so
       // the paused frame stays visible instead of jumping back to the start.
     }
+    // The `timeupdate` handler is intentionally low-frequency. Read the media
+    // element after pausing so a quick stop preserves the frame actually on
+    // screen, including the generated clip's source-time offset.
+    const stoppedTime =
+      vid && vid.readyState >= 1 ? getPlaybackTime() : currentPlaybackTimeRef.current;
+    const preservedTime = getStoppedPlaybackTime(stoppedTime, startTime, endTime);
     // Hold the paused frame on screen when the video kept a non-preserved
     // source (e.g. a generated clip). The scrub-preview effect must not
     // replace the element's source until the user scrubs or plays again.
@@ -923,7 +932,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     generatingClipRef.current = false;
     setGeneratingPreview(false);
     onTimeUpdateRef.current?.(preservedTime);
-  }, [clearEndBoundaryTimer, endTime, startTime]);
+  }, [clearEndBoundaryTimer, endTime, getPlaybackTime, startTime]);
 
   const handlePlaybackBoundary = useCallback(() => {
     if (!playingRef.current) return;

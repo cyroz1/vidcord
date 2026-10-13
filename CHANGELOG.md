@@ -7,8 +7,9 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ### Preview
 
-- Stopping preview playback now holds on the current frame instead of jumping
-  back to the start.
+- Stopping or pausing desktop and browser preview playback now holds on the
+  current frame and resumes from that position instead of jumping back to the
+  start.
 - Fixed the browser preview time display so playback and scrubbing keep the
   timestamp in sync with the selected video.
 

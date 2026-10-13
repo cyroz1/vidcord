@@ -952,7 +952,6 @@ export default function WebEditor({
       return;
     }
     setPreviewPlaying(false);
-    video.currentTime = startTime;
   }, [endTime, loopPlayback, metadata, startTime]);
 
   const startExport = useCallback(
@@ -1259,8 +1258,9 @@ export default function WebEditor({
       }
       const selectedEnd = endTime || duration;
       if (!video.paused && selectedEnd > startTime && video.currentTime >= selectedEnd - 0.05) {
-        video.currentTime = startTime;
-        if (!loopPlayback) {
+        if (loopPlayback) {
+          video.currentTime = startTime;
+        } else {
           video.pause();
           setPreviewPlaying(false);
         }
