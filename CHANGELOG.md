@@ -23,7 +23,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 - Added recursive desktop folder imports through **Add Folder**, folder drag-and-drop,
   and supported file-manager context menus. Supported videos are queued, and import
-  results report skipped or unreadable items.
+  results report skipped or unreadable items. Linux AppImages add a per-user folder
+  **Open With** entry on first launch.
 - Added **Clear queue** to remove all queued videos at once.
 - Fixed browser Batch imports when a new selection includes the clip that is
   already active.
@@ -77,6 +78,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 - Fixed the main controls shifting horizontally when compression starts and the
   scroll area overflows.
+- Fixed the Linux preset selector ignoring the app theme and kept export status
+  visible above the footer in the fixed-size window.
 
 ### Feedback and diagnostics
 

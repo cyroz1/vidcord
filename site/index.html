@@ -94,7 +94,11 @@
               "Desktop GPU encoder detection for NVENC, AMF, QSV, VAAPI, and VideoToolbox",
               "Desktop Open With integration, native output locations, notifications, and taskbar or Dock progress",
               "Desktop recursive video folder imports through drag-and-drop, folder selection, and file-manager context menus",
+              "Linux AppImages register a per-user folder Open With entry on first launch",
+              "Desktop close-after-export option for successful exports, snapshots, and completed batches",
+              "Desktop in-app updates verify GitHub's published SHA-256 digest and an independent Ed25519 release signature",
               "Browser trim, crop, audio normalization, snapshots, and reorderable/retryable same-profile batches for up to 12 browser-readable files",
+              "Browser encoder-load and export-stage progress, memory warnings, and a faster x264 preset on phones",
               "Selected videos stay on the device and are not uploaded for compression",
               "No account is required and no automatic usage telemetry is collected; submitted feedback includes diagnostics described in the form"
             ],
@@ -167,18 +171,34 @@
                   "@type": "Answer",
                   "text": "Make it executable with chmod +x vidcord_*.AppImage, then launch it. AppImages need FUSE on the host: sudo apt install libfuse2 on Debian/Ubuntu, sudo dnf install fuse-libs on Fedora, or sudo pacman -S fuse2 on Arch. The x86_64 build runs on older distributions; the ARM64 build targets newer ones."
                 }
+              },
+              {
+                "@type": "Question",
+                "name": "Can vidcord close after an export?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. An optional desktop setting closes the app after successful exports, including snapshots and completed batches. Failed or cancelled exports do not close it."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How do desktop updates work?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "After your approval, vidcord fetches that exact release tag, then verifies the installer against GitHub's published SHA-256 digest and an independent Ed25519 release signature before saving and opening it. This is separate from platform code signing."
+                }
               }
             ]
           }
         ]
       }
     </script>
-    <script type="module" crossorigin src="/assets/index-CvMNzcGf.js"></script>
+    <script type="module" crossorigin src="/assets/index-DWbMRTHv.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-b3L32Ng1.js" />
     <link rel="modulepreload" crossorigin href="/assets/react-DVZbHsjx.js" />
     <link rel="stylesheet" crossorigin href="/assets/index-D4kHkHgZ.css" />
     <link rel="stylesheet" href="/marketing.css" data-vidcord-marketing-styles="true" />
-    <link rel="modulepreload" href="/assets/WebApp-wb9NXZA2.js" crossorigin />
+    <link rel="modulepreload" href="/assets/WebApp-CnxY2izr.js" crossorigin />
     <link rel="stylesheet" href="/assets/WebApp-DGldseHa.css" crossorigin />
     <link rel="modulepreload" href="/assets/donate-Bmo-m2Ww.js" crossorigin />
     <link

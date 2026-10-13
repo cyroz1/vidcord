@@ -206,10 +206,10 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
-  padding: 8px 14px 8px;
+  padding: 6px 14px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -2332,12 +2332,36 @@ select optgroup {
   max-width: 100%;
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
-  background: var(--surface);
+  -webkit-appearance: none;
+  appearance: none;
+  background-color: var(--surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='rgba(255%2C255%2C255%2C0.50)' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  color-scheme: dark;
   color: var(--text);
-  padding: 4px 8px;
+  padding: 4px 26px 4px 8px;
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.preset-select:hover {
+  border-color: var(--accent);
+  background-color: var(--surface2);
+}
+
+.preset-select:focus {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+@media (prefers-color-scheme: light) {
+  .preset-select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='rgba(0%2C0%2C0%2C0.45)' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    color-scheme: light;
+  }
 }
 
 .preset-save-form {

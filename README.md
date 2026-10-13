@@ -317,7 +317,9 @@ progress and aggregate ETA, continues after individual failures, and supports
 queue reordering, removal, and retrying failed or cancelled files without
 rerunning completed downloads. Cancellation also stops encoder loading and
 metadata reads. It does not expose per-file batch trim fields or a batch preview
-timeline.
+timeline. After metadata is ready, the editor warms the local encoder and shows
+encoder-load and export-stage progress. It warns before exports estimated to
+need substantial memory; phones use a faster x264 preset to reduce encode time.
 
 The browser encoder is intentionally fixed to `libx264` in WebAssembly. Advanced
 mode can set a custom target size, resolution, and FPS, but cannot select a
@@ -652,7 +654,9 @@ asset, lint, typecheck, test, build-tool integrity, artifact provenance, and
 build checks. The separate Site Checks workflow rebuilds the browser bundle,
 verifies that generated root assets are committed, and validates the root
 HTML, JSON-LD, sitemap, asset layout, and Cloudflare size limits. Keep new Rust
-code warning-clean.
+code warning-clean. The End-to-End UI Tests workflow exercises the browser demo
+and the native app on Linux, macOS, and Windows. See
+[`scripts/e2e/README.md`](scripts/e2e/README.md) for local setup and commands.
 
 ### Build profiles
 
@@ -817,11 +821,13 @@ the other desktop integrations.
 
 When an update is available, the desktop app offers the matching Windows, macOS, or
 Linux installer and keeps the GitHub release page as a fallback. After you
-approve the download, the app streams it to Downloads, enforces size and
-completeness limits, compares the bytes with the SHA-256 digest published in
-GitHub release metadata, verifies the pinned independent Ed25519 release
-signature, and only then gives the installer an unused filename and opens it.
-This independent release signature does not replace platform code signing.
+approve the download, the app fetches that exact release tag even if a newer
+release appears before installation begins. It streams the installer to
+Downloads, enforces size and completeness limits, compares the bytes with the
+SHA-256 digest published in GitHub release metadata, verifies the pinned
+independent Ed25519 release signature, and only then gives the installer an
+unused filename and opens it. This independent release signature does not
+replace platform code signing.
 
 ### What are Discord's video upload size limits?
 

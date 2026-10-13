@@ -408,22 +408,28 @@ Folder imports are registered as an alternate `public.folder` handler in the mac
 ### Update downloads
 
 The app checks the fixed `cyroz1/vidcord` GitHub Releases API endpoint and only downloads an
-installer after explicit user approval. Preserve all of these controls when changing the updater:
+installer after explicit user approval. Resolve and download the exact release tag approved in the
+update prompt; do not switch to a newer release if one appears while installation is underway.
+Preserve all of these controls when changing the updater:
 
 1. Select only the expected `vidcord_` asset suffix for the current OS/architecture and validate
    the asset filename before using it locally.
 2. Require GitHub's `sha256:` release-asset digest, hash the response incrementally, and reject
    missing, malformed, or mismatched digests before the file becomes visible or executable.
-3. Enforce the 512 MB limit and response completeness while streaming to a create-new temporary
+3. Require the detached `<installer filename>.sig` release asset. Verify its Ed25519 signature
+   with the committed public key over the release tag, installer filename, and lowercase SHA-256
+   digest; reject invalid or missing signatures before publication or execution.
+4. Enforce the 512 MB limit and response completeness while streaming to a create-new temporary
    file; never buffer a full installer in memory.
-4. Publish under a collision-safe Downloads filename without replacing an existing file. Keep the
+5. Publish under a collision-safe Downloads filename without replacing an existing file. Keep the
    hard-link path and create-new copy fallback for FAT, exFAT, and network filesystems.
-5. Open the installer only after verification and publication, using `spawn_blocking` for the
+6. Open the installer only after verification and publication, using `spawn_blocking` for the
    platform opener. Remove temporary or partial files on every failure path.
 
-The repository does not configure platform signing credentials. Documentation may say downloads
-are verified against GitHub's published SHA-256 digest, but must not claim code signing or
-notarization unless the release workflow actually adds and verifies those controls.
+The Ed25519 update signature is separate from platform code signing or notarization. Documentation
+may describe GitHub digest verification, independent release-signature verification, and release
+artifact provenance checks. Do not claim OS code signing or notarization unless the workflow adds
+and verifies those controls.
 
 ### FFmpeg invocations
 
@@ -591,6 +597,10 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 3. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. App-source pushes and pull requests build, stage, and upload CI-profile installers for inspection; tagged `v*` refs build release-profile installers; explicit manual runs build CI-profile installers for testing. Build artifacts are retained for seven days. Only tags run signing and release publication.
 4. **sign-release-artifacts** (ubuntu-latest, only on tags) — verifies build provenance attestations and Ed25519-signs the installers; uploads the signed bundle.
 5. **publish-release** (ubuntu-latest, only on tags) — downloads the signed artifacts, extracts the matching CHANGELOG section, and publishes the signed GitHub release.
+
+`.github/workflows/e2e.yml` runs the browser end-to-end suite and the native desktop suite on Linux,
+macOS, and Windows for app-source changes; the suites upload screenshots, logs, traces, and reports
+as workflow artifacts. See `scripts/e2e/README.md` for local prerequisites and commands.
 
 Concurrency groups branch pushes and pull-request synchronization events by head commit so the same
 revision is not built twice. Release tags and explicit manual packaging runs use isolated groups and

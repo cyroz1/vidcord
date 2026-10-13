@@ -97,6 +97,11 @@ sudo dnf install -y ffmpeg
 sudo pacman -S ffmpeg
 ```
 
+When Linux setup is started from vidcord, it asks before running the package
+manager. It tries passwordless `sudo`, then a graphical `pkexec` prompt, then
+an interactive terminal for a password. If those options are unavailable or
+installation fails, use the command for your distribution above.
+
 ---
 
 ## Verify the installation

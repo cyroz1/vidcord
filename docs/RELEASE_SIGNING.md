@@ -10,6 +10,9 @@ vidcord update installers use two independent checks before they are opened:
 - a detached Ed25519 signature made by the release workflow with the private
   key stored in the `VIDCORD_RELEASE_SIGNING_KEY` GitHub Actions secret.
 
+After approval, the app fetches the exact release tag selected in the update
+prompt, even if a newer release appears before installation begins.
+
 The public key is committed in
 [`src-tauri/update-signing-public-key.hex`](src-tauri/update-signing-public-key.hex).
 The private key must remain outside the repository and should be protected by
