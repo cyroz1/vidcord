@@ -738,7 +738,7 @@ async function waitForDisplayed(selector) {
 async function dismissAllToasts() {
   for (let index = 0; index < 50; index += 1) {
     const dismissed = await browser.execute(() => {
-      const button = document.querySelector('button[aria-label^="Dismiss "]');
+      const button = document.querySelector('.toast button[aria-label^="Dismiss "]');
       if (!(button instanceof HTMLButtonElement)) return false;
       button.click();
       return true;
