@@ -72,6 +72,18 @@ function registerSpec(testCases) {
   globalThis.it = (name, callback) => testCases.push({ name, callback });
 }
 
+async function waitForClose(closePromise, timeoutMs) {
+  let timeout;
+  const closed = await Promise.race([
+    closePromise.then(() => true),
+    new Promise((resolve) => {
+      timeout = setTimeout(() => resolve(false), timeoutMs);
+    }),
+  ]);
+  clearTimeout(timeout);
+  return closed;
+}
+
 try {
   const [sampleA, sampleB] = generateFixtures(path.join(runDirectory, "inputs"));
   const batchInputsDirectory = path.join(runDirectory, "batch-inputs");
@@ -136,6 +148,7 @@ try {
       env: environment,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    const applicationClosed = new Promise((resolve) => application.once("close", resolve));
     application.stdout.pipe(logs, { end: false });
     application.stderr.pipe(logs, { end: false });
 
@@ -288,6 +301,12 @@ try {
     } finally {
       if (driver) await driver.quit().catch(() => {});
       if (application.exitCode === null && application.signalCode === null) application.kill();
+      let applicationStopped = await waitForClose(applicationClosed, 5_000);
+      if (!applicationStopped) {
+        application.kill("SIGKILL");
+        applicationStopped = await waitForClose(applicationClosed, 5_000);
+      }
+      if (!applicationStopped) throw new Error("The desktop app did not exit after E2E cleanup.");
       await new Promise((resolve) => logs.end(resolve));
     }
   }
