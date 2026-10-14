@@ -23,6 +23,10 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 - Cancelling while a desktop export is preparing prevents it from starting later.
 
+### Compatibility
+
+- Video probing works with the older FFprobe 4.x builds shipped by some Linux distributions.
+
 ## v7.6
 
 ### Preview
