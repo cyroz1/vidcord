@@ -37,4 +37,13 @@ async function mountApplication(): Promise<void> {
   );
 }
 
-void mountApplication();
+void mountApplication().catch((error: unknown) => {
+  // Mounting failed before the ErrorBoundary could render (for example the
+  // e2e-mock import failed). Show a static fallback instead of a blank page.
+  console.error("Unable to start vidcord", error);
+  const root = document.getElementById("root");
+  if (root) {
+    root.textContent = "vidcord failed to start. Please restart the app.";
+    root.className = "app-boot-screen";
+  }
+});

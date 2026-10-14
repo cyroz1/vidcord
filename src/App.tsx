@@ -13,7 +13,6 @@ import { listen } from "@tauri-apps/api/event";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 import Toast from "./components/Toast";
-import FeedbackDialog from "./components/FeedbackDialog";
 import ExportSection from "./components/ExportSection";
 import PreviewPane, { type PreviewHandle } from "./components/PreviewPane";
 import TrimTimeline, { type SnapMode } from "./components/TrimTimeline";
@@ -33,6 +32,7 @@ import {
   resolveSourceBitrateCeiling,
   resolutionToShortSide,
   computeTargetDimensions,
+  type BatchProgressPayload,
   type ProbeData,
 } from "./hooks/useCompression";
 import {
@@ -81,6 +81,7 @@ import {
   normalizeBatchTrimRange,
   normalizeVideoPaths,
   reorderBatchQueueItem,
+  type BatchItemStatus,
   type BatchQueueItem,
   type BatchQueueMoveDirection,
   type VideoPathPlatform,
@@ -99,10 +100,7 @@ import {
   type LosslessTrimInfo,
 } from "./losslessTrim";
 import {
-  formatAverageBitrate,
-  formatCodec,
-  formatFrameRate,
-  formatVideoDuration,
+  formatVideoDetailsSummary,
   getAvailableCropOptions,
   getCroppedDimensions,
 } from "./videoMetadata";
@@ -112,11 +110,12 @@ import { GIF_PRESETS } from "./gifPresets";
 import pkg from "../package.json";
 import { GITHUB_SPONSORS_URL } from "./donate";
 
-// EncodersDialog is only shown after an explicit user click from Advanced
-// Mode; lazy-loading it keeps the initial JS bundle smaller and is rendered
-// under a <Suspense> boundary below.
+// EncodersDialog and FeedbackDialog are only shown after an explicit user
+// click; lazy-loading them keeps the initial JS bundle smaller and they are
+// rendered under <Suspense> boundaries below.
 const EncodersDialog = lazy(() => import("./components/EncodersDialog"));
 const SettingsPresets = lazy(() => import("./components/SettingsPresets"));
+const FeedbackDialog = lazy(() => import("./components/FeedbackDialog"));
 
 const CURRENT_VERSION = pkg.version;
 const DISPLAY_VERSION = (() => {
@@ -124,7 +123,7 @@ const DISPLAY_VERSION = (() => {
   return patch ? `v${major}.${minor}.${patch}` : `v${major}.${minor}`;
 })();
 
-function FooterMeta({ onFeedbackClick }: { onFeedbackClick: () => void }) {
+const FooterMeta = memo(function FooterMeta({ onFeedbackClick }: { onFeedbackClick: () => void }) {
   return (
     <div className="footer-meta">
       <span className="version">{DISPLAY_VERSION}</span>
@@ -199,7 +198,7 @@ function FooterMeta({ onFeedbackClick }: { onFeedbackClick: () => void }) {
       </a>
     </div>
   );
-}
+});
 
 const QUALITY_PRESETS = [
   { index: 0, label: "20MB, 480p", size_mb: 20, target_h: 480 },
@@ -434,6 +433,9 @@ export default function App() {
   const {
     settingsRef,
     settingsLoaded,
+    savedEncoderLabel,
+    savedEncoderIndex,
+    cachedEncoders,
     qualityIdx,
     setQualityIdx,
     gifMode,
@@ -552,34 +554,68 @@ export default function App() {
   const [startVal, setStartVal] = useState(0);
   const [endVal, setEndVal] = useState(SLIDER_MAX);
 
+  const handleFeedbackOpen = useCallback(() => setFeedbackOpen(true), []);
+  const handleFeedbackClose = useCallback(() => setFeedbackOpen(false), []);
+  const handleFfmpegMissingToast = useCallback(
+    () => addToast("error", "FFmpeg Not Found", FFMPEG_MISSING_TOAST_MESSAGE),
+    [addToast]
+  );
   const { encoders, encoderIdx, setEncoderIdx, ffmpegMissing, refreshEncoders, markFfmpegMissing } =
     useEncoders({
       settingsLoaded,
       startupBusy: loadingVideo,
-      savedEncoderLabel: settingsRef.current.encoder_label as string | undefined,
-      savedEncoderIndex: (settingsRef.current.encoder_index as number) ?? 0,
-      cachedEncoders: settingsRef.current.encoder_capabilities,
+      savedEncoderLabel,
+      savedEncoderIndex,
+      cachedEncoders,
       onEncodersDetected: persistDetectedEncoders,
-      onFfmpegMissing: () => addToast("error", "FFmpeg Not Found", FFMPEG_MISSING_TOAST_MESSAGE),
+      onFfmpegMissing: handleFfmpegMissingToast,
     });
-  const currentEncoderLabel =
-    encoders[encoderIdx]?.label ?? (settingsRef.current.encoder_label as string | undefined) ?? "";
+  const currentEncoderLabel = encoders[encoderIdx]?.label ?? savedEncoderLabel ?? "";
   const currentPresetSettings = useMemo(
     () => getSettingsSnapshot(encoderIdx, currentEncoderLabel),
     [currentEncoderLabel, encoderIdx, getSettingsSnapshot]
   );
+  // Fold each batch progress payload into the queue item it describes.
+  // useCompression invokes this synchronously from its coalesced progress
+  // flush, so the queue update batches with the progress state updates
+  // into one render instead of running as a separate derived-state effect.
+  const handleBatchProgress = useCallback((payload: BatchProgressPayload) => {
+    setBatchQueue((items) => {
+      let changed = false;
+      const next = items.map((item) => {
+        if (item.id !== payload.item_id) return item;
+        const status: BatchItemStatus =
+          payload.phase === "encoding"
+            ? "encoding"
+            : payload.phase === "completed"
+              ? "completed"
+              : payload.phase === "failed"
+                ? "failed"
+                : "cancelled";
+        if (
+          item.status === status &&
+          item.progress === payload.item_percent &&
+          item.message === payload.status
+        ) {
+          return item;
+        }
+        changed = true;
+        return { ...item, status, progress: payload.item_percent, message: payload.status };
+      });
+      return changed ? next : items;
+    });
+  }, []);
   const {
     compressing,
     setCompressing,
     cancelling,
     progress,
     eta,
-    batchProgress,
     cancelCompress,
     beginPreparation,
     finishPreparation,
     resetProgress,
-  } = useCompression({ onToast: addToast });
+  } = useCompression({ onBatchProgress: handleBatchProgress });
 
   const previewRef = useRef<PreviewHandle>(null);
   const trimWrapRef = useRef<HTMLDivElement>(null);
@@ -610,6 +646,8 @@ export default function App() {
   const installingUpdateRef = useRef(false);
   const pointerHistoryStartRef = useRef<{ start: number; end: number } | null>(null);
   const pointerGestureCleanupRef = useRef<(() => void) | null>(null);
+  const dragListenersCleanupRef = useRef<(() => void) | null>(null);
+  const encoderInputBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const undoStackRef = useRef<Array<{ start: number; end: number }>>([]);
   const redoStackRef = useRef<Array<{ start: number; end: number }>>([]);
   const [trimHistorySize, setTrimHistorySize] = useState({ undo: 0, redo: 0 });
@@ -777,15 +815,7 @@ export default function App() {
   );
   const importDetails = useMemo(() => {
     if (!probeData) return null;
-    const resolution = `${probeData.width}×${probeData.height}`;
-    const frameRate = formatFrameRate(probeData.frame_rate);
-    const codec = formatCodec(probeData.codec);
-    const bitrate = formatAverageBitrate(probeData.bitrate);
-    const length = formatVideoDuration(probeData.duration);
-    return {
-      text: `${resolution} · ${frameRate} · ${codec} · ${bitrate} · ${length}`,
-      label: `Resolution ${resolution}, frame rate ${frameRate}, codec ${codec}, average bitrate ${bitrate}, length ${length}`,
-    };
+    return formatVideoDetailsSummary(probeData);
   }, [probeData]);
 
   const displayW = probeData ? probeData.display_width || probeData.width : undefined;
@@ -1542,6 +1572,27 @@ export default function App() {
       let unlisten: (() => void) | undefined;
       try {
         try {
+          let lastShownScanProgress: ImportScanProgress | null = null;
+          let scanProgressRaf: number | null = null;
+          let pendingScanProgress: ImportScanProgress | null = null;
+          const flushScanProgress = () => {
+            scanProgressRaf = null;
+            const pending = pendingScanProgress;
+            pendingScanProgress = null;
+            if (!pending || scanGeneration !== importScanGenerationRef.current) return;
+            // Only the displayed counters matter; skip flushes that would
+            // re-render App and ExportSection with identical numbers.
+            if (
+              lastShownScanProgress &&
+              lastShownScanProgress.itemsDiscovered === pending.itemsDiscovered &&
+              lastShownScanProgress.videosFound === pending.videosFound &&
+              lastShownScanProgress.foldersScanned === pending.foldersScanned
+            ) {
+              return;
+            }
+            lastShownScanProgress = pending;
+            setSelectionScanProgress(pending);
+          };
           unlisten = await listen<ImportScanProgress>("import-scan-progress", ({ payload }) => {
             if (
               payload.scanId !== scanGeneration ||
@@ -1549,8 +1600,22 @@ export default function App() {
             ) {
               return;
             }
-            setSelectionScanProgress(payload);
+            pendingScanProgress = payload;
+            if (scanProgressRaf === null) {
+              scanProgressRaf = window.requestAnimationFrame(flushScanProgress);
+            }
           });
+          const cancelScanProgressFlush = () => {
+            if (scanProgressRaf !== null) window.cancelAnimationFrame(scanProgressRaf);
+            scanProgressRaf = null;
+            pendingScanProgress = null;
+          };
+          // Wrap unlisten so the finally block also cancels a pending flush.
+          const rawUnlisten = unlisten;
+          unlisten = () => {
+            cancelScanProgressFlush();
+            rawUnlisten();
+          };
         } catch {
           // Importing still works when progress events are unavailable.
         }
@@ -1732,6 +1797,12 @@ export default function App() {
       }
       pointerGestureCleanupRef.current?.();
       pointerGestureCleanupRef.current = null;
+      dragListenersCleanupRef.current?.();
+      dragListenersCleanupRef.current = null;
+      if (encoderInputBlurTimeoutRef.current !== null) {
+        clearTimeout(encoderInputBlurTimeoutRef.current);
+        encoderInputBlurTimeoutRef.current = null;
+      }
     },
     []
   );
@@ -1996,7 +2067,7 @@ export default function App() {
     return () => {
       disposed = true;
       openFileListenerReadyRef.current = false;
-      unsub.then((fn) => fn());
+      unsub.then((fn) => fn()).catch(() => {});
     };
   }, [markFrontendReady]);
 
@@ -2006,32 +2077,9 @@ export default function App() {
       if (e.payload.paths.length > 0) void loadSelectionRef.current(e.payload.paths);
     });
     return () => {
-      unlisten.then((fn: () => void) => fn());
+      unlisten.then((fn: () => void) => fn()).catch(() => {});
     };
   }, []);
-
-  useEffect(() => {
-    if (!isBatchMode || !batchProgress) return;
-    setBatchQueue((items) =>
-      items.map((item) => {
-        if (item.id !== batchProgress.item_id) return item;
-        const status =
-          batchProgress.phase === "encoding"
-            ? "encoding"
-            : batchProgress.phase === "completed"
-              ? "completed"
-              : batchProgress.phase === "failed"
-                ? "failed"
-                : "cancelled";
-        return {
-          ...item,
-          status,
-          progress: batchProgress.item_percent,
-          message: batchProgress.status,
-        };
-      })
-    );
-  }, [batchProgress, isBatchMode]);
 
   useEffect(() => {
     const suppressContextMenu = (event: MouseEvent) => {
@@ -2700,7 +2748,9 @@ export default function App() {
     if (retryableIds.length > 0) void startBatchRef.current(retryableIds);
   }, [batchQueue, cancelling, compressing, finalizingOutput, loadingVideo]);
 
-  startBatchRef.current = startBatch;
+  useEffect(() => {
+    startBatchRef.current = startBatch;
+  }, [startBatch]);
 
   const startCompress = useCallback(async () => {
     if (selectionScanning) {
@@ -3057,7 +3107,9 @@ export default function App() {
     resetProgress,
     selectionScanning,
   ]);
-  startCompressRef.current = startCompress;
+  useEffect(() => {
+    startCompressRef.current = startCompress;
+  }, [startCompress]);
 
   const handleCancelCompression = useCallback(() => {
     if (isBatchMode) batchCancelledRef.current = true;
@@ -3235,56 +3287,58 @@ export default function App() {
 
   const installFfmpeg = useCallback(async () => {
     setInstallingFfmpeg(true);
-    const os = await getOs().catch(() => "unknown");
+    try {
+      const os = await getOs().catch(() => "unknown");
 
-    const showInstallResult = (result: FfmpegInstallResult) => {
-      if (result.status === "installed" || result.status === "already_available") {
-        addToast("success", "FFmpeg Setup", result.message);
-      } else if (result.status === "needs_manual_download") {
-        addToast("info", "Manual Download Needed", result.message);
-      } else if (result.status === "requires_privileged") {
-        addToast("info", "Admin Permission Needed", result.message);
-      } else if (result.status === "unsupported") {
-        addToast("info", "Manual Step Needed", result.message);
-      } else {
-        addToast("error", "Install Failed", result.message);
-      }
-      if (result.hint_command) {
-        addToast("info", "Install Command", result.hint_command);
-      }
-      if (result.guide_url) {
-        openExternalUrl(result.guide_url).catch(() => {});
-      }
-    };
+      const showInstallResult = (result: FfmpegInstallResult) => {
+        if (result.status === "installed" || result.status === "already_available") {
+          addToast("success", "FFmpeg Setup", result.message);
+        } else if (result.status === "needs_manual_download") {
+          addToast("info", "Manual Download Needed", result.message);
+        } else if (result.status === "requires_privileged") {
+          addToast("info", "Admin Permission Needed", result.message);
+        } else if (result.status === "unsupported") {
+          addToast("info", "Manual Step Needed", result.message);
+        } else {
+          addToast("error", "Install Failed", result.message);
+        }
+        if (result.hint_command) {
+          addToast("info", "Install Command", result.hint_command);
+        }
+        if (result.guide_url) {
+          openExternalUrl(result.guide_url).catch(() => {});
+        }
+      };
 
-    let result = await installFfmpegDependency(false).catch((e) => ({
-      status: "failed" as const,
-      message: String(e),
-      hint_command: null,
-      guide_url: null,
-    }));
+      let result = await installFfmpegDependency(false).catch((e) => ({
+        status: "failed" as const,
+        message: String(e),
+        hint_command: null,
+        guide_url: null,
+      }));
 
-    if (result.status === "requires_privileged" && os === "linux") {
-      const approved = window.confirm(
-        "Installing FFmpeg on Linux needs elevated privileges. Run the installer command now?"
-      );
-      if (approved) {
-        result = await installFfmpegDependency(true).catch((e) => ({
-          status: "failed" as const,
-          message: String(e),
-          hint_command: null,
-          guide_url: null,
-        }));
+      if (result.status === "requires_privileged" && os === "linux") {
+        const approved = window.confirm(
+          "Installing FFmpeg on Linux needs elevated privileges. Run the installer command now?"
+        );
+        if (approved) {
+          result = await installFfmpegDependency(true).catch((e) => ({
+            status: "failed" as const,
+            message: String(e),
+            hint_command: null,
+            guide_url: null,
+          }));
+        }
       }
+
+      const available = await refreshEncoders().catch(() => false);
+      if (available) {
+        await reprobeSelectedVideo();
+      }
+      showInstallResult(result);
+    } finally {
+      setInstallingFfmpeg(false);
     }
-
-    const available = await refreshEncoders().catch(() => false);
-    if (available) {
-      await reprobeSelectedVideo();
-    }
-    showInstallResult(result);
-
-    setInstallingFfmpeg(false);
   }, [addToast, refreshEncoders, reprobeSelectedVideo]);
 
   // --- Derived values ---
@@ -3380,6 +3434,11 @@ export default function App() {
   // re-render it on every App render (e.g. every trim-slider move).
   const handlePreviewPlaybackError = useCallback(
     (message: string) => addToast("error", "Preview failed", message),
+    [addToast]
+  );
+
+  const handleSnapshotError = useCallback(
+    (message: string) => addToast("error", "Snapshot Failed", message),
     [addToast]
   );
 
@@ -3499,14 +3558,19 @@ export default function App() {
       };
 
       const onUp = () => {
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
+        dragListenersCleanupRef.current?.();
+        dragListenersCleanupRef.current = null;
         if (dragging) {
           suppressNextTimelineClickRef.current = true;
           commitPointerTrimChange();
         }
       };
 
+      dragListenersCleanupRef.current?.();
+      dragListenersCleanupRef.current = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     },
@@ -3609,10 +3673,15 @@ export default function App() {
       seekToTimelinePosition(e.clientX, true);
       const onMove = (mv: MouseEvent) => scheduleTimelineSeek(mv.clientX);
       const onUp = () => {
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
+        dragListenersCleanupRef.current?.();
+        dragListenersCleanupRef.current = null;
         flushPendingTimelineSeek(true);
         finishPreviewScrub(playheadTimeRef.current);
+      };
+      dragListenersCleanupRef.current?.();
+      dragListenersCleanupRef.current = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
       };
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
@@ -3836,7 +3905,6 @@ export default function App() {
                 browseFile,
                 browseFolder,
                 loadSelection,
-                selectionScanning,
                 isBatchMode,
                 gifMode,
                 losslessTrim,
@@ -3882,6 +3950,7 @@ export default function App() {
                 activeEncoderOption,
                 setActiveEncoderOption,
                 setEncoderInputFocused,
+                encoderInputBlurTimeoutRef,
                 listedEncoderNames,
                 loadListedEncoders,
                 filteredEncoderOptions,
@@ -4401,12 +4470,22 @@ export default function App() {
                                   : undefined
                               }
                               onFocus={() => {
+                                if (encoderInputBlurTimeoutRef.current !== null) {
+                                  clearTimeout(encoderInputBlurTimeoutRef.current);
+                                  encoderInputBlurTimeoutRef.current = null;
+                                }
                                 setEncoderInputFocused(true);
                                 if (listedEncoderNames.length === 0)
                                   loadListedEncoders().catch(() => {});
                               }}
                               onBlur={() => {
-                                window.setTimeout(() => setEncoderInputFocused(false), 80);
+                                if (encoderInputBlurTimeoutRef.current !== null) {
+                                  clearTimeout(encoderInputBlurTimeoutRef.current);
+                                }
+                                encoderInputBlurTimeoutRef.current = setTimeout(() => {
+                                  encoderInputBlurTimeoutRef.current = null;
+                                  setEncoderInputFocused(false);
+                                }, 80);
                               }}
                               onChange={(e) => {
                                 setAdvEncoder(e.target.value);
@@ -4537,7 +4616,7 @@ export default function App() {
                 removeAudio={gifMode || removeAudio}
                 onTimeUpdate={handlePreviewTimeUpdate}
                 onSnapshot={handleSnapshot}
-                onSnapshotError={(message) => addToast("error", "Snapshot Failed", message)}
+                onSnapshotError={handleSnapshotError}
                 onPlaybackError={handlePreviewPlaybackError}
               />
 
@@ -4665,7 +4744,7 @@ export default function App() {
 
         {/* Footer stays outside the scroll area so it remains anchored to the window. */}
         <div className="footer">
-          <FooterMeta onFeedbackClick={() => setFeedbackOpen(true)} />
+          <FooterMeta onFeedbackClick={handleFeedbackOpen} />
           <Suspense
             fallback={
               <span className="settings-presets" aria-hidden="true">
@@ -4694,13 +4773,23 @@ export default function App() {
 
       {/* Encoders dialog — lazy-loaded, only rendered after user opens it */}
       {encodersDialogText !== null && (
-        <Suspense fallback={null}>
+        <Suspense
+          fallback={
+            <div className="encoders-dialog" role="status">
+              Loading encoders…
+            </div>
+          }
+        >
           <EncodersDialog text={encodersDialogText} onClose={closeEncodersDialog} />
         </Suspense>
       )}
 
-      {/* Bug report dialog */}
-      {feedbackOpen && <FeedbackDialog onClose={() => setFeedbackOpen(false)} />}
+      {/* Bug report dialog — lazy-loaded, only rendered after user opens it */}
+      {feedbackOpen && (
+        <Suspense fallback={null}>
+          <FeedbackDialog onClose={handleFeedbackClose} />
+        </Suspense>
+      )}
     </div>
   );
 }

@@ -44,6 +44,8 @@ export function triggerSystemNotification(
   return delivery;
 }
 
+const MAX_TOASTS = 5;
+
 export function useToasts() {
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
   // Track auto-dismiss timers so we can cancel them on unmount or on manual
@@ -51,6 +53,11 @@ export function useToasts() {
   // fired a stale setToasts on unmounted trees when toasts were queued
   // rapidly; the per-id map also lets removeToast cancel a pending timer.
   const timersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  // Mirror of the queue plus the persistent (never-expiring) ids so addToast
+  // can enforce the queue cap synchronously and drop the oldest
+  // non-persistent toast first, cancelling its timer as it goes.
+  const toastsRef = useRef<ToastMsg[]>([]);
+  const persistentIdsRef = useRef<Set<number>>(new Set());
 
   const clearTimer = useCallback((id: number) => {
     const t = timersRef.current.get(id);
@@ -60,32 +67,50 @@ export function useToasts() {
     }
   }, []);
 
+  const applyToasts = useCallback((next: ToastMsg[]) => {
+    toastsRef.current = next;
+    setToasts(next);
+  }, []);
+
   const addToast = useCallback(
     (type: ToastMsg["type"], title: string, message: string, options?: ToastOptions) => {
       const id = ++toastId;
-      setToasts((t) => [...t, { id, type, title, message, actions: options?.actions }]);
+      const durationMs = options?.durationMs === undefined ? 5000 : options.durationMs;
+      if (durationMs === null) persistentIdsRef.current.add(id);
+
+      let next = [...toastsRef.current, { id, type, title, message, actions: options?.actions }];
+      while (next.length > MAX_TOASTS) {
+        const dropIndex = next.findIndex((toast) => !persistentIdsRef.current.has(toast.id));
+        const dropped = next[dropIndex === -1 ? 0 : dropIndex];
+        clearTimer(dropped.id);
+        persistentIdsRef.current.delete(dropped.id);
+        next = next.filter((toast) => toast.id !== dropped.id);
+      }
+      applyToasts(next);
+
       if (options?.notifySystem !== false) {
         void triggerSystemNotification(title, message);
       }
 
-      const durationMs = options?.durationMs === undefined ? 5000 : options.durationMs;
       if (durationMs !== null) {
         const handle = setTimeout(() => {
           timersRef.current.delete(id);
-          setToasts((t) => t.filter((x) => x.id !== id));
+          persistentIdsRef.current.delete(id);
+          applyToasts(toastsRef.current.filter((x) => x.id !== id));
         }, durationMs);
         timersRef.current.set(id, handle);
       }
     },
-    []
+    [applyToasts, clearTimer]
   );
 
   const removeToast = useCallback(
     (id: number) => {
       clearTimer(id);
-      setToasts((t) => t.filter((x) => x.id !== id));
+      persistentIdsRef.current.delete(id);
+      applyToasts(toastsRef.current.filter((x) => x.id !== id));
     },
-    [clearTimer]
+    [applyToasts, clearTimer]
   );
 
   useEffect(() => {

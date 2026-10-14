@@ -7,7 +7,7 @@ import { AUDIO_TRACK_BITRATE_KBPS } from "../audioTracks";
 export type { ProbeData };
 
 type Props = {
-  onToast: (type: "success" | "error" | "warning" | "info", title: string, msg: string) => void;
+  onBatchProgress?: (payload: BatchProgressPayload) => void;
 };
 
 export type CompressProgressPayload = {
@@ -38,7 +38,29 @@ export type CompressDonePayload = {
 
 export type { BatchDonePayload, BatchProgressPayload };
 
-export function useCompression({ onToast: _onToast }: Props) {
+function batchProgressEqual(
+  left: BatchProgressPayload | null,
+  right: BatchProgressPayload
+): boolean {
+  return (
+    left !== null &&
+    left.item_id === right.item_id &&
+    left.item_percent === right.item_percent &&
+    left.percent === right.percent &&
+    left.eta === right.eta &&
+    left.status === right.status &&
+    left.phase === right.phase &&
+    left.active_count === right.active_count &&
+    left.completed_count === right.completed_count &&
+    left.total_count === right.total_count &&
+    left.attempt === right.attempt &&
+    left.attempt_total === right.attempt_total &&
+    left.encoder === right.encoder &&
+    left.video_bitrate_k === right.video_bitrate_k
+  );
+}
+
+export function useCompression({ onBatchProgress }: Props = {}) {
   const [compressing, setCompressing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -46,6 +68,87 @@ export function useCompression({ onToast: _onToast }: Props) {
   const [batchProgress, setBatchProgress] = useState<BatchProgressPayload | null>(null);
   const cancellingRef = useRef(false);
   const preparationRef = useRef<AbortController | null>(null);
+  const onBatchProgressRef = useRef(onBatchProgress);
+  // Progress events can arrive far faster than the display can usefully
+  // update. Keep only the latest payload per stream and flush it at
+  // animation-frame rate, skipping flushes whose displayed values are
+  // unchanged so a progress tick does not re-render the whole app.
+  const pendingProgressRef = useRef<CompressProgressPayload | null>(null);
+  const pendingBatchProgressRef = useRef<BatchProgressPayload | null>(null);
+  const progressRafRef = useRef<number | null>(null);
+  const batchProgressRafRef = useRef<number | null>(null);
+  const lastProgressRef = useRef<{ percent: number; eta: string } | null>(null);
+  const lastBatchProgressRef = useRef<BatchProgressPayload | null>(null);
+
+  useEffect(() => {
+    onBatchProgressRef.current = onBatchProgress;
+  }, [onBatchProgress]);
+
+  const flushProgress = useCallback(() => {
+    progressRafRef.current = null;
+    const payload = pendingProgressRef.current;
+    pendingProgressRef.current = null;
+    if (!payload || cancellingRef.current) return;
+    const nextEta = formatCompressionProgress(payload);
+    const last = lastProgressRef.current;
+    if (last?.percent !== payload.percent) setProgress(payload.percent);
+    if (last?.eta !== nextEta) setEta(nextEta);
+    lastProgressRef.current = { percent: payload.percent, eta: nextEta };
+  }, []);
+
+  const scheduleProgressFlush = useCallback(() => {
+    if (progressRafRef.current !== null) return;
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      progressRafRef.current = window.requestAnimationFrame(flushProgress);
+    } else {
+      flushProgress();
+    }
+  }, [flushProgress]);
+
+  const cancelProgressFlush = useCallback(() => {
+    if (progressRafRef.current !== null && typeof window !== "undefined") {
+      window.cancelAnimationFrame(progressRafRef.current);
+    }
+    progressRafRef.current = null;
+    pendingProgressRef.current = null;
+  }, []);
+
+  const flushBatchProgress = useCallback(() => {
+    batchProgressRafRef.current = null;
+    const payload = pendingBatchProgressRef.current;
+    pendingBatchProgressRef.current = null;
+    if (!payload || cancellingRef.current) return;
+    if (batchProgressEqual(lastBatchProgressRef.current, payload)) return;
+    lastBatchProgressRef.current = payload;
+    const nextEta = formatBatchProgress(payload);
+    setBatchProgress(payload);
+    setProgress(payload.percent);
+    setEta(nextEta);
+    lastProgressRef.current = { percent: payload.percent, eta: nextEta };
+    // Fold the batch-queue item update into this same flush: the callback
+    // updates App's queue state synchronously, so React batches it with the
+    // progress setters above into a single render instead of a second
+    // render from a derived-state effect.
+    onBatchProgressRef.current?.(payload);
+  }, []);
+
+  const scheduleBatchProgressFlush = useCallback(() => {
+    if (batchProgressRafRef.current !== null) return;
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      batchProgressRafRef.current = window.requestAnimationFrame(flushBatchProgress);
+    } else {
+      flushBatchProgress();
+    }
+  }, [flushBatchProgress]);
+
+  const cancelBatchProgressFlush = useCallback(() => {
+    if (batchProgressRafRef.current !== null && typeof window !== "undefined") {
+      window.cancelAnimationFrame(batchProgressRafRef.current);
+    }
+    batchProgressRafRef.current = null;
+    pendingBatchProgressRef.current = null;
+    lastBatchProgressRef.current = null;
+  }, []);
 
   const beginPreparation = useCallback(() => {
     preparationRef.current?.abort();
@@ -67,44 +170,65 @@ export function useCompression({ onToast: _onToast }: Props) {
     if (!isTauriRuntime()) return;
     const unsub1 = listen<CompressProgressPayload>("compress-progress", (e) => {
       if (cancellingRef.current) return;
-      setProgress(e.payload.percent);
-      setEta(formatCompressionProgress(e.payload));
+      pendingProgressRef.current = e.payload;
+      scheduleProgressFlush();
     });
     const unsub2 = listen<CompressDonePayload>("compress-done", (e) => {
+      cancelProgressFlush();
       cancellingRef.current = false;
       setCancelling(false);
       setCompressing(false);
-      setProgress(e.payload.success ? 100 : 0);
-      setEta(formatCompressionDone(e.payload));
+      const nextProgress = e.payload.success ? 100 : 0;
+      const nextEta = formatCompressionDone(e.payload);
+      setProgress(nextProgress);
+      setEta(nextEta);
+      lastProgressRef.current = { percent: nextProgress, eta: nextEta };
     });
     const unsub3 = listen<BatchProgressPayload>("batch-progress", (e) => {
       if (cancellingRef.current) return;
-      setBatchProgress(e.payload);
-      setProgress(e.payload.percent);
-      setEta(formatBatchProgress(e.payload));
+      pendingBatchProgressRef.current = e.payload;
+      scheduleBatchProgressFlush();
     });
     const unsub4 = listen<BatchDonePayload>("batch-done", (e) => {
+      cancelProgressFlush();
+      cancelBatchProgressFlush();
       cancellingRef.current = false;
       setCancelling(false);
       setCompressing(false);
       setBatchProgress(null);
-      setProgress(
-        e.payload.success ? 100 : e.payload.cancelled ? 0 : e.payload.results.length > 0 ? 100 : 0
-      );
+      const nextProgress = e.payload.success
+        ? 100
+        : e.payload.cancelled
+          ? 0
+          : e.payload.results.length > 0
+            ? 100
+            : 0;
+      setProgress(nextProgress);
       setEta(e.payload.message);
+      lastProgressRef.current = { percent: nextProgress, eta: e.payload.message };
     });
     return () => {
-      unsub1.then((fn) => fn());
-      unsub2.then((fn) => fn());
-      unsub3.then((fn) => fn());
-      unsub4.then((fn) => fn());
+      cancelProgressFlush();
+      cancelBatchProgressFlush();
+      unsub1.then((fn) => fn()).catch(() => {});
+      unsub2.then((fn) => fn()).catch(() => {});
+      unsub3.then((fn) => fn()).catch(() => {});
+      unsub4.then((fn) => fn()).catch(() => {});
     };
-  }, []);
+  }, [
+    cancelBatchProgressFlush,
+    cancelProgressFlush,
+    scheduleBatchProgressFlush,
+    scheduleProgressFlush,
+  ]);
 
   const cancelCompress = useCallback(async () => {
     if (preparationRef.current) {
       preparationRef.current.abort();
       preparationRef.current = null;
+      cancelProgressFlush();
+      cancelBatchProgressFlush();
+      lastProgressRef.current = { percent: 0, eta: "Cancelled." };
       setCompressing(false);
       setProgress(0);
       setEta("Cancelled.");
@@ -127,13 +251,16 @@ export function useCompression({ onToast: _onToast }: Props) {
       setCancelling(false);
       setEta("Could not cancel");
     }
-  }, []);
+  }, [cancelBatchProgressFlush, cancelProgressFlush]);
 
   const resetProgress = useCallback(() => {
+    cancelProgressFlush();
+    cancelBatchProgressFlush();
+    lastProgressRef.current = { percent: 0, eta: "Ready" };
     setProgress(0);
     setEta("Ready");
     setBatchProgress(null);
-  }, []);
+  }, [cancelBatchProgressFlush, cancelProgressFlush]);
 
   return {
     compressing,

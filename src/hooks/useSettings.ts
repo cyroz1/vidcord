@@ -25,8 +25,19 @@ export function useSettings() {
   const settingsRef = useRef<Settings>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const presetsRef = useRef<SettingsPreset[]>([]);
+  // Patches saved while the initial load is still in flight are recorded so
+  // the load can re-apply them on top of the loaded settings instead of
+  // silently overwriting a change the user made in the load window.
+  const patchesDuringLoadRef = useRef<Settings>({});
+  const loadCompletedRef = useRef(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [presets, setPresets] = useState<SettingsPreset[]>([]);
+  // Encoder identity persisted in settings, exposed as state so consumers
+  // (useEncoders) react to it directly instead of reading settingsRef
+  // during render.
+  const [savedEncoderLabel, setSavedEncoderLabel] = useState<string | undefined>(undefined);
+  const [savedEncoderIndex, setSavedEncoderIndex] = useState(0);
+  const [cachedEncoders, setCachedEncoders] = useState<unknown>(undefined);
 
   // Persisted settings values
   const [qualityIdx, setQualityIdx] = useState(0);
@@ -51,8 +62,13 @@ export function useSettings() {
   const [closeAppAfterExport, setCloseAppAfterExport] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
-      const s = await loadSettings().catch((): Settings => ({}));
+      const loaded = await loadSettings().catch((): Settings => ({}));
+      if (cancelled) return;
+      // Re-apply any patches saved during the load window: they win over
+      // the loaded values for both the persisted object and React state.
+      const s: Settings = { ...loaded, ...patchesDuringLoadRef.current };
       const gifTargetMb = normalizeGifTarget(
         s.gif_target_mb,
         migrateLegacyGifQualityIndex(s.gif_quality_index) ?? 5
@@ -69,19 +85,20 @@ export function useSettings() {
         gif_quality_index: undefined,
       };
       settingsRef.current = migratedSettings;
+      loadCompletedRef.current = true;
       if (
         s.gif_target_mb !== gifTargetMb ||
         s.gif_quality_index !== undefined ||
-        legacyCloseAction
+        legacyCloseAction ||
+        Object.keys(patchesDuringLoadRef.current).length > 0
       ) {
-        void persistSettings(migratedSettings).catch(() => {});
+        void persistSettings(settingsRef.current).catch(() => {});
       }
       const loadedPresets = parseSettingsPresets(s.presets);
       presetsRef.current = loadedPresets;
       const savedLosslessMode =
         typeof s.lossless_mode === "boolean" ? s.lossless_mode : s.quality_index === 5;
-      const migratedLosslessPreset =
-        typeof s.lossless_mode !== "boolean" && s.quality_index === 5;
+      const migratedLosslessPreset = typeof s.lossless_mode !== "boolean" && s.quality_index === 5;
       if (migratedLosslessPreset) {
         // Migrate the short-lived Lossless Trim quality preset to its
         // dedicated mode toggle.
@@ -93,7 +110,15 @@ export function useSettings() {
         };
       }
       startTransition(() => {
+        if (cancelled) return;
         setPresets(loadedPresets);
+        setSavedEncoderLabel(typeof s.encoder_label === "string" ? s.encoder_label : undefined);
+        setSavedEncoderIndex(
+          typeof s.encoder_index === "number" && Number.isFinite(s.encoder_index)
+            ? s.encoder_index
+            : 0
+        );
+        setCachedEncoders(s.encoder_capabilities);
         if (
           !migratedLosslessPreset &&
           typeof s.quality_index === "number" &&
@@ -159,10 +184,31 @@ export function useSettings() {
         setSettingsLoaded(true);
       });
     })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const saveSettings = useCallback((patch: Settings) => {
     settingsRef.current = { ...settingsRef.current, ...patch };
+    if (!loadCompletedRef.current) {
+      patchesDuringLoadRef.current = { ...patchesDuringLoadRef.current, ...patch };
+    }
+    if ("encoder_label" in patch) {
+      setSavedEncoderLabel(
+        typeof patch.encoder_label === "string" ? patch.encoder_label : undefined
+      );
+    }
+    if ("encoder_index" in patch) {
+      setSavedEncoderIndex(
+        typeof patch.encoder_index === "number" && Number.isFinite(patch.encoder_index)
+          ? patch.encoder_index
+          : 0
+      );
+    }
+    if ("encoder_capabilities" in patch) {
+      setCachedEncoders(patch.encoder_capabilities);
+    }
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
     }
@@ -297,6 +343,9 @@ export function useSettings() {
   return {
     settingsRef,
     settingsLoaded,
+    savedEncoderLabel,
+    savedEncoderIndex,
+    cachedEncoders,
     qualityIdx,
     setQualityIdx,
     gifMode,

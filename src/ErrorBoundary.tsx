@@ -10,6 +10,14 @@ export default class ErrorBoundary extends React.Component<Props, State> {
     return { error };
   }
 
+  componentDidCatch(error: Error, info: React.ErrorInfo): void {
+    // There is no frontend log-file sink; the console is the same channel
+    // the bug-report flow starts from, and the collected report includes
+    // the backend log. Record the crash and component stack there instead
+    // of letting it vanish.
+    console.error("vidcord crashed:", error, info.componentStack);
+  }
+
   render() {
     if (this.state.error) {
       return (
@@ -17,8 +25,8 @@ export default class ErrorBoundary extends React.Component<Props, State> {
           style={{
             padding: "24px",
             fontFamily: "monospace",
-            color: "#e85353",
-            background: "#1a1a1a",
+            color: "var(--error)",
+            background: "var(--bg)",
             minHeight: "100vh",
           }}
         >

@@ -1,22 +1,15 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useRef, useState, type CSSProperties } from "react";
+import {
+  dialogBackdropStyle as backdropStyle,
+  dialogTitleBarStyle as titleBarStyle,
+  dialogTitleCloseStyle as titleCloseStyle,
+  dialogTitleStyle as titleStyle,
+  useDialogFocusTrap,
+} from "./useDialogFocusTrap";
 import { buildMailto, FEEDBACK_EMAIL, sendBugReport } from "../feedback";
 import { collectBugReport, type BugReport } from "../ipc";
 
 type Props = { onClose: () => void };
-
-const FOCUSABLE_SELECTOR =
-  "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), " +
-  "textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
-
-const backdropStyle: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(0, 0, 0, 0.44)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 2000,
-};
 
 const dialogStyle: CSSProperties = {
   border: "1px solid var(--border-subtle)",
@@ -25,33 +18,6 @@ const dialogStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   boxShadow: "var(--shadow-overlay)",
-};
-
-const titleBarStyle: CSSProperties = {
-  padding: "12px 16px",
-  borderBottom: "1px solid var(--border-subtle)",
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  flexShrink: 0,
-};
-
-const titleStyle: CSSProperties = {
-  margin: 0,
-  fontWeight: 600,
-  fontSize: "14px",
-  color: "var(--text)",
-};
-
-const titleCloseStyle: CSSProperties = {
-  background: "none",
-  border: "none",
-  color: "var(--text-secondary)",
-  fontSize: "13px",
-  cursor: "pointer",
-  padding: "2px 6px",
-  borderRadius: "var(--radius-xs)",
-  lineHeight: 1,
 };
 
 const contentStyle: CSSProperties = {
@@ -123,8 +89,8 @@ const pathStyle: CSSProperties = {
 export default function FeedbackDialog({ onClose }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const initialFocusRef = useRef<HTMLTextAreaElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
   const closingRef = useRef(false);
+  const sendingRef = useRef(false);
 
   const [description, setDescription] = useState("");
   const [sending, setSending] = useState(false);
@@ -133,69 +99,19 @@ export default function FeedbackDialog({ onClose }: Props) {
   const [report, setReport] = useState<BugReport | null>(null);
   const [mailed, setMailed] = useState(false);
 
+  // Every close path (Escape, backdrop, title button, Cancel) funnels through
+  // here, and Cancel is disabled while sending, so this must be too: closing
+  // mid-send would unmount the dialog while the send completes invisibly.
   const requestClose = useCallback(() => {
-    if (closingRef.current) return;
+    if (closingRef.current || sendingRef.current) return;
     closingRef.current = true;
     onClose();
   }, [onClose]);
 
-  useEffect(() => {
-    previousFocusRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-
-    const focusFrame = window.requestAnimationFrame(() => {
-      (initialFocusRef.current ?? dialogRef.current)?.focus();
-    });
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const dialog = dialogRef.current;
-      if (!dialog) return;
-
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        requestClose();
-        return;
-      }
-
-      if (event.key !== "Tab") return;
-
-      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-        (element) => element.getClientRects().length > 0
-      );
-
-      event.preventDefault();
-      event.stopPropagation();
-      if (focusable.length === 0) {
-        dialog.focus();
-        return;
-      }
-
-      const activeIndex = focusable.indexOf(document.activeElement as HTMLElement);
-      const nextIndex = event.shiftKey
-        ? activeIndex <= 0
-          ? focusable.length - 1
-          : activeIndex - 1
-        : activeIndex < 0 || activeIndex === focusable.length - 1
-          ? 0
-          : activeIndex + 1;
-      focusable[nextIndex].focus();
-    };
-
-    document.addEventListener("keydown", handleKeyDown, true);
-    return () => {
-      window.cancelAnimationFrame(focusFrame);
-      document.removeEventListener("keydown", handleKeyDown, true);
-
-      const focusTarget = previousFocusRef.current;
-      previousFocusRef.current = null;
-      if (focusTarget?.isConnected) {
-        window.requestAnimationFrame(() => focusTarget.focus());
-      }
-    };
-  }, [requestClose]);
+  useDialogFocusTrap(dialogRef, initialFocusRef, requestClose);
 
   const handleSend = useCallback(async () => {
+    sendingRef.current = true;
     setSending(true);
     setError(null);
     try {
@@ -206,6 +122,7 @@ export default function FeedbackDialog({ onClose }: Props) {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }, [description]);
@@ -245,6 +162,7 @@ export default function FeedbackDialog({ onClose }: Props) {
           <button
             type="button"
             aria-label="Close bug report dialog"
+            disabled={sending}
             onClick={requestClose}
             style={titleCloseStyle}
             onMouseEnter={(event) =>
