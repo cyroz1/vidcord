@@ -2149,7 +2149,8 @@
   background: #000;
 }
 
-.web-editor-column .web-preview-frame .preview-crop-active > video {
+.web-editor-column .web-preview-frame .preview-crop-active > video,
+.web-editor-column .web-preview-frame .preview-crop-active > .web-preview-paused-frame {
   object-fit: cover !important;
 }
 

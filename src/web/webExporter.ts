@@ -353,7 +353,8 @@ export async function exportBrowserFile({
       const outputName = `${attempt}-${encodedName}`;
       let paletteName: string | undefined;
       let renderStart = attemptStart;
-      if (mode === "gif" && session?.prepareFile) {
+      const preparePalette = async () => {
+        if (mode !== "gif" || !session?.prepareFile) return;
         paletteName = `palette-${attempt}.png`;
         renderStart = attemptStart + (attemptEnd - attemptStart) * 0.4;
         // A separate palette pass avoids buffering the entire decoded clip
@@ -371,7 +372,8 @@ export async function exportBrowserFile({
             metadata.duration
           )
         );
-      }
+      };
+      await preparePalette();
       const transcode = (encodeSettings: BrowserSettings, gainDb: number | null) =>
         transcodeFile(
           (inputName) =>
@@ -439,6 +441,7 @@ export async function exportBrowserFile({
             });
             await session?.dispose().catch(() => undefined);
             session = await createSession.call(engine, file);
+            await preparePalette();
             continue;
           }
 

@@ -98,6 +98,7 @@ try {
     VIDCORD_E2E_INPUTS: batchInputsDirectory,
     VIDCORD_E2E_OUTPUTS: path.join(runDirectory, "outputs"),
     VIDCORD_E2E_ARTIFACTS: artifactsDirectory,
+    VIDCORD_E2E_DATA_DIR: appDataDirectory,
     VITE_VIDCORD_E2E: "1",
   };
   const buildEnvironment = { ...environment };
@@ -242,7 +243,9 @@ try {
       registerSpec(testCases);
       await import("../../e2e/desktop/app.e2e.spec.mjs");
       if (testCases.length < 1) {
-        throw new Error(`Expected at least one desktop end-to-end scenario, found ${testCases.length}`);
+        throw new Error(
+          `Expected at least one desktop end-to-end scenario, found ${testCases.length}`
+        );
       }
 
       for (const { name, callback } of testCases) {
@@ -253,7 +256,8 @@ try {
             callback.call({ timeout() {} }),
             new Promise((_, reject) => {
               scenarioTimeout = setTimeout(
-                () => reject(new Error(`Desktop end-to-end scenario "${name}" exceeded 12 minutes`)),
+                () =>
+                  reject(new Error(`Desktop end-to-end scenario "${name}" exceeded 12 minutes`)),
                 12 * 60_000
               );
             }),

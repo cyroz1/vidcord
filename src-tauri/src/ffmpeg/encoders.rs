@@ -404,7 +404,6 @@ pub fn invalidate_encoder_cache() {
         state.generation = state.generation.wrapping_add(1);
         ready.notify_all();
     }
-    super::clear_preview_clip_plan_cache();
 }
 
 #[cfg(test)]

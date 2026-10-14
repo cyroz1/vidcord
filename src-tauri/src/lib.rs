@@ -14,9 +14,8 @@ mod settings;
 
 use commands::app::exit_app;
 use commands::compression::{
-    cancel_compression, cancel_lossless_trim_probe, cancel_preview_frame_generation,
-    cancel_preview_generation, capture_snapshot, compress_batch, compress_video, get_filmstrip,
-    get_lossless_trim_info, get_preview_clip, get_preview_frame, probe, probe_batch,
+    cancel_compression, cancel_lossless_trim_probe, compress_batch, compress_video,
+    get_lossless_trim_info, probe, probe_batch,
 };
 use commands::encoders::{
     check_ffmpeg_available, detect_encoders, get_vaapi_device, install_ffmpeg_dependency,
@@ -26,8 +25,8 @@ use commands::feedback::collect_bug_report;
 use commands::files::{
     copy_file_to_clipboard, copy_files_to_clipboard, discard_staged_output, expand_import_paths,
     get_os, publish_batch_staged_outputs, publish_staged_output, resolve_batch_output_paths,
-    resolve_output_path, resolve_staging_output_path, send_system_notification,
-    show_files_in_file_explorer, show_in_file_explorer, PendingFile,
+    resolve_output_path, resolve_staging_output_path, save_snapshot_image,
+    send_system_notification, show_files_in_file_explorer, show_in_file_explorer, PendingFile,
 };
 use commands::updates::{check_for_updates, download_and_open_update_installer};
 use log::vidcord_log;
@@ -360,11 +359,6 @@ pub fn run() {
             probe,
             probe_batch,
             get_lossless_trim_info,
-            get_preview_frame,
-            get_preview_clip,
-            get_filmstrip,
-            cancel_preview_generation,
-            cancel_preview_frame_generation,
             cancel_lossless_trim_probe,
             detect_encoders,
             check_ffmpeg_available,
@@ -373,7 +367,6 @@ pub fn run() {
             compress_video,
             compress_batch,
             cancel_compression,
-            capture_snapshot,
             check_for_updates,
             download_and_open_update_installer,
             expand_import_paths,
@@ -388,6 +381,7 @@ pub fn run() {
             publish_staged_output,
             publish_batch_staged_outputs,
             discard_staged_output,
+            save_snapshot_image,
             get_os,
             send_system_notification,
             collect_bug_report,

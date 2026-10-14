@@ -45,6 +45,22 @@ export function useCompression({ onToast: _onToast }: Props) {
   const [eta, setEta] = useState("Ready");
   const [batchProgress, setBatchProgress] = useState<BatchProgressPayload | null>(null);
   const cancellingRef = useRef(false);
+  const preparationRef = useRef<AbortController | null>(null);
+
+  const beginPreparation = useCallback(() => {
+    preparationRef.current?.abort();
+    const controller = new AbortController();
+    preparationRef.current = controller;
+    return controller.signal;
+  }, []);
+
+  const finishPreparation = useCallback((signal: AbortSignal) => {
+    if (preparationRef.current?.signal !== signal) return false;
+    preparationRef.current = null;
+    return !signal.aborted;
+  }, []);
+
+  useEffect(() => () => preparationRef.current?.abort(), []);
 
   // Subscribe to backend compression events
   useEffect(() => {
@@ -86,6 +102,14 @@ export function useCompression({ onToast: _onToast }: Props) {
   }, []);
 
   const cancelCompress = useCallback(async () => {
+    if (preparationRef.current) {
+      preparationRef.current.abort();
+      preparationRef.current = null;
+      setCompressing(false);
+      setProgress(0);
+      setEta("Cancelled.");
+      return;
+    }
     if (cancellingRef.current) return;
     cancellingRef.current = true;
     setCancelling(true);
@@ -119,6 +143,8 @@ export function useCompression({ onToast: _onToast }: Props) {
     eta,
     batchProgress,
     cancelCompress,
+    beginPreparation,
+    finishPreparation,
     resetProgress,
   };
 }

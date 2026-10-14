@@ -7,13 +7,21 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ### Preview
 
-- Pausing or stopping desktop preview now keeps the web player's current frame. FFmpeg-rendered
-  still previews remain a Linux fallback.
+- Desktop preview uses the HTML video player on every platform, keeping its current frame when
+  paused. PNG snapshots capture that frame and save safely without FFmpeg rendering.
+- Crop previews match the exported composition during playback and while paused, and rotated
+  videos retain the correct orientation and output dimensions.
 
 ### Browser exports
 
 - Browser export progress now spans the full export and reports output checks and finalization
   instead of showing 100% and “Continuing…” between encoding passes.
+- GIF exports recover their palette after a browser encoder restart. Desktop GIF exports generate
+  the palette separately to keep memory use from growing with the decoded clip length.
+
+### Export reliability
+
+- Cancelling while a desktop export is preparing prevents it from starting later.
 
 ## v7.6
 

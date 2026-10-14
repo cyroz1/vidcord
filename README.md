@@ -108,18 +108,18 @@ and retry oversized results with safer bitrates and CPU fallback.
 
 ## Best for
 
-| Need                                                    | How vidcord helps                                                                                                            |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Compress a video for Discord free upload limits         | Use the 20 MB target, trim the clip, and remove audio if needed.                                                             |
-| Compress large MP4, MOV, MKV, AVI, or WebM files        | The desktop app uses system FFmpeg; the browser edition accepts formats its browser can decode.                              |
+| Need                                                    | How vidcord helps                                                                                                                                        |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Compress a video for Discord free upload limits         | Use the 20 MB target, trim the clip, and remove audio if needed.                                                                                         |
+| Compress large MP4, MOV, MKV, AVI, or WebM files        | The desktop app uses system FFmpeg; the browser edition accepts formats its browser can decode.                                                          |
 | Compress several videos in one pass                     | Browser Batch applies shared settings to full-duration files with reorder/retry controls; desktop Batch adds trims, native workers, and output handling. |
-| Preserve original video quality while trimming          | Use Lossless Trim for keyframe-aligned stream-copy output without re-encoding.                                               |
-| Turn a video clip into a Discord GIF                    | Enable GIF Mode and choose the 5 MB, 10 MB, or 20 MB target.                                                                 |
-| Make a video fit Discord Nitro or boosted server limits | Pick the 50 MB, 100 MB, 500 MB, or 1 GB target without calculating bitrates by hand.                                              |
-| Keep video compression private                          | Everything runs locally on your computer; no web upload step.                                                                |
-| Need a quick no-install export, including on mobile     | Use the browser demo for local WebAssembly processing and browser downloads; it is best for browser-readable files up to 512 MB each. |
-| Use GPU video encoding from a simple GUI                | vidcord auto-detects NVENC, AMF, QSV, VAAPI, and VideoToolbox encoders.                                                      |
-| Cap output frame rate for smaller files                 | Leave FPS unchanged, or choose a lower output FPS when Discord size is tight.                                                |
+| Preserve original video quality while trimming          | Use Lossless Trim for keyframe-aligned stream-copy output without re-encoding.                                                                           |
+| Turn a video clip into a Discord GIF                    | Enable GIF Mode and choose the 5 MB, 10 MB, or 20 MB target.                                                                                             |
+| Make a video fit Discord Nitro or boosted server limits | Pick the 50 MB, 100 MB, 500 MB, or 1 GB target without calculating bitrates by hand.                                                                     |
+| Keep video compression private                          | Everything runs locally on your computer; no web upload step.                                                                                            |
+| Need a quick no-install export, including on mobile     | Use the browser demo for local WebAssembly processing and browser downloads; it is best for browser-readable files up to 512 MB each.                    |
+| Use GPU video encoding from a simple GUI                | vidcord auto-detects NVENC, AMF, QSV, VAAPI, and VideoToolbox encoders.                                                                                  |
+| Cap output frame rate for smaller files                 | Leave FPS unchanged, or choose a lower output FPS when Discord size is tight.                                                                            |
 
 ## Features
 
@@ -204,18 +204,9 @@ and retry oversized results with safer bitrates and CPU fallback.
   to source keyframes; the desktop app prefers an MP4 stream-copy output, then
   the validated source container, and falls back to normal compression when
   neither is compatible.
-- **Desktop in-app playback preview** of the trimmed segment in single-video mode on Windows and
-  macOS, starting from the current playhead when it is inside the selected range.
-- **Desktop responsive single-video scrub previews** with display-sized filmstrip/frame thumbnails,
-  sparse thumbnail generation for long videos, playhead-aware fallback preview clips,
-  and hardware-accelerated preview clips where FFmpeg supports them.
-- **Desktop efficient preview fallback** — exact frame requests use display-sized, bounded
-  in-memory output; cancelling a stale frame no longer interrupts a filmstrip that
-  is already being generated, and generated fallback clips carry AAC audio so the
-  preview plays sound.
-- **Desktop Linux video preview** — AppImages bundle GStreamer so WebKitGTK can use the same live
-  HTML video scrubbing and trim playback as other platforms. If a source cannot be opened,
-  FFmpeg-generated filmstrip, frame, and playback-clip previews provide a fallback.
+- **Desktop HTML video preview** — the Tauri controls seek, play, and pause the current video
+  on Windows, macOS, and Linux. Snapshots capture the displayed video frame. Format support depends
+  on the platform media engine; Linux AppImages bundle GStreamer for WebKitGTK playback.
 - **Desktop hardware acceleration**, auto-detected at startup:
   - NVIDIA NVENC (`h264_nvenc`, `hevc_nvenc`)
   - AMD AMF (`h264_amf`, `hevc_amf`)
@@ -341,17 +332,17 @@ integrations—use the native app.
 
 ### Browser and desktop capability matrix
 
-| Capability             | Browser demo at `/#web-editor`                                         | Native desktop app                                       |
-| ---------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------- |
-| Processing engine      | Local FFmpeg WebAssembly                                               | Local system `ffmpeg` and `ffprobe`                      |
-| Video encoder          | Fixed `libx264`                                                        | CPU and detected GPU encoders, selectable on desktop     |
-| Inputs                 | Formats the browser can decode                                         | Formats the installed FFmpeg can demux                   |
-| Modes                  | Compress, Advanced, Lossless Trim, GIF                                 | Compress, Advanced, Lossless Trim, GIF                   |
-| Audio                  | Normalize/remove re-encoded audio; lossless `-an`; first source stream | Track selection/mixing, normalization, or removal        |
+| Capability             | Browser demo at `/#web-editor`                                            | Native desktop app                                       |
+| ---------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Processing engine      | Local FFmpeg WebAssembly                                                  | Local system `ffmpeg` and `ffprobe`                      |
+| Video encoder          | Fixed `libx264`                                                           | CPU and detected GPU encoders, selectable on desktop     |
+| Inputs                 | Formats the browser can decode                                            | Formats the installed FFmpeg can demux                   |
+| Modes                  | Compress, Advanced, Lossless Trim, GIF                                    | Compress, Advanced, Lossless Trim, GIF                   |
+| Audio                  | Normalize/remove re-encoded audio; lossless `-an`; first source stream    | Track selection/mixing, normalization, or removal        |
 | Batch                  | Up to 12 files; shared Compress profile, full duration, browser downloads | Shared controls plus per-file trims and native workers   |
-| Output                 | Browser downloads                                                      | Downloads, source folder, custom folder, or save prompt  |
-| Saved settings presets | Not available                                                          | Available in the desktop footer                          |
-| Native integrations    | None                                                                   | Open With, clipboard/reveal, notifications, taskbar/Dock |
+| Output                 | Browser downloads                                                         | Downloads, source folder, custom folder, or save prompt  |
+| Saved settings presets | Not available                                                             | Available in the desktop footer                          |
+| Native integrations    | None                                                                      | Open With, clipboard/reveal, notifications, taskbar/Dock |
 
 To build the static browser bundle locally:
 
@@ -374,12 +365,12 @@ The browser demo at [vidcord.app/#web-editor](https://vidcord.app/#web-editor)
 uses the same light editor visual language and supported core workflow, with the
 desktop-only controls listed in the capability matrix removed.
 
-| Compress mode                                                                                                      | Advanced mode                                                                                                                     | Lossless Trim                                                                                                                   | GIF mode                                                                                                                       | Batch mode                                                                                                          |
-| ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| Compress mode                                                                                                         | Advanced mode                                                                                                                        | Lossless Trim                                                                                                                      | GIF mode                                                                                                                          | Batch mode                                                                                                             |
+| --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | ![vidcord Compress mode with Discord target, crop, FPS, encoder, and trim controls](site/marketing-assets/window.png) | ![vidcord Advanced mode: custom target size, output resolution, and FFmpeg encoder override](site/marketing-assets/advancedmode.png) | ![vidcord Lossless Trim mode with keyframe-aligned trim controls and no video re-encoding](site/marketing-assets/losslesstrim.png) | ![vidcord GIF mode with Discord size target, FPS picker, trim timeline, and Create GIF button](site/marketing-assets/gifmode.png) | ![vidcord Batch mode with a multi-video queue and aggregate compression progress](site/marketing-assets/batchmode.png) |
 
-| Output file                                                                                        | Windows context menu                                                                                                   | macOS Finder                                                                                                 |
-| -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Output file                                                                                           | Windows context menu                                                                                                      | macOS Finder                                                                                                    |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | ![Compressed video saved to the Downloads folder as name-vidcord.mp4](site/marketing-assets/file.png) | ![Windows File Explorer right-click menu with Open with vidcord entry on a video file](site/marketing-assets/context.png) | ![macOS Finder right-click menu with Open with vidcord entry on a video file](site/marketing-assets/finder.png) |
 
 ## Download vidcord
@@ -693,7 +684,7 @@ src/                       React + TypeScript frontend
 
 src-tauri/                 Rust backend
   src/lib.rs               Tauri builder, plugins, Linux env shims, file-open routing
-  src/ffmpeg.rs            Probe / preview / filmstrip / VAAPI discovery + caches
+  src/ffmpeg.rs            Video probing / VAAPI discovery
   src/ffmpeg/encoders.rs   FFmpeg encoder detection + encoder cache invalidation
   src/gpu.rs               Vendor detection (lspci / system_profiler / CIM)
   src/settings.rs          Typed settings persisted via atomic rename
@@ -732,10 +723,9 @@ resolution in Advanced mode, or on desktop pick `hevc_*` (H.265) if your
 recipient can decode it.
 
 **Desktop video preview on Linux.**
-The Linux AppImage bundles GStreamer and uses WebKitGTK for live HTML video
-scrubbing and trim playback. If WebKitGTK cannot load a source, the timeline
-falls back to FFmpeg-generated frames and filmstrips, and playback uses a
-generated preview clip.
+The Linux AppImage bundles GStreamer and uses WebKitGTK for HTML video scrubbing and trim
+playback. Sources that the HTML player cannot decode show a preview error; compression remains
+available through system FFmpeg.
 
 **Windows console flashes during a compress.**
 Shouldn't happen — every FFmpeg invocation sets `CREATE_NO_WINDOW`
@@ -910,9 +900,8 @@ export, and incompatible stream-copy inputs fall back to normal compression.
 Yes. vidcord ships as an `.AppImage` for x86_64 and aarch64 and is
 tested on GNOME, KDE Plasma, LXQt, Sway, and Hyprland on both X11 and
 Wayland. Hardware-accelerated encoding uses VAAPI via `/dev/dri/renderD*`.
-Linux AppImages bundle GStreamer for live HTML video scrubbing and trim playback;
-FFmpeg-generated filmstrip, frame, and playback-clip previews remain available
-when WebKitGTK cannot load a source.
+Linux AppImages bundle GStreamer for HTML video scrubbing and trim playback. Preview format
+support depends on WebKitGTK and GStreamer; unsupported sources show a preview error.
 
 ### Is there a CLI version?
 

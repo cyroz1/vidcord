@@ -2668,3 +2668,7 @@ button.gh-link {
     box-shadow: none !important;
   }
 }
+.preview-pane .preview-crop-active > video,
+.preview-pane .preview-crop-active > img {
+  object-fit: cover !important;
+}

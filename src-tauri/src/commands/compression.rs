@@ -1,15 +1,13 @@
 use crate::ffmpeg::{
-    cancel_lossless_trim_probe as cancel_lossless_trim_probe_job, cancel_preview_frame_jobs,
-    cancel_preview_jobs, cancel_superseded_probe_jobs, clear_preview_caches_for_path,
-    configure_ffmpeg_command, ffmpeg_missing_error, generate_filmstrip, generate_preview,
-    generate_preview_clip, probe_lossless_trim_info, probe_video, start_probe_generation,
+    cancel_lossless_trim_probe as cancel_lossless_trim_probe_job, cancel_superseded_probe_jobs,
+    configure_ffmpeg_command, ffmpeg_missing_error, probe_lossless_trim_info, probe_video,
+    start_probe_generation,
 };
 use crate::log::vidcord_log;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{
@@ -20,28 +18,8 @@ use tauri::{
 const MAX_FFMPEG_STDERR_RECORD_BYTES: usize = 16 * 1024;
 const MAX_FFMPEG_DIAGNOSTIC_BYTES: usize = 256 * 1024;
 const MAX_FFMPEG_DIAGNOSTIC_LINES: usize = 200;
-const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(20);
-const SNAPSHOT_STDERR_LIMIT: u64 = 256 * 1024;
 const AUDIO_PEAK_TIMEOUT: Duration = Duration::from_secs(60);
 const AUDIO_PEAK_STDERR_LIMIT: u64 = 256 * 1024;
-static SNAPSHOT_ACTIVE: AtomicBool = AtomicBool::new(false);
-
-struct SnapshotGuard;
-
-impl SnapshotGuard {
-    fn acquire() -> Result<Self, String> {
-        SNAPSHOT_ACTIVE
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map(|_| Self)
-            .map_err(|_| "A snapshot is already being created.".to_string())
-    }
-}
-
-impl Drop for SnapshotGuard {
-    fn drop(&mut self) {
-        SNAPSHOT_ACTIVE.store(false, Ordering::Release);
-    }
-}
 
 fn read_bounded_records<R, F>(reader: &mut R, mut on_record: F) -> std::io::Result<()>
 where
@@ -423,7 +401,7 @@ fn create_windows_private_output_file(
     };
 
     let path_wide: Vec<u16> = path.as_os_str().encode_wide().chain(once(0)).collect();
-    let mut attributes = SECURITY_ATTRIBUTES {
+    let attributes = SECURITY_ATTRIBUTES {
         nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
         lpSecurityDescriptor: private_descriptor,
         bInheritHandle: 0,
@@ -433,7 +411,7 @@ fn create_windows_private_output_file(
             path_wide.as_ptr(),
             GENERIC_WRITE,
             0,
-            &mut attributes,
+            &attributes,
             CREATE_NEW,
             FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_TEMPORARY,
             std::ptr::null_mut(),
@@ -550,7 +528,7 @@ fn restore_published_permissions(path: &Path, permissions: Option<std::fs::Permi
 }
 
 // ---------------------------------------------------------------------------
-// Tauri commands — video info & preview
+// Tauri commands — video info
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
@@ -559,10 +537,6 @@ pub async fn probe(path: String) -> Result<serde_json::Value, String> {
     let generation = start_probe_generation();
     let result = tokio::task::spawn_blocking(move || {
         cancel_superseded_probe_jobs(generation);
-        cancel_preview_jobs();
-        // Clear only entries associated with this source so switching between
-        // files can reuse recently generated frames for the other sources.
-        clear_preview_caches_for_path(&path);
         probe_video(&path, generation).map_err(|e| e.to_string())
     })
     .await
@@ -599,10 +573,6 @@ pub async fn probe_batch(paths: Vec<String>) -> Result<Vec<BatchProbeResult>, St
     let generation = start_probe_generation();
     let results = tokio::task::spawn_blocking(move || {
         cancel_superseded_probe_jobs(generation);
-        cancel_preview_jobs();
-        for path in &paths {
-            clear_preview_caches_for_path(path);
-        }
 
         let mut results = Vec::with_capacity(paths.len());
         for chunk in paths.chunks(PROBE_CONCURRENCY) {
@@ -671,85 +641,6 @@ pub async fn cancel_lossless_trim_probe(request_id: u64) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-#[tauri::command]
-pub async fn get_preview_frame(
-    path: String,
-    time_sec: f64,
-    preview_width: Option<u32>,
-    preview_height: Option<u32>,
-) -> Result<tauri::ipc::Response, String> {
-    tokio::task::spawn_blocking(move || {
-        generate_preview(&path, time_sec, preview_width, preview_height)
-            .map(tauri::ipc::Response::new)
-            .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn get_preview_clip(
-    path: String,
-    start_time_sec: f64,
-    end_time_sec: f64,
-    preview_width: Option<u32>,
-    preview_height: Option<u32>,
-) -> Result<tauri::ipc::Response, String> {
-    tokio::task::spawn_blocking(move || {
-        generate_preview_clip(
-            &path,
-            start_time_sec,
-            end_time_sec,
-            preview_width,
-            preview_height,
-        )
-        .map(tauri::ipc::Response::new)
-        .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-/// Returns evenly-spaced JPEG frames as a single concatenated binary stream.
-/// The frontend splits frames by scanning for JPEG SOI (FF D8) / EOI (FF D9) markers.
-#[tauri::command]
-pub async fn get_filmstrip(
-    path: String,
-    duration_sec: f64,
-    max_frames: Option<usize>,
-    preview_width: Option<u32>,
-    preview_height: Option<u32>,
-) -> Result<tauri::ipc::Response, String> {
-    tokio::task::spawn_blocking(move || {
-        generate_filmstrip(
-            &path,
-            duration_sec,
-            max_frames,
-            preview_width,
-            preview_height,
-        )
-        .map(tauri::ipc::Response::new)
-        .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn cancel_preview_generation() -> Result<(), String> {
-    tokio::task::spawn_blocking(cancel_preview_jobs)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn cancel_preview_frame_generation() -> Result<(), String> {
-    tokio::task::spawn_blocking(cancel_preview_frame_jobs)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-// ---------------------------------------------------------------------------
 // Tauri commands — compression
 // ---------------------------------------------------------------------------
 
@@ -1234,7 +1125,7 @@ fn source_dimensions_need_even_fix(opts: &CompressOptions) -> bool {
     }
 }
 
-fn gif_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> String {
+fn gif_visual_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> (String, u32) {
     let crop_prefix = opts
         .crop_aspect_ratio
         .as_deref()
@@ -1266,11 +1157,20 @@ fn gif_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> String {
             )
         });
 
-    format!(
-        "{crop_prefix}fps={},{},split[gif_source][palette_source];[palette_source]palettegen=max_colors={colors}:stats_mode=diff[palette];[gif_source][palette]paletteuse=dither=sierra2_4a:diff_mode=rectangle[gif]",
-        format_fps_filter_value(fps),
-        scale
+    (
+        format!("{crop_prefix}fps={},{scale}", format_fps_filter_value(fps)),
+        colors,
     )
+}
+
+fn gif_palette_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> String {
+    let (visual, colors) = gif_visual_filter(opts, attempt);
+    format!("{visual},palettegen=max_colors={colors}:stats_mode=diff")
+}
+
+fn gif_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> String {
+    let (visual, _) = gif_visual_filter(opts, attempt);
+    format!("[0:v:0]{visual}[gif_source];[gif_source][1:v]paletteuse=dither=sierra2_4a:diff_mode=rectangle[gif]")
 }
 
 const SIZE_RETRY_LIMIT_PER_ENCODER: usize = 2;
@@ -1428,6 +1328,7 @@ impl TemporaryOutput {
             let suffix = GIF_PREFLIGHT_COUNTER.fetch_add(1, Ordering::Relaxed);
             let directory =
                 directory_parent.join(format!("vidcord-preflight-{}-{suffix}", std::process::id()));
+            #[allow(unused_mut)]
             let mut builder = std::fs::DirBuilder::new();
             #[cfg(unix)]
             {
@@ -1490,6 +1391,7 @@ impl TemporaryOutput {
             let suffix = GIF_PREFLIGHT_COUNTER.fetch_add(1, Ordering::Relaxed);
             let private_directory =
                 directory.join(format!(".vidcord-attempt-{}-{suffix}", std::process::id()));
+            #[allow(unused_mut)]
             let mut builder = std::fs::DirBuilder::new();
             #[cfg(unix)]
             {
@@ -2072,6 +1974,50 @@ async fn run_ffmpeg_attempt(
     attempt: &CompressionAttempt,
     context: FfmpegRunContext,
 ) -> Result<FfmpegRunResult, String> {
+    if !opts.gif_mode {
+        return run_ffmpeg_pass(app, opts, attempt, context, None).await;
+    }
+
+    // Finish palette generation before rendering so paletteuse never queues
+    // the entire decoded clip while waiting for palettegen's final frame.
+    let palette = tokio::task::spawn_blocking(|| TemporaryOutput::create("png"))
+        .await
+        .map_err(|error| error.to_string())??;
+    let palette_path = palette.as_string();
+    let generated = run_ffmpeg_pass(
+        app,
+        opts,
+        attempt,
+        context.clone(),
+        Some(GifPass::Palette(&palette_path)),
+    )
+    .await?;
+    if generated.cancelled || !generated.exit_status.success() {
+        return Ok(generated);
+    }
+    run_ffmpeg_pass(
+        app,
+        opts,
+        attempt,
+        context,
+        Some(GifPass::Render(&palette_path)),
+    )
+    .await
+}
+
+#[derive(Clone, Copy)]
+enum GifPass<'a> {
+    Palette(&'a str),
+    Render(&'a str),
+}
+
+async fn run_ffmpeg_pass(
+    app: &AppHandle,
+    opts: &CompressOptions,
+    attempt: &CompressionAttempt,
+    context: FfmpegRunContext,
+    gif_pass: Option<GifPass<'_>>,
+) -> Result<FfmpegRunResult, String> {
     if was_cancelled(context.job_id) {
         return Ok(FfmpegRunResult {
             exit_status: cancelled_exit_status(),
@@ -2148,15 +2094,27 @@ async fn run_ffmpeg_attempt(
         // Stream-copy arguments are complete above. Audio removal remains
         // compatible because `-an` drops audio streams without re-encoding.
     } else if opts.gif_mode {
-        cmd_args.extend([
-            "-filter_complex".into(),
-            gif_filter(opts, attempt),
-            "-map".into(),
-            "[gif]".into(),
-            "-loop".into(),
-            "0".into(),
-            "-an".into(),
-        ]);
+        match gif_pass {
+            Some(GifPass::Palette(_)) => cmd_args.extend([
+                "-vf".into(),
+                gif_palette_filter(opts, attempt),
+                "-frames:v".into(),
+                "1".into(),
+                "-an".into(),
+            ]),
+            Some(GifPass::Render(palette)) => cmd_args.extend([
+                "-i".into(),
+                palette.into(),
+                "-filter_complex".into(),
+                gif_filter(opts, attempt),
+                "-map".into(),
+                "[gif]".into(),
+                "-loop".into(),
+                "0".into(),
+                "-an".into(),
+            ]),
+            None => return Err("GIF encoding requires a palette pass.".into()),
+        }
     } else {
         cmd_args.extend([
             "-map".into(),
@@ -2244,7 +2202,10 @@ async fn run_ffmpeg_attempt(
             "comment=Compressed with vidcord - vidcord.app".into(),
         ]);
     }
-    cmd_args.push(opts.output_path.clone());
+    cmd_args.push(match gif_pass {
+        Some(GifPass::Palette(path)) => path.to_string(),
+        _ => opts.output_path.clone(),
+    });
 
     if was_cancelled(context.job_id) {
         return Ok(FfmpegRunResult {
@@ -2323,6 +2284,11 @@ async fn run_ffmpeg_attempt(
     let should_emit_progress = context.emit_progress;
     let clip_duration = context.clip_duration;
     let batch_context = context.batch.clone();
+    let (progress_start, progress_span) = match gif_pass {
+        Some(GifPass::Palette(_)) => (0.0, 40.0),
+        Some(GifPass::Render(_)) => (40.0, 60.0),
+        None => (0.0, 100.0),
+    };
 
     let run_result = tokio::task::spawn_blocking(move || -> Result<_, std::io::Error> {
         let mut child = ChildProcessGuard::new(child);
@@ -2376,7 +2342,7 @@ async fn run_ffmpeg_attempt(
             if !should_emit_progress {
                 return;
             }
-            let pct = ((time_str / clip_duration) * 100.0).min(100.0);
+            let pct = progress_start + (time_str / clip_duration).clamp(0.0, 1.0) * progress_span;
             let now = std::time::Instant::now();
             let should_emit = last_progress_emit
                 .map(|last| now.duration_since(last).as_millis() >= 250)
@@ -2562,10 +2528,6 @@ async fn try_lossless_trim(
     })
     .await
     .unwrap_or(None);
-
-    tokio::task::spawn_blocking(cancel_preview_jobs)
-        .await
-        .map_err(|error| error.to_string())?;
 
     let mut candidates = vec![opts.output_path.clone()];
     if let Some(fallback) = opts
@@ -3169,9 +3131,6 @@ pub async fn compress_batch(
     let job_id = begin_compression_job()?;
     let _job_guard = CompressionJobGuard(job_id);
     let _progress_guard = WindowProgressGuard(&app);
-    tokio::task::spawn_blocking(cancel_preview_jobs)
-        .await
-        .map_err(|error| error.to_string())?;
 
     let mut tracker_state = BatchProgressState::new(items.len());
     for item in &items {
@@ -3459,9 +3418,6 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         tokio::task::spawn_blocking(move || OutputReservation::create(reservation_path))
             .await
             .map_err(|error| error.to_string())??;
-    tokio::task::spawn_blocking(cancel_preview_jobs)
-        .await
-        .map_err(|e| e.to_string())?;
     let total_attempts = max_adaptive_attempts(&opts, target_bytes.is_some());
     let mut smallest_oversize_bytes: Option<u64> = None;
     let mut attempt = initial_attempt(&opts);
@@ -4230,93 +4186,6 @@ pub fn format_eta(secs: f64) -> String {
     }
 }
 
-#[tauri::command]
-pub async fn capture_snapshot(
-    input_path: String,
-    time: f64,
-    output_path: String,
-) -> Result<String, String> {
-    if !valid_time_range(time, time + 0.001) {
-        return Err("Invalid snapshot timestamp".to_string());
-    }
-    let input_path_buf = std::path::PathBuf::from(&input_path);
-    if !input_path_buf.is_file() {
-        return Err("Input file does not exist".to_string());
-    }
-
-    let output_path_buf = std::path::PathBuf::from(&output_path);
-    if let Some(parent) = output_path_buf.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|e| format!("Failed to create snapshot directory: {e}"))?;
-    }
-
-    let _snapshot_guard = SnapshotGuard::acquire()?;
-
-    let input = input_path.clone();
-    let time_str = format!("{:.3}", time);
-    let output_target_str = output_path.clone();
-
-    tokio::task::spawn_blocking(move || {
-        let mut cmd = std::process::Command::new("ffmpeg");
-        cmd.args([
-            "-hide_banner",
-            "-nostdin",
-            "-y",
-            "-ss",
-            &time_str,
-            "-i",
-            &input,
-            "-vframes",
-            "1",
-            "-f",
-            "image2",
-            &output_target_str,
-        ]);
-        configure_ffmpeg_command(&mut cmd);
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000);
-        }
-        let child = match crate::gpu::spawn_captured_command(&mut cmd) {
-            Ok(child) => child,
-            Err(error) => {
-                let _ = std::fs::remove_file(&output_target_str);
-                return Err(format!("Failed to execute FFmpeg for snapshot: {error}"));
-            }
-        };
-        let output = match child.wait_for_output_with_limit(SNAPSHOT_TIMEOUT, SNAPSHOT_STDERR_LIMIT)
-        {
-            Ok(output) => output,
-            Err(error) => {
-                let _ = std::fs::remove_file(&output_target_str);
-                return Err(format!("FFmpeg snapshot process failed: {error}"));
-            }
-        };
-        let Some(output) = output else {
-            let _ = std::fs::remove_file(&output_target_str);
-            return Err(format!(
-                "FFmpeg frame snapshot timed out after {} seconds.",
-                SNAPSHOT_TIMEOUT.as_secs()
-            ));
-        };
-        if !output.status.success() {
-            let _ = std::fs::remove_file(&output_target_str);
-            return Err(format!(
-                "FFmpeg frame snapshot failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
-        Ok(())
-    })
-    .await
-    .map_err(|e| e.to_string())??;
-
-    Ok(output_path)
-}
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -4825,10 +4694,15 @@ mod tests {
 
         assert!(gif_filter(&opts, &first).contains("scale=854:480"));
         let retry_filter = gif_filter(&opts, &retry);
-        assert!(retry_filter.contains("palettegen"));
+        let palette_filter = gif_palette_filter(&opts, &retry);
+        assert!(palette_filter.contains("palettegen"));
+        assert!(palette_filter.contains("scale=426:240"));
+        assert!(!palette_filter.contains("split"));
+        assert!(!retry_filter.contains("palettegen"));
+        assert!(!retry_filter.contains("split"));
         assert!(retry_filter.contains("paletteuse"));
         assert!(retry_filter.contains("scale=426:240"));
-        assert!(retry_filter.starts_with("fps=15,"));
+        assert!(retry_filter.contains("fps=15,"));
     }
 
     #[test]
@@ -4840,7 +4714,7 @@ mod tests {
         let first = initial_attempt(&opts);
         let filter = gif_filter(&opts, &first);
 
-        assert!(filter.starts_with("fps=50,"));
+        assert!(filter.contains("fps=50,"));
         assert!(filter.contains("scale=468:262"));
     }
 

@@ -36,7 +36,6 @@ import {
   type ProbeData,
 } from "./hooks/useCompression";
 import {
-  captureSnapshot,
   cancelLosslessTrimProbe,
   checkForUpdates,
   compressBatch,
@@ -61,6 +60,7 @@ import {
   resolveOutputPath,
   resolveBatchOutputPaths,
   resolveStagingOutputPath,
+  saveSnapshotImage,
   showFilesInFileExplorer,
   showInFileExplorer,
   type ExpandedImportPaths,
@@ -148,55 +148,55 @@ function FooterMeta({ onFeedbackClick }: { onFeedbackClick: () => void }) {
           <path d="m2.5 5 5.5 4 5.5-4" />
         </svg>
       </button>
-    <a
-      href="https://vidcord.app/"
-      onClick={(e) => {
-        e.preventDefault();
-        void openExternalUrl("https://vidcord.app/").catch(() => {});
-      }}
-      className="gh-link"
-      aria-label="Website"
-      title="Website"
-    >
-      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
-        <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4" />
-        <path
-          d="M1.75 8h12.5M8 1.5c1.7 1.74 2.55 3.9 2.55 6.5S9.7 12.76 8 14.5C6.3 12.76 5.45 10.6 5.45 8S6.3 3.24 8 1.5Z"
-          stroke="currentColor"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="1.4"
-        />
-      </svg>
-    </a>
-    <a
-      href="https://github.com/cyroz1/vidcord"
-      onClick={(e) => {
-        e.preventDefault();
-        void openExternalUrl("https://github.com/cyroz1/vidcord").catch(() => {});
-      }}
-      className="gh-link"
-      aria-label="GitHub"
-      title="GitHub"
-    >
-      <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
-        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
-      </svg>
-    </a>
-    <a
-      href={GITHUB_SPONSORS_URL}
-      onClick={(e) => {
-        e.preventDefault();
-        void openExternalUrl(GITHUB_SPONSORS_URL).catch(() => {});
-      }}
-      className="gh-link donate-link"
-      aria-label="Donate"
-      title="Donate"
-    >
-      <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
-        <path d="M8 14C4 10.5 2 8 2 5.8 2 3.8 3.6 2.4 5.4 2.4c1.2 0 2.2.7 2.6 1.8.4-1.1 1.4-1.8 2.6-1.8 1.8 0 3.4 1.4 3.4 3.4 0 2.2-2 4.7-6 8.2Z" />
-      </svg>
-    </a>
+      <a
+        href="https://vidcord.app/"
+        onClick={(e) => {
+          e.preventDefault();
+          void openExternalUrl("https://vidcord.app/").catch(() => {});
+        }}
+        className="gh-link"
+        aria-label="Website"
+        title="Website"
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4" />
+          <path
+            d="M1.75 8h12.5M8 1.5c1.7 1.74 2.55 3.9 2.55 6.5S9.7 12.76 8 14.5C6.3 12.76 5.45 10.6 5.45 8S6.3 3.24 8 1.5Z"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.4"
+          />
+        </svg>
+      </a>
+      <a
+        href="https://github.com/cyroz1/vidcord"
+        onClick={(e) => {
+          e.preventDefault();
+          void openExternalUrl("https://github.com/cyroz1/vidcord").catch(() => {});
+        }}
+        className="gh-link"
+        aria-label="GitHub"
+        title="GitHub"
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+        </svg>
+      </a>
+      <a
+        href={GITHUB_SPONSORS_URL}
+        onClick={(e) => {
+          e.preventDefault();
+          void openExternalUrl(GITHUB_SPONSORS_URL).catch(() => {});
+        }}
+        className="gh-link donate-link"
+        aria-label="Donate"
+        title="Donate"
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+          <path d="M8 14C4 10.5 2 8 2 5.8 2 3.8 3.6 2.4 5.4 2.4c1.2 0 2.2.7 2.6 1.8.4-1.1 1.4-1.8 2.6-1.8 1.8 0 3.4 1.4 3.4 3.4 0 2.2-2 4.7-6 8.2Z" />
+        </svg>
+      </a>
     </div>
   );
 }
@@ -542,9 +542,7 @@ export default function App() {
   const [losslessOfferTargetSize, setLosslessOfferTargetSize] = useState<number | null>(null);
   const skipLosslessOfferRef = useRef(false);
   const startCompressRef = useRef<() => Promise<void>>(async () => {});
-  const startBatchRef = useRef<(retryItemIds?: readonly number[]) => Promise<void>>(
-    async () => {}
-  );
+  const startBatchRef = useRef<(retryItemIds?: readonly number[]) => Promise<void>>(async () => {});
   const batchCancelledRef = useRef(false);
   const singleModeBeforeBatchRef = useRef<{
     gifMode: boolean;
@@ -578,6 +576,8 @@ export default function App() {
     eta,
     batchProgress,
     cancelCompress,
+    beginPreparation,
+    finishPreparation,
     resetProgress,
   } = useCompression({ onToast: addToast });
 
@@ -1047,7 +1047,7 @@ export default function App() {
   }, [losslessTrim, normalizeTrim, setPreviewFocusNow, sliderValueToTime, syncTrimHistorySize]);
 
   const handleSnapshot = useCallback(
-    async (timeSec: number) => {
+    async (pngBytes: Uint8Array) => {
       if (!filePath || snapshotInFlightRef.current) return;
       snapshotInFlightRef.current = true;
       try {
@@ -1072,7 +1072,11 @@ export default function App() {
 
         if (!targetPath) return;
 
-        const savedPath = await captureSnapshot(filePath, timeSec, targetPath);
+        const savedPath = await saveSnapshotImage(
+          targetPath,
+          pngBytes,
+          outputDestination === "ask"
+        );
         const displayFileName = savedPath.split(/[/\\]/).pop() ?? "snapshot.png";
 
         if (completionAction === "none") {
@@ -1120,14 +1124,16 @@ export default function App() {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "S" || e.key === "s")) {
         if (filePath) {
           e.preventDefault();
-          const curTime = previewRef.current?.getCurrentTime() ?? 0;
-          handleSnapshot(curTime);
+          void previewRef.current
+            ?.captureCurrentFrame()
+            .then((pngBytes) => handleSnapshot(pngBytes))
+            .catch((err: unknown) => addToast("error", "Snapshot Failed", String(err)));
         }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [filePath, handleSnapshot]);
+  }, [filePath, handleSnapshot, addToast]);
 
   const redoTrim = useCallback(() => {
     const target = redoStackRef.current.pop();
@@ -1536,18 +1542,15 @@ export default function App() {
       let unlisten: (() => void) | undefined;
       try {
         try {
-          unlisten = await listen<ImportScanProgress>(
-            "import-scan-progress",
-            ({ payload }) => {
-              if (
-                payload.scanId !== scanGeneration ||
-                scanGeneration !== importScanGenerationRef.current
-              ) {
-                return;
-              }
-              setSelectionScanProgress(payload);
+          unlisten = await listen<ImportScanProgress>("import-scan-progress", ({ payload }) => {
+            if (
+              payload.scanId !== scanGeneration ||
+              scanGeneration !== importScanGenerationRef.current
+            ) {
+              return;
             }
-          );
+            setSelectionScanProgress(payload);
+          });
         } catch {
           // Importing still works when progress events are unavailable.
         }
@@ -1576,9 +1579,7 @@ export default function App() {
           : ["No supported videos found"];
       if (expanded.skippedNonVideoFiles > 0) {
         const fileLabel = expanded.skippedNonVideoFiles === 1 ? "file" : "files";
-        importSummary.push(
-          `skipped ${expanded.skippedNonVideoFiles} non-video ${fileLabel}`
-        );
+        importSummary.push(`skipped ${expanded.skippedNonVideoFiles} non-video ${fileLabel}`);
       }
       if (expanded.skippedFolderLinks > 0) {
         const folderLabel = expanded.skippedFolderLinks === 1 ? "folder link" : "folder links";
@@ -1586,9 +1587,7 @@ export default function App() {
       }
       if (expanded.unreadableItems > 0) {
         const itemLabel = expanded.unreadableItems === 1 ? "item" : "items";
-        importSummary.push(
-          `could not read ${expanded.unreadableItems} ${itemLabel}`
-        );
+        importSummary.push(`could not read ${expanded.unreadableItems} ${itemLabel}`);
       }
       const shouldReportImport =
         expanded.foldersScanned > 0 ||
@@ -1611,9 +1610,7 @@ export default function App() {
         const details = importSummary.join(" · ");
         const folderLabel = expanded.foldersScanned === 1 ? "folder" : "folders";
         const folderSummary =
-          expanded.foldersScanned > 0
-            ? ` · scanned ${expanded.foldersScanned} ${folderLabel}`
-            : "";
+          expanded.foldersScanned > 0 ? ` · scanned ${expanded.foldersScanned} ${folderLabel}` : "";
         addToast(
           hasSkippedItems || !foundVideos ? "warning" : "success",
           title,
@@ -2221,87 +2218,110 @@ export default function App() {
   }, [saveSettings, settingsLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Compression ---
-  const startBatch = useCallback(async (retryItemIds?: readonly number[]) => {
-    const retryIds = retryItemIds ? new Set(retryItemIds) : null;
-    const selectedItems = retryIds
-      ? batchQueue.filter((item) => retryIds.has(item.id) && isBatchItemRetryable(item.status))
-      : [...batchQueue];
-    if (selectedItems.length === 0) {
-      addToast(
-        "info",
-        retryIds ? "Nothing to Retry" : "Batch Not Ready",
-        retryIds
-          ? "There are no failed or cancelled items to retry."
-          : "Select at least two videos."
-      );
-      return;
-    }
-
-    resetProgress();
-    setCompressing(true);
-    setLoadingVideo(true);
-    batchCancelledRef.current = false;
-    const probeFailures = new Map<number, string>();
-    const stagedOutputPaths: string[] = [];
-    let publicationCancelled = false;
-    let publicationFailureMessage: string | undefined;
-    const prepared: Array<{
-      id: number;
-      inputPath: string;
-      probe: ProbeData;
-      clipDuration: number;
-      startTime: number;
-      endTime: number;
-      targetSize: number;
-      encoderName: string;
-      outputFps: number | null;
-      audioTrackIndices: number[];
-      removeAudio: boolean;
-      scaleFilter: string | null;
-    }> = [];
-    const selectedIds = new Set(selectedItems.map((item) => item.id));
-
-    try {
-      if (ffmpegMissing) {
-        addToast("warning", "FFmpeg Not Found", FFMPEG_MISSING_TOAST_MESSAGE);
+  const startBatch = useCallback(
+    async (retryItemIds?: readonly number[]) => {
+      const retryIds = retryItemIds ? new Set(retryItemIds) : null;
+      const selectedItems = retryIds
+        ? batchQueue.filter((item) => retryIds.has(item.id) && isBatchItemRetryable(item.status))
+        : [...batchQueue];
+      if (selectedItems.length === 0) {
+        addToast(
+          "info",
+          retryIds ? "Nothing to Retry" : "Batch Not Ready",
+          retryIds
+            ? "There are no failed or cancelled items to retry."
+            : "Select at least two videos."
+        );
         return;
       }
 
-      setBatchQueue((items) =>
-        items.map((item) =>
-          selectedIds.has(item.id)
-            ? {
-                ...item,
-                status: "queued",
-                progress: 0,
-                message: "Preparing…",
-                outputPath: undefined,
-              }
-            : item
-        )
-      );
+      resetProgress();
+      setCompressing(true);
+      setLoadingVideo(true);
+      batchCancelledRef.current = false;
+      const probeFailures = new Map<number, string>();
+      const stagedOutputPaths: string[] = [];
+      let publicationCancelled = false;
+      let publicationFailureMessage: string | undefined;
+      const prepared: Array<{
+        id: number;
+        inputPath: string;
+        probe: ProbeData;
+        clipDuration: number;
+        startTime: number;
+        endTime: number;
+        targetSize: number;
+        encoderName: string;
+        outputFps: number | null;
+        audioTrackIndices: number[];
+        removeAudio: boolean;
+        scaleFilter: string | null;
+      }> = [];
+      const selectedIds = new Set(selectedItems.map((item) => item.id));
 
-      const preset = QUALITY_PRESETS_BY_INDEX[qualityIdx] ?? QUALITY_PRESETS_BY_INDEX[0];
-      const encoderName = encoders[encoderIdx]?.name ?? "libx264";
-      const requestedFps = FPS_OPTIONS.find((option) => option.value === fpsOption)?.fps ?? null;
+      try {
+        if (ffmpegMissing) {
+          addToast("warning", "FFmpeg Not Found", FFMPEG_MISSING_TOAST_MESSAGE);
+          return;
+        }
 
-      for (const selectedItem of selectedItems) {
-        if (batchCancelledRef.current) return;
-        const id = selectedItem.id;
-        const inputPath = selectedItem.inputPath;
-        let data = batchProbeDataRef.current.get(id);
-        if (!data) {
-          setBatchQueue((items) =>
-            items.map((item) =>
-              item.id === id ? { ...item, status: "probing", message: "Reading details..." } : item
-            )
+        setBatchQueue((items) =>
+          items.map((item) =>
+            selectedIds.has(item.id)
+              ? {
+                  ...item,
+                  status: "queued",
+                  progress: 0,
+                  message: "Preparing…",
+                  outputPath: undefined,
+                }
+              : item
+          )
+        );
+
+        const preset = QUALITY_PRESETS_BY_INDEX[qualityIdx] ?? QUALITY_PRESETS_BY_INDEX[0];
+        const encoderName = encoders[encoderIdx]?.name ?? "libx264";
+        const requestedFps = FPS_OPTIONS.find((option) => option.value === fpsOption)?.fps ?? null;
+
+        for (const selectedItem of selectedItems) {
+          if (batchCancelledRef.current) return;
+          const id = selectedItem.id;
+          const inputPath = selectedItem.inputPath;
+          let data = batchProbeDataRef.current.get(id);
+          if (!data) {
+            setBatchQueue((items) =>
+              items.map((item) =>
+                item.id === id
+                  ? { ...item, status: "probing", message: "Reading details..." }
+                  : item
+              )
+            );
+            try {
+              data = await probeVideo(inputPath);
+              batchProbeDataRef.current.set(id, data);
+            } catch (error: unknown) {
+              if (isFfmpegMissingError(error)) markFfmpegMissing();
+              const message = String(error);
+              probeFailures.set(id, message);
+              setBatchQueue((items) =>
+                items.map((item) =>
+                  item.id === id ? { ...item, status: "failed", progress: 100, message } : item
+                )
+              );
+              continue;
+            }
+          }
+
+          if (!data) continue;
+
+          const trim = normalizeBatchTrimRange(
+            data.duration,
+            batchTrimStartSeconds,
+            batchTrimEndSeconds
           );
-          try {
-            data = await probeVideo(inputPath);
-            batchProbeDataRef.current.set(id, data);
-          } catch (error: unknown) {
-            if (isFfmpegMissingError(error)) markFfmpegMissing();
-            const message = String(error);
+          const clipDuration = batchClipDuration(data.duration, trim);
+          if (clipDuration <= 0) {
+            const message = "The selected trim leaves no usable video.";
             probeFailures.set(id, message);
             setBatchQueue((items) =>
               items.map((item) =>
@@ -2310,364 +2330,357 @@ export default function App() {
             );
             continue;
           }
-        }
 
-        if (!data) continue;
+          const sourceRate =
+            typeof data.frame_rate === "number" &&
+            Number.isFinite(data.frame_rate) &&
+            data.frame_rate > 0
+              ? data.frame_rate
+              : null;
+          const outputFps =
+            requestedFps !== null && (sourceRate === null || requestedFps <= sourceRate)
+              ? requestedFps
+              : null;
+          const audioTrackIndices = defaultAudioTrackIndices(data.audio_tracks);
+          const effectiveRemoveAudio = removeAudio || audioTrackIndices.length === 0;
+          const videoBitrate = resolveVideoBitrate(
+            preset.size_mb,
+            clipDuration,
+            effectiveRemoveAudio,
+            data.bitrate,
+            audioTrackIndices.length
+          );
+          if (videoBitrate === null) {
+            const message = "Source bitrate is unavailable for this video.";
+            probeFailures.set(id, message);
+            setBatchQueue((items) =>
+              items.map((item) =>
+                item.id === id ? { ...item, status: "failed", progress: 100, message } : item
+              )
+            );
+            continue;
+          }
 
-        const trim = normalizeBatchTrimRange(
-          data.duration,
-          batchTrimStartSeconds,
-          batchTrimEndSeconds
-        );
-        const clipDuration = batchClipDuration(data.duration, trim);
-        if (clipDuration <= 0) {
-          const message = "The selected trim leaves no usable video.";
-          probeFailures.set(id, message);
+          const [cropWidth, cropHeight] = getCroppedDimensions(
+            data.width,
+            data.height,
+            cropAspectRatio
+          );
+          prepared.push({
+            id,
+            inputPath,
+            probe: data,
+            clipDuration,
+            startTime: trim.start,
+            endTime: data.duration - trim.end,
+            targetSize: preset.size_mb,
+            encoderName,
+            outputFps,
+            audioTrackIndices,
+            removeAudio: effectiveRemoveAudio,
+            scaleFilter: buildScaleFilter(
+              cropWidth,
+              cropHeight,
+              preset.target_h,
+              null,
+              encoderName
+            ),
+          });
           setBatchQueue((items) =>
             items.map((item) =>
-              item.id === id ? { ...item, status: "failed", progress: 100, message } : item
+              item.id === id
+                ? {
+                    ...item,
+                    status: "queued",
+                    progress: 0,
+                    details: formatBatchVideoDetails(data),
+                    message: "Ready",
+                  }
+                : item
             )
           );
-          continue;
         }
 
-        const sourceRate =
-          typeof data.frame_rate === "number" &&
-          Number.isFinite(data.frame_rate) &&
-          data.frame_rate > 0
-            ? data.frame_rate
-            : null;
-        const outputFps =
-          requestedFps !== null && (sourceRate === null || requestedFps <= sourceRate)
-            ? requestedFps
-            : null;
-        const audioTrackIndices = defaultAudioTrackIndices(data.audio_tracks);
-        const effectiveRemoveAudio = removeAudio || audioTrackIndices.length === 0;
-        const videoBitrate = resolveVideoBitrate(
-          preset.size_mb,
-          clipDuration,
-          effectiveRemoveAudio,
-          data.bitrate,
-          audioTrackIndices.length
-        );
-        if (videoBitrate === null) {
-          const message = "Source bitrate is unavailable for this video.";
-          probeFailures.set(id, message);
-          setBatchQueue((items) =>
-            items.map((item) =>
-              item.id === id ? { ...item, status: "failed", progress: 100, message } : item
-            )
+        if (batchCancelledRef.current) return;
+        if (prepared.length === 0) {
+          addToast(
+            "error",
+            "Batch Could Not Start",
+            "None of the selected videos could be probed."
           );
-          continue;
+          return;
         }
 
-        const [cropWidth, cropHeight] = getCroppedDimensions(
-          data.width,
-          data.height,
-          cropAspectRatio
+        const outputPaths = await resolveBatchOutputPaths(
+          prepared.map((item) => item.inputPath),
+          outputDestination === "custom" ? customOutputDirectory : undefined,
+          outputDestination === "source",
+          outputDestination === "ask"
         );
-        prepared.push({
-          id,
-          inputPath,
-          probe: data,
-          clipDuration,
-          startTime: trim.start,
-          endTime: data.duration - trim.end,
-          targetSize: preset.size_mb,
-          encoderName,
-          outputFps,
-          audioTrackIndices,
-          removeAudio: effectiveRemoveAudio,
-          scaleFilter: buildScaleFilter(cropWidth, cropHeight, preset.target_h, null, encoderName),
-        });
-        setBatchQueue((items) =>
-          items.map((item) =>
-            item.id === id
-              ? {
-                  ...item,
-                  status: "queued",
-                  progress: 0,
-                  details: formatBatchVideoDetails(data),
-                  message: "Ready",
-                }
-              : item
-          )
+        if (outputDestination === "ask") stagedOutputPaths.push(...outputPaths);
+        const vaapiDevice = prepared[0].encoderName.endsWith("_vaapi")
+          ? await getVaapiDevice().catch(() => null)
+          : null;
+        if (batchCancelledRef.current) {
+          if (outputDestination === "ask") {
+            await Promise.all(outputPaths.map((path) => discardStagedOutput(path).catch(() => {})));
+          }
+          return;
+        }
+
+        const items: BatchCompressItem[] = prepared.map((item, index) => ({
+          id: item.id,
+          opts: {
+            input_path: item.inputPath,
+            output_path: outputPaths[index],
+            encoder: item.encoderName,
+            video_bitrate_k:
+              resolveVideoBitrate(
+                item.targetSize,
+                item.clipDuration,
+                item.removeAudio,
+                item.probe.bitrate,
+                item.audioTrackIndices.length
+              ) ?? 100,
+            source_video_bitrate_k: resolveSourceBitrateCeiling(item.probe.bitrate),
+            target_size_mb: item.targetSize,
+            start_time: item.startTime,
+            end_time: item.endTime,
+            remove_audio: item.removeAudio,
+            audio_track_indices: item.audioTrackIndices,
+            audio_normalize: audioNormalize,
+            crop_aspect_ratio: cropAspectRatio,
+            output_fps: item.outputFps,
+            scale_filter: item.scaleFilter,
+            source_width: item.probe.width,
+            source_height: item.probe.height,
+            source_pix_fmt: item.probe.pix_fmt ?? null,
+            source_color_transfer: item.probe.color_transfer ?? null,
+            vaapi_device: vaapiDevice,
+            gif_mode: false,
+            lossless_trim: false,
+            fallback_output_path: null,
+            fallback_target_size_mb: null,
+          },
+        }));
+
+        const done = await compressBatch(items);
+        const finalOutputById = new Map<number, string>();
+        const successfulResults = done.results.filter(
+          (result) => result.success && typeof result.output_path === "string"
         );
-      }
 
-      if (batchCancelledRef.current) return;
-      if (prepared.length === 0) {
-        addToast("error", "Batch Could Not Start", "None of the selected videos could be probed.");
-        return;
-      }
-
-      const outputPaths = await resolveBatchOutputPaths(
-        prepared.map((item) => item.inputPath),
-        outputDestination === "custom" ? customOutputDirectory : undefined,
-        outputDestination === "source",
-        outputDestination === "ask"
-      );
-      if (outputDestination === "ask") stagedOutputPaths.push(...outputPaths);
-      const vaapiDevice = prepared[0].encoderName.endsWith("_vaapi")
-        ? await getVaapiDevice().catch(() => null)
-        : null;
-      if (batchCancelledRef.current) {
         if (outputDestination === "ask") {
-          await Promise.all(outputPaths.map((path) => discardStagedOutput(path).catch(() => {})));
-        }
-        return;
-      }
-
-      const items: BatchCompressItem[] = prepared.map((item, index) => ({
-        id: item.id,
-        opts: {
-          input_path: item.inputPath,
-          output_path: outputPaths[index],
-          encoder: item.encoderName,
-          video_bitrate_k:
-            resolveVideoBitrate(
-              item.targetSize,
-              item.clipDuration,
-              item.removeAudio,
-              item.probe.bitrate,
-              item.audioTrackIndices.length
-            ) ?? 100,
-          source_video_bitrate_k: resolveSourceBitrateCeiling(item.probe.bitrate),
-          target_size_mb: item.targetSize,
-          start_time: item.startTime,
-          end_time: item.endTime,
-          remove_audio: item.removeAudio,
-          audio_track_indices: item.audioTrackIndices,
-          audio_normalize: audioNormalize,
-          crop_aspect_ratio: cropAspectRatio,
-          output_fps: item.outputFps,
-          scale_filter: item.scaleFilter,
-          source_width: item.probe.width,
-          source_height: item.probe.height,
-          source_pix_fmt: item.probe.pix_fmt ?? null,
-          source_color_transfer: item.probe.color_transfer ?? null,
-          vaapi_device: vaapiDevice,
-          gif_mode: false,
-          lossless_trim: false,
-          fallback_output_path: null,
-          fallback_target_size_mb: null,
-        },
-      }));
-
-      const done = await compressBatch(items);
-      const finalOutputById = new Map<number, string>();
-      const successfulResults = done.results.filter(
-        (result) => result.success && typeof result.output_path === "string"
-      );
-
-      if (outputDestination === "ask") {
-        if (done.cancelled) {
-          publicationCancelled = successfulResults.length > 0;
-          await Promise.all(
-            successfulResults.map((result) =>
-              discardStagedOutput(result.output_path!).catch(() => {})
-            )
-          );
-        } else if (successfulResults.length > 0) {
-          setFinalizingOutput(true);
-          try {
-            const selectedFolder = await openDialog({
-              title: "Choose a folder for the batch outputs",
-              directory: true,
-              multiple: false,
-            });
-            if (typeof selectedFolder !== "string" || !selectedFolder) {
-              publicationCancelled = true;
-              await Promise.all(
-                successfulResults.map((result) =>
-                  discardStagedOutput(result.output_path!).catch(() => {})
-                )
-              );
-              addToast("warning", "Save Cancelled", "The staged batch outputs were discarded.");
-            } else {
-              const destinations = await resolveBatchOutputPaths(
-                successfulResults.map((result) => result.input_path),
-                selectedFolder,
-                false,
-                false
-              );
-              const publication = await publishBatchStagedOutputs(
-                successfulResults.map((result) => result.output_path!),
-                destinations
-              );
-              publication.published_paths.forEach((published, index) => {
-                finalOutputById.set(successfulResults[index].id, published);
-              });
-              if (publication.error) {
-                publicationFailureMessage = publication.error;
-                await Promise.all(
-                  successfulResults
-                    .slice(publication.published_paths.length)
-                    .map((result) => discardStagedOutput(result.output_path!).catch(() => {}))
-                );
-                addToast("error", "Could Not Save Batch Output", publication.error);
-              }
-            }
-          } catch (error: unknown) {
-            publicationFailureMessage = String(error);
+          if (done.cancelled) {
+            publicationCancelled = successfulResults.length > 0;
             await Promise.all(
               successfulResults.map((result) =>
                 discardStagedOutput(result.output_path!).catch(() => {})
               )
             );
-            addToast("error", "Could Not Save Batch Outputs", String(error));
-          } finally {
-            setFinalizingOutput(false);
+          } else if (successfulResults.length > 0) {
+            setFinalizingOutput(true);
+            try {
+              const selectedFolder = await openDialog({
+                title: "Choose a folder for the batch outputs",
+                directory: true,
+                multiple: false,
+              });
+              if (typeof selectedFolder !== "string" || !selectedFolder) {
+                publicationCancelled = true;
+                await Promise.all(
+                  successfulResults.map((result) =>
+                    discardStagedOutput(result.output_path!).catch(() => {})
+                  )
+                );
+                addToast("warning", "Save Cancelled", "The staged batch outputs were discarded.");
+              } else {
+                const destinations = await resolveBatchOutputPaths(
+                  successfulResults.map((result) => result.input_path),
+                  selectedFolder,
+                  false,
+                  false
+                );
+                const publication = await publishBatchStagedOutputs(
+                  successfulResults.map((result) => result.output_path!),
+                  destinations
+                );
+                publication.published_paths.forEach((published, index) => {
+                  finalOutputById.set(successfulResults[index].id, published);
+                });
+                if (publication.error) {
+                  publicationFailureMessage = publication.error;
+                  await Promise.all(
+                    successfulResults
+                      .slice(publication.published_paths.length)
+                      .map((result) => discardStagedOutput(result.output_path!).catch(() => {}))
+                  );
+                  addToast("error", "Could Not Save Batch Output", publication.error);
+                }
+              }
+            } catch (error: unknown) {
+              publicationFailureMessage = String(error);
+              await Promise.all(
+                successfulResults.map((result) =>
+                  discardStagedOutput(result.output_path!).catch(() => {})
+                )
+              );
+              addToast("error", "Could Not Save Batch Outputs", String(error));
+            } finally {
+              setFinalizingOutput(false);
+            }
+          }
+        } else {
+          for (const result of successfulResults) {
+            finalOutputById.set(result.id, result.output_path!);
           }
         }
-      } else {
-        for (const result of successfulResults) {
-          finalOutputById.set(result.id, result.output_path!);
-        }
-      }
 
-      const resultById = new Map(done.results.map((result) => [result.id, result]));
-      const outputPathsForCompletion: string[] = [];
-      const finalQueueById = new Map<number, BatchQueueItem>();
-      const existingQueueById = new Map(batchQueue.map((item) => [item.id, item]));
-      let successCount = 0;
-      let failedCount = 0;
-      let cancelledCount = 0;
-      for (const selectedItem of selectedItems) {
-        const id = selectedItem.id;
-        const inputPath = selectedItem.inputPath;
-        const existingItem = existingQueueById.get(id);
-        const probedData = batchProbeDataRef.current.get(id);
-        const item: BatchQueueItem = {
-          id,
-          inputPath,
-          status: "queued",
-          progress: 0,
-          details:
-            existingItem?.details ?? (probedData ? formatBatchVideoDetails(probedData) : undefined),
-        };
-        const result = resultById.get(item.id);
-        const probeFailure = probeFailures.get(item.id);
-        if (probeFailure) {
-          failedCount += 1;
-          finalQueueById.set(item.id, {
-            ...item,
-            status: "failed",
-            progress: 100,
-            message: probeFailure,
-          });
-          continue;
-        }
-        if (!result) {
-          if (done.cancelled) {
+        const resultById = new Map(done.results.map((result) => [result.id, result]));
+        const outputPathsForCompletion: string[] = [];
+        const finalQueueById = new Map<number, BatchQueueItem>();
+        const existingQueueById = new Map(batchQueue.map((item) => [item.id, item]));
+        let successCount = 0;
+        let failedCount = 0;
+        let cancelledCount = 0;
+        for (const selectedItem of selectedItems) {
+          const id = selectedItem.id;
+          const inputPath = selectedItem.inputPath;
+          const existingItem = existingQueueById.get(id);
+          const probedData = batchProbeDataRef.current.get(id);
+          const item: BatchQueueItem = {
+            id,
+            inputPath,
+            status: "queued",
+            progress: 0,
+            details:
+              existingItem?.details ??
+              (probedData ? formatBatchVideoDetails(probedData) : undefined),
+          };
+          const result = resultById.get(item.id);
+          const probeFailure = probeFailures.get(item.id);
+          if (probeFailure) {
+            failedCount += 1;
+            finalQueueById.set(item.id, {
+              ...item,
+              status: "failed",
+              progress: 100,
+              message: probeFailure,
+            });
+            continue;
+          }
+          if (!result) {
+            if (done.cancelled) {
+              cancelledCount += 1;
+            } else {
+              failedCount += 1;
+            }
+            finalQueueById.set(item.id, {
+              ...item,
+              status: done.cancelled ? "cancelled" : "failed",
+              progress: 100,
+              message: done.cancelled
+                ? "Skipped because batch processing was cancelled."
+                : "No result returned.",
+            });
+            continue;
+          }
+          const outputPath = finalOutputById.get(result.id);
+          const outcome = classifyBatchResult(
+            result,
+            outputPath,
+            publicationCancelled,
+            publicationFailureMessage
+          );
+          if (outcome.status === "completed") {
+            successCount += 1;
+            outputPathsForCompletion.push(outcome.outputPath!);
+          } else if (outcome.status === "cancelled") {
             cancelledCount += 1;
           } else {
             failedCount += 1;
           }
           finalQueueById.set(item.id, {
             ...item,
-            status: done.cancelled ? "cancelled" : "failed",
+            status: outcome.status,
             progress: 100,
-            message: done.cancelled
-              ? "Skipped because batch processing was cancelled."
-              : "No result returned.",
+            message: outcome.message,
+            ...(outcome.outputPath ? { outputPath: outcome.outputPath } : {}),
           });
-          continue;
         }
-        const outputPath = finalOutputById.get(result.id);
-        const outcome = classifyBatchResult(
-          result,
-          outputPath,
-          publicationCancelled,
-          publicationFailureMessage
-        );
-        if (outcome.status === "completed") {
-          successCount += 1;
-          outputPathsForCompletion.push(outcome.outputPath!);
-        } else if (outcome.status === "cancelled") {
-          cancelledCount += 1;
-        } else {
-          failedCount += 1;
-        }
-        finalQueueById.set(item.id, {
-          ...item,
-          status: outcome.status,
-          progress: 100,
-          message: outcome.message,
-          ...(outcome.outputPath ? { outputPath: outcome.outputPath } : {}),
-        });
-      }
-      setBatchQueue((queue) => queue.map((item) => finalQueueById.get(item.id) ?? item));
+        setBatchQueue((queue) => queue.map((item) => finalQueueById.get(item.id) ?? item));
 
-      if (!done.cancelled && outputPathsForCompletion.length > 0) {
-        await completeBatchOutputs(outputPathsForCompletion);
-      }
-      const summary = formatBatchCompletionSummary(
-        done.cancelled || publicationCancelled,
-        successCount,
-        failedCount,
-        cancelledCount
-      );
-      addToast(
-        done.cancelled || publicationCancelled || failedCount > 0 ? "warning" : "success",
-        "Batch Summary",
-        summary,
-        { notifySystem: completionAction !== "none" }
-      );
-      if (
-        !done.cancelled &&
-        !publicationCancelled &&
-        failedCount === 0 &&
-        cancelledCount === 0 &&
-        outputPathsForCompletion.length > 0 &&
-        closeAppAfterExport
-      ) {
-        await closeProgram();
-      }
-    } catch (error: unknown) {
-      if (stagedOutputPaths.length > 0) {
-        await Promise.all(
-          stagedOutputPaths.map((path) => discardStagedOutput(path).catch(() => {}))
+        if (!done.cancelled && outputPathsForCompletion.length > 0) {
+          await completeBatchOutputs(outputPathsForCompletion);
+        }
+        const summary = formatBatchCompletionSummary(
+          done.cancelled || publicationCancelled,
+          successCount,
+          failedCount,
+          cancelledCount
         );
-      }
-      if (isFfmpegMissingError(error)) markFfmpegMissing();
-      if (!batchCancelledRef.current) {
-        addToast("error", "Batch Failed", String(error));
-        setBatchQueue((items) =>
-          items.map((item) =>
-            !selectedIds.has(item.id)
-              ? item
-              : { ...item, status: "failed", progress: 100, message: String(error) }
-          )
+        addToast(
+          done.cancelled || publicationCancelled || failedCount > 0 ? "warning" : "success",
+          "Batch Summary",
+          summary,
+          { notifySystem: completionAction !== "none" }
         );
+        if (
+          !done.cancelled &&
+          !publicationCancelled &&
+          failedCount === 0 &&
+          cancelledCount === 0 &&
+          outputPathsForCompletion.length > 0 &&
+          closeAppAfterExport
+        ) {
+          await closeProgram();
+        }
+      } catch (error: unknown) {
+        if (stagedOutputPaths.length > 0) {
+          await Promise.all(
+            stagedOutputPaths.map((path) => discardStagedOutput(path).catch(() => {}))
+          );
+        }
+        if (isFfmpegMissingError(error)) markFfmpegMissing();
+        if (!batchCancelledRef.current) {
+          addToast("error", "Batch Failed", String(error));
+          setBatchQueue((items) =>
+            items.map((item) =>
+              !selectedIds.has(item.id)
+                ? item
+                : { ...item, status: "failed", progress: 100, message: String(error) }
+            )
+          );
+        }
+      } finally {
+        setLoadingVideo(false);
+        setCompressing(false);
       }
-    } finally {
-      setLoadingVideo(false);
-      setCompressing(false);
-    }
-  }, [
-    addToast,
-    audioNormalize,
-    batchQueue,
-    batchTrimEndSeconds,
-    batchTrimStartSeconds,
-    completeBatchOutputs,
-    closeAppAfterExport,
-    closeProgram,
-    completionAction,
-    cropAspectRatio,
-    customOutputDirectory,
-    encoderIdx,
-    encoders,
-    ffmpegMissing,
-    fpsOption,
-    markFfmpegMissing,
-    outputDestination,
-    qualityIdx,
-    removeAudio,
-    resetProgress,
-    setCompressing,
-  ]);
+    },
+    [
+      addToast,
+      audioNormalize,
+      batchQueue,
+      batchTrimEndSeconds,
+      batchTrimStartSeconds,
+      completeBatchOutputs,
+      closeAppAfterExport,
+      closeProgram,
+      completionAction,
+      cropAspectRatio,
+      customOutputDirectory,
+      encoderIdx,
+      encoders,
+      ffmpegMissing,
+      fpsOption,
+      markFfmpegMissing,
+      outputDestination,
+      qualityIdx,
+      removeAudio,
+      resetProgress,
+      setCompressing,
+    ]
+  );
 
   const retryBatchItem = useCallback(
     (itemId: number) => {
@@ -2877,6 +2890,7 @@ export default function App() {
     const outputExtension: OutputExtension = gifMode ? "gif" : "mp4";
     const fallbackExtension = losslessTrim ? losslessInfo?.source_container_extension : null;
     const isVaapi = !gifMode && !losslessTrim && encoderName.endsWith("_vaapi");
+    const preparation = beginPreparation();
     const outputPromise =
       outputDestination === "ask"
         ? resolveStagingOutputPath(filePath, outputExtension)
@@ -2909,6 +2923,7 @@ export default function App() {
       fallbackOutputPromise,
       isVaapi ? getVaapiDevice().catch(() => null) : Promise.resolve(null),
     ]);
+    if (!finishPreparation(preparation)) return;
     if (!outputResult.path) {
       addToast("error", "Could Not Choose Output", outputResult.error ?? "Unknown error");
       setCompressing(false);
@@ -3037,6 +3052,8 @@ export default function App() {
     saveSettings,
     setAdvancedMode,
     setCompressing,
+    beginPreparation,
+    finishPreparation,
     resetProgress,
     selectionScanning,
   ]);
@@ -3075,33 +3092,36 @@ export default function App() {
     loadListedEncoders().catch(() => {});
   }, [advancedMode, listedEncoderNames.length, loadListedEncoders, settingsLoaded]);
 
-  const installUpdate = useCallback(async (releaseTag: string) => {
-    setInstallingUpdate(true);
-    try {
-      const result = await downloadAndOpenUpdateInstaller(releaseTag);
-      if (pathPlatform === "linux") {
-        // Linux AppImages cannot be relaunched in place: the single-instance
-        // guard would kill the new copy, so the backend reveals the download
-        // instead of opening it.
-        addToast(
-          "success",
-          "Update Downloaded",
-          `${result.installer_name} was downloaded. Quit vidcord, replace your old AppImage with it, then relaunch.`
-        );
-      } else {
-        addToast(
-          "success",
-          "Installer Opened",
-          `${result.installer_name} was downloaded and opened.`
-        );
+  const installUpdate = useCallback(
+    async (releaseTag: string) => {
+      setInstallingUpdate(true);
+      try {
+        const result = await downloadAndOpenUpdateInstaller(releaseTag);
+        if (pathPlatform === "linux") {
+          // Linux AppImages cannot be relaunched in place: the single-instance
+          // guard would kill the new copy, so the backend reveals the download
+          // instead of opening it.
+          addToast(
+            "success",
+            "Update Downloaded",
+            `${result.installer_name} was downloaded. Quit vidcord, replace your old AppImage with it, then relaunch.`
+          );
+        } else {
+          addToast(
+            "success",
+            "Installer Opened",
+            `${result.installer_name} was downloaded and opened.`
+          );
+        }
+        setUpdateInfo(null);
+      } catch (e) {
+        addToast("error", "Update Failed", String(e));
+      } finally {
+        setInstallingUpdate(false);
       }
-      setUpdateInfo(null);
-    } catch (e) {
-      addToast("error", "Update Failed", String(e));
-    } finally {
-      setInstallingUpdate(false);
-    }
-  }, [addToast, pathPlatform]);
+    },
+    [addToast, pathPlatform]
+  );
 
   const dismissUpdate = useCallback(() => {
     if (!updateInfo || installingUpdate) return;
@@ -4507,7 +4527,6 @@ export default function App() {
                 cropAspectRatio={losslessTrim ? "off" : cropAspectRatio}
                 ref={previewRef}
                 filePath={filePath}
-                sourceGeneration={fileLoadGeneration}
                 loadingVideo={loadingVideo}
                 startTime={startTime}
                 endTime={endTime}
@@ -4518,6 +4537,7 @@ export default function App() {
                 removeAudio={gifMode || removeAudio}
                 onTimeUpdate={handlePreviewTimeUpdate}
                 onSnapshot={handleSnapshot}
+                onSnapshotError={(message) => addToast("error", "Snapshot Failed", message)}
                 onPlaybackError={handlePreviewPlaybackError}
               />
 

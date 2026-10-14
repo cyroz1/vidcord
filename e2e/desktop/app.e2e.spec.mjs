@@ -24,12 +24,10 @@ describe("vidcord desktop end-to-end workflow", function () {
     const directProbe = await browser.execute(async (p) => {
       const tauri = window.__TAURI__;
       const timeout = new Promise((resolve) => setTimeout(() => resolve("TIMEOUT"), 15000));
-      const probe = tauri.core
-        .invoke("probe", { path: p })
-        .then(
-          () => "OK",
-          (e) => `ERR:${String(e).slice(0, 60)}`
-        );
+      const probe = tauri.core.invoke("probe", { path: p }).then(
+        () => "OK",
+        (e) => `ERR:${String(e).slice(0, 60)}`
+      );
       return Promise.race([probe, timeout]);
     }, corruptPath);
     console.log("Desktop E2E: direct probe of corrupt file:", directProbe);
@@ -50,11 +48,17 @@ describe("vidcord desktop end-to-end workflow", function () {
     await dropFiles([textPath]);
     await browser.waitUntil(
       async () =>
-        (await browser.execute(() =>
-          Array.from(document.querySelectorAll(".toast")).map((element) => element.textContent)
-        ).catch(() => [])
+        (
+          await browser
+            .execute(() =>
+              Array.from(document.querySelectorAll(".toast")).map((element) => element.textContent)
+            )
+            .catch(() => [])
         ).some((text) => text?.includes("No Videos Found")),
-      { timeout: 30_000, timeoutMsg: "The unsupported file did not trigger a No Videos Found toast" }
+      {
+        timeout: 30_000,
+        timeoutMsg: "The unsupported file did not trigger a No Videos Found toast",
+      }
     );
     await dismissAllToasts();
     console.log("Desktop E2E: unsupported file toast");
@@ -204,9 +208,24 @@ describe("vidcord desktop end-to-end workflow", function () {
       assert.equal(await browser.$('button[aria-label="Play trim segment"]').isEnabled(), true);
     }
 
-    // Exercise the real FFmpeg snapshot action and confirm its PNG signature.
+    // Capture the decoded HTML video frame and publish its PNG through Tauri.
+    await browser.waitUntil(
+      () =>
+        browser.execute(
+          () => (document.querySelector(".preview-pane video")?.readyState ?? 0) >= 2
+        ),
+      { timeout: 30_000, timeoutMsg: "The HTML video player did not decode a snapshot frame" }
+    );
+    assert.equal(
+      await browser.execute(
+        () => getComputedStyle(document.querySelector(".preview-pane video")).objectFit
+      ),
+      "cover",
+      "The desktop preview preserves the selected square crop"
+    );
     const pngCountBefore = fileSet(outputDirectory, ".png");
-    await browser.$('button[aria-label="Capture frame snapshot to clipboard"]').click();
+    await browser.execute(() => document.querySelector(".snapshot-button").focus());
+    await browser.$('button[aria-label="Save preview frame snapshot"]').click();
     const snapshotPath = await waitForNewOutput(outputDirectory, pngCountBefore, ".png");
     assertPngOutput(snapshotPath);
     console.log("Desktop E2E: preview snapshot output");
@@ -408,7 +427,9 @@ describe("vidcord desktop end-to-end workflow", function () {
           return await invokeTauri("check_for_updates", { currentVersion });
         } catch (error) {
           lastError = error;
-          console.log(`Desktop E2E: update check attempt ${attempt} failed: ${String(error).slice(0, 120)}`);
+          console.log(
+            `Desktop E2E: update check attempt ${attempt} failed: ${String(error).slice(0, 120)}`
+          );
           await browser.pause(2000 * attempt);
         }
       }
@@ -418,10 +439,7 @@ describe("vidcord desktop end-to-end workflow", function () {
     assert.equal(outdated.update_available, true);
     // E2E builds mock the release feed deterministically (see fetch_latest_release).
     assert.equal(outdated.latest_version, "v99.99.99");
-    assert.equal(
-      outdated.release_url,
-      "https://github.com/cyroz1/vidcord/releases/tag/v99.99.99"
-    );
+    assert.equal(outdated.release_url, "https://github.com/cyroz1/vidcord/releases/tag/v99.99.99");
     assert.equal(typeof outdated.installer_available, "boolean");
     console.log("Desktop E2E: update check found", outdated.latest_version);
 
@@ -447,8 +465,14 @@ describe("vidcord desktop end-to-end workflow", function () {
       opts: { allow_privileged: false },
     });
     assert.equal(install.status, "already_available");
-    const dropZoneVisible = await browser.$(".drop-zone").isDisplayed().catch(() => false);
-    const cardVisible = await browser.$(".loaded-file-card").isDisplayed().catch(() => false);
+    const dropZoneVisible = await browser
+      .$(".drop-zone")
+      .isDisplayed()
+      .catch(() => false);
+    const cardVisible = await browser
+      .$(".loaded-file-card")
+      .isDisplayed()
+      .catch(() => false);
     assert.ok(
       dropZoneVisible || cardVisible,
       "Expected the import UI without an FFmpeg-missing state"
@@ -545,7 +569,8 @@ async function invokeTauri(command, args = {}) {
 
 async function dropFiles(paths) {
   const target = await browser.execute((dropPaths) => {
-    const zone = document.querySelector(".drop-zone") ?? document.querySelector(".loaded-file-card");
+    const zone =
+      document.querySelector(".drop-zone") ?? document.querySelector(".loaded-file-card");
     if (!zone) return null;
     const files = dropPaths.map((filePath) => ({
       path: filePath,
@@ -561,7 +586,9 @@ async function dropFiles(paths) {
 
 async function pressShortcut(eventInit) {
   await browser.execute((init) => {
-    window.dispatchEvent(new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true }));
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true })
+    );
   }, eventInit);
 }
 
@@ -772,8 +799,20 @@ function newestOutput(directory, before, extension) {
 
 async function waitForNewOutput(directory, before, extension) {
   await browser.waitUntil(
-    async () =>
-      newOutputs(directory, before, extension).some((filePath) => statSync(filePath).size > 128),
+    async () => {
+      if (extension === ".png") {
+        const failure = await browser.execute(
+          () =>
+            Array.from(document.querySelectorAll(".toast")).find((toast) =>
+              toast.textContent.includes("Snapshot Failed")
+            )?.textContent
+        );
+        if (failure) throw new Error(failure);
+      }
+      return newOutputs(directory, before, extension).some(
+        (filePath) => statSync(filePath).size > 128
+      );
+    },
     { timeout: 30_000, timeoutMsg: `No new ${extension} output appeared` }
   );
   return newestOutput(directory, before, extension);

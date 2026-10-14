@@ -9,39 +9,17 @@ import {
   useState,
 } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import {
-  cancelPreviewGeneration,
-  cancelPreviewFrameGeneration,
-  getFilmstrip,
-  getOs,
-  getPreviewClip,
-  getPreviewFrame,
-  type ProbeData,
-} from "../ipc";
+import type { ProbeData } from "../ipc";
 import {
   canPreserveDirectVideoSource,
   getCompletedPlaybackTime,
-  getFilmstripFrameBudget,
   getStoppedPlaybackTime,
-  isFilmstripUseful,
-  shouldFetchReleasedScrubFrame,
-  shouldFetchScrubFrame,
-  shouldGenerateFilmstrip,
-  shouldHoldPausedFrame,
-  shouldShowDirectPreviewVideo,
 } from "../previewScrub";
-import { capturePreviewFrameDataUrl } from "../previewFrame";
+import { capturePreviewFramePng } from "../previewFrame";
 
 const FIXED_PREVIEW_CSS_WIDTH = 432;
 const PREVIEW_ASPECT_WIDTH = 16;
 const PREVIEW_ASPECT_HEIGHT = 9;
-const PREVIEW_PIXEL_WIDTH_STEP = 32;
-const PREVIEW_MIN_PIXEL_WIDTH = 448;
-const PREVIEW_MAX_PIXEL_WIDTH = 960;
-const FILMSTRIP_PREVIEW_WIDTH = PREVIEW_MIN_PIXEL_WIDTH;
-const FILMSTRIP_PREVIEW_HEIGHT =
-  (FILMSTRIP_PREVIEW_WIDTH * PREVIEW_ASPECT_HEIGHT) / PREVIEW_ASPECT_WIDTH;
-const MAX_GENERATED_PREVIEW_CLIP_SECONDS = 12;
 const MEDIA_SEEK_EPSILON_SECONDS = 1 / 240;
 
 // Module-scope static style objects. Hoisted so React doesn't allocate a
@@ -67,12 +45,6 @@ const containerStyle: React.CSSProperties = {
   boxShadow: "var(--shadow-card), var(--card-top)",
 };
 
-const imgStyle: React.CSSProperties = {
-  width: "100%",
-  height: "100%",
-  objectFit: "contain",
-};
-
 const videoBaseStyle: React.CSSProperties = {
   position: "absolute",
   inset: 0,
@@ -86,13 +58,6 @@ const videoBaseStyle: React.CSSProperties = {
 };
 const videoVisibleStyle: React.CSSProperties = { ...videoBaseStyle, display: "block" };
 const videoHiddenStyle: React.CSSProperties = { ...videoBaseStyle, display: "none" };
-const pausedFrameOverlayStyle: React.CSSProperties = {
-  ...videoBaseStyle,
-  display: "block",
-  objectFit: "contain",
-  pointerEvents: "none",
-  zIndex: 2,
-};
 const overlayGroupStyle: React.CSSProperties = {
   position: "absolute",
   display: "flex",
@@ -153,7 +118,6 @@ const snapshotBtnStyle: React.CSSProperties = {
 type Props = {
   cropAspectRatio: string;
   filePath: string | null;
-  sourceGeneration: number;
   loadingVideo: boolean;
   startTime: number;
   endTime: number;
@@ -167,9 +131,9 @@ type Props = {
   // emits timeupdate at ~4 Hz, so we just forward that instead of waking the
   // main thread on a wall-clock interval even while the video is paused.
   onTimeUpdate?: (timeSec: number | null) => void;
-  onSnapshot?: (timeSec: number) => void;
-  // Called when generated-clip playback fails (e.g. the FFmpeg transcode
-  // errors) so the app can surface it instead of failing silently.
+  onSnapshot?: (pngBytes: Uint8Array) => void | Promise<void>;
+  onSnapshotError?: (message: string) => void;
+  // Called when HTML video playback fails so the app can surface the error.
   onPlaybackError?: (message: string) => void;
 };
 
@@ -180,46 +144,13 @@ export type PreviewHandle = {
   getCurrentTime: () => number;
   seekTo: (timeSec: number) => void;
   stepBy: (deltaSec: number) => void;
+  captureCurrentFrame: () => Promise<Uint8Array>;
 };
-
-type FrameRequest = {
-  path: string;
-  time: number;
-  requestId: number;
-  previewWidth: number;
-  previewHeight: number;
-};
-
-// Split a concatenated JPEG byte stream into individual frame buffers.
-// FFmpeg's image2pipe/mjpeg output places JPEG frames back-to-back;
-// each frame begins with SOI (FF D8) and ends with EOI (FF D9).
-function splitJpegStream(data: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer>[] {
-  const frames: Uint8Array<ArrayBuffer>[] = [];
-  let i = 0;
-  while (i + 1 < data.length) {
-    if (data[i] === 0xff && data[i + 1] === 0xd8) {
-      const start = i;
-      i += 2;
-      while (i + 1 < data.length) {
-        if (data[i] === 0xff && data[i + 1] === 0xd9) {
-          frames.push(data.slice(start, i + 2) as Uint8Array<ArrayBuffer>);
-          i += 2;
-          break;
-        }
-        i += 1;
-      }
-    } else {
-      i += 1;
-    }
-  }
-  return frames;
-}
 
 const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   {
     cropAspectRatio,
     filePath,
-    sourceGeneration,
     loadingVideo,
     startTime,
     endTime,
@@ -230,6 +161,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     probeData,
     onTimeUpdate,
     onSnapshot,
+    onSnapshotError,
     onPlaybackError,
   },
   ref
@@ -246,51 +178,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   useEffect(() => {
     onPlaybackErrorRef.current = onPlaybackError;
   }, [onPlaybackError]);
-  const [frameUrl, setFrameUrl] = useState<string | null>(null);
-  const [pausedFrameDataUrl, setPausedFrameDataUrl] = useState<string | null>(null);
-  // True while the video element is showing a paused frame from a stopped
-  // playback whose source was not preserved for scrub preview (typically a
-  // generated clip). While held, the video stays visible and the scrub-preview
-  // effect must not steal the element, or the frame jumps back to the start.
-  const [pausedFrameHeld, setPausedFrameHeld] = useState(false);
-  // WebKitGTK uses GStreamer for HTML video. Linux AppImages bundle the media
-  // runtime; if a source still cannot be loaded, fall back to FFmpeg frames and
-  // a generated preview clip. navigator.userAgent is unreliable (WebView2 can
-  // include "Linux"), so ask the backend for the actual OS.
-  const [osName, setOsName] = useState<string | null>(null);
-  const isLinux = osName === "linux";
-  const [supportsLiveScrubPreview, setSupportsLiveScrubPreview] = useState(false);
-  const [directPreviewFailed, setDirectPreviewFailed] = useState(false);
-  const [initialPreviewSettled, setInitialPreviewSettled] = useState(false);
-  const supportsLiveScrubPreviewRef = useRef(false);
+  const [videoLoadFailed, setVideoLoadFailed] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
   useEffect(() => {
-    getOs()
-      .then((os) => {
-        setOsName(os);
-        setSupportsLiveScrubPreview(true);
-        supportsLiveScrubPreviewRef.current = true;
-      })
-      .catch(() => {
-        // Safe fallback: avoid a potentially unstable native video pipeline
-        // and retain FFmpeg-backed previews if OS detection ever fails.
-        setOsName("linux");
-        setSupportsLiveScrubPreview(false);
-        supportsLiveScrubPreviewRef.current = false;
-      });
-  }, []);
-
-  // Linux keeps the same live HTML video path as other platforms. Use the
-  // FFmpeg still-frame path only when OS detection failed or WebKitGTK rejected
-  // the direct source.
-  const livePreviewSupported = supportsLiveScrubPreview;
-  const useFfmpegPreviewFallback = isLinux && (!livePreviewSupported || directPreviewFailed);
-  useEffect(() => {
-    supportsLiveScrubPreviewRef.current = livePreviewSupported;
-  }, [livePreviewSupported]);
-  useEffect(() => {
-    setDirectPreviewFailed(false);
-    setInitialPreviewSettled(false);
-    setPausedFrameDataUrl(null);
+    setVideoLoadFailed(false);
+    setVideoReady(false);
     currentPlaybackTimeRef.current = 0;
     setCurrentPlaybackTime(0);
     onTimeUpdateRef.current?.(filePath ? 0 : null);
@@ -300,108 +192,27 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       videoRef.current.muted = removeAudio;
     }
   }, [removeAudio]);
-  const [loading, setLoading] = useState(false);
   const [playing, setPlaying] = useState(false);
-  // True while a generated preview clip is being transcoded. The play button
-  // shows a spinner in this state so a click always gets visible feedback —
-  // without it, the multi-second FFmpeg transcode looks like a dead button.
-  const [generatingPreview, setGeneratingPreview] = useState(false);
-  const [scrubVideoReady, setScrubVideoReady] = useState(false);
   const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0);
   const playingRef = useRef(false);
-  // Guards concurrent generated-clip requests across startPlayback calls. A
-  // plain `let` inside startPlayback can't do this — every call gets its own.
-  const generatingClipRef = useRef(false);
-  // Prevents an older in-flight clip request from clearing a newer request's
-  // spinner or concurrency guard after playback has been stopped and restarted.
-  const generatedClipRequestRef = useRef(0);
-
-  // --- Filmstrip state ---
-  // Blob URLs for each pre-extracted filmstrip frame. Managed manually
-  // (not in React state) to avoid re-renders on every URL creation/revocation.
-  const filmstripUrlsRef = useRef<string[]>([]);
-  // Index into filmstripUrlsRef to display during scrubbing (null = use frameUrl)
-  const [filmstripIdx, setFilmstripIdx] = useState<number | null>(null);
-  const filmstripRequestIdRef = useRef(0);
 
   const currentPlaybackTimeRef = useRef(0);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const frameRequestIdRef = useRef(0);
-  const frameInFlightRef = useRef(false);
-  const queuedFrameRequestRef = useRef<FrameRequest | null>(null);
-  const frameCancellationRef = useRef<Promise<void> | null>(null);
-  const startFrameFetchRef = useRef<(request: FrameRequest) => void>(() => {});
-  const prevStartTimeRef = useRef(startTime);
-  const prevEndTimeRef = useRef(endTime);
-  const prevIsScrubbingRef = useRef(isScrubbing);
-  const prevFilePathRef = useRef<string | null>(filePath);
-  const previewContainerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubVideoSrcRef = useRef<string | null>(null);
   const pendingScrubVideoSeekRef = useRef<number | null>(null);
+  const sourceIndexRef = useRef(0);
   // Listener reference so we can unbind on stop. Replaces the previous 100 ms
   // setInterval polling of `currentTime`, which kept the main thread warm
   // during every playback.
   const timeUpdateHandlerRef = useRef<(() => void) | null>(null);
   const endBoundaryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const schedulePlaybackBoundaryRef = useRef<(() => void) | null>(null);
-  const clipUrlRef = useRef<string | null>(null);
-  const generatedClipCacheRef = useRef<{
-    key: string;
-    sourceGeneration: number;
-    url: string;
-  } | null>(null);
-  const generatedClipEndTimeRef = useRef<number | null>(null);
   const playbackSessionRef = useRef(0);
-  const playbackOffsetRef = useRef(0);
-  const usingGeneratedClipRef = useRef(false);
   const urlCacheRef = useRef<Map<string, string[]>>(new Map());
 
-  const getPreviewPixelSize = useCallback(() => {
-    const scale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
-    // The preview content box is an exact 16:9 CSS frame, but FFmpeg requires
-    // even output dimensions. Use the next even 16:9 pair so contain never
-    // creates side gaps around a source frame.
-    const width = Math.min(
-      PREVIEW_MAX_PIXEL_WIDTH,
-      Math.max(
-        PREVIEW_MIN_PIXEL_WIDTH,
-        Math.round((FIXED_PREVIEW_CSS_WIDTH * scale) / PREVIEW_PIXEL_WIDTH_STEP) *
-          PREVIEW_PIXEL_WIDTH_STEP
-      )
-    );
-    return {
-      width,
-      height: (width * PREVIEW_ASPECT_HEIGHT) / PREVIEW_ASPECT_WIDTH,
-    };
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      cancelPreviewGeneration().catch(() => {});
-    };
-  }, []);
-
-  useEffect(() => {
-    const cached = generatedClipCacheRef.current;
-    if (cached && cached.sourceGeneration !== sourceGeneration) {
-      URL.revokeObjectURL(cached.url);
-      generatedClipCacheRef.current = null;
-    }
-  }, [sourceGeneration]);
-
-  useEffect(() => {
-    const cacheRef = generatedClipCacheRef;
-    return () => {
-      if (cacheRef.current) {
-        URL.revokeObjectURL(cacheRef.current.url);
-        cacheRef.current = null;
-      }
-    };
-  }, []);
-
   const getPlaybackTime = useCallback(() => {
-    const raw = (videoRef.current?.currentTime ?? 0) + playbackOffsetRef.current;
+    const video = videoRef.current;
+    const raw = video && video.readyState >= 1 ? video.currentTime : currentPlaybackTimeRef.current;
     const min = Math.min(startTime, endTime);
     const max = Math.max(startTime, endTime);
     if (raw < min) return min;
@@ -445,35 +256,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
       currentPlaybackTimeRef.current = clamped;
       setCurrentPlaybackTime(clamped);
-      setPausedFrameDataUrl(null);
       onTimeUpdateRef.current?.(clamped);
       if (!vid) return;
-
-      const mediaTime = usingGeneratedClipRef.current
-        ? Math.max(0, clamped - playbackOffsetRef.current)
-        : clamped;
-
-      if (!Number.isFinite(mediaTime)) return;
-      if (pausedFrameHeld) {
-        // A held paused frame means the video still has the stopped clip's
-        // source. Release it so the preview follows the scrub position.
-        setPausedFrameHeld(false);
-        if (livePreviewSupported) {
-          // Queue the seek: the scrub-preview effect loads the direct source
-          // and the pending seek applies on load. Seeking the stale element
-          // here would target the wrong media.
-          pendingScrubVideoSeekRef.current = mediaTime;
-        } else {
-          // No live scrub preview: drop the video element entirely; the
-          // static frame preview takes over.
-          vid.src = "";
-          vid.load();
-        }
-        return;
-      }
-      seekVideoElement(mediaTime);
+      seekVideoElement(clamped);
     },
-    [probeData, pausedFrameHeld, livePreviewSupported, seekVideoElement]
+    [probeData, seekVideoElement]
   );
 
   const stepBy = useCallback(
@@ -521,63 +308,53 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   }, []);
 
   useEffect(() => {
-    if (!livePreviewSupported || !filePath || !probeData) {
-      setScrubVideoReady(false);
-      if ((!filePath || !probeData) && !playingRef.current) {
+    const vid = videoRef.current;
+    if (!vid) return;
+    if (!filePath || !probeData) {
+      setVideoReady(false);
+      if (!playingRef.current) {
         scrubVideoSrcRef.current = null;
-        const vid = videoRef.current;
-        if (vid && !playingRef.current) {
-          vid.src = "";
-          vid.load();
-        }
+        pendingScrubVideoSeekRef.current = null;
+        vid.pause();
+        vid.removeAttribute("src");
+        vid.load();
       }
       return;
     }
+    if (videoLoadFailed) return;
 
-    // Direct playback reuses this same media element and source. Keep its
-    // ready state while playing so Stop can reveal the paused frame without
-    // swapping through the static preview first.
-    if (playing) return;
-
-    // A stopped playback may be holding its paused frame in the video element
-    // (generated clip or another non-preserved source). Don't steal the
-    // element for scrub preview here — replacing the source is what snapped
-    // the preview back to the start frame. The hold is released on scrub,
-    // play, or file change.
-    if (pausedFrameHeld) return;
-
-    const vid = videoRef.current;
-    if (!vid || usingGeneratedClipRef.current || clipUrlRef.current) return;
-
-    const [src] = buildPlaybackUrls(filePath);
+    if (playingRef.current) return;
+    const sources = buildPlaybackUrls(filePath);
+    const activeSource = vid.currentSrc || vid.src;
+    const activeIndex = sources.indexOf(activeSource);
+    if (activeIndex >= 0) {
+      sourceIndexRef.current = activeIndex;
+      scrubVideoSrcRef.current = activeSource;
+      return;
+    }
+    const src = sources[0];
     if (!src) return;
-    if (scrubVideoSrcRef.current === src && vid.src === src) return;
 
+    sourceIndexRef.current = 0;
     scrubVideoSrcRef.current = src;
-    setScrubVideoReady(false);
+    pendingScrubVideoSeekRef.current = null;
+    setVideoReady(false);
+    setVideoLoadFailed(false);
     vid.preload = "auto";
     vid.src = src;
     vid.load();
-  }, [
-    buildPlaybackUrls,
-    filePath,
-    isScrubbing,
-    pausedFrameHeld,
-    playing,
-    probeData,
-    livePreviewSupported,
-  ]);
+  }, [buildPlaybackUrls, filePath, probeData, playing, videoLoadFailed]);
 
   const handleVideoReady = useCallback(
     (event: React.SyntheticEvent<HTMLVideoElement>) => {
-      setScrubVideoReady(true);
       if (
         scrubVideoSrcRef.current !== null &&
-        event.currentTarget.src === scrubVideoSrcRef.current &&
-        !usingGeneratedClipRef.current
+        event.currentTarget.src !== scrubVideoSrcRef.current
       ) {
-        setDirectPreviewFailed(false);
+        return;
       }
+      setVideoReady(true);
+      setVideoLoadFailed(false);
       const pending = pendingScrubVideoSeekRef.current;
       if (pending === null) return;
       pendingScrubVideoSeekRef.current = null;
@@ -587,273 +364,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   );
 
   useEffect(() => {
-    if (!livePreviewSupported || previewTime === null || playing || usingGeneratedClipRef.current) {
-      return;
-    }
+    if (previewTime === null || playing) return;
     const dur = probeData?.duration ?? 0;
     const clamped = dur > 0 ? Math.max(0, Math.min(previewTime, dur)) : Math.max(0, previewTime);
     seekVideoElement(clamped);
-  }, [isScrubbing, playing, previewTime, probeData, seekVideoElement, livePreviewSupported]);
-
-  // ---------------------------------------------------------------------------
-  // Filmstrip loading — fires once per file load, runs in the background
-  // ---------------------------------------------------------------------------
-  const clearFilmstrip = useCallback(() => {
-    filmstripUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
-    filmstripUrlsRef.current = [];
-    setFilmstripIdx(null);
-  }, []);
-
-  useEffect(() => {
-    if (!filePath || !probeData || probeData.duration <= 0) {
-      clearFilmstrip();
-      return;
-    }
-    if (isScrubbing) {
-      // Keep a completed strip available for zero-IPC drag feedback. Clearing
-      // the URLs here would force every scrub update back onto exact frames.
-      return;
-    }
-    if (!shouldGenerateFilmstrip(useFfmpegPreviewFallback, initialPreviewSettled)) {
-      clearFilmstrip();
-      return;
-    }
-    const requestId = filmstripRequestIdRef.current + 1;
-    filmstripRequestIdRef.current = requestId;
-    const duration = probeData.duration;
-    const maxFrames = getFilmstripFrameBudget(duration);
-    const timer = window.setTimeout(() => {
-      getFilmstrip(filePath, duration, maxFrames, FILMSTRIP_PREVIEW_WIDTH, FILMSTRIP_PREVIEW_HEIGHT)
-        .then((rawBytes) => {
-          if (filmstripRequestIdRef.current !== requestId) return;
-          const frames = splitJpegStream(new Uint8Array(rawBytes.buffer as ArrayBuffer));
-          if (frames.length === 0) return;
-          // Revoke previous strip's URLs before replacing
-          filmstripUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
-          filmstripUrlsRef.current = frames.map((frame) => {
-            const blob = new Blob([frame], { type: "image/jpeg" });
-            return URL.createObjectURL(blob);
-          });
-        })
-        .catch(() => {
-          // Filmstrip is optional — scrubbing falls back to on-demand frames
-        });
-    }, 100);
-
-    return () => {
-      window.clearTimeout(timer);
-      if (filmstripRequestIdRef.current === requestId) {
-        filmstripRequestIdRef.current += 1;
-      }
-      void cancelPreviewGeneration();
-    };
-  }, [
-    clearFilmstrip,
-    filePath,
-    initialPreviewSettled,
-    isScrubbing,
-    probeData,
-    useFfmpegPreviewFallback,
-  ]);
-
-  // ---------------------------------------------------------------------------
-  // Frame preview (static JPEG)
-  // ---------------------------------------------------------------------------
-  const startFrameFetch = useCallback((request: FrameRequest) => {
-    if (frameRequestIdRef.current !== request.requestId) return;
-    frameInFlightRef.current = true;
-    setLoading(true);
-    void (async () => {
-      try {
-        const buffer = await getPreviewFrame(
-          request.path,
-          request.time,
-          request.previewWidth,
-          request.previewHeight
-        );
-        if (frameRequestIdRef.current !== request.requestId) return;
-        const blob = new Blob([buffer as Uint8Array<ArrayBuffer>], { type: "image/jpeg" });
-        const url = URL.createObjectURL(blob);
-        setFilmstripIdx(null); // exact frame is ready — stop showing filmstrip
-        setFrameUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev);
-          return url;
-        });
-      } catch {
-        if (frameRequestIdRef.current !== request.requestId) return;
-        setFilmstripIdx(null);
-        setFrameUrl(null);
-      } finally {
-        if (frameRequestIdRef.current === request.requestId) {
-          setInitialPreviewSettled(true);
-        }
-        frameInFlightRef.current = false;
-        // A superseding request actively terminates the old FFmpeg process.
-        // Wait for that cancellation command to advance the backend generation
-        // before starting the queued request, otherwise the new process can be
-        // mistaken for stale work and terminated too.
-        if (frameCancellationRef.current) return;
-        const queued = queuedFrameRequestRef.current;
-        queuedFrameRequestRef.current = null;
-        if (queued && frameRequestIdRef.current === queued.requestId) {
-          startFrameFetchRef.current(queued);
-          return;
-        }
-        setLoading(false);
-      }
-    })();
-  }, []);
-  startFrameFetchRef.current = startFrameFetch;
-
-  const fetchFrame = useCallback(
-    (path: string, time: number, requestId: number) => {
-      if (frameRequestIdRef.current !== requestId) return;
-      const { width, height } = getPreviewPixelSize();
-      const request = { path, time, requestId, previewWidth: width, previewHeight: height };
-      if (frameInFlightRef.current) {
-        queuedFrameRequestRef.current = request;
-        if (!frameCancellationRef.current) {
-          const cancellation = cancelPreviewFrameGeneration().catch(() => {});
-          frameCancellationRef.current = cancellation;
-          void cancellation.finally(() => {
-            if (frameCancellationRef.current !== cancellation) return;
-            frameCancellationRef.current = null;
-            if (frameInFlightRef.current) return;
-            const queued = queuedFrameRequestRef.current;
-            queuedFrameRequestRef.current = null;
-            if (queued && frameRequestIdRef.current === queued.requestId) {
-              startFrameFetchRef.current(queued);
-            } else {
-              setLoading(false);
-            }
-          });
-        }
-        return;
-      }
-      startFrameFetch(request);
-    },
-    [getPreviewPixelSize, startFrameFetch]
-  );
-
-  useEffect(() => {
-    const wasScrubbing = prevIsScrubbingRef.current;
-    prevIsScrubbingRef.current = isScrubbing;
-    if (!filePath || !probeData) {
-      frameRequestIdRef.current += 1;
-      queuedFrameRequestRef.current = null;
-      setLoading(false);
-      setFrameUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return null;
-      });
-      stopPlayback();
-      // No file: never hold a paused frame from the previous source.
-      setPausedFrameHeld(false);
-      return;
-    }
-    if (!useFfmpegPreviewFallback) {
-      frameRequestIdRef.current += 1;
-      queuedFrameRequestRef.current = null;
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      setLoading(false);
-      return;
-    }
-    const requestId = frameRequestIdRef.current + 1;
-    frameRequestIdRef.current = requestId;
-    const isNewFile = filePath !== prevFilePathRef.current;
-    if (isNewFile) {
-      // A new file invalidates any held paused frame from the old source.
-      setPausedFrameHeld(false);
-    }
-    const isInitialRange =
-      prevStartTimeRef.current === 0 &&
-      prevEndTimeRef.current === 0 &&
-      startTime === 0 &&
-      endTime > 0;
-    const startChanged = Math.abs(startTime - prevStartTimeRef.current) > 0.001;
-    const endChanged = Math.abs(endTime - prevEndTimeRef.current) > 0.001;
-    const explicitPreviewTime =
-      previewTime !== null && Number.isFinite(previewTime)
-        ? Math.max(0, Math.min(previewTime, probeData.duration))
-        : null;
-    const fetchReleasedScrubFrame = shouldFetchReleasedScrubFrame(
-      wasScrubbing,
-      isScrubbing,
-      explicitPreviewTime !== null
-    );
-    const frameTime =
-      explicitPreviewTime ??
-      (isNewFile || isInitialRange ? startTime : endChanged && !startChanged ? endTime : startTime);
-    prevFilePathRef.current = filePath;
-    prevStartTimeRef.current = startTime;
-    prevEndTimeRef.current = endTime;
-
-    // --- Show filmstrip frame immediately while debounce waits ---
-    const strip = filmstripUrlsRef.current;
-    const hasUsefulFilmstrip = isFilmstripUseful(strip.length, probeData.duration);
-    if (strip.length > 0 && probeData.duration > 0) {
-      const rawIdx = (frameTime / probeData.duration) * (strip.length - 1);
-      const idx = Math.max(0, Math.min(Math.round(rawIdx), strip.length - 1));
-      setFilmstripIdx(idx);
-    }
-
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    const fetchScrubFrame = shouldFetchScrubFrame(
-      isScrubbing,
-      hasUsefulFilmstrip,
-      livePreviewSupported,
-      scrubVideoReady
-    );
-    if (isScrubbing && !fetchScrubFrame) {
-      queuedFrameRequestRef.current = null;
-      setLoading(false);
-      return () => {
-        if (frameRequestIdRef.current === requestId) {
-          frameRequestIdRef.current += 1;
-        }
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-      };
-    }
-
-    // Direct media seeking is not available for every codec/WebView, and the
-    // optional filmstrip may still be loading or may have failed. Keep one
-    // FFmpeg frame request in flight and retain only the newest queued target
-    // so dragging either trim handle still updates the preview.
-    if (fetchScrubFrame || fetchReleasedScrubFrame) {
-      void fetchFrame(filePath, frameTime, requestId);
-      return () => {
-        if (frameRequestIdRef.current === requestId) {
-          frameRequestIdRef.current += 1;
-        }
-      };
-    }
-
-    debounceRef.current = setTimeout(
-      () => {
-        void fetchFrame(filePath, frameTime, requestId);
-      },
-      explicitPreviewTime !== null ? 160 : 100
-    );
-    return () => {
-      if (frameRequestIdRef.current === requestId) {
-        frameRequestIdRef.current += 1;
-      }
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    filePath,
-    startTime,
-    endTime,
-    previewTime,
-    isScrubbing,
-    fetchFrame,
-    probeData,
-    directPreviewFailed,
-    scrubVideoReady,
-    livePreviewSupported,
-    useFfmpegPreviewFallback,
-  ]);
+  }, [isScrubbing, playing, previewTime, probeData, seekVideoElement]);
 
   // ---------------------------------------------------------------------------
   // Video playback
@@ -870,14 +385,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const directSourceMatches =
       !!vid && scrubVideoSrcRef.current !== null && vid.src === scrubVideoSrcRef.current;
     const preserveDirectSource = canPreserveDirectVideoSource(
-      supportsLiveScrubPreviewRef.current,
       (vid?.readyState ?? 0) >= 1,
-      usingGeneratedClipRef.current,
       directSourceMatches
     );
-    // Always invalidate the session. A direct play() or generated-clip IPC
-    // request can still be pending before playingRef/handlers are populated;
-    // returning early in that window allowed stale media to start later.
+    // Always invalidate the session. A play() request can still be pending
+    // before playingRef/handlers are populated.
     playbackSessionRef.current += 1;
     clearEndBoundaryTimer();
     schedulePlaybackBoundaryRef.current = null;
@@ -890,54 +402,26 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       vid.onseeked = null;
       vid.onerror = null;
       vid.pause();
-      const pausedFrame = capturePreviewFrameDataUrl(vid);
-      if (pausedFrame) setPausedFrameDataUrl(pausedFrame);
-      if (!preserveDirectSource && (vid.readyState ?? 0) < 2) {
-        vid.src = "";
-        vid.load(); // abort any in-flight load
-      }
-      // When the media already has data (readyState >= 2), keep the source so
-      // the paused frame stays visible instead of jumping back to the start.
     }
-    // The `timeupdate` handler is intentionally low-frequency. Read the media
-    // element after pausing so a quick stop preserves the frame actually on
-    // screen, including the generated clip's source-time offset.
+    // Read the media element after pausing so a quick stop preserves the
+    // position shown by the HTML player.
     const stoppedTime =
       vid && vid.readyState >= 1 ? getPlaybackTime() : currentPlaybackTimeRef.current;
     const preservedTime = getStoppedPlaybackTime(stoppedTime, startTime, endTime);
-    // Hold the paused frame on screen when the video kept a non-preserved
-    // source (e.g. a generated clip). The scrub-preview effect must not
-    // replace the element's source until the user scrubs or plays again.
-    setPausedFrameHeld(shouldHoldPausedFrame(preserveDirectSource, vid?.readyState));
     if (!preserveDirectSource) {
       scrubVideoSrcRef.current = null;
-      setScrubVideoReady(false);
+      setVideoReady(false);
     }
-    generatedClipEndTimeRef.current = null;
-    playbackOffsetRef.current = 0;
-    usingGeneratedClipRef.current = false;
     currentPlaybackTimeRef.current = preservedTime;
     setCurrentPlaybackTime(preservedTime);
-    if (clipUrlRef.current) {
-      clipUrlRef.current = null;
-    }
     playingRef.current = false;
     setPlaying(false);
-    // A stop can land while a clip is still transcoding (file change, new
-    // import). Invalidate that request before allowing a new one to start.
-    generatedClipRequestRef.current += 1;
-    generatingClipRef.current = false;
-    setGeneratingPreview(false);
     onTimeUpdateRef.current?.(preservedTime);
   }, [clearEndBoundaryTimer, endTime, getPlaybackTime, startTime]);
 
   const handlePlaybackBoundary = useCallback(() => {
     if (!playingRef.current) return;
-    const generatedClipCoversTrimEnd =
-      !usingGeneratedClipRef.current ||
-      (generatedClipEndTimeRef.current !== null &&
-        generatedClipEndTimeRef.current >= endTime - 0.05);
-    if (loopPlayback && endTime > startTime && generatedClipCoversTrimEnd) {
+    if (loopPlayback && endTime > startTime) {
       seekTo(startTime);
       schedulePlaybackBoundaryRef.current?.();
       const vid = videoRef.current;
@@ -946,11 +430,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       }
       return;
     }
-    const completedTime = getCompletedPlaybackTime(
-      currentPlaybackTimeRef.current,
-      endTime,
-      generatedClipCoversTrimEnd
-    );
+    const completedTime = getCompletedPlaybackTime(currentPlaybackTimeRef.current, endTime, true);
     currentPlaybackTimeRef.current = completedTime;
     setCurrentPlaybackTime(completedTime);
     onTimeUpdateRef.current?.(completedTime);
@@ -958,12 +438,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   }, [endTime, loopPlayback, seekTo, startTime, stopPlayback]);
 
   const startPlayback = useCallback(() => {
-    // A new playback takes over the video element; release any held frame.
-    setPausedFrameHeld(false);
-    if (generatingClipRef.current) return;
     if (!filePath || !probeData) return;
     const vid = videoRef.current;
     if (!vid) return;
+    setVideoLoadFailed(false);
     const session = playbackSessionRef.current + 1;
     playbackSessionRef.current = session;
     vid.muted = removeAudio;
@@ -972,13 +450,14 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     // trim range; otherwise start at trim-in.
     const scrubbed = currentPlaybackTimeRef.current;
     const resumeTime = scrubbed >= startTime && scrubbed < endTime ? scrubbed : startTime;
-    const resumeClipOffset = Math.max(0, resumeTime - startTime);
     currentPlaybackTimeRef.current = resumeTime;
     setCurrentPlaybackTime(resumeTime);
     onTimeUpdateRef.current?.(resumeTime);
     const sources = buildPlaybackUrls(filePath);
     if (sources.length === 0) return;
-    let sourceIndex = 0;
+    const loadedSource = vid.currentSrc || vid.src;
+    const loadedSourceIndex = sources.indexOf(loadedSource);
+    let sourceIndex = loadedSourceIndex >= 0 ? loadedSourceIndex : sourceIndexRef.current;
 
     // `timeupdate` drives UI position updates; a one-shot timer enforces the
     // trim out point more tightly than the media pipeline's low-frequency event.
@@ -1018,89 +497,6 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       scheduleBoundaryTimer();
     };
 
-    const playGeneratedClip = async () => {
-      if (generatingClipRef.current) return;
-      const request = ++generatedClipRequestRef.current;
-      generatingClipRef.current = true;
-      setGeneratingPreview(true);
-      try {
-        const fallbackStartTime = Math.max(startTime, Math.min(resumeTime, endTime));
-        const fallbackEndTime = Math.min(
-          endTime,
-          fallbackStartTime + MAX_GENERATED_PREVIEW_CLIP_SECONDS
-        );
-        const { width: previewWidth, height: previewHeight } = getPreviewPixelSize();
-        const clipKey = `${sourceGeneration}\0${filePath}\0${Math.round(
-          fallbackStartTime * 1000
-        )}\0${Math.round(fallbackEndTime * 1000)}\0${previewWidth}x${previewHeight}`;
-        let clipUrl =
-          generatedClipCacheRef.current?.key === clipKey ? generatedClipCacheRef.current.url : null;
-        if (!clipUrl) {
-          const buffer = await getPreviewClip(
-            filePath,
-            fallbackStartTime,
-            fallbackEndTime,
-            previewWidth,
-            previewHeight
-          );
-          if (playbackSessionRef.current !== session) return;
-          const blob = new Blob([buffer as Uint8Array<ArrayBuffer>], { type: "video/mp4" });
-          clipUrl = URL.createObjectURL(blob);
-          if (generatedClipCacheRef.current) {
-            URL.revokeObjectURL(generatedClipCacheRef.current.url);
-          }
-          generatedClipCacheRef.current = { key: clipKey, sourceGeneration, url: clipUrl };
-        }
-        if (playbackSessionRef.current !== session) return;
-        clipUrlRef.current = clipUrl;
-        usingGeneratedClipRef.current = true;
-        generatedClipEndTimeRef.current = fallbackEndTime;
-        playbackOffsetRef.current = fallbackStartTime;
-        vid.onloadedmetadata = () => {
-          vid.onloadedmetadata = null;
-          vid.currentTime = 0;
-        };
-        vid.src = clipUrl;
-        // The generated clip carries audio, but it arrives after the original
-        // click handler has returned, so WebKit may refuse unmuted playback
-        // without a fresh user gesture. Try with audio first; if the browser
-        // blocks or pauses it, fall back to muted instead of a stuck preview.
-        const playGeneratedClipWithAudio = async (muted: boolean): Promise<boolean> => {
-          vid.muted = muted || removeAudio;
-          try {
-            await vid.play();
-          } catch {
-            return false;
-          }
-          return !vid.paused;
-        };
-        const playbackStarted =
-          (await playGeneratedClipWithAudio(false)) || (await playGeneratedClipWithAudio(true));
-        if (!playbackStarted) {
-          if (playbackSessionRef.current === session) {
-            onPlaybackErrorRef.current?.("Couldn't play the preview clip.");
-            stopPlayback();
-          }
-          return;
-        }
-        if (playbackSessionRef.current !== session) return;
-        setPausedFrameDataUrl(null);
-        playingRef.current = true;
-        setPlaying(true);
-        ensureStopTimer();
-      } catch {
-        if (playbackSessionRef.current === session) {
-          onPlaybackErrorRef.current?.("Couldn't prepare the preview clip.");
-          stopPlayback();
-        }
-      } finally {
-        if (generatedClipRequestRef.current === request) {
-          generatingClipRef.current = false;
-          setGeneratingPreview(false);
-        }
-      }
-    };
-
     vid.oncanplay = null;
     vid.onerror = null;
     vid.onloadedmetadata = null;
@@ -1109,30 +505,29 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const beginPlayback = (index: number) => {
       if (playbackSessionRef.current !== session) return;
       if (index >= sources.length) {
+        setVideoLoadFailed(true);
+        onPlaybackErrorRef.current?.("Couldn't play this video in the HTML preview.");
         stopPlayback();
         return;
       }
       sourceIndex = index;
-      usingGeneratedClipRef.current = false;
-      generatedClipEndTimeRef.current = null;
-      playbackOffsetRef.current = 0;
+      sourceIndexRef.current = index;
       const source = sources[index];
+      scrubVideoSrcRef.current = source;
       const reuseDirectSource = canPreserveDirectVideoSource(
-        supportsLiveScrubPreviewRef.current,
         vid.readyState >= 1,
-        false,
-        index === 0 && scrubVideoSrcRef.current === source && vid.src === source
+        vid.src === source
       );
       if (reuseDirectSource) {
         seekVideoElement(resumeTime);
       } else {
         vid.src = source;
+        vid.load();
       }
       vid
         .play()
         .then(() => {
           if (playbackSessionRef.current !== session) return;
-          setPausedFrameDataUrl(null);
           playingRef.current = true;
           setPlaying(true);
           ensureStopTimer();
@@ -1143,17 +538,22 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
             beginPlayback(index + 1);
             return;
           }
-          void playGeneratedClip();
+          setVideoLoadFailed(true);
+          onPlaybackErrorRef.current?.("Couldn't play this video in the HTML preview.");
+          stopPlayback();
         });
     };
 
     vid.onerror = () => {
       if (playbackSessionRef.current !== session) return;
+      if (vid.src !== sources[sourceIndex]) return;
       if (sourceIndex + 1 < sources.length) {
         beginPlayback(sourceIndex + 1);
         return;
       }
-      void playGeneratedClip();
+      setVideoLoadFailed(true);
+      onPlaybackErrorRef.current?.("Couldn't play this video in the HTML preview.");
+      stopPlayback();
     };
 
     // Seek to the current playhead once the browser knows the media duration.
@@ -1161,40 +561,42 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     // async play() call is not blocked by WebView2's autoplay policy.
     vid.onloadedmetadata = () => {
       vid.onloadedmetadata = null;
-      vid.currentTime = usingGeneratedClipRef.current ? resumeClipOffset : resumeTime;
+      vid.currentTime = resumeTime;
     };
-
-    // Native preview is unusable for this source (or already failed), so skip
-    // the direct media element and go straight to the FFmpeg-generated clip.
-    if (directPreviewFailed) {
-      void playGeneratedClip();
-      return;
-    }
 
     // play() must be called synchronously inside the user-gesture handler.
     // Calling it inside oncanplay (async) breaks WebView2/Chrome's autoplay
     // policy — the promise is rejected and stopPlayback() fires immediately.
-    beginPlayback(0);
+    beginPlayback(loadedSourceIndex >= 0 ? loadedSourceIndex : 0);
   }, [
     filePath,
     probeData,
     startTime,
     endTime,
     removeAudio,
-    sourceGeneration,
     stopPlayback,
     buildPlaybackUrls,
     getPlaybackTime,
     seekVideoElement,
     clearEndBoundaryTimer,
     handlePlaybackBoundary,
-    directPreviewFailed,
-    getPreviewPixelSize,
   ]);
 
   const handleVideoEnded = useCallback(() => {
     handlePlaybackBoundary();
   }, [handlePlaybackBoundary]);
+
+  const captureCurrentFrame = useCallback(() => capturePreviewFramePng(videoRef.current), []);
+
+  const captureAndSaveSnapshot = useCallback(async () => {
+    if (!onSnapshot) return;
+    try {
+      const pngBytes = await captureCurrentFrame();
+      await onSnapshot(pngBytes);
+    } catch (error: unknown) {
+      onSnapshotError?.(String(error));
+    }
+  }, [captureCurrentFrame, onSnapshot, onSnapshotError]);
 
   // Expose handle so App.tsx can drive playback from keyboard shortcuts
   useImperativeHandle(
@@ -1206,21 +608,15 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       getCurrentTime: () => getPlaybackTime(),
       seekTo,
       stepBy,
+      captureCurrentFrame,
     }),
-    [startPlayback, stopPlayback, getPlaybackTime, seekTo, stepBy]
+    [startPlayback, stopPlayback, getPlaybackTime, seekTo, stepBy, captureCurrentFrame]
   );
 
   // Cleanup on unmount
   useEffect(
     () => () => {
       stopPlayback();
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      setFrameUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return null;
-      });
-      filmstripUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
-      filmstripUrlsRef.current = [];
     },
     [stopPlayback]
   );
@@ -1229,41 +625,15 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // Render
   // ---------------------------------------------------------------------------
   const canPlay = !!filePath && !!probeData && endTime > startTime;
-  const showDirectPreviewVideo = shouldShowDirectPreviewVideo(
-    livePreviewSupported,
-    probeData !== null,
-    scrubVideoReady,
-    playing
-  );
-  // While a paused frame is held after stopping, keep the video element
-  // visible so the held frame stays on screen instead of swapping to a
-  // stale static preview.
-  const showHeldPausedFrame = !playing && pausedFrameHeld;
-
-  // FFmpeg stills and filmstrips are the Linux fallback when WebKitGTK cannot
-  // load the source. Otherwise the ready web player stays mounted through
-  // preview, playback, and pause.
-  const displayUrl =
-    filmstripIdx !== null && filmstripUrlsRef.current[filmstripIdx]
-      ? filmstripUrlsRef.current[filmstripIdx]
-      : frameUrl;
-
+  const showPreviewVideo = !!filePath && !!probeData && videoReady;
   return (
     <div
       className={`preview-pane${filePath ? " has-media" : " is-empty"}`}
-      ref={previewContainerRef}
       style={containerStyle}
-      aria-busy={loadingVideo || loading}
+      aria-busy={loadingVideo || (!!filePath && !videoReady && !videoLoadFailed)}
     >
       <PreviewCrop crop={cropAspectRatio}>
-        {/* Static frame preview */}
-        {!loadingVideo &&
-        displayUrl &&
-        !playing &&
-        !showDirectPreviewVideo &&
-        !showHeldPausedFrame ? (
-          <img src={displayUrl} alt="Video frame preview" style={imgStyle} />
-        ) : !playing && !showDirectPreviewVideo && !showHeldPausedFrame ? (
+        {!playing && !showPreviewVideo && (
           <span className="preview-placeholder" role="status" aria-live="polite">
             {!filePath && (
               <svg
@@ -1286,49 +656,33 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
             <span>
               {loadingVideo
                 ? "Reading video…"
-                : loading && filmstripUrlsRef.current.length === 0
-                  ? "Loading preview…"
+                : videoLoadFailed
+                  ? "HTML video preview unavailable"
                   : filePath
-                    ? "Preview"
+                    ? "Loading preview…"
                     : "No file selected"}
             </span>
           </span>
-        ) : null}
-
-        {/* Video element for playback */}
+        )}
         <video
           ref={videoRef}
+          crossOrigin="anonymous"
           muted={removeAudio}
           playsInline
           preload="metadata"
-          style={
-            playing || showDirectPreviewVideo || showHeldPausedFrame
-              ? videoVisibleStyle
-              : videoHiddenStyle
-          }
+          style={playing || showPreviewVideo ? videoVisibleStyle : videoHiddenStyle}
           onLoadedMetadata={handleVideoReady}
           onCanPlay={handleVideoReady}
-          onError={(event) => {
-            setScrubVideoReady(false);
-            if (
-              filePath &&
-              livePreviewSupported &&
-              scrubVideoSrcRef.current !== null &&
-              event.currentTarget.src === scrubVideoSrcRef.current &&
-              !usingGeneratedClipRef.current
-            ) {
-              setDirectPreviewFailed(true);
-            }
+          onError={() => {
+            setVideoReady(false);
+            setVideoLoadFailed(true);
           }}
           onEnded={handleVideoEnded}
         />
-        {!playing && pausedFrameDataUrl && (
-          <img src={pausedFrameDataUrl} alt="" aria-hidden="true" style={pausedFrameOverlayStyle} />
-        )}
       </PreviewCrop>
 
-      {/* Play/Stop overlay — shown when the platform preview is available. */}
-      {canPlay && livePreviewSupported && (
+      {/* Play/Stop overlay controls the HTML video element from the Tauri UI. */}
+      {canPlay && (
         <div
           className={`preview-controls${playing ? " is-playing" : ""}`}
           style={overlayGroupStyle}
@@ -1338,33 +692,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
               type="button"
               className="preview-control-button"
               onClick={startPlayback}
-              disabled={generatingPreview}
-              title={generatingPreview ? "Preparing preview…" : "Play trim segment"}
-              aria-label={generatingPreview ? "Preparing preview" : "Play trim segment"}
+              title="Play trim segment"
+              aria-label="Play trim segment"
               style={overlayBtnStyle}
             >
-              {generatingPreview ? (
-                <svg
-                  className="preview-generating-spinner"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 20 20"
-                  fill="none"
-                  aria-hidden="true"
-                >
-                  <circle cx="10" cy="10" r="7" stroke="rgba(255,255,255,0.25)" strokeWidth="2.5" />
-                  <path
-                    d="M17 10a7 7 0 0 0-7-7"
-                    stroke="white"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              ) : (
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                  <polygon points="5,3 17,10 5,17" fill="white" />
-                </svg>
-              )}
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <polygon points="5,3 17,10 5,17" fill="white" />
+              </svg>
             </button>
           ) : (
             <button
@@ -1387,9 +721,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         <button
           type="button"
           className="preview-control-button snapshot-button"
-          onClick={() => onSnapshot(currentPlaybackTime)}
-          title="Capture frame snapshot to clipboard (Cmd+Shift+S / Ctrl+Shift+S)"
-          aria-label="Capture frame snapshot to clipboard"
+          onClick={() => void captureAndSaveSnapshot()}
+          title="Save the current preview frame (Cmd+Shift+S / Ctrl+Shift+S)"
+          aria-label="Save preview frame snapshot"
           style={snapshotBtnStyle}
         >
           <svg

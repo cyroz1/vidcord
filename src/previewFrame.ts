@@ -16,3 +16,20 @@ export function capturePreviewFrameDataUrl(video: HTMLVideoElement): string | nu
     return null;
   }
 }
+
+export async function capturePreviewFramePng(video: HTMLVideoElement | null): Promise<Uint8Array> {
+  if (!video || video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
+    throw new Error("The preview frame is not ready yet.");
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("The app could not create a snapshot canvas.");
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!blob) throw new Error("The app could not encode the snapshot.");
+  return new Uint8Array(await blob.arrayBuffer());
+}

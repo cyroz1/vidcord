@@ -21,6 +21,7 @@ npm run e2e           # both suites in sequence
 The desktop build enables Tauri's embedded WebDriver and the test-only dialog mock bridge. Those
 hooks are behind the `e2e` Cargo feature and `VITE_VIDCORD_E2E=1`; normal development and release
 builds do not include them. File and folder picker responses are mocked so runs are unattended,
+and `VIDCORD_E2E_DATA_DIR` isolates test settings from the user's profile on every platform,
 while FFmpeg probing, encoding, output publication, and output verification use the real backend.
 
 Screenshots, the desktop app log, Playwright traces, and reports are saved under

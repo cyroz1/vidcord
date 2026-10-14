@@ -2,147 +2,22 @@ import { describe, expect, it } from "vitest";
 import {
   canPreserveDirectVideoSource,
   getCompletedPlaybackTime,
-  getFilmstripFrameBudget,
   getStoppedPlaybackTime,
-  isFilmstripUseful,
-  shouldFetchReleasedScrubFrame,
-  shouldFetchScrubFrame,
-  shouldGenerateFilmstrip,
-  shouldHoldPausedFrame,
-  shouldShowDirectPreviewVideo,
 } from "../previewScrub";
 
-describe("shouldFetchScrubFrame", () => {
-  it("uses FFmpeg while dragging when neither live scrubbing nor a filmstrip is ready", () => {
-    expect(shouldFetchScrubFrame(true, false, true, false)).toBe(true);
-  });
-
-  it("does not fetch when live scrubbing is ready", () => {
-    expect(shouldFetchScrubFrame(true, false, true, true)).toBe(false);
-  });
-
-  it("does not fetch when filmstrip frames can update immediately", () => {
-    expect(shouldFetchScrubFrame(true, true, false, false)).toBe(false);
-  });
-
-  it("does not fetch outside an active drag", () => {
-    expect(shouldFetchScrubFrame(false, false, false, false)).toBe(false);
-  });
-});
-
-describe("shouldFetchReleasedScrubFrame", () => {
-  it("fetches the exact paused frame immediately when a drag ends", () => {
-    expect(shouldFetchReleasedScrubFrame(true, false, true)).toBe(true);
-  });
-
-  it("keeps normal non-drag preview updates debounced", () => {
-    expect(shouldFetchReleasedScrubFrame(false, false, true)).toBe(false);
-  });
-
-  it("does not fetch while the drag is still active", () => {
-    expect(shouldFetchReleasedScrubFrame(true, true, true)).toBe(false);
-  });
-
-  it("requires an explicit final preview position", () => {
-    expect(shouldFetchReleasedScrubFrame(true, false, false)).toBe(false);
-  });
-});
-
-describe("shouldShowDirectPreviewVideo", () => {
-  it("shows a ready direct source as soon as probing completes", () => {
-    expect(shouldShowDirectPreviewVideo(true, true, true, false)).toBe(true);
-  });
-
-  it("keeps the direct video frame visible after scrubbing settles", () => {
-    expect(shouldShowDirectPreviewVideo(true, true, true, false)).toBe(true);
-  });
-
-  it("falls back to generated frames when direct preview is unavailable", () => {
-    expect(shouldShowDirectPreviewVideo(false, true, true, false)).toBe(false);
-    expect(shouldShowDirectPreviewVideo(true, true, false, false)).toBe(false);
-  });
-
-  it("lets active playback control video visibility", () => {
-    expect(shouldShowDirectPreviewVideo(true, true, true, true)).toBe(false);
-  });
-
-  it("does not show the video until probing validates the selected file", () => {
-    expect(shouldShowDirectPreviewVideo(true, false, true, false)).toBe(false);
-  });
-});
-
-describe("shouldGenerateFilmstrip", () => {
-  it("waits for the first exact preview before starting background work", () => {
-    expect(shouldGenerateFilmstrip(true, false)).toBe(false);
-  });
-
-  it("uses filmstrips only for Linux", () => {
-    expect(shouldGenerateFilmstrip(true, true)).toBe(true);
-    expect(shouldGenerateFilmstrip(false, true)).toBe(false);
-  });
-});
-
-describe("isFilmstripUseful", () => {
-  it("accepts a representative keyframe strip", () => {
-    expect(isFilmstripUseful(25, 27)).toBe(true);
-  });
-
-  it("keeps exact-frame fetching enabled for unusually sparse strips", () => {
-    expect(isFilmstripUseful(3, 27)).toBe(false);
-  });
-
-  it("allows small strips for very short videos", () => {
-    expect(isFilmstripUseful(2, 3)).toBe(true);
-  });
-});
-
-describe("getFilmstripFrameBudget", () => {
-  it("limits sparse long-video generation to the useful minimum", () => {
-    expect(getFilmstripFrameBudget(180)).toBe(8);
-    expect(getFilmstripFrameBudget(1_200)).toBe(8);
-  });
-
-  it("keeps a denser strip for short clips", () => {
-    expect(getFilmstripFrameBudget(179.9)).toBe(30);
-  });
-});
-
 describe("canPreserveDirectVideoSource", () => {
-  it("reuses a ready matching direct source across play and stop", () => {
-    expect(canPreserveDirectVideoSource(true, true, false, true)).toBe(true);
+  it("reuses a ready matching HTML video source across play and stop", () => {
+    expect(canPreserveDirectVideoSource(true, true)).toBe(true);
   });
 
-  it("does not preserve generated clips or a different source", () => {
-    expect(canPreserveDirectVideoSource(true, true, true, true)).toBe(false);
-    expect(canPreserveDirectVideoSource(true, true, false, false)).toBe(false);
-  });
-
-  it("requires direct preview support and loaded media", () => {
-    expect(canPreserveDirectVideoSource(false, true, false, true)).toBe(false);
-    expect(canPreserveDirectVideoSource(true, false, false, true)).toBe(false);
-  });
-});
-
-describe("shouldHoldPausedFrame", () => {
-  it("holds the frame when a non-preserved source already has media data", () => {
-    expect(shouldHoldPausedFrame(false, 2)).toBe(true);
-    expect(shouldHoldPausedFrame(false, 3)).toBe(true);
-    expect(shouldHoldPausedFrame(false, 4)).toBe(true);
-  });
-
-  it("does not hold when the source was preserved for scrub preview", () => {
-    expect(shouldHoldPausedFrame(true, 4)).toBe(false);
-  });
-
-  it("does not hold when the media has not loaded yet", () => {
-    expect(shouldHoldPausedFrame(false, 0)).toBe(false);
-    expect(shouldHoldPausedFrame(false, 1)).toBe(false);
-    expect(shouldHoldPausedFrame(false, undefined)).toBe(false);
+  it("does not preserve an unready or different source", () => {
+    expect(canPreserveDirectVideoSource(false, true)).toBe(false);
+    expect(canPreserveDirectVideoSource(true, false)).toBe(false);
   });
 });
 
 describe("getStoppedPlaybackTime", () => {
-  it("preserves a paused or failed playback position inside the trim", () => {
+  it("preserves a paused position inside the trim", () => {
     expect(getStoppedPlaybackTime(9.2, 4, 12)).toBe(9.2);
   });
 
@@ -158,7 +33,7 @@ describe("getCompletedPlaybackTime", () => {
     expect(getCompletedPlaybackTime(11.82, 12, true)).toBe(12);
   });
 
-  it("preserves progress when a generated fallback clip ends before trim-out", () => {
+  it("preserves progress if the media ends before the selected trim-out", () => {
     expect(getCompletedPlaybackTime(11.82, 20, false)).toBe(11.82);
   });
 });

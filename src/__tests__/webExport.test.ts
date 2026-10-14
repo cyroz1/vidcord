@@ -754,6 +754,42 @@ describe("browser export planning", () => {
     expect(result.bytes).toBe(16_000);
   });
 
+  it("rebuilds the GIF palette in the replacement worker after a render stalls", async () => {
+    let sessionCount = 0;
+    const palettes: string[][] = [];
+    const engine = {
+      createSession: async () => {
+        const index = sessionCount++;
+        const prepared: string[] = [];
+        palettes.push(prepared);
+        return {
+          prepareFile: async (_args: unknown, name: string) => {
+            prepared.push(name);
+          },
+          transcode: async (args: (input: string) => string[]) => {
+            if (index === 0) throw new EncoderStallError("render stalled");
+            const inputs = args("input.mp4");
+            const palette = inputs[inputs.lastIndexOf("-i") + 1];
+            if (!prepared.includes(palette)) throw new Error("No such palette");
+            return new Uint8Array(16_000);
+          },
+          dispose: async () => undefined,
+        };
+      },
+    } as unknown as BrowserFfmpegEngine;
+    const result = await exportBrowserFile({
+      engine,
+      file: { name: "capture.mp4" } as File,
+      metadata,
+      settings: normalizeBrowserSettings({ mode: "gif" }),
+      mode: "gif",
+      startTime: 0,
+      endTime: 4,
+    });
+    expect(palettes).toEqual([["palette-0.png"], ["palette-0.png"]]);
+    expect(result.bytes).toBe(16_000);
+  });
+
   it("surfaces the stall error instead of retrying forever", async () => {
     let transcodeCalls = 0;
     const session = {

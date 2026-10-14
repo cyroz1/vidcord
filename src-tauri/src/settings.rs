@@ -98,6 +98,12 @@ impl Settings {
 
 fn settings_path() -> &'static PathBuf {
     SETTINGS_PATH.get_or_init(|| {
+        #[cfg(feature = "e2e")]
+        if let Some(directory) = std::env::var_os("VIDCORD_E2E_DATA_DIR") {
+            return PathBuf::from(directory)
+                .join("vidcord")
+                .join("settings.json");
+        }
         let base = dirs::data_local_dir()
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")));
         base.join("vidcord").join("settings.json")

@@ -4,7 +4,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 
 ## Project overview
 
-**vidcord** is a cross-platform desktop video compressor with a quick browser edition for no-install use. The desktop app is the headline product for faster encoding, GPU support, and OS integrations. The desktop app is built with **Tauri 2** (Rust backend + React/TypeScript frontend) and shells out to the system **FFmpeg** binary for all native video work. It does **not** bundle system FFmpeg — the desktop app requires `ffmpeg`/`ffprobe` on `PATH`; the hosted browser edition uses its separate FFmpeg WebAssembly build instead.
+**vidcord** is a cross-platform desktop video compressor with a quick browser edition for no-install use. The desktop app is the headline product for faster encoding, GPU support, and OS integrations. The desktop app is built with **Tauri 2** (Rust backend + React/TypeScript frontend), uses the HTML video player for preview and playback, and shells out to the system **FFmpeg** binary for native probing and encoding. It does **not** bundle system FFmpeg — the desktop app requires `ffmpeg`/`ffprobe` on `PATH`; the hosted browser edition uses its separate FFmpeg WebAssembly build instead.
 
 - **App version**: kept in sync across `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and any `vX.Y` references in source/docs (see "Bumping the version" below)
 - **Native window**: fixed 460×690, user non-resizable/non-maximizable, opaque window background with macOS Tahoe "liquid glass" styling inside the app surface
@@ -31,7 +31,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   ├── losslessTrim.ts         # Pure lossless-fit, keyframe-snap, and keyframe-normalization helpers
 │   ├── settingsPresets.ts      # Preset schema, normalization, equality, and parsing helpers
 │   ├── components/
-│   │   ├── PreviewPane.tsx    # Video preview + scrub thumbnail + filmstrip
+│   │   ├── PreviewPane.tsx    # HTML video preview + Tauri-controlled playback and seeking
 │   │   ├── ProgressSection.tsx# Compression progress bar + ETA
 │   │   ├── TrimTimeline.tsx   # Memoized trim controls, shortcuts, zoom, playhead UI
 │   │   ├── Toast.tsx          # Single toast row
@@ -49,7 +49,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   │   ├── main.rs            # Thin entry — calls lib::run()
 │   │   ├── lib.rs             # Tauri builder, platform shims/theme, file-open routing
 │   │   ├── desktop_integration.rs # Linux AppImage folder Open With registration
-│   │   ├── ffmpeg.rs          # probe / preview / filmstrip / VAAPI discovery + caches
+│   │   ├── ffmpeg.rs          # probe / VAAPI discovery + caches
 │   │   ├── ffmpeg/
 │   │   │   └── encoders.rs    # FFmpeg encoder detection + encoder cache invalidation
 │   │   ├── gpu.rs             # Vendor detection (lspci / system_profiler / Get-CimInstance)
@@ -335,6 +335,10 @@ banners retain their in-app order, preserve the non-blocking response listener, 
 macOS notification-permission denial, register Linux's default action, and escape Linux notification
 markup so errors render as literal text.
 
+Single-file export preparation owns an abort signal while output paths and GPU discovery resolve. Cancelling in that phase must invalidate the pending export before it can invoke the backend, without allowing a stale preparation result to clear a newer operation.
+
+Native GIF exports generate a palette into an owned temporary PNG in a separate pass before rendering. Both passes retain the same compression job and cancellation ownership. Keep the decoded-frame path free of a split waiting for an end-of-stream palette.
+
 Compression uses a single owned backend job ID. Cancellation keeps that job active until its FFmpeg
 process exits; do not clear frontend compression state before the matching `compress-done` event or
 replace the job-specific state with an unowned global PID. Cancellation gives the owned process a
@@ -448,13 +452,12 @@ Every `std::process::Command::new("ffmpeg"|"ffprobe")` in Rust must:
    }
    ```
 3. Validate any string interpolated into arguments. Encoder names are validated with `c.is_ascii_alphanumeric() || c == '_'` before being passed as `-c:v`; extend that pattern when adding new user-string args.
-4. Short discovery/version commands must use `spawn_captured_command()` plus `wait_for_output()` with a finite deadline, output cap, and kill/reap cleanup. Do not use unbounded `.status()` or `.output()` on startup-facing FFmpeg, FFprobe, GPU, or package-manager probes. Long preview/compression jobs keep their existing generation/job cancellation paths instead.
+4. Short discovery/version commands must use `spawn_captured_command()` plus `wait_for_output()` with a finite deadline, output cap, and kill/reap cleanup. Do not use unbounded `.status()` or `.output()` on startup-facing FFmpeg, FFprobe, GPU, or package-manager probes. Long compression jobs keep their existing generation/job cancellation paths instead.
 
 ### Caches
 
 - `ENCODER_CACHE` (`src-tauri/src/ffmpeg/encoders.rs`) — memoised encoder list plus the H.264 hardware encoders that passed a bounded one-frame initialization test. Only validated hardware is eligible for first-run auto-selection; listed-but-unusable encoders remain available for an explicit choice. Call `invalidate_encoder_cache()` after a successful FFmpeg install. The frontend also persists the last validated capability list in `encoder_capabilities` so startup can restore it immediately, then refreshes discovery after a quiet idle window that resets while a video probe is active.
 - `VAAPI_CACHE` (`src-tauri/src/ffmpeg.rs`) — probes `/dev/dri/renderD*` once per session.
-- `PREVIEW_FRAME_CACHE` (`src-tauri/src/ffmpeg.rs`) — 60-entry / 16 MB LRU, keyed by `(path_hash, time_100ms, preview_width, preview_height)`.
 - `FFMPEG_AVAIL_CACHE` (`src-tauri/src/commands/encoders.rs`) — 30 s TTL on `ffmpeg`/`ffprobe -version` probes, with `ffmpeg_available_fresh()` for post-install bypass.
 
 On Windows, encoder detection and fresh availability probes also recover a standard WinGet
@@ -463,18 +466,12 @@ the current process PATH. This handles PATH registry updates that cannot propaga
 running vidcord process. Keep the lookup constrained to WinGet roots and require both
 `ffmpeg.exe` and `ffprobe.exe` before using a directory.
 
-Call `clear_preview_caches_for_path(path)` when the frontend loads a new file
-(already done in `probe`) so preview reuse survives switching sources without
-retaining stale entries for the file being re-probed.
 FFprobe child PIDs have a separate generation token and a six-second deadline. Starting a newer
 import must terminate older probes so stale metadata work cannot consume the full timeout. Desktop
 batch import uses the `probe_batch` IPC command to run at most two FFprobe jobs concurrently under
 one generation; preserve generation-wide cancellation when that batch is superseded.
-Preview FFmpeg child PIDs are tracked by a generation token. Call `cancel_preview_jobs()` before
-starting work that should supersede previews; `probe` and `compress_video` already do this, and the
-frontend invokes `cancel_preview_generation` when the preview unmounts.
-Preview frame and filmstrip IPC accepts optional preview dimensions; the backend clamps them to even values before building FFmpeg scale filters. Filmstrips are a fallback: they start after the first exact frame on Linux or when native media preview loading fails, decode keyframes into at most 30 lower-resolution frames (eight for videos of 3+ minutes), and are skipped when direct seeking works. If a source has too few keyframes, scrubbing continues requesting exact frames instead of relying on the sparse strip. Videos of 3+ minutes use sparse seeks for filmstrip generation instead of a dense single-pass `fps` filter. Preview frame, filmstrip, and generated-clip commands have bounded deadlines and output sizes. A failed hardware preview decode disables further hardware-decode attempts for that imported source. Generated preview clips are bounded to a short playhead-relative window, try platform H.264 hardware encoders first, then fall back through software `libx264`. Generated clips are not cached in Rust because returning cached owned IPC bytes requires another large copy; the frontend retains and revokes one Blob URL keyed by import generation, path, and clip range instead.
-The frontend keeps only the newest fallback-frame target and actively cancels an older in-flight preview generation before launching it; preserve that cancellation handshake so slow stale seeks cannot block the released scrub position.
+
+Desktop preview uses the HTML `<video>` element on every platform. The Tauri UI controls its playback and seek position directly. Do not use FFmpeg to generate preview frames, filmstrips, or playback clips. Frame snapshots are captured from the current HTML video frame and saved through a Tauri file command.
 
 ### Settings
 
@@ -622,7 +619,7 @@ browser output. Content and marketing-asset changes therefore avoid rebuilding F
 - Rust audit ignores live in `src-tauri/.cargo/audit.toml` and are almost all Tauri/GTK transitives. If a new advisory appears for code we actually control, fix it.
 - The Tauri window is opaque (`transparent: false`), while inner app surfaces still use glass-style translucency. Keep `--bg` fully opaque so WebView/Desktop compositor quirks cannot bleed through.
 - `convertFileSrc` is required for local file URLs in the video preview; paths fed directly to `<video src>` will fail under the asset-protocol CSP. The CSP lives in `src-tauri/tauri.conf.json` → `app.security.csp`.
-- Linux uses the same live `<video>` scrubbing and Play/Stop trim controls as other platforms. AppImage builds must enable `bundleMediaFramework` and install the GStreamer base, good, and libav plugins before packaging. Keep the FFmpeg-generated filmstrip/frame and playback-clip fallback for sources WebKitGTK cannot load, and validate audio sinks and playback across supported Linux desktop environments before claiming full codec coverage.
+- Linux uses the same HTML `<video>` scrubbing and Tauri-controlled Play/Stop trim controls as other platforms. AppImage builds must enable `bundleMediaFramework` and install the GStreamer base, good, and libav plugins before packaging. Do not add an FFmpeg preview-rendering fallback for sources WebKitGTK cannot load; surface the HTML player error instead.
 - CSP also gates drive roots on Windows (`C:/**` … `Z:/**`). If a user reports a path refused by the asset protocol, check `assetProtocol.scope`.
 - EncodersDialog is `React.lazy` + `Suspense` — don't import it eagerly in `App.tsx`, that re-grows the entry bundle.
 - Tests default to a **Node** environment, and the Tauri runtime APIs are mocked in `src/__mocks__/@tauri-apps/api/*`. Browser component tests opt into the existing **happy-dom** environment; mock metadata, encoder, and external download requests at their boundaries. Keep pure helpers in Node and native behavior in Rust unit tests; do not add another DOM test environment.

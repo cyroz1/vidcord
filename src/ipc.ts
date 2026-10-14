@@ -198,60 +198,6 @@ export function cancelLosslessTrimProbe(requestId: number): Promise<void> {
   return invoke("cancel_lossless_trim_probe", { requestId });
 }
 
-export function getPreviewFrame(
-  path: string,
-  timeSec: number,
-  previewWidth?: number,
-  previewHeight?: number
-): Promise<Uint8Array> {
-  return invoke<Uint8Array>("get_preview_frame", {
-    path,
-    timeSec,
-    previewWidth,
-    previewHeight,
-  });
-}
-
-export function getPreviewClip(
-  path: string,
-  startTimeSec: number,
-  endTimeSec: number,
-  previewWidth?: number,
-  previewHeight?: number
-): Promise<Uint8Array> {
-  return invoke<Uint8Array>("get_preview_clip", {
-    path,
-    startTimeSec,
-    endTimeSec,
-    previewWidth,
-    previewHeight,
-  });
-}
-
-export function getFilmstrip(
-  path: string,
-  durationSec: number,
-  maxFrames?: number,
-  previewWidth?: number,
-  previewHeight?: number
-): Promise<Uint8Array> {
-  return invoke<Uint8Array>("get_filmstrip", {
-    path,
-    durationSec,
-    maxFrames,
-    previewWidth,
-    previewHeight,
-  });
-}
-
-export function cancelPreviewGeneration(): Promise<void> {
-  return invoke("cancel_preview_generation");
-}
-
-export function cancelPreviewFrameGeneration(): Promise<void> {
-  return invoke("cancel_preview_frame_generation");
-}
-
 export function detectEncoders(): Promise<Encoder[]> {
   return invoke<Encoder[]>("detect_encoders");
 }
@@ -384,10 +330,14 @@ export function collectBugReport(description: string | null): Promise<BugReport>
   return invoke<BugReport>("collect_bug_report", { description });
 }
 
-export function captureSnapshot(
-  inputPath: string,
-  time: number,
-  outputPath: string
+export function saveSnapshotImage(
+  outputPath: string,
+  pngBytes: Uint8Array,
+  overwrite: boolean
 ): Promise<string> {
-  return invoke<string>("capture_snapshot", { inputPath, time, outputPath });
+  return invoke<string>("save_snapshot_image", {
+    outputPath,
+    pngBytes: Array.from(pngBytes),
+    overwrite,
+  });
 }

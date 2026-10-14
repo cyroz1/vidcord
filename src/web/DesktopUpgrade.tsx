@@ -221,7 +221,7 @@ function Screenshot({ fallback, variants, width, height, alt, sizes, loading }: 
         width={width}
         height={height}
         loading={loading ?? "lazy"}
-        fetchPriority={loading === "eager" ? "high" : undefined}
+        {...(loading === "eager" ? { fetchpriority: "high" } : {})}
         decoding="async"
         alt={alt}
       />
@@ -744,7 +744,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <h2>Trim and preview</h2>
           <p>
             Scrub and trim to the moment you need. Lossless Trim snaps to keyframes; desktop Linux
-            uses live video with FFmpeg previews when WebKitGTK cannot load a source.
+            uses the HTML video player, with format support provided by WebKitGTK and GStreamer.
           </p>
         </article>
         <article>
@@ -1018,7 +1018,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <article>
             <h3>Are scrubbing and playback previews available on Linux?</h3>
             <p>
-              Yes. Desktop Linux uses live video and falls back to FFmpeg previews when needed; the
+              Yes. Desktop Linux uses the HTML video player through WebKitGTK and GStreamer; the
               browser uses local video playback.
             </p>
           </article>

@@ -994,6 +994,127 @@ fn send_system_notification_blocking(
     })
 }
 
+const MAX_SNAPSHOT_PNG_BYTES: usize = 16 * 1024 * 1024;
+const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+
+fn save_snapshot_image_blocking(
+    output_path: String,
+    png_bytes: Vec<u8>,
+    overwrite: bool,
+) -> Result<String, String> {
+    use std::io::Write;
+
+    if png_bytes.len() < PNG_SIGNATURE.len() || png_bytes.len() > MAX_SNAPSHOT_PNG_BYTES {
+        return Err("The snapshot image has an invalid size.".into());
+    }
+    if !png_bytes.starts_with(PNG_SIGNATURE) {
+        return Err("The snapshot image is not a PNG file.".into());
+    }
+
+    let destination = std::path::PathBuf::from(&output_path);
+    if !destination
+        .extension()
+        .is_some_and(|extension| extension.to_string_lossy().eq_ignore_ascii_case("png"))
+    {
+        return Err("Snapshot output must use the .png extension.".into());
+    }
+
+    let parent = destination
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    std::fs::create_dir_all(parent)
+        .map_err(|error| format!("Failed to create snapshot directory: {error}"))?;
+
+    if overwrite {
+        let file_name = destination
+            .file_name()
+            .ok_or_else(|| "Snapshot output path has no filename.".to_string())?
+            .to_string_lossy();
+        let mut temporary = None;
+        for attempt in 0..100u32 {
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            let candidate = parent.join(format!(
+                ".{file_name}.vidcord-snapshot-{}-{stamp}-{attempt}.tmp",
+                std::process::id()
+            ));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&candidate)
+            {
+                Ok(file) => {
+                    temporary = Some((candidate, file));
+                    break;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => {
+                    return Err(format!("Failed to prepare snapshot image: {error}"));
+                }
+            }
+        }
+        let (temporary_path, mut file) = temporary
+            .ok_or_else(|| "Could not reserve a temporary snapshot filename.".to_string())?;
+        let write_result = (|| {
+            file.write_all(&png_bytes)
+                .map_err(|error| format!("Failed to write snapshot image: {error}"))?;
+            file.sync_all()
+                .map_err(|error| format!("Failed to flush snapshot image: {error}"))?;
+            Ok(())
+        })();
+        drop(file);
+        let result = write_result.and_then(|()| {
+            crate::settings::replace_file(&temporary_path, &destination)
+                .map_err(|error| format!("Failed to save snapshot image: {error}"))?;
+            Ok(output_path.clone())
+        });
+        if result.is_err() {
+            let _ = std::fs::remove_file(&temporary_path);
+        }
+        return result;
+    }
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&destination)
+        .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                "The selected output filename is already in use.".to_string()
+            } else {
+                format!("Failed to create snapshot image: {error}")
+            }
+        })?;
+    let result = (|| {
+        file.write_all(&png_bytes)
+            .map_err(|error| format!("Failed to write snapshot image: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("Failed to flush snapshot image: {error}"))?;
+        Ok(output_path.clone())
+    })();
+    if result.is_err() {
+        drop(file);
+        let _ = std::fs::remove_file(&destination);
+    }
+    result
+}
+
+#[tauri::command]
+pub async fn save_snapshot_image(
+    output_path: String,
+    png_bytes: Vec<u8>,
+    overwrite: bool,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        save_snapshot_image_blocking(output_path, png_bytes, overwrite)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
 pub async fn resolve_output_path(
     input_path: String,
@@ -1443,6 +1564,26 @@ pub async fn discard_staged_output(staged_path: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn snapshot_write_preserves_existing_images_unless_replacement_is_requested() {
+        let directory =
+            std::env::temp_dir().join(format!("vidcord_snapshot_safety_{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let destination = directory.join("frame.png");
+        let output = destination.to_string_lossy().into_owned();
+        let original = b"existing image";
+        std::fs::write(&destination, original).unwrap();
+        assert!(super::save_snapshot_image_blocking(output.clone(), Vec::new(), true).is_err());
+        assert_eq!(std::fs::read(&destination).unwrap(), original);
+        let png = include_bytes!("../../icons/32x32.png").to_vec();
+        assert!(super::save_snapshot_image_blocking(output.clone(), png.clone(), false).is_err());
+        assert_eq!(std::fs::read(&destination).unwrap(), original);
+        super::save_snapshot_image_blocking(output, png.clone(), true).unwrap();
+        assert_eq!(std::fs::read(&destination).unwrap(), png);
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
     use super::{
         deliver_notification_if_unfocused, escape_xdg_notification_markup,
         is_cargo_target_profile_directory, macos_clipboard_filename, macos_notification_arguments,
