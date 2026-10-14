@@ -11,6 +11,11 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   paused. PNG snapshots capture that frame and save safely without FFmpeg rendering.
 - Crop previews match the exported composition during playback and while paused, and rotated
   videos retain the correct orientation and output dimensions.
+- Dragging the trim handles during playback no longer stops the preview or drops the current
+  frame.
+- PNG snapshots are capped at 1920 pixels on the longest side, keeping snapshot files and memory
+  use bounded on high-resolution sources.
+- Fixed Linux previews failing after many videos had been opened in one session.
 
 ### Browser exports
 
@@ -22,6 +27,23 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 ### Export reliability
 
 - Cancelling while a desktop export is preparing prevents it from starting later.
+- Lossless Trim now finds keyframes in long recordings instead of stalling or failing on large
+  keyframe lists.
+
+### Performance
+
+- Compression progress and folder import scanning now update smoothly instead of flooding the
+  interface with an update for every event.
+
+### Updates
+
+- Update downloads no longer fail on slow connections; a download only gives up when it stops
+  making progress.
+
+### Packaging
+
+- Desktop installers are smaller: the browser encoder (about 31 MB) is no longer bundled into
+  the desktop app.
 
 ### Compatibility
 

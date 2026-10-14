@@ -560,7 +560,7 @@ successful batch.
 | `R` / `U`                  | Reset trim to full clip                  |
 | `Cmd/Ctrl` + `Z`           | Undo trim                                |
 | `Cmd/Ctrl` + `Shift` + `Z` | Redo trim                                |
-| `Cmd/Ctrl` + `Shift` + `S` | Save a full-resolution PNG snapshot      |
+| `Cmd/Ctrl` + `Shift` + `S` | Save a PNG snapshot of the current frame |
 
 The browser editor uses its visible trim controls and preview buttons. Press
 `?` to open its trim-options panel; the desktop-only global editing and snapshot

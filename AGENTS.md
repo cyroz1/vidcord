@@ -143,6 +143,9 @@ warning-clean.
 npm run tauri build        # outputs to src-tauri/target/release/bundle/
 ```
 
+For local iteration, build a single bundle format instead of every configured target:
+`npm run tauri -- build --bundles <format>` (for example `deb` or `appimage` on Linux).
+
 ### Windows installer FFmpeg offer
 
 The NSIS bundle loads `src-tauri/windows/ffmpeg-hooks.nsh` through
@@ -171,8 +174,11 @@ generated root entries in sync with the source browser code when publishing a br
 
 The WebAssembly binary is larger than Cloudflare's 25 MiB per-file static-asset limit. `web:build`
 therefore publishes the generated `.wasm` as `.wasm.gz`, and `src/web/ffmpegEngine.ts` decompresses
-it in the browser before loading FFmpeg. Desktop builds keep the uncompressed asset and use it as a
-fallback. `npm run site:check` enforces the same per-file limit for future generated output.
+it in the browser before loading FFmpeg. The desktop build prunes the browser-encoder assets from
+`dist/` before bundling (`scripts/prune-desktop-dist.mjs`, wired into `npm run build`), so desktop
+installers do not ship them; the uncompressed asset remains the fallback when the browser app runs
+outside the hosted site. `npm run site:check` enforces the same per-file limit for future
+generated output.
 
 Browser encoder loads are abortable and bounded to two minutes. Each session mounts its input
 read-only with WORKERFS, keeps generated filenames independent of user filenames, and unmounts
