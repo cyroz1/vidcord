@@ -179,11 +179,24 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   useEffect(() => {
     onPlaybackErrorRef.current = onPlaybackError;
   }, [onPlaybackError]);
+  // Latest previewTime prop, mirrored so stopPlayback can mark the current
+  // focus value as consumed without depending on the prop in its dep array.
+  const previewTimeRef = useRef(previewTime);
+  useEffect(() => {
+    previewTimeRef.current = previewTime;
+  }, [previewTime]);
+  // The previewTime value the prop effect below has already seeked to. A
+  // focus value is a one-shot seek request, not a position the paused
+  // preview must return to: once applied it stays consumed, so effects that
+  // re-fire for other reasons (playback toggling, scrub state settling)
+  // cannot drag the element back to a stale scrub point after a stop.
+  const appliedPreviewTimeRef = useRef<number | null>(null);
   const [videoLoadFailed, setVideoLoadFailed] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   useEffect(() => {
     setVideoLoadFailed(false);
     setVideoReady(false);
+    appliedPreviewTimeRef.current = null;
     currentPlaybackTimeRef.current = 0;
     setCurrentPlaybackTime(0);
     onTimeUpdateRef.current?.(filePath ? 0 : null);
@@ -397,6 +410,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   useEffect(() => {
     if (previewTime === null || playing) return;
+    if (appliedPreviewTimeRef.current === previewTime) return;
+    appliedPreviewTimeRef.current = previewTime;
     const dur = probeData?.duration ?? 0;
     const clamped = dur > 0 ? Math.max(0, Math.min(previewTime, dur)) : Math.max(0, previewTime);
     seekVideoElement(clamped);
@@ -444,6 +459,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const stoppedTime =
       vid && vid.readyState >= 1 ? getPlaybackTime() : currentPlaybackTimeRef.current;
     const preservedTime = getStoppedPlaybackTime(stoppedTime, startTime, endTime);
+    // The stopped position is now the preview's position. Consume the
+    // current focus value so the previewTime effect cannot re-seek the
+    // paused element back to the point playback started from.
+    appliedPreviewTimeRef.current = previewTimeRef.current;
     currentPlaybackTimeRef.current = preservedTime;
     setCurrentPlaybackTime(preservedTime);
     playingRef.current = false;

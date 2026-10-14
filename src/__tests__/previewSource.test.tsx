@@ -116,3 +116,73 @@ it("keeps the paused HTML player on its current frame when playback stops", asyn
     await act(async () => root.unmount());
   }
 });
+
+it("does not seek back to the scrub point when playback stops mid-clip", async () => {
+  mocks.prepare.mockReset().mockResolvedValue("http://127.0.0.1:9000/private-a");
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  const handle = createRef<PreviewHandle>();
+  const probe = {
+    duration: 6,
+    width: 320,
+    height: 180,
+    bitrate: 1000,
+    codec: "h264",
+    audio_tracks: [],
+  };
+  try {
+    await act(async () =>
+      root.render(
+        <PreviewPane
+          ref={handle}
+          filePath="/a.mp4"
+          probeData={probe}
+          cropAspectRatio=""
+          loadingVideo={false}
+          startTime={0}
+          endTime={6}
+          previewTime={2}
+          isScrubbing={false}
+          removeAudio={true}
+          loopPlayback={false}
+        />
+      )
+    );
+    const video = container.querySelector("video")!;
+    expect(video.src).toBe("http://127.0.0.1:9000/private-a");
+    // happy-dom does not decode media; drive the element's clock directly so
+    // seeks and playback positions behave deterministically.
+    let mediaTime = 0;
+    Object.defineProperty(video, "currentTime", {
+      get: () => mediaTime,
+      set: (value: number) => {
+        mediaTime = value;
+      },
+      configurable: true,
+    });
+    Object.defineProperty(video, "readyState", { get: () => 4, configurable: true });
+    await act(async () => {
+      video.dispatchEvent(new Event("loadedmetadata"));
+    });
+    // App seeks scrub focus through the handle as well as the prop; that
+    // direct seek is what lands the element at 2s.
+    await act(async () => {
+      handle.current?.seekTo(2);
+    });
+    expect(mediaTime).toBe(2);
+    await act(async () => {
+      handle.current?.startPlayback();
+    });
+    // Playback advances past the scrub point, then the user stops.
+    mediaTime = 4.5;
+    await act(async () => {
+      handle.current?.stopPlayback();
+    });
+    // The paused element must stay on the frame it stopped on, not jump
+    // back to the 2s point playback started from.
+    expect(mediaTime).toBe(4.5);
+    expect(handle.current?.getCurrentTime()).toBe(4.5);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
