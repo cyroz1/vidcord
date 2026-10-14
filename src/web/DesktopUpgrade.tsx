@@ -744,7 +744,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <h2>Trim and preview</h2>
           <p>
             Scrub and trim to the moment you need. Lossless Trim snaps to keyframes; desktop Linux
-            adds FFmpeg previews.
+            uses live video with FFmpeg previews when WebKitGTK cannot load a source.
           </p>
         </article>
         <article>
@@ -1018,8 +1018,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <article>
             <h3>Are scrubbing and playback previews available on Linux?</h3>
             <p>
-              Yes. Desktop Linux generates FFmpeg frame previews; the browser uses local video
-              playback.
+              Yes. Desktop Linux uses live video and falls back to FFmpeg previews when needed; the
+              browser uses local video playback.
             </p>
           </article>
           <article>

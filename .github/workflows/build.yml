@@ -247,7 +247,19 @@ jobs:
       - name: Install system dependencies (Linux)
         if: startsWith(matrix.platform, 'ubuntu')
         run: |
-          packages=(libwebkit2gtk-4.1-dev libgtk-3-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils)
+          # Tauri bundles the installed GStreamer runtime/plugins into Linux
+          # AppImages for WebKitGTK HTML video playback.
+          packages=(
+            libwebkit2gtk-4.1-dev
+            libgtk-3-dev
+            libappindicator3-dev
+            librsvg2-dev
+            patchelf
+            xdg-utils
+            gstreamer1.0-plugins-base
+            gstreamer1.0-plugins-good
+            gstreamer1.0-libav
+          )
           for attempt in 1 2 3; do
             if sudo apt-get update -o Acquire::Retries=3 &&
               sudo DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends -o Acquire::Retries=3 "${packages[@]}"; then

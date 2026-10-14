@@ -82,7 +82,7 @@ Full-resolution PNG snapshots are available from the preview. The desktop snapsh
 
 ## Desktop integrations and reliability
 
-- Desktop preview: Windows and macOS support live video scrubbing and trim playback from the playhead. Linux uses FFmpeg-generated filmstrip and individual-frame previews because WebKitGTK live playback can crash the renderer on some systems.
+- Desktop preview: Windows and macOS support live video scrubbing and trim playback from the playhead. Linux AppImages bundle GStreamer so WebKitGTK can use live HTML video scrubbing and trim playback; FFmpeg-generated filmstrip, individual-frame, and playback-clip previews remain as fallbacks when WebKitGTK cannot load a source.
 - Desktop encoder behavior: vidcord detects CPU and GPU encoders exposed by FFmpeg, prefers a validated H.264 hardware encoder on first run, preserves saved choices including CPU, and falls back to CPU when hardware encoding fails. Supported families include NVENC, AMF, QSV, VAAPI, and VideoToolbox.
 - Desktop output: Downloads by default, the imported clip's folder, a remembered custom folder, or an Ask when done save prompt. Auto-named outputs are collision-safe and never replace an unrelated existing file.
 - Desktop progress: native compression progress and ETA include attempt, encoder, and bitrate details; the taskbar or Dock can mirror progress while the app is unfocused. The browser displays in-page progress and ETA.

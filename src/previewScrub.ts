@@ -24,8 +24,11 @@ export function shouldShowDirectPreviewVideo(
   return supportsLiveScrubPreview && hasProbeData && scrubVideoReady && !playing;
 }
 
-export function shouldGenerateFilmstrip(isLinux: boolean, initialPreviewSettled: boolean): boolean {
-  return initialPreviewSettled && isLinux;
+export function shouldGenerateFilmstrip(
+  needsFfmpegFallback: boolean,
+  initialPreviewSettled: boolean
+): boolean {
+  return initialPreviewSettled && needsFfmpegFallback;
 }
 
 export function isFilmstripUseful(frameCount: number, durationSec: number): boolean {

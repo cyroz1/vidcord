@@ -213,9 +213,9 @@ and retry oversized results with safer bitrates and CPU fallback.
   in-memory output; cancelling a stale frame no longer interrupts a filmstrip that
   is already being generated, and generated fallback clips carry AAC audio so the
   preview plays sound.
-- **Desktop Linux preview fallback** — WebKitGTK live video scrubbing and trim playback are
-  disabled for stability; FFmpeg-generated filmstrip and individual-frame previews
-  remain available while scrubbing.
+- **Desktop Linux video preview** — AppImages bundle GStreamer so WebKitGTK can use the same live
+  HTML video scrubbing and trim playback as other platforms. If a source cannot be opened,
+  FFmpeg-generated filmstrip, frame, and playback-clip previews provide a fallback.
 - **Desktop hardware acceleration**, auto-detected at startup:
   - NVIDIA NVENC (`h264_nvenc`, `hevc_nvenc`)
   - AMD AMF (`h264_amf`, `hevc_amf`)
@@ -731,11 +731,11 @@ its fixed `libx264` WebAssembly encoder. Try **Remove audio**, drop to a lower
 resolution in Advanced mode, or on desktop pick `hevc_*` (H.265) if your
 recipient can decode it.
 
-**Desktop live scrubbing or trim playback is unavailable on Linux.**
-These desktop controls are disabled because WebKitGTK's GStreamer playback path
-can crash the renderer on some Linux systems. The desktop timeline still
-provides FFmpeg-generated filmstrip and individual-frame previews; the browser
-editor uses its local video preview.
+**Desktop video preview on Linux.**
+The Linux AppImage bundles GStreamer and uses WebKitGTK for live HTML video
+scrubbing and trim playback. If WebKitGTK cannot load a source, the timeline
+falls back to FFmpeg-generated frames and filmstrips, and playback uses a
+generated preview clip.
 
 **Windows console flashes during a compress.**
 Shouldn't happen — every FFmpeg invocation sets `CREATE_NO_WINDOW`
@@ -910,9 +910,9 @@ export, and incompatible stream-copy inputs fall back to normal compression.
 Yes. vidcord ships as an `.AppImage` for x86_64 and aarch64 and is
 tested on GNOME, KDE Plasma, LXQt, Sway, and Hyprland on both X11 and
 Wayland. Hardware-accelerated encoding uses VAAPI via `/dev/dri/renderD*`.
-Live video scrubbing and trim playback are disabled on Linux because WebKitGTK's
-GStreamer playback path can crash the renderer on some systems. FFmpeg-generated
-filmstrip and frame previews remain available while scrubbing.
+Linux AppImages bundle GStreamer for live HTML video scrubbing and trim playback;
+FFmpeg-generated filmstrip, frame, and playback-clip previews remain available
+when WebKitGTK cannot load a source.
 
 ### Is there a CLI version?
 

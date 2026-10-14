@@ -96,7 +96,7 @@
     },
     "linux": {
       "appimage": {
-        "bundleMediaFramework": false
+        "bundleMediaFramework": true
       }
     },
     "category": "Video",
