@@ -425,7 +425,7 @@ describe("vidcord desktop end-to-end workflow", function () {
     assert.equal(typeof outdated.installer_available, "boolean");
     console.log("Desktop E2E: update check found", outdated.latest_version);
 
-    const current = await checkForUpdates("7.6.0");
+    const current = await checkForUpdates("7.7.0");
     assert.equal(typeof current.update_available, "boolean");
     console.log("Desktop E2E: update check shape for the current version");
   });

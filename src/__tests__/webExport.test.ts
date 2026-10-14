@@ -64,18 +64,16 @@ describe("browser export planning", () => {
     expect(formatBrowserEta(100, 10_000)).toBe("Complete");
   });
 
-  it("only reports Complete once the final pass of the final file is done", () => {
-    const base = { passPercent: 50, fileProgress: 0.2, isLastFile: true, elapsedMs: 10_000 };
+  it("keeps an in-flight export distinct from a completed pass", () => {
+    const base = { passPercent: 50, fileProgress: 0.2, elapsedMs: 10_000 };
     // Mid-pass keeps the normal per-pass ETA.
     expect(formatPassEta(base)).toBe("ETA: 0:10");
-    // A finished pass with more passes pending must not claim completion.
-    expect(formatPassEta({ ...base, passPercent: 100, fileProgress: 1 / 3 })).toBe("Continuing…");
-    // A finished file with more files pending must not claim completion either.
-    expect(formatPassEta({ ...base, passPercent: 100, fileProgress: 1, isLastFile: false })).toBe(
-      "Continuing…"
+    // A complete encode pass may still need output-size checks or another pass.
+    expect(formatPassEta({ ...base, passPercent: 100, fileProgress: 1 / 3 })).toBe(
+      "Checking output…"
     );
-    // The final file reaching 100% really is done.
-    expect(formatPassEta({ ...base, passPercent: 100, fileProgress: 1 })).toBe("Complete");
+    // FFmpeg is done, but the browser still needs to publish the result.
+    expect(formatPassEta({ ...base, passPercent: 100, fileProgress: 1 })).toBe("Finishing export…");
   });
 
   it("uses encoded media time for browser progress and falls back safely", () => {
@@ -697,14 +695,7 @@ describe("browser export planning", () => {
 
   it("uses a faster x264 preset on mobile and keeps veryfast on desktop", () => {
     const plan = createExportPlan(metadata, settings, "compress", 2, 20);
-    const desktop = buildCompressionArgs(
-      "input.mp4",
-      "output.mp4",
-      metadata,
-      settings,
-      plan,
-      3000
-    );
+    const desktop = buildCompressionArgs("input.mp4", "output.mp4", metadata, settings, plan, 3000);
     expect(desktop[desktop.indexOf("-preset") + 1]).toBe("veryfast");
     const mobile = buildCompressionArgs(
       "input.mp4",

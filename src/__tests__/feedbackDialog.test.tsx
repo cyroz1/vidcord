@@ -51,8 +51,8 @@ afterEach(async () => {
 });
 
 const REPORT = {
-  subject: "Vidcord 7.6.0 bug report",
-  body: "user description\n\n---\nApp version: 7.6.0",
+  subject: "Vidcord 7.7.0 bug report",
+  body: "user description\n\n---\nApp version: 7.7.0",
   reportPath: "/tmp/vidcord-bug-report-1.txt",
 };
 

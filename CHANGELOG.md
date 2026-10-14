@@ -3,6 +3,18 @@
 Release dates are taken from the corresponding repository release tags. The duplicate
 numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
+## v7.7
+
+### Preview
+
+- Pausing or stopping desktop preview now keeps the web player's current frame. FFmpeg-rendered
+  still previews remain a Linux fallback.
+
+### Browser exports
+
+- Browser export progress now spans the full export and reports output checks and finalization
+  instead of showing 100% and “Continuing…” between encoding passes.
+
 ## v7.6
 
 ### Preview

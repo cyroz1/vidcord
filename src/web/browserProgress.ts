@@ -70,18 +70,17 @@ export function formatBrowserEta(progress: number, elapsedMs: number): string {
 }
 
 /**
- * ETA text for the per-pass progress bar. The bar tracks the current pass, so
- * a pass reaching 100% must not read as "Complete" while later passes (or
- * later files in a batch) are still pending.
+ * ETA text for the current export operation. A finished encoding pass may
+ * still need output-size checks, more passes, or file delivery before the
+ * export is complete.
  */
 export function formatPassEta(args: {
   passPercent: number;
   fileProgress: number;
-  isLastFile: boolean;
   elapsedMs: number;
 }): string {
   const fileDone = Number.isFinite(args.fileProgress) && args.fileProgress >= 1;
-  if (fileDone && args.isLastFile) return "Complete";
-  if (fileDone || args.passPercent >= 100) return "Continuing…";
+  if (fileDone) return "Finishing export…";
+  if (args.passPercent >= 100) return "Checking output…";
   return formatBrowserEta(args.passPercent, args.elapsedMs);
 }

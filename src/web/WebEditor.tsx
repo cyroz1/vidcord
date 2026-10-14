@@ -329,7 +329,6 @@ export default function WebEditor({
   const exportControllerRef = useRef<AbortController | null>(null);
   const exportProgressRef = useRef(0);
   const exportFileProgressRef = useRef(0);
-  const exportIsLastFileRef = useRef(true);
   const exportUiUpdatedAtRef = useRef(0);
   const exportUiStatusRef = useRef("");
   const exportSegmentRef = useRef<{ key: string; startedAt: number } | null>(null);
@@ -459,7 +458,6 @@ export default function WebEditor({
         formatPassEta({
           passPercent: exportProgressRef.current,
           fileProgress: exportFileProgressRef.current,
-          isLastFile: exportIsLastFileRef.current,
           elapsedMs: Date.now() - segment.startedAt,
         })
       );
@@ -1084,9 +1082,8 @@ export default function WebEditor({
               fileIndex: index,
               onProgress: (value, status, segment) => {
                 const fileProgress = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
-                // The bar and ETA track the current operation (for example one
-                // encode pass) instead of the whole export, so neither jumps
-                // when a pass finishes and the next one starts.
+                // The bar tracks the whole export, while ETA follows the
+                // current operation segment such as one encoding pass.
                 const segmentStart = segment && Number.isFinite(segment.start) ? segment.start : 0;
                 const segmentEnd =
                   segment && Number.isFinite(segment.end) && segment.end > segmentStart
@@ -1099,11 +1096,14 @@ export default function WebEditor({
                   exportSegmentRef.current = { key: segmentKey, startedAt: now };
                 }
                 const passPercent = passProgress * 100;
+                // Reserve the last 5% of each file's share for output checks
+                // and browser delivery. This keeps a completed encode pass
+                // from showing 100% while the export is still running.
+                const exportPercent = ((index + Math.min(fileProgress, 0.95)) / totalFiles) * 100;
                 const nextStatus =
                   totalFiles > 1 ? `${status} · ${index + 1}/${totalFiles}` : status;
                 exportProgressRef.current = passPercent;
                 exportFileProgressRef.current = fileProgress;
-                exportIsLastFileRef.current = index === totalFiles - 1;
                 if (
                   nextStatus !== exportUiStatusRef.current ||
                   now - exportUiUpdatedAtRef.current >= 100 ||
@@ -1111,13 +1111,12 @@ export default function WebEditor({
                 ) {
                   exportUiUpdatedAtRef.current = now;
                   exportUiStatusRef.current = nextStatus;
-                  setProgress(passPercent);
+                  setProgress(exportPercent);
                   setExportStatus(nextStatus);
                   setEta(
                     formatPassEta({
                       passPercent,
                       fileProgress,
-                      isLastFile: index === totalFiles - 1,
                       elapsedMs: now - (exportSegmentRef.current?.startedAt ?? now),
                     })
                   );
@@ -1147,9 +1146,9 @@ export default function WebEditor({
             failed += 1;
             setQueueStatuses((current) => ({ ...current, [item.id]: "failed" }));
           }
-          // The per-pass bar already sits at 100% for the finished file; the
-          // next file's first progress update resets it for its own passes.
-          setProgress(exportProgressRef.current);
+          // Each completed file advances the batch bar after its browser
+          // download has been handed off.
+          setProgress(((index + 1) / totalFiles) * 100);
         }
         exportProgressRef.current = 100;
         setProgress(100);

@@ -224,13 +224,13 @@ mod tests {
     fn format_report_includes_description_version_and_logs() {
         let body = format_report(
             Some("it crashed on export"),
-            "7.6.0",
+            "7.7.0",
             "macos",
             "aarch64",
             &["log line 1".to_string()],
         );
         assert!(body.contains("it crashed on export"));
-        assert!(body.contains("App version: 7.6.0"));
+        assert!(body.contains("App version: 7.7.0"));
         assert!(body.contains("OS: macos (aarch64)"));
         assert!(body.contains("log line 1"));
         assert!(body.contains("Generated: "));
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn format_report_notes_missing_description() {
         for desc in [None, Some(""), Some("   ")] {
-            let body = format_report(desc, "7.6.0", "linux", "x86_64", &[]);
+            let body = format_report(desc, "7.7.0", "linux", "x86_64", &[]);
             assert!(body.contains("(no description provided)"));
             assert!(body.contains("(log unavailable)"));
         }

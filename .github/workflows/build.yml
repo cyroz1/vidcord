@@ -3,7 +3,7 @@ name: Multi-Platform Build
 on:
   push:
     # NOTE: the "+" here is a one-or-more quantifier in GitHub's filter
-    # matching (verified: pushes to 7.6 trigger this workflow), not a
+    # matching (verified: pushes to 7.7 trigger this workflow), not a
     # literal plus. It matches exactly X.Y version branches.
     branches: [main, "[0-9]+.[0-9]+"]
     tags:
