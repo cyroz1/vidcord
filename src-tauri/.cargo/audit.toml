@@ -2,26 +2,28 @@
 # Advisories that are not actionable from this repo. Most come from Tauri's
 # upstream dep graph (GTK3 bindings, glib, proc-macro-error, rand via quinn).
 # Revisit when Tauri/wry migrate off the affected crates.
+# Every entry carries a recheck-by date: re-run `cargo audit` unfiltered at
+# each Tauri bump, and in all cases by the date in its comment.
 ignore = [
-    "RUSTSEC-2024-0370", # proc-macro-error (via gtk3-macros) — unmaintained
-    "RUSTSEC-2024-0411", # gdkwayland-sys — unmaintained (tauri/wry)
-    "RUSTSEC-2024-0412", # gdk — unmaintained (tauri/wry)
-    "RUSTSEC-2024-0413", # atk — unmaintained (tauri/wry)
-    "RUSTSEC-2024-0414", # gdkx11-sys — unmaintained (tauri/wry)
-    "RUSTSEC-2024-0415", # gtk — unmaintained (tauri/wry)
-    "RUSTSEC-2024-0416", # atk-sys — unmaintained (tauri/wry)
-    "RUSTSEC-2024-0417", # gdkx11 — unmaintained (tauri/wry)
-    "RUSTSEC-2024-0418", # gdk-sys — unmaintained (tauri/wry)
-    "RUSTSEC-2024-0419", # gtk3-macros — unmaintained (tauri/wry)
-    "RUSTSEC-2024-0420", # gtk-sys — unmaintained (tauri/wry)
-    "RUSTSEC-2024-0429", # glib — unsoundness (tauri upstream)
-    "RUSTSEC-2025-0057", # fxhash — unmaintained (transitive)
-    "RUSTSEC-2025-0075", # unic-char-range — unmaintained (transitive)
-    "RUSTSEC-2025-0080", # unic-common — unmaintained (transitive)
-    "RUSTSEC-2025-0081", # unic-char-property — unmaintained (transitive)
-    "RUSTSEC-2025-0098", # unic-ucd-version — unmaintained (transitive)
-    "RUSTSEC-2025-0100", # unic-ucd-ident — unmaintained (transitive)
-    "RUSTSEC-2026-0097", # rand unsoundness — waiting on tauri/quinn bump
-    "RUSTSEC-2026-0194", # quick-xml duplicate-attribute DoS — waiting on plist/tauri bump
-    "RUSTSEC-2026-0195", # quick-xml namespace allocation DoS — waiting on plist/tauri bump
+    "RUSTSEC-2024-0370", # proc-macro-error (via gtk3-macros) — unmaintained (recheck 2027-01-14)
+    "RUSTSEC-2024-0411", # gdkwayland-sys — unmaintained (tauri/wry) (recheck 2027-01-14)
+    "RUSTSEC-2024-0412", # gdk — unmaintained (tauri/wry) (recheck 2027-01-14)
+    "RUSTSEC-2024-0413", # atk — unmaintained (tauri/wry) (recheck 2027-01-14)
+    "RUSTSEC-2024-0414", # gdkx11-sys — unmaintained (tauri/wry) (recheck 2027-01-14)
+    "RUSTSEC-2024-0415", # gtk — unmaintained (tauri/wry) (recheck 2027-01-14)
+    "RUSTSEC-2024-0416", # atk-sys — unmaintained (tauri/wry) (recheck 2027-01-14)
+    "RUSTSEC-2024-0417", # gdkx11 — unmaintained (tauri/wry) (recheck 2027-01-14)
+    "RUSTSEC-2024-0418", # gdk-sys — unmaintained (tauri/wry) (recheck 2027-01-14)
+    "RUSTSEC-2024-0419", # gtk3-macros — unmaintained (tauri/wry) (recheck 2027-01-14)
+    "RUSTSEC-2024-0420", # gtk-sys — unmaintained (tauri/wry) (recheck 2027-01-14)
+    "RUSTSEC-2024-0429", # glib — unsoundness (tauri upstream) (recheck 2027-01-14)
+    "RUSTSEC-2025-0057", # fxhash — unmaintained (transitive) (recheck 2027-01-14)
+    "RUSTSEC-2025-0075", # unic-char-range — unmaintained (transitive) (recheck 2027-01-14)
+    "RUSTSEC-2025-0080", # unic-common — unmaintained (transitive) (recheck 2027-01-14)
+    "RUSTSEC-2025-0081", # unic-char-property — unmaintained (transitive) (recheck 2027-01-14)
+    "RUSTSEC-2025-0098", # unic-ucd-version — unmaintained (transitive) (recheck 2027-01-14)
+    "RUSTSEC-2025-0100", # unic-ucd-ident — unmaintained (transitive) (recheck 2027-01-14)
+    "RUSTSEC-2026-0097", # rand unsoundness — lockfile-only via reqwest 0.12's optional quinn (http3 off; `cargo tree --target all` shows no quinn/rand 0.10, verified 2026-10-14); cargo audit scans the lockfile, so keep until a reqwest/tauri bump prunes the lock (recheck 2027-01-14)
+    "RUSTSEC-2026-0194", # quick-xml duplicate-attribute DoS — waiting on plist/tauri bump (recheck 2027-01-14)
+    "RUSTSEC-2026-0195", # quick-xml namespace allocation DoS — waiting on plist/tauri bump (recheck 2027-01-14)
 ]

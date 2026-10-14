@@ -5,13 +5,8 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "core:window:allow-center",
-    "core:window:allow-set-size",
-    "core:window:allow-set-size-constraints",
-    "core:window:allow-set-progress-bar",
     "dialog:default",
-    "dialog:allow-open",
-    "dialog:allow-save",
-    "opener:default"
+    "opener:allow-open-url",
+    "opener:allow-default-urls"
   ]
 }

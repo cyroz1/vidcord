@@ -80,9 +80,27 @@ if (!fs.existsSync(assetDir)) {
   throw new Error("dist/assets is missing; run npm run build before bundle:check");
 }
 
+// The 31 MiB FFmpeg WebAssembly binary is browser-edition only and must
+// never be part of the desktop dist that Tauri embeds (see
+// scripts/prune-desktop-dist.mjs, which `npm run build` runs).
+const wasmAssets = fs.readdirSync(assetDir).filter((name) => /\.wasm(?:\.gz)?$/.test(name));
+if (wasmAssets.length > 0) {
+  throw new Error(
+    `desktop dist contains browser-only WebAssembly asset(s): ${wasmAssets.join(", ")}`
+  );
+}
+
 const files = fs
   .readdirSync(assetDir)
   .filter((name) => name.endsWith(".js") || name.endsWith(".css"));
+
+// The deferred FFmpeg loader and its class worker are browser-only and are
+// pruned from the desktop dist; if a direct `vite build` left them behind,
+// report them on their own line instead of counting them toward the total
+// JS budgets. The per-route budgets below already guard startup weight, so
+// the totals cover the JS a route can actually load, not deferred assets.
+const deferredFfmpegAssets = files.filter((name) => /^(?:ffmpeg-core|worker)-.*\.js$/.test(name));
+const totalledFiles = files.filter((name) => !deferredFfmpegAssets.includes(name));
 
 const browserEntry = files.find((name) => /^WebApp-.*\.js$/.test(name));
 if (!browserEntry) throw new Error("the browser editor chunk is missing");
@@ -96,12 +114,19 @@ if (/@ffmpeg\/|ffmpeg-core|\.wasm/.test(browserEntrySource)) {
 }
 
 function totalSize(extension, gzip) {
-  return files
+  return totalledFiles
     .filter((name) => name.endsWith(extension))
     .reduce((total, name) => {
       const bytes = fs.readFileSync(path.join(assetDir, name));
       return total + (gzip ? zlib.gzipSync(bytes).length : bytes.length);
     }, 0);
+}
+
+function deferredSize(gzip) {
+  return deferredFfmpegAssets.reduce((total, name) => {
+    const bytes = fs.readFileSync(path.join(assetDir, name));
+    return total + (gzip ? zlib.gzipSync(bytes).length : bytes.length);
+  }, 0);
 }
 
 function routeSize(entry, routePrefix, gzip) {
@@ -155,5 +180,9 @@ console.log(
     sizes.javascriptGzip / 1024
   ).toFixed(1)} KiB gzip; CSS ${(sizes.cssGzip / 1024).toFixed(1)} KiB gzip; browser route ${(
     sizes.browserEntryGzip / 1024
-  ).toFixed(1)} KiB gzip; desktop route ${(sizes.desktopEntryGzip / 1024).toFixed(1)} KiB gzip`
+  ).toFixed(1)} KiB gzip; desktop route ${(sizes.desktopEntryGzip / 1024).toFixed(
+    1
+  )} KiB gzip; deferred FFmpeg loader ${(deferredSize(false) / 1024).toFixed(1)} KiB raw / ${(
+    deferredSize(true) / 1024
+  ).toFixed(1)} KiB gzip (excluded from totals)`
 );

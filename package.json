@@ -8,9 +8,10 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/prune-desktop-dist.mjs",
     "web:build": "node scripts/build-web-site.mjs",
     "bundle:check": "node scripts/check-bundle-size.mjs",
+    "duplicates:report": "cargo tree --duplicates --manifest-path src-tauri/Cargo.toml",
     "build-tools:check": "node scripts/check-build-tools.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",

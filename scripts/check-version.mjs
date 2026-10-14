@@ -43,14 +43,21 @@ expectMatch(
   expected
 );
 
-const html = fs.readFileSync("site/index.html", "utf8");
-const jsonLdBlocks = [
-  ...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g),
-].map((match) => JSON.parse(match[1]));
-const software = jsonLdBlocks
-  .flatMap((block) => (Array.isArray(block["@graph"]) ? block["@graph"] : [block]))
-  .find((node) => node["@type"] === "SoftwareApplication");
-expectMatch("site JSON-LD softwareVersion", software?.softwareVersion, expected);
+function softwareVersionIn(html, label) {
+  const jsonLdBlocks = [
+    ...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g),
+  ].map((match) => JSON.parse(match[1]));
+  const software = jsonLdBlocks
+    .flatMap((block) => (Array.isArray(block["@graph"]) ? block["@graph"] : [block]))
+    .find((node) => node["@type"] === "SoftwareApplication");
+  expectMatch(label, software?.softwareVersion, expected);
+}
+
+softwareVersionIn(fs.readFileSync("site/index.html", "utf8"), "site JSON-LD softwareVersion");
+// The generated site copy above is only refreshed when web:build runs, so
+// also check the source document the desktop build and site build start
+// from; otherwise its version copy can drift unnoticed between site builds.
+softwareVersionIn(fs.readFileSync("index.html", "utf8"), "root JSON-LD softwareVersion");
 
 const llmsVersion = matchFile(
   "site/llms-full.txt",
