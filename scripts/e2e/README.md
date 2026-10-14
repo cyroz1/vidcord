@@ -11,7 +11,8 @@ Install the npm dependencies and make `ffmpeg` and `ffprobe` available on `PATH`
 suite, install Playwright's Chromium once with `npx playwright install chromium`. For the desktop
 suite, install the Tauri platform prerequisites and run on a machine with a graphical session; on
 Linux, use Xvfb as the CI workflow does, and install `gstreamer1.0-plugins-base`,
-`gstreamer1.0-plugins-good`, and `gstreamer1.0-libav` so WebKitGTK can decode the HTML video preview.
+`gstreamer1.0-plugins-good`, `gstreamer1.0-plugins-bad` (which provides the H.264 parser), and
+`gstreamer1.0-libav` so WebKitGTK can decode the HTML video preview.
 
 ```sh
 npm run e2e:web       # browser demo

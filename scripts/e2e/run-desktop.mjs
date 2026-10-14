@@ -111,6 +111,7 @@ try {
   } else {
     environment.XDG_DATA_HOME = path.join(appDataDirectory, "data");
     environment.XDG_CONFIG_HOME = path.join(appDataDirectory, "config");
+    environment.GST_DEBUG = process.env.GST_DEBUG || "2";
   }
 
   const buildStatus = run(
@@ -274,6 +275,19 @@ try {
             url: location.href,
             readyState: document.readyState,
             title: document.title,
+            video: (() => {
+              const video = document.querySelector(".preview-pane video");
+              return video
+                ? {
+                    src: video.src,
+                    currentSrc: video.currentSrc,
+                    readyState: video.readyState,
+                    networkState: video.networkState,
+                    error: video.error && { code: video.error.code, message: video.error.message },
+                    h264: video.canPlayType('video/mp4; codecs="avc1.42E01E"'),
+                  }
+                : null;
+            })(),
             rootText: document.querySelector("#root")?.textContent?.slice(0, 2_000),
             bodyText: document.body?.innerText?.slice(0, 2_000),
             tauriInternals: typeof window.__TAURI_INTERNALS__,
@@ -316,11 +330,18 @@ try {
   }
 } finally {
   if (process.env.VIDCORD_E2E_KEEP !== "1") {
-    rmSync(runDirectory, {
-      recursive: true,
-      force: true,
-      maxRetries: 10,
-      retryDelay: 100,
-    });
+    try {
+      rmSync(runDirectory, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 100,
+      });
+    } catch (error) {
+      // macOS services can keep writing into the isolated HOME after the app
+      // exits. Preserve evidence and report cleanup separately from test results.
+      if (!["ENOTEMPTY", "EBUSY", "EPERM"].includes(error.code)) throw error;
+      console.warn(`Temporary E2E files retained at ${runDirectory}: ${error.code}`);
+    }
   }
 }

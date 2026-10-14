@@ -597,7 +597,7 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 
 `.github/workflows/e2e.yml` runs the browser end-to-end suite and the native desktop suite on Linux,
 macOS, and Windows for app-source changes; the suites upload screenshots, logs, traces, and reports
-as workflow artifacts. Linux test runners need the GStreamer base, good, and libav plugins for
+as workflow artifacts. Linux test runners need the GStreamer base, good, bad, and libav plugins for
 HTML video decoding, matching the packaged app's media dependencies. See `scripts/e2e/README.md`
 for local prerequisites and commands.
 
@@ -621,7 +621,7 @@ browser output. Content and marketing-asset changes therefore avoid rebuilding F
 - Rust audit ignores live in `src-tauri/.cargo/audit.toml` and are almost all Tauri/GTK transitives. If a new advisory appears for code we actually control, fix it.
 - The Tauri window is opaque (`transparent: false`), while inner app surfaces still use glass-style translucency. Keep `--bg` fully opaque so WebView/Desktop compositor quirks cannot bleed through.
 - `convertFileSrc` is required for local file URLs in the video preview; paths fed directly to `<video src>` will fail under the asset-protocol CSP. The CSP lives in `src-tauri/tauri.conf.json` → `app.security.csp`.
-- Linux uses the same HTML `<video>` scrubbing and Tauri-controlled Play/Stop trim controls as other platforms. AppImage builds must enable `bundleMediaFramework` and install the GStreamer base, good, and libav plugins before packaging. Do not add an FFmpeg preview-rendering fallback for sources WebKitGTK cannot load; surface the HTML player error instead.
+- Linux uses the same HTML `<video>` scrubbing and Tauri-controlled Play/Stop trim controls as other platforms. AppImage builds must enable `bundleMediaFramework` and install the GStreamer base, good, bad (including the H.264 parser), and libav plugins before packaging. Do not add an FFmpeg preview-rendering fallback for sources WebKitGTK cannot load; surface the HTML player error instead.
 - CSP also gates drive roots on Windows (`C:/**` … `Z:/**`). If a user reports a path refused by the asset protocol, check `assetProtocol.scope`.
 - EncodersDialog is `React.lazy` + `Suspense` — don't import it eagerly in `App.tsx`, that re-grows the entry bundle.
 - Tests default to a **Node** environment, and the Tauri runtime APIs are mocked in `src/__mocks__/@tauri-apps/api/*`. Browser component tests opt into the existing **happy-dom** environment; mock metadata, encoder, and external download requests at their boundaries. Keep pure helpers in Node and native behavior in Rust unit tests; do not add another DOM test environment.
