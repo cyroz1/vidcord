@@ -193,24 +193,37 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const appliedPreviewTimeRef = useRef<number | null>(null);
   const [videoLoadFailed, setVideoLoadFailed] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
+  const currentPlaybackTimeRef = useRef(0);
+  // The time readout updates at timeupdate rate (~4 Hz). Keep it out of React
+  // state and write the overlay text through a ref (the same pattern as the
+  // trim playhead transform) so playback ticks never re-render the pane.
+  const playbackTimeOverlayRef = useRef<HTMLDivElement>(null);
+  const playbackDurationRef = useRef(0);
+  useEffect(() => {
+    playbackDurationRef.current = probeData?.duration ?? 0;
+  }, [probeData]);
+  const syncPlaybackTime = useCallback((time: number) => {
+    currentPlaybackTimeRef.current = time;
+    const overlay = playbackTimeOverlayRef.current;
+    if (overlay) {
+      overlay.textContent = `${time.toFixed(1)}s / ${playbackDurationRef.current.toFixed(1)}s`;
+    }
+  }, []);
   useEffect(() => {
     setVideoLoadFailed(false);
     setVideoReady(false);
     appliedPreviewTimeRef.current = null;
-    currentPlaybackTimeRef.current = 0;
-    setCurrentPlaybackTime(0);
+    syncPlaybackTime(0);
     onTimeUpdateRef.current?.(filePath ? 0 : null);
-  }, [filePath]);
+  }, [filePath, syncPlaybackTime]);
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.muted = removeAudio;
     }
   }, [removeAudio]);
   const [playing, setPlaying] = useState(false);
-  const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0);
   const playingRef = useRef(false);
 
-  const currentPlaybackTimeRef = useRef(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubVideoSrcRef = useRef<string | null>(null);
   const pendingScrubVideoSeekRef = useRef<number | null>(null);
@@ -298,13 +311,12 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       const clamped = dur > 0 ? Math.max(0, Math.min(timeSec, dur)) : Math.max(0, timeSec);
       const vid = videoRef.current;
 
-      currentPlaybackTimeRef.current = clamped;
-      setCurrentPlaybackTime(clamped);
+      syncPlaybackTime(clamped);
       onTimeUpdateRef.current?.(clamped);
       if (!vid) return;
       seekVideoElement(clamped);
     },
-    [probeData, seekVideoElement]
+    [probeData, seekVideoElement, syncPlaybackTime]
   );
 
   const stepBy = useCallback(
@@ -463,12 +475,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     // current focus value so the previewTime effect cannot re-seek the
     // paused element back to the point playback started from.
     appliedPreviewTimeRef.current = previewTimeRef.current;
-    currentPlaybackTimeRef.current = preservedTime;
-    setCurrentPlaybackTime(preservedTime);
+    syncPlaybackTime(preservedTime);
     playingRef.current = false;
     setPlaying(false);
     onTimeUpdateRef.current?.(preservedTime);
-  }, [clearEndBoundaryTimer, endTime, getPlaybackTime, startTime]);
+  }, [clearEndBoundaryTimer, endTime, getPlaybackTime, startTime, syncPlaybackTime]);
 
   const handlePlaybackBoundary = useCallback(() => {
     if (!playingRef.current) return;
@@ -482,11 +493,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       return;
     }
     const completedTime = getCompletedPlaybackTime(currentPlaybackTimeRef.current, endTime, true);
-    currentPlaybackTimeRef.current = completedTime;
-    setCurrentPlaybackTime(completedTime);
+    syncPlaybackTime(completedTime);
     onTimeUpdateRef.current?.(completedTime);
     stopPlayback();
-  }, [endTime, loopPlayback, seekTo, startTime, stopPlayback]);
+  }, [endTime, loopPlayback, seekTo, startTime, stopPlayback, syncPlaybackTime]);
 
   const startPlayback = useCallback(() => {
     if (!filePath || !probeData) return;
@@ -501,8 +511,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     // trim range; otherwise start at trim-in.
     const scrubbed = currentPlaybackTimeRef.current;
     const resumeTime = scrubbed >= startTime && scrubbed < endTime ? scrubbed : startTime;
-    currentPlaybackTimeRef.current = resumeTime;
-    setCurrentPlaybackTime(resumeTime);
+    syncPlaybackTime(resumeTime);
     onTimeUpdateRef.current?.(resumeTime);
     const sources = buildPlaybackUrls(filePath);
     if (sources.length === 0) return;
@@ -534,8 +543,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
       const handler = () => {
         const playbackTime = getPlaybackTime();
-        currentPlaybackTimeRef.current = playbackTime;
-        setCurrentPlaybackTime(playbackTime);
+        syncPlaybackTime(playbackTime);
         onTimeUpdateRef.current?.(playbackTime);
         if (playbackTime >= endTime || vid.ended) {
           handlePlaybackBoundary();
@@ -631,6 +639,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     seekVideoElement,
     clearEndBoundaryTimer,
     handlePlaybackBoundary,
+    syncPlaybackTime,
   ]);
 
   const handleVideoEnded = useCallback(() => {
@@ -664,12 +673,19 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     [startPlayback, stopPlayback, getPlaybackTime, seekTo, stepBy, captureCurrentFrame]
   );
 
-  // Cleanup on unmount
+  // Cleanup on unmount only. stopPlayback changes identity whenever the trim
+  // range changes (via getPlaybackTime), so depending on it here ran the
+  // cleanup on every trim change and stopped playback mid-drag. Run the
+  // latest copy through a ref with an empty dep array instead.
+  const stopPlaybackRef = useRef(stopPlayback);
+  useEffect(() => {
+    stopPlaybackRef.current = stopPlayback;
+  }, [stopPlayback]);
   useEffect(
     () => () => {
-      stopPlayback();
+      stopPlaybackRef.current();
     },
-    [stopPlayback]
+    []
   );
 
   // ---------------------------------------------------------------------------
@@ -725,7 +741,17 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
           style={playing || showPreviewVideo ? videoVisibleStyle : videoHiddenStyle}
           onLoadedMetadata={handleVideoReady}
           onCanPlay={handleVideoReady}
-          onError={() => {
+          onError={(event) => {
+            // Ignore errors from a superseded source: a guarded playback
+            // fallback may still succeed on the next candidate URL, and
+            // wedging videoLoadFailed here would stick the pane on the
+            // "preview unavailable" placeholder even after it does.
+            if (
+              scrubVideoSrcRef.current !== null &&
+              event.currentTarget.src !== scrubVideoSrcRef.current
+            ) {
+              return;
+            }
             setVideoReady(false);
             setVideoLoadFailed(true);
           }}
@@ -795,8 +821,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       )}
 
       {probeData && (
-        <div style={currentTimeOverlayStyle}>
-          {currentPlaybackTime.toFixed(1)}s / {probeData.duration.toFixed(1)}s
+        <div ref={playbackTimeOverlayRef} style={currentTimeOverlayStyle}>
+          {currentPlaybackTimeRef.current.toFixed(1)}s / {probeData.duration.toFixed(1)}s
         </div>
       )}
     </div>

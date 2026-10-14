@@ -41,6 +41,10 @@ describe("snapLosslessTrimRange", () => {
     expect(snapLosslessTrimRange(-2, 20, 10, keyframes)).toEqual({ start: 0, end: 10 });
   });
 
+  it("snaps correctly even when keyframes arrive unsorted", () => {
+    expect(snapLosslessTrimRange(2.4, 7.2, 10, [8, 0, 5, 2, 10])).toEqual({ start: 2, end: 8 });
+  });
+
   it("returns null when snapping cannot produce a positive range", () => {
     expect(snapLosslessTrimRange(5, 5, 10, [0, 5, 10])).toBeNull();
     expect(snapLosslessTrimRange(0, 1, 10, [])).toBeNull();

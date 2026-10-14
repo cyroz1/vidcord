@@ -94,6 +94,7 @@ describe("batch processing helpers", () => {
       failed: 1,
       cancelled: 0,
       pending: 1,
+      retryable: 1,
     });
   });
 
@@ -109,6 +110,12 @@ describe("batch processing helpers", () => {
     expect(reorderBatchQueueItem(items, 30, 10).map((item) => item.id)).toEqual([30, 10, 20]);
     expect(reorderBatchQueueItem(items, 999, 10).map((item) => item.id)).toEqual([10, 20, 30]);
     expect(moveBatchQueueItem(items, 10, "up")[0]).toBe(items[0]);
+    // No-op moves/reorders return the input array itself so callers can bail
+    // out on reference equality.
+    expect(moveBatchQueueItem(items, 999, "up")).toBe(items);
+    expect(moveBatchQueueItem(items, 10, "up")).toBe(items);
+    expect(reorderBatchQueueItem(items, 999, 10)).toBe(items);
+    expect(reorderBatchQueueItem(items, 10, 10)).toBe(items);
   });
 
   it("marks failed and cancelled items as retryable", () => {

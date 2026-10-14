@@ -63,6 +63,12 @@ export default memo(function AudioTrackPicker({
     if (selectAllRef.current) selectAllRef.current.indeterminate = partiallySelected;
   }, [partiallySelected]);
 
+  // The trigger disables while an export runs; an already-open popup must
+  // close too, or its checkboxes stay interactive during the export.
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
   useEffect(() => {
     if (!open) return;
     const handlePointerDown = (event: PointerEvent) => {
@@ -122,6 +128,7 @@ export default memo(function AudioTrackPicker({
               <input
                 type="checkbox"
                 checked={removeAudio}
+                disabled={disabled}
                 onChange={(event) => onRemoveAudioChange(event.target.checked)}
               />
               <span>Mute audio</span>
@@ -130,7 +137,7 @@ export default memo(function AudioTrackPicker({
               <input
                 type="checkbox"
                 checked={audioNormalize && !removeAudio}
-                disabled={removeAudio}
+                disabled={disabled || removeAudio}
                 onChange={(event) => onAudioNormalizeChange(event.target.checked)}
               />
               <span>Peak normalize to 0 dB</span>
@@ -147,7 +154,7 @@ export default memo(function AudioTrackPicker({
               ref={selectAllRef}
               type="checkbox"
               checked={allSelected}
-              disabled={tracks.length === 0}
+              disabled={disabled || tracks.length === 0}
               onChange={() => onChange(allSelected ? [] : tracks.map((track) => track.index))}
             />
             <span>{allSelected ? "Deselect all tracks" : "Select all tracks"}</span>
@@ -160,6 +167,7 @@ export default memo(function AudioTrackPicker({
                 <label className="audio-track-option" key={track.index}>
                   <input
                     type="checkbox"
+                    disabled={disabled}
                     checked={selectedSet.has(track.index)}
                     onChange={(event) => {
                       const next = event.target.checked

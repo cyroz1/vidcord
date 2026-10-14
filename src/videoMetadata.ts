@@ -61,25 +61,51 @@ export const ALL_CROP_OPTIONS: CropOption[] = [
   { value: "5:4", label: "5:4" },
 ];
 
+// Single source of truth for crop ratios, derived from ALL_CROP_OPTIONS so
+// preset detection and export-dimension math can never drift apart.
+const CROP_RATIO_TABLE: ReadonlyArray<readonly [string, number]> = ALL_CROP_OPTIONS.filter(
+  (option) => option.value !== "off"
+).map((option) => {
+  const [width, height] = option.value.split(":").map(Number);
+  return [option.value, width / height] as const;
+});
+const CROP_RATIOS: ReadonlyMap<string, number> = new Map(CROP_RATIO_TABLE);
+
 export function detectMatchingCropPreset(dw?: number, dh?: number): string | null {
   if (!dw || !dh || dw <= 0 || dh <= 0) return null;
   const ratio = dw / dh;
-  const presets: Array<[string, number]> = [
-    ["16:9", 16 / 9],
-    ["1:1", 1.0],
-    ["9:16", 9 / 16],
-    ["4:3", 4 / 3],
-    ["3:4", 3 / 4],
-    ["4:5", 4 / 5],
-    ["5:4", 5 / 4],
-  ];
 
-  for (const [key, targetRatio] of presets) {
+  for (const [key, targetRatio] of CROP_RATIO_TABLE) {
     if (Math.abs(ratio - targetRatio) < 0.03) {
       return key;
     }
   }
   return null;
+}
+
+export type VideoDetailsSource = {
+  width: number;
+  height: number;
+  frame_rate?: number;
+  bitrate: number;
+  codec: string;
+  duration: number;
+};
+
+/** The one-line source summary shown for single-file imports and batch items. */
+export function formatVideoDetailsSummary(source: VideoDetailsSource): {
+  text: string;
+  label: string;
+} {
+  const resolution = `${source.width}×${source.height}`;
+  const frameRate = formatFrameRate(source.frame_rate);
+  const codec = formatCodec(source.codec);
+  const bitrate = formatAverageBitrate(source.bitrate);
+  const length = formatVideoDuration(source.duration);
+  return {
+    text: `${resolution} · ${frameRate} · ${codec} · ${bitrate} · ${length}`,
+    label: `Resolution ${resolution}, frame rate ${frameRate}, codec ${codec}, average bitrate ${bitrate}, length ${length}`,
+  };
 }
 
 export function getAvailableCropOptions(dw?: number, dh?: number): CropOption[] {
@@ -97,15 +123,8 @@ export function getCroppedDimensions(
   if (!ow || !oh || ow <= 0 || oh <= 0 || !crop || crop === "off") {
     return [ow, oh];
   }
-  let targetRatio = 1.0;
-  if (crop === "16:9") targetRatio = 16 / 9;
-  else if (crop === "1:1") targetRatio = 1.0;
-  else if (crop === "9:16") targetRatio = 9 / 16;
-  else if (crop === "4:3") targetRatio = 4 / 3;
-  else if (crop === "3:4") targetRatio = 3 / 4;
-  else if (crop === "4:5") targetRatio = 4 / 5;
-  else if (crop === "5:4") targetRatio = 5 / 4;
-  else return [ow, oh];
+  const targetRatio = CROP_RATIOS.get(crop);
+  if (targetRatio === undefined) return [ow, oh];
 
   const sourceRatio = ow / oh;
   if (sourceRatio > targetRatio) {

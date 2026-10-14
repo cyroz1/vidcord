@@ -94,4 +94,14 @@ describe("parseSettingsPresets", () => {
     expect(parsed[0]).toMatchObject({ id: "first", name: "First", settings: { quality_index: 2 } });
     expect(parsed.some((preset) => preset.id === "missing-settings")).toBe(false);
   });
+
+  it("de-duplicates names case-insensitively, keeping the first record", () => {
+    const parsed = parseSettingsPresets([
+      { id: "one", name: "Discord", settings: { quality_index: 1 } },
+      { id: "two", name: " discord ", settings: { quality_index: 2 } },
+      { id: "three", name: "DISCORD", settings: { quality_index: 3 } },
+    ]);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]).toMatchObject({ id: "one", name: "Discord" });
+  });
 });

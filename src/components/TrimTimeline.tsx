@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEvent,
   type RefObject,
   type WheelEvent,
@@ -88,6 +89,9 @@ const TRIM_ICON_PATHS: Record<StrokedTrimIconName, readonly string[]> = {
 
 const initialPlayheadPositionStyle = { transform: "translateX(0%)" };
 
+const trimWrapCrosshairStyle: CSSProperties = { cursor: "crosshair" };
+const trimWrapDefaultStyle: CSSProperties = { cursor: undefined };
+
 const TrimPlayheadPosition = memo(function TrimPlayheadPosition({
   elementRef,
   onMouseDown,
@@ -107,7 +111,7 @@ const TrimPlayheadPosition = memo(function TrimPlayheadPosition({
   );
 });
 
-function TrimIcon({ name }: { name: TrimIconName }) {
+const TrimIcon = memo(function TrimIcon({ name }: { name: TrimIconName }) {
   if (name === "snap") {
     return (
       <svg
@@ -152,7 +156,7 @@ function TrimIcon({ name }: { name: TrimIconName }) {
       ))}
     </svg>
   );
-}
+});
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -182,6 +186,7 @@ const TimelineTimeInput = memo(function TimelineTimeInput({
   onCommit,
 }: TimelineTimeInputProps) {
   const [draft, setDraft] = useState<string | null>(null);
+  const [invalid, setInvalid] = useState(false);
   const cancelCommitRef = useRef(false);
   const displayValue = draft ?? formatTimelineTime(time, clockFormat);
 
@@ -193,7 +198,12 @@ const TimelineTimeInput = memo(function TimelineTimeInput({
       disabled={disabled}
       inputMode="decimal"
       aria-label={`Trim ${side} time`}
-      title="Enter seconds or h:m:s; press Enter to apply"
+      aria-invalid={invalid || undefined}
+      title={
+        invalid
+          ? "Invalid time: enter seconds or h:m:s, then press Enter to apply"
+          : "Enter seconds or h:m:s; press Enter to apply"
+      }
       onFocus={(event) => {
         onFocus();
         setDraft(event.currentTarget.value);
@@ -203,12 +213,21 @@ const TimelineTimeInput = memo(function TimelineTimeInput({
       onBlur={(event) => {
         if (cancelCommitRef.current) {
           cancelCommitRef.current = false;
+          setInvalid(false);
           setDraft(null);
           return;
         }
         const parsed = parseTimelineTimeInput(event.currentTarget.value);
-        if (parsed !== null) onCommit(parsed);
-        setDraft(null);
+        if (parsed !== null) {
+          setInvalid(false);
+          onCommit(parsed);
+          setDraft(null);
+          return;
+        }
+        // Keep the rejected draft visible and flag it instead of silently
+        // snapping back to the old value with no signal.
+        setInvalid(true);
+        setDraft(event.currentTarget.value);
       }}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
@@ -275,12 +294,30 @@ function TrimTimeline({
   const [trimOptionsOpen, setTrimOptionsOpen] = useState(false);
   const [clockTimeFormat, setClockTimeFormat] = useState(false);
   const optionsButtonRef = useRef<HTMLButtonElement>(null);
+  const startHandleRef = useRef<HTMLInputElement>(null);
+  const endHandleRef = useRef<HTMLInputElement>(null);
+  // Which handle last held keyboard focus. A handle unmounts while it is out
+  // of the zoomed view, which drops focus to the body; when it re-enters the
+  // view, restore focus so arrow-key nudging resumes instead of dying silently.
+  const focusedHandleRef = useRef<"start" | "end" | null>(null);
   const canZoomOut = trimReady && timelineZoom > 1.0001;
   const canZoomIn = trimReady && timelineZoom < TIMELINE_ZOOM_MAX - 0.0001;
   const visibleRangeMin = Math.max(0, Math.ceil(viewStartVal));
   const visibleRangeMax = Math.min(TRIM_RANGE_MAX, Math.floor(viewEndVal));
   const startHandleInView = startVal >= visibleRangeMin && startVal <= visibleRangeMax;
   const endHandleInView = endVal >= visibleRangeMin && endVal <= visibleRangeMax;
+
+  useEffect(() => {
+    if (!startHandleInView || focusedHandleRef.current !== "start") return;
+    const active = document.activeElement;
+    if (active === null || active === document.body) startHandleRef.current?.focus();
+  }, [startHandleInView]);
+
+  useEffect(() => {
+    if (!endHandleInView || focusedHandleRef.current !== "end") return;
+    const active = document.activeElement;
+    if (active === null || active === document.body) endHandleRef.current?.focus();
+  }, [endHandleInView]);
 
   useEffect(() => {
     const handleShortcutKey = (event: KeyboardEvent) => {
@@ -551,7 +588,7 @@ function TrimTimeline({
               ? "Click to seek | Wheel to pan | Ctrl+Wheel to zoom"
               : "Load a video to enable trimming"
           }
-          style={{ cursor: trimReady ? "crosshair" : undefined }}
+          style={trimReady ? trimWrapCrosshairStyle : trimWrapDefaultStyle}
         >
           <div className="trim-dual-track" />
           <div
@@ -564,6 +601,7 @@ function TrimTimeline({
           <TrimPlayheadPosition elementRef={trimPlayheadRef} onMouseDown={onPlayheadDragStart} />
           {startHandleInView && (
             <input
+              ref={startHandleRef}
               className="trim-handle trim-start-handle"
               type="range"
               min={visibleRangeMin}
@@ -571,7 +609,10 @@ function TrimTimeline({
               step={1}
               value={startVal}
               disabled={!trimReady}
-              onFocus={onStartHandleFocus}
+              onFocus={() => {
+                focusedHandleRef.current = "start";
+                onStartHandleFocus();
+              }}
               onPointerDown={onStartHandlePointerDown}
               onPointerUp={onPointerUp}
               onPointerCancel={onPointerUp}
@@ -589,6 +630,7 @@ function TrimTimeline({
           )}
           {endHandleInView && (
             <input
+              ref={endHandleRef}
               className="trim-handle trim-end-handle"
               type="range"
               min={visibleRangeMin}
@@ -596,7 +638,10 @@ function TrimTimeline({
               step={1}
               value={endVal}
               disabled={!trimReady}
-              onFocus={onEndHandleFocus}
+              onFocus={() => {
+                focusedHandleRef.current = "end";
+                onEndHandleFocus();
+              }}
               onPointerDown={onEndHandlePointerDown}
               onPointerUp={onPointerUp}
               onPointerCancel={onPointerUp}

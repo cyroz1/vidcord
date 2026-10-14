@@ -62,7 +62,9 @@ function ExportSection({
   onStartCompression,
   onCancelCompression,
 }: Props) {
-  const e2eDisabledReason = selectionScanning
+  // Single source of truth for why the button is blocked: the disabled state
+  // and the e2e reason attribute both derive from this one value.
+  const blockedReason = selectionScanning
     ? "selection-scanning"
     : ffmpegMissing
       ? "ffmpeg-missing"
@@ -75,6 +77,7 @@ function ExportSection({
             : !compressing && (batchMode ? !batchReady : !filePath || !probeReady)
               ? "missing-export-input"
               : "";
+  const compressDisabled = blockedReason !== "";
 
   return (
     <>
@@ -149,17 +152,10 @@ function ExportSection({
       <button
         className={`compress-btn${compressing ? " cancel" : ""}`}
         data-e2e-disabled-reason={
-          import.meta.env.VITE_VIDCORD_E2E === "1" ? e2eDisabledReason : undefined
+          import.meta.env.VITE_VIDCORD_E2E === "1" ? blockedReason : undefined
         }
         onClick={compressing ? onCancelCompression : onStartCompression}
-        disabled={
-          selectionScanning ||
-          ffmpegMissing ||
-          cancelling ||
-          finalizingOutput ||
-          (!compressing && losslessTrim && losslessInfoLoading) ||
-          (!compressing && (batchMode ? !batchReady : !filePath || !probeReady))
-        }
+        disabled={compressDisabled}
       >
         {cancelling
           ? "Cancelling..."

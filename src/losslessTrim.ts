@@ -64,6 +64,18 @@ function findCeil(values: readonly number[], target: number): number | null {
   return result;
 }
 
+/** Keyframes a snap can binary-search. Callers normally pass
+ * normalizeLosslessKeyframes output (sorted ascending); unsorted input is
+ * normalized defensively instead of silently snapping to the wrong frames. */
+function sortedKeyframes(keyframeTimes: readonly number[], duration: number): readonly number[] {
+  for (let index = 1; index < keyframeTimes.length; index += 1) {
+    if (keyframeTimes[index] < keyframeTimes[index - 1]) {
+      return normalizeLosslessKeyframes(keyframeTimes, duration);
+    }
+  }
+  return keyframeTimes;
+}
+
 export function snapLosslessTrimRange(
   requestedStart: number,
   requestedEnd: number,
@@ -76,8 +88,9 @@ export function snapLosslessTrimRange(
   const endTime = Math.max(0, Math.min(requestedEnd, duration));
   if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || endTime <= startTime) return null;
 
-  const start = findFloor(keyframeTimes, startTime) ?? 0;
-  const end = findCeil(keyframeTimes, endTime) ?? duration;
+  const sorted = sortedKeyframes(keyframeTimes, duration);
+  const start = findFloor(sorted, startTime) ?? 0;
+  const end = findCeil(sorted, endTime) ?? duration;
   if (end <= start) return null;
 
   return { start, end };

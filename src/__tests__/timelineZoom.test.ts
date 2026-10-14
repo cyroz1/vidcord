@@ -59,6 +59,16 @@ describe("timeline zoom", () => {
     expect(parseTimelineTimeInput("")).toBeNull();
   });
 
+  it("accepts minutes over 59 in m:ss but requires whole non-final parts", () => {
+    expect(parseTimelineTimeInput("75:30")).toBe(4530);
+    expect(parseTimelineTimeInput("1.5:30")).toBeNull();
+    expect(parseTimelineTimeInput("1:2.5:30")).toBeNull();
+  });
+
+  it("never returns a view that extends past the timeline end", () => {
+    expect(getTimelineViewBounds(5, 1, 10, 20)).toEqual({ start: 0, end: 10 });
+  });
+
   it("clamps typed times to the timeline duration", () => {
     expect(timeToTimelineValue(30, 120, 10_000)).toBe(2500);
     expect(timeToTimelineValue(180, 120, 10_000)).toBe(10_000);

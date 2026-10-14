@@ -12,7 +12,10 @@ export function getTimelineViewBounds(
   timelineMax: number,
   minimumSpan: number
 ): { start: number; end: number } {
-  const span = Math.max(minimumSpan, timelineMax / Math.max(1, zoom));
+  const span = Math.min(
+    Math.max(0, timelineMax),
+    Math.max(minimumSpan, timelineMax / Math.max(1, zoom))
+  );
   const start = Math.max(0, Math.min(center - span / 2, timelineMax - span));
   return { start, end: start + span };
 }
@@ -49,7 +52,12 @@ export function parseTimelineTimeInput(value: string): number | null {
 
   const seconds = numericParts[numericParts.length - 1];
   const minutes = numericParts[numericParts.length - 2];
-  if (seconds >= 60 || minutes >= 60) return null;
+  // Only the final (seconds) part may be fractional; earlier parts are whole
+  // units. A two-part value is minutes:seconds, so its minutes may exceed 59
+  // (e.g. 75:30 on a long clip); in h:m:s the minutes must stay under 60.
+  if (numericParts.slice(0, -1).some((part) => !Number.isInteger(part))) return null;
+  if (seconds >= 60) return null;
+  if (numericParts.length === 3 && minutes >= 60) return null;
 
   const hours = numericParts.length === 3 ? numericParts[0] : 0;
   return hours * 3600 + minutes * 60 + seconds;

@@ -127,14 +127,22 @@ export function createSettingsPresetId(): string {
 export function parseSettingsPresets(value: unknown): SettingsPreset[] {
   if (!Array.isArray(value)) return [];
   const seenIds = new Set<string>();
+  const seenNames = new Set<string>();
   const parsed: SettingsPreset[] = [];
   for (const item of value) {
     if (parsed.length >= MAX_SETTINGS_PRESETS) break;
     if (!isRecord(item) || typeof item.id !== "string" || !item.id || item.id.length > 100)
       continue;
     const name = typeof item.name === "string" ? normalizePresetName(item.name) : "";
-    if (!name || seenIds.has(item.id) || !isRecord(item.settings)) continue;
+    if (
+      !name ||
+      seenIds.has(item.id) ||
+      seenNames.has(name.toLowerCase()) ||
+      !isRecord(item.settings)
+    )
+      continue;
     seenIds.add(item.id);
+    seenNames.add(name.toLowerCase());
     parsed.push({ id: item.id, name, settings: normalizePresetSettings(item.settings) });
   }
   return parsed;

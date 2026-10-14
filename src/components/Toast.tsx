@@ -1,16 +1,18 @@
 import { memo } from "react";
 import type { ToastAction } from "../hooks/useToasts";
 
+type ToastType = "success" | "error" | "warning" | "info";
+
 type ToastProps = {
   id: number;
-  type: "success" | "error" | "warning" | "info";
+  type: ToastType;
   title: string;
   message: string;
   actions?: ToastAction[];
   onClose: (id: number) => void;
 };
 
-const COLORS: Record<string, string> = {
+const COLORS: Record<ToastType, string> = {
   success: "var(--success)",
   error: "var(--error)",
   warning: "var(--warning)",
@@ -32,6 +34,15 @@ const wrapperBaseStyle: React.CSSProperties = {
   boxShadow: "var(--shadow-overlay), var(--card-top)",
   maxWidth: "340px",
   wordBreak: "break-word",
+};
+
+// The type set is closed, so precompute every wrapper variant once instead
+// of spreading the base style on every render.
+const wrapperStyles: Record<ToastType, React.CSSProperties> = {
+  success: { ...wrapperBaseStyle, borderLeft: `3px solid ${COLORS.success}` },
+  error: { ...wrapperBaseStyle, borderLeft: `3px solid ${COLORS.error}` },
+  warning: { ...wrapperBaseStyle, borderLeft: `3px solid ${COLORS.warning}` },
+  info: { ...wrapperBaseStyle, borderLeft: `3px solid ${COLORS.info}` },
 };
 
 const headerStyle: React.CSSProperties = {
@@ -83,12 +94,7 @@ const actionButtonStyle: React.CSSProperties = {
 };
 
 function Toast({ id, type, title, message, actions, onClose }: ToastProps) {
-  const color = COLORS[type] ?? COLORS.info;
-  // Only the left-border accent varies with type, so shallow-merge once.
-  const wrapperStyle: React.CSSProperties = {
-    ...wrapperBaseStyle,
-    borderLeft: `3px solid ${color}`,
-  };
+  const wrapperStyle = wrapperStyles[type] ?? wrapperStyles.info;
   return (
     <div
       className="toast"

@@ -12,7 +12,7 @@ vi.mock("../ipc", () => ({ isTauriRuntime: () => false, cancelCompression: vi.fn
 it("cancels delayed preparation without letting its late result affect a newer export", async () => {
   let compression!: ReturnType<typeof useCompression>;
   function Harness() {
-    compression = useCompression({ onToast: () => {} });
+    compression = useCompression();
     return null;
   }
   const root = createRoot(document.createElement("div"));

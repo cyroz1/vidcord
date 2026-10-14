@@ -1,10 +1,5 @@
 import type { BatchItemResult, ProbeData } from "./ipc";
-import {
-  formatAverageBitrate,
-  formatCodec,
-  formatFrameRate,
-  formatVideoDuration,
-} from "./videoMetadata";
+import { formatVideoDetailsSummary } from "./videoMetadata";
 import type { QueueMoveDirection } from "./queueReordering";
 export {
   moveQueueItem as moveBatchQueueItem,
@@ -136,12 +131,7 @@ export function batchClipDuration(duration: number, trim: BatchTrimRange): numbe
 }
 
 export function formatBatchVideoDetails(probe: ProbeData): string {
-  const resolution = `${probe.width}×${probe.height}`;
-  const frameRate = formatFrameRate(probe.frame_rate);
-  const codec = formatCodec(probe.codec);
-  const bitrate = formatAverageBitrate(probe.bitrate);
-  const length = formatVideoDuration(probe.duration);
-  return `${resolution} · ${frameRate} · ${codec} · ${bitrate} · ${length}`;
+  return formatVideoDetailsSummary(probe).text;
 }
 
 export function batchOutputSummary(items: readonly BatchQueueItem[]): {
@@ -149,6 +139,7 @@ export function batchOutputSummary(items: readonly BatchQueueItem[]): {
   failed: number;
   cancelled: number;
   pending: number;
+  retryable: number;
 } {
   return items.reduce(
     (summary, item) => {
@@ -156,9 +147,10 @@ export function batchOutputSummary(items: readonly BatchQueueItem[]): {
       else if (item.status === "failed") summary.failed += 1;
       else if (item.status === "cancelled") summary.cancelled += 1;
       else summary.pending += 1;
+      if (isBatchItemRetryable(item.status)) summary.retryable += 1;
       return summary;
     },
-    { completed: 0, failed: 0, cancelled: 0, pending: 0 }
+    { completed: 0, failed: 0, cancelled: 0, pending: 0, retryable: 0 }
   );
 }
 

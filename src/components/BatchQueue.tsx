@@ -1,5 +1,6 @@
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import {
+  batchOutputSummary,
   isBatchItemRetryable,
   type BatchQueueItem,
   type BatchQueueMoveDirection,
@@ -41,10 +42,11 @@ function BatchQueue({
 }: Props) {
   const [draggedItemId, setDraggedItemId] = useState<number | null>(null);
   const [dragOverItemId, setDragOverItemId] = useState<number | null>(null);
-  const completed = items.filter((item) => item.status === "completed").length;
-  const failed = items.filter((item) => item.status === "failed").length;
-  const cancelled = items.filter((item) => item.status === "cancelled").length;
-  const retryable = items.filter((item) => isBatchItemRetryable(item.status)).length;
+  const { completed, failed, cancelled, retryable } = batchOutputSummary(items);
+  const fileNames = useMemo(
+    () => new Map(items.map((item) => [item.id, fileName(item.inputPath)])),
+    [items]
+  );
 
   const clearDragState = () => {
     setDraggedItemId(null);
@@ -88,7 +90,7 @@ function BatchQueue({
       </div>
       <ol className="batch-queue-list" aria-label="Batch queue">
         {items.map((item, index) => {
-          const name = fileName(item.inputPath);
+          const name = fileNames.get(item.id) ?? fileName(item.inputPath);
           const retryItem = isBatchItemRetryable(item.status);
           return (
             <li
@@ -109,7 +111,7 @@ function BatchQueue({
                 if (actionsDisabled) return;
                 event.preventDefault();
                 if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-                if (draggedItemId !== item.id) setDragOverItemId(item.id);
+                if (dragOverItemId !== item.id) setDragOverItemId(item.id);
               }}
               onDrop={(event) => {
                 if (actionsDisabled) return;

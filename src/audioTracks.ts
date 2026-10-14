@@ -19,7 +19,8 @@ export function defaultAudioTrackIndices(tracks: AudioTrack[]): number[] {
   const firstScore = audioTrackSelectionScore(firstTrack);
   let largestTrack = firstTrack;
   let largestScore = firstScore;
-  for (const track of tracks.slice(1)) {
+  for (let index = 1; index < tracks.length; index += 1) {
+    const track = tracks[index];
     const score = audioTrackSelectionScore(track);
     if (score > largestScore) {
       largestTrack = track;
@@ -37,11 +38,9 @@ export function normalizeAudioTrackIndices(
   selection: number[] | null,
   tracks: AudioTrack[]
 ): number[] {
-  const validIndices = new Set(tracks.map((track) => track.index));
   const source = selection ?? defaultAudioTrackIndices(tracks);
-  return tracks
-    .map((track) => track.index)
-    .filter((index) => validIndices.has(index) && source.includes(index));
+  const sourceSet = new Set(source);
+  return tracks.map((track) => track.index).filter((index) => sourceSet.has(index));
 }
 
 export function formatAudioTrackSize(bytes: number): string {

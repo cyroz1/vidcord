@@ -4,6 +4,7 @@ import {
   formatAverageBitrate,
   formatCodec,
   formatFrameRate,
+  formatVideoDetailsSummary,
   formatVideoDuration,
   getAvailableCropOptions,
   getCroppedDimensions,
@@ -70,6 +71,21 @@ describe("video metadata formatting", () => {
       "4:5",
       "5:4",
     ]);
+  });
+
+  it("builds the shared one-line source summary and its aria label", () => {
+    const summary = formatVideoDetailsSummary({
+      width: 1920,
+      height: 1080,
+      frame_rate: 29.97,
+      bitrate: 4500,
+      codec: "h264",
+      duration: 83.4,
+    });
+    expect(summary.text).toBe("1920×1080 · 29.97 fps · H.264 · 4.5 Mbps · 1:23.4");
+    expect(summary.label).toBe(
+      "Resolution 1920×1080, frame rate 29.97 fps, codec H.264, average bitrate 4.5 Mbps, length 1:23.4"
+    );
   });
 
   it("calculates cropped target dimensions for scale filter calculations", () => {
