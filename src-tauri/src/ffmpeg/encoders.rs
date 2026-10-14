@@ -1,7 +1,8 @@
 use super::{
-    configure_ffmpeg_command, ffmpeg_missing_error, find_vaapi_device, FFMPEG_MISSING_ERROR_MARKER,
+    configure_ffmpeg_command, ffmpeg_missing_error, find_vaapi_device, invalidate_vaapi_cache,
+    FFMPEG_MISSING_ERROR_MARKER,
 };
-use crate::gpu::{get_system_gpus, spawn_captured_command};
+use crate::gpu::{get_system_gpus_blocking, spawn_captured_command, spawn_gpu_discovery};
 use crate::log::vidcord_log;
 use std::collections::HashSet;
 use std::sync::{Condvar, Mutex, OnceLock};
@@ -243,6 +244,40 @@ fn encoder_initializes(encoder: &str) -> bool {
     }
 }
 
+/// Hardware candidates worth a one-frame initialization test. Both H.264
+/// and HEVC hardware encoders can become auto-selectable; CPU encoders
+/// (`libx264`/`libx265`) need no validation.
+fn hardware_encoders_to_validate(result: &EncoderList) -> Vec<String> {
+    result
+        .iter()
+        .map(|(encoder, _)| encoder.clone())
+        .filter(|encoder| encoder.starts_with("h264_") || encoder.starts_with("hevc_"))
+        .collect()
+}
+
+/// Validate candidates with at most three one-frame encodes in flight, so
+/// cold discovery does not pay the 2 s validation timeout once per encoder
+/// in sequence.
+fn validated_hardware_encoders(result: &EncoderList) -> HashSet<String> {
+    const VALIDATION_CONCURRENCY: usize = 3;
+    let candidates = hardware_encoders_to_validate(result);
+    let mut validated = HashSet::new();
+    for chunk in candidates.chunks(VALIDATION_CONCURRENCY) {
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = chunk
+                .iter()
+                .map(|encoder| scope.spawn(|| encoder_initializes(encoder)))
+                .collect();
+            for (encoder, handle) in chunk.iter().zip(handles) {
+                if handle.join().unwrap_or(false) {
+                    validated.insert(encoder.clone());
+                }
+            }
+        });
+    }
+    validated
+}
+
 pub fn get_available_encoders() -> AvailableEncoders {
     let discovery_started = Instant::now();
     let (cache, ready) = encoder_cache();
@@ -275,7 +310,7 @@ pub fn get_available_encoders() -> AvailableEncoders {
     // GPU discovery and the shared FFmpeg listing run concurrently, while the
     // listing's in-flight state prevents Advanced mode from spawning a second
     // `ffmpeg -encoders` process during cold startup.
-    let gpu_probe = std::thread::spawn(get_system_gpus);
+    let gpu_probe = spawn_gpu_discovery();
     let text = match get_or_discover_encoder_listing() {
         Ok(text) => text,
         Err(error) => {
@@ -286,7 +321,9 @@ pub fn get_available_encoders() -> AvailableEncoders {
             return fallback_available_encoders(error.starts_with(FFMPEG_MISSING_ERROR_MARKER));
         }
     };
-    let gpus = gpu_probe.join().unwrap_or_else(|_| get_system_gpus());
+    let gpus = gpu_probe
+        .join()
+        .unwrap_or_else(|_| get_system_gpus_blocking());
     let system = std::env::consts::OS;
 
     let re = ENCODER_RE.get_or_init(|| {
@@ -352,11 +389,7 @@ pub fn get_available_encoders() -> AvailableEncoders {
     }
 
     let mut auto_selectable = HashSet::from(["libx264".to_string()]);
-    for (encoder, _) in &result {
-        if encoder.starts_with("h264_") && encoder_initializes(encoder) {
-            auto_selectable.insert(encoder.clone());
-        }
-    }
+    auto_selectable.extend(validated_hardware_encoders(&result));
 
     // Memoise so repeat invocations (initial load + Advanced-mode open +
     // post-install retry) don't re-spawn ffmpeg.
@@ -392,6 +425,9 @@ pub fn get_available_encoders() -> AvailableEncoders {
 /// after a successful FFmpeg install so the app picks up newly-available
 /// hardware encoders without requiring a restart.
 pub fn invalidate_encoder_cache() {
+    // A fresh FFmpeg install can also make a VAAPI device usable that was
+    // probed as missing before the install; do not leave it sealed as None.
+    invalidate_vaapi_cache();
     if let Some((cache, ready)) = ENCODER_CACHE.get() {
         let mut state = cache.lock().unwrap_or_else(|e| e.into_inner());
         state.cached = None;
@@ -421,6 +457,25 @@ mod tests {
             .windows(2)
             .any(|args| args == ["-vf", "format=nv12,hwupload"]));
         assert!(args.windows(2).any(|args| args == ["-c:v", "h264_vaapi"]));
+    }
+
+    #[test]
+    fn validation_candidates_cover_h264_and_hevc_hardware_only() {
+        let result: EncoderList = vec![
+            ("libx264".to_string(), "CPU".to_string()),
+            ("libx265".to_string(), "CPU H.265".to_string()),
+            ("h264_nvenc".to_string(), "NVIDIA".to_string()),
+            ("hevc_nvenc".to_string(), "NVIDIA H.265".to_string()),
+            ("hevc_vaapi".to_string(), "Linux H.265".to_string()),
+        ];
+        assert_eq!(
+            hardware_encoders_to_validate(&result),
+            vec![
+                "h264_nvenc".to_string(),
+                "hevc_nvenc".to_string(),
+                "hevc_vaapi".to_string()
+            ]
+        );
     }
 
     #[test]

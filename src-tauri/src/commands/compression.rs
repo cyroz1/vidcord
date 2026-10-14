@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{
     window::{ProgressBarState, ProgressBarStatus},
@@ -35,17 +35,36 @@ where
             break;
         }
         let consumed = available.len();
-        for &byte in available {
-            if byte == b'\r' || byte == b'\n' {
-                if !record.is_empty() || truncated {
-                    on_record(&record, truncated);
-                    record.clear();
-                    truncated = false;
+        // Copy whole runs between delimiters instead of pushing byte by byte.
+        let mut offset = 0;
+        while offset < consumed {
+            let remaining = &available[offset..];
+            let delimiter = remaining
+                .iter()
+                .position(|&byte| byte == b'\r' || byte == b'\n');
+            let chunk_len = delimiter.unwrap_or(remaining.len());
+            if chunk_len > 0 {
+                let chunk = &remaining[..chunk_len];
+                let room = MAX_FFMPEG_STDERR_RECORD_BYTES.saturating_sub(record.len());
+                if chunk.len() <= room {
+                    record.extend_from_slice(chunk);
+                } else {
+                    if room > 0 {
+                        record.extend_from_slice(&chunk[..room]);
+                    }
+                    truncated = true;
                 }
-            } else if record.len() < MAX_FFMPEG_STDERR_RECORD_BYTES {
-                record.push(byte);
-            } else {
-                truncated = true;
+            }
+            match delimiter {
+                Some(position) => {
+                    if !record.is_empty() || truncated {
+                        on_record(&record, truncated);
+                        record.clear();
+                        truncated = false;
+                    }
+                    offset += position + 1;
+                }
+                None => offset = consumed,
             }
         }
         reader.consume(consumed);
@@ -261,6 +280,21 @@ fn copy_candidate_to_output(source: &Path, destination: &Path) -> std::io::Resul
         std::io::ErrorKind::AlreadyExists,
         "could not choose a temporary output name",
     ))
+}
+
+/// `publish_candidate_output` can fall back to copying the whole output and
+/// syncing it, which must not block a Tokio worker; run it on the blocking
+/// pool like the palette temporary-output creation.
+async fn publish_candidate_output_blocking(
+    source: &Path,
+    destination: &Path,
+) -> Result<(), String> {
+    let source = source.to_path_buf();
+    let destination = destination.to_path_buf();
+    tokio::task::spawn_blocking(move || publish_candidate_output(&source, &destination))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
 }
 
 fn publish_candidate_output(source: &Path, destination: &Path) -> std::io::Result<()> {
@@ -759,8 +793,7 @@ impl BatchProgressState {
             .sum()
     }
 
-    fn estimate_eta(&self, fallback: &str) -> String {
-        let completed_work = self.completed_work_seconds();
+    fn estimate_eta(&self, completed_work: f64, fallback: &str) -> String {
         let remaining = (self.total_work_seconds - completed_work).max(0.0);
         if remaining <= 0.0 {
             return fallback.to_string();
@@ -771,7 +804,15 @@ impl BatchProgressState {
             .unwrap_or_else(|| fallback.to_string())
     }
 
-    fn update(&mut self, item_id: usize, item_percent: u32, phase: &str) -> (u32, usize, usize) {
+    /// Returns (aggregate percent, active count, completed count,
+    /// completed work seconds). The caller passes the work figure into
+    /// `estimate_eta` so one emit computes the aggregate exactly once.
+    fn update(
+        &mut self,
+        item_id: usize,
+        item_percent: u32,
+        phase: &str,
+    ) -> (u32, usize, usize, f64) {
         let item_percent = item_percent.min(100);
         self.item_percents.insert(item_id, item_percent);
         if phase == "encoding" {
@@ -789,7 +830,12 @@ impl BatchProgressState {
                 .floor()
                 .min(100.0) as u32
         };
-        (aggregate.min(100), self.active.len(), self.completed.len())
+        (
+            aggregate.min(100),
+            self.active.len(),
+            self.completed.len(),
+            completed_work,
+        )
     }
 }
 
@@ -800,9 +846,9 @@ fn emit_batch_progress(
 ) {
     let (percent, active_count, completed_count, total_count, eta) = {
         let mut tracker = context.tracker.lock().unwrap_or_else(|e| e.into_inner());
-        let (percent, active_count, completed_count) =
+        let (percent, active_count, completed_count, completed_work) =
             tracker.update(context.item_id, update.item_percent, update.phase);
-        let eta = tracker.estimate_eta(update.eta);
+        let eta = tracker.estimate_eta(completed_work, update.eta);
         (percent, active_count, completed_count, tracker.total, eta)
     };
     let _ = app.emit(
@@ -983,12 +1029,56 @@ fn format_fps_filter_value(fps: f64) -> String {
 /// Cached `ffmpeg -h filter=<name>` probes. Filters like `tonemap` and `zscale`
 /// are not guaranteed in every system FFmpeg build, so the compress pipeline
 /// never emits a filter the local binary does not have.
-fn ffmpeg_has_filter(name: &str) -> bool {
-    static FILTER_CACHE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
-    let cache = FILTER_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(hit) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(name) {
-        return *hit;
+struct FilterCacheState {
+    results: HashMap<String, bool>,
+    in_flight: HashSet<String>,
+    generation: u64,
+}
+
+static FILTER_CACHE: OnceLock<(Mutex<FilterCacheState>, Condvar)> = OnceLock::new();
+
+fn filter_cache() -> &'static (Mutex<FilterCacheState>, Condvar) {
+    FILTER_CACHE.get_or_init(|| {
+        (
+            Mutex::new(FilterCacheState {
+                results: HashMap::new(),
+                in_flight: HashSet::new(),
+                generation: 0,
+            }),
+            Condvar::new(),
+        )
+    })
+}
+
+/// Drop every cached filter result. Called after a successful FFmpeg
+/// install (via `ffmpeg_available_fresh`), so a `false` probed while FFmpeg
+/// was missing or broken does not stick for the rest of the session.
+pub fn invalidate_filter_cache() {
+    if let Some((cache, ready)) = FILTER_CACHE.get() {
+        let mut state = cache.lock().unwrap_or_else(|e| e.into_inner());
+        state.results.clear();
+        state.generation = state.generation.wrapping_add(1);
+        ready.notify_all();
     }
+}
+
+fn ffmpeg_has_filter(name: &str) -> bool {
+    let (cache, ready) = filter_cache();
+    // Single-flight: the first caller for a name probes while concurrent
+    // callers wait on the condvar instead of each spawning the same probe.
+    let probe_generation = {
+        let mut state = cache.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if let Some(hit) = state.results.get(name) {
+                return *hit;
+            }
+            if !state.in_flight.contains(name) {
+                state.in_flight.insert(name.to_string());
+                break state.generation;
+            }
+            state = ready.wait(state).unwrap_or_else(|e| e.into_inner());
+        }
+    };
     #[allow(unused_mut)]
     let mut cmd = Command::new("ffmpeg");
     cmd.args(["-hide_banner", "-h", &format!("filter={name}")]);
@@ -1006,10 +1096,12 @@ fn ffmpeg_has_filter(name: &str) -> bool {
             })
         })
         .unwrap_or(false);
-    cache
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(name.to_string(), available);
+    let mut state = cache.lock().unwrap_or_else(|e| e.into_inner());
+    state.in_flight.remove(name);
+    if state.generation == probe_generation {
+        state.results.insert(name.to_string(), available);
+    }
+    ready.notify_all();
     available
 }
 
@@ -1180,8 +1272,11 @@ const UNDERFILL_RETRY_SAFETY: f64 = 0.92;
 // keep refining while the output is under 95% of the target.
 const UNDERFILL_RETRY_THRESHOLD: f64 = 0.95;
 const LOSSLESS_FASTSTART_MAX_INPUT_BYTES: u64 = 256 * 1024 * 1024;
-const SIZE_PREFLIGHT_MIN_DURATION_SECONDS: f64 = 120.0;
+const SIZE_PREFLIGHT_MIN_DURATION_SECONDS: f64 = 8.0;
 const SIZE_PREFLIGHT_SAMPLE_SECONDS: f64 = 4.0;
+/// A preflight sample only pays for itself when it is a small slice of the
+/// clip; at or below this share of the duration it replaces full re-encodes.
+const SIZE_PREFLIGHT_MAX_SAMPLE_SHARE: f64 = 0.15;
 const SIZE_PREFLIGHT_SAFETY_MARGIN: f64 = 1.03;
 const GIF_PREFLIGHT_INITIAL_SECONDS: f64 = 1.0;
 const GIF_PREFLIGHT_EXTENDED_SECONDS: f64 = 3.0;
@@ -1503,6 +1598,16 @@ fn max_adaptive_attempts(opts: &CompressOptions, has_target: bool) -> usize {
         + usize::from(supports_auto_hardware_decode(opts, &opts.encoder))
 }
 
+/// Sample length for a size preflight: an eighth of the clip, clamped to
+/// 1-4 s, so short clips get a proportionally short sample instead of
+/// skipping the preflight entirely.
+fn preflight_sample_seconds(clip_duration: f64) -> f64 {
+    if !clip_duration.is_finite() || clip_duration <= 0.0 {
+        return 0.0;
+    }
+    (clip_duration * 0.125).clamp(1.0, SIZE_PREFLIGHT_SAMPLE_SECONDS)
+}
+
 fn should_preflight_standard_size(
     opts: &CompressOptions,
     target_bytes: Option<u64>,
@@ -1512,6 +1617,8 @@ fn should_preflight_standard_size(
         && !opts.gif_mode
         && !opts.lossless_trim
         && clip_duration >= SIZE_PREFLIGHT_MIN_DURATION_SECONDS
+        && preflight_sample_seconds(clip_duration)
+            <= clip_duration * SIZE_PREFLIGHT_MAX_SAMPLE_SHARE
 }
 
 fn target_rate_control_args(encoder: &str, bitrate_k: u32, has_target: bool) -> Vec<String> {
@@ -2272,7 +2379,17 @@ async fn run_ffmpeg_pass(
         });
     }
 
-    let stderr = child.stderr.take().unwrap();
+    let stderr = match child.stderr.take() {
+        Some(stderr) => stderr,
+        None => {
+            // `panic = "abort"` in release: never unwrap here. Reap the
+            // child exactly like the not-registered branch above and fail
+            // the attempt with an ordinary error.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("FFmpeg did not provide a stderr stream to monitor.".to_string());
+        }
+    };
     let app_for_progress = app.clone();
     let attempt_number = context.attempt_index + 1;
     let attempt_total = context.total_attempts;
@@ -2308,18 +2425,17 @@ async fn run_ffmpeg_pass(
             }
 
             let is_progress = line.contains("time=");
-            let diagnostic = if truncated {
-                format!("{line} … [truncated]")
-            } else {
-                line.to_string()
-            };
-            let line_has_issue =
-                !is_progress && contains_ascii_ci_any(line, &[b"error", b"warning"]);
-            if line_has_issue {
-                vidcord_log(&format!("FFMPEG: {diagnostic}"));
-            }
-
             if !is_progress {
+                // Allocate the owned diagnostic only for lines that can use
+                // it; `time=` progress lines arrive constantly and never do.
+                let diagnostic = if truncated {
+                    format!("{line} … [truncated]")
+                } else {
+                    line.to_string()
+                };
+                if contains_ascii_ci_any(line, &[b"error", b"warning"]) {
+                    vidcord_log(&format!("FFMPEG: {diagnostic}"));
+                }
                 while !last_lines.is_empty()
                     && (last_lines.len() >= MAX_FFMPEG_DIAGNOSTIC_LINES
                         || last_lines_bytes.saturating_add(diagnostic.len())
@@ -2429,7 +2545,9 @@ async fn estimate_size_from_sample(
     sample_duration: f64,
     mut run_context: FfmpegRunContext,
 ) -> Result<Option<u64>, String> {
-    let sample_output = TemporaryOutput::create("mp4")?;
+    let sample_output = tokio::task::spawn_blocking(|| TemporaryOutput::create("mp4"))
+        .await
+        .map_err(|error| error.to_string())??;
     let mut sample_opts = opts.clone();
     sample_opts.end_time = sample_opts.start_time + sample_duration;
     sample_opts.output_path = sample_output.as_string();
@@ -2810,7 +2928,7 @@ async fn run_batch_item(
             app,
             &opts,
             &attempt,
-            SIZE_PREFLIGHT_SAMPLE_SECONDS.min(clip_duration),
+            preflight_sample_seconds(clip_duration),
             FfmpegRunContext {
                 attempt_index: 0,
                 total_attempts,
@@ -2877,8 +2995,17 @@ async fn run_batch_item(
         }
 
         let candidate_output = if best_fit_bytes.is_some() {
-            match TemporaryOutput::create_sibling(&opts.output_path) {
-                Ok(output) => Some(output),
+            let output_path = opts.output_path.clone();
+            match tokio::task::spawn_blocking(move || TemporaryOutput::create_sibling(&output_path))
+                .await
+            {
+                Ok(Ok(output)) => Some(output),
+                Ok(Err(error)) => {
+                    vidcord_log(&format!(
+                        "Could not reserve a refinement output; keeping the best target fit: {error}"
+                    ));
+                    break;
+                }
                 Err(error) => {
                     vidcord_log(&format!(
                         "Could not reserve a refinement output; keeping the best target fit: {error}"
@@ -3028,8 +3155,11 @@ async fn run_batch_item(
             };
             if improved {
                 if let Some(candidate) = &candidate_output {
-                    if let Err(error) =
-                        publish_candidate_output(candidate.as_path(), Path::new(&opts.output_path))
+                    if let Err(error) = publish_candidate_output_blocking(
+                        candidate.as_path(),
+                        Path::new(&opts.output_path),
+                    )
+                    .await
                     {
                         vidcord_log(&format!(
                             "Could not publish a better in-range output; keeping the previous target fit: {error}"
@@ -3478,8 +3608,8 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         && target_bytes.is_some()
         && clip_duration > GIF_PREFLIGHT_INITIAL_SECONDS * 2.0
     {
-        match TemporaryOutput::create("gif") {
-            Ok(preflight_output) => {
+        match tokio::task::spawn_blocking(|| TemporaryOutput::create("gif")).await {
+            Ok(Ok(preflight_output)) => {
                 let mut sample_duration = GIF_PREFLIGHT_INITIAL_SECONDS.min(clip_duration);
                 loop {
                     let mut preflight_opts = opts.clone();
@@ -3564,6 +3694,9 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                     }
                 }
             }
+            Ok(Err(error)) => vidcord_log(&format!(
+                "GIF sizing sample could not reserve temporary output ({error}); continuing with the normal encode."
+            )),
             Err(error) => vidcord_log(&format!(
                 "GIF sizing sample could not reserve temporary output ({error}); continuing with the normal encode."
             )),
@@ -3589,7 +3722,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             &app,
             &opts,
             &attempt,
-            SIZE_PREFLIGHT_SAMPLE_SECONDS.min(clip_duration),
+            preflight_sample_seconds(clip_duration),
             FfmpegRunContext {
                 attempt_index: 0,
                 total_attempts,
@@ -3662,8 +3795,17 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         }
 
         let candidate_output = if best_fit_bytes.is_some() {
-            match TemporaryOutput::create_sibling(&opts.output_path) {
-                Ok(output) => Some(output),
+            let output_path = opts.output_path.clone();
+            match tokio::task::spawn_blocking(move || TemporaryOutput::create_sibling(&output_path))
+                .await
+            {
+                Ok(Ok(output)) => Some(output),
+                Ok(Err(error)) => {
+                    vidcord_log(&format!(
+                        "Could not reserve a refinement output; keeping the best target fit: {error}"
+                    ));
+                    break;
+                }
                 Err(error) => {
                     vidcord_log(&format!(
                         "Could not reserve a refinement output; keeping the best target fit: {error}"
@@ -3853,8 +3995,11 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
             };
             if improved {
                 if let Some(candidate) = &candidate_output {
-                    if let Err(error) =
-                        publish_candidate_output(candidate.as_path(), Path::new(&opts.output_path))
+                    if let Err(error) = publish_candidate_output_blocking(
+                        candidate.as_path(),
+                        Path::new(&opts.output_path),
+                    )
+                    .await
                     {
                         vidcord_log(&format!(
                             "Could not publish a better in-range output; keeping the previous target fit: {error}"
@@ -4004,9 +4149,8 @@ pub async fn cancel_compression(app: AppHandle) -> bool {
         pids
     };
 
-    for (job_id, pid) in pids {
-        let _ =
-            tokio::task::spawn_blocking(move || terminate_compression_process(job_id, pid)).await;
+    if !pids.is_empty() {
+        let _ = tokio::task::spawn_blocking(move || terminate_compression_processes(pids)).await;
     }
     true
 }
@@ -4018,44 +4162,54 @@ fn still_owns_cancelled_process(job_id: u64, pid: u32) -> bool {
         .owns_cancelled_process(job_id, pid)
 }
 
-#[cfg(unix)]
-fn terminate_compression_process(job_id: u64, pid: u32) {
-    unsafe {
-        libc::kill(pid as i32, libc::SIGTERM);
+/// Signal every owned process first, then share one graceful-exit window
+/// across all of them: in a batch, the second FFmpeg must not keep encoding
+/// while the first one uses up its full grace period alone.
+fn terminate_compression_processes(pids: Vec<(u64, u32)>) {
+    for &(_, pid) in &pids {
+        signal_compression_process(pid);
     }
     let deadline = Instant::now() + Duration::from_secs(2);
     while Instant::now() < deadline {
-        if !still_owns_cancelled_process(job_id, pid) {
+        if pids
+            .iter()
+            .all(|&(job_id, pid)| !still_owns_cancelled_process(job_id, pid))
+        {
             return;
         }
         std::thread::sleep(Duration::from_millis(25));
     }
-
-    let state = compression_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    if state.owns_cancelled_process(job_id, pid) {
-        vidcord_log("Compression did not exit after SIGTERM; sending SIGKILL.");
-        unsafe {
-            libc::kill(pid as i32, libc::SIGKILL);
+    for &(job_id, pid) in &pids {
+        if still_owns_cancelled_process(job_id, pid) {
+            force_kill_compression_process(pid);
         }
     }
 }
 
+#[cfg(unix)]
+fn signal_compression_process(pid: u32) {
+    unsafe {
+        libc::kill(pid as i32, libc::SIGTERM);
+    }
+}
+
+#[cfg(unix)]
+fn force_kill_compression_process(pid: u32) {
+    vidcord_log("Compression did not exit after SIGTERM; sending SIGKILL.");
+    unsafe {
+        libc::kill(pid as i32, libc::SIGKILL);
+    }
+}
+
 #[cfg(windows)]
-fn terminate_compression_process(job_id: u64, pid: u32) {
+fn signal_compression_process(pid: u32) {
     let _ = run_taskkill(pid, false, Duration::from_secs(2));
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while Instant::now() < deadline {
-        if !still_owns_cancelled_process(job_id, pid) {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(25));
-    }
-    if still_owns_cancelled_process(job_id, pid) {
-        vidcord_log("Compression did not exit after taskkill; forcing process-tree termination.");
-        let _ = run_taskkill(pid, true, Duration::from_secs(2));
-    }
+}
+
+#[cfg(windows)]
+fn force_kill_compression_process(pid: u32) {
+    vidcord_log("Compression did not exit after taskkill; forcing process-tree termination.");
+    let _ = run_taskkill(pid, true, Duration::from_secs(2));
 }
 
 #[cfg(windows)]
@@ -4109,20 +4263,13 @@ pub fn contains_ascii_ci(haystack: &str, needle: &[u8]) -> bool {
 /// same line twice when checking for both "error" and "warning".
 pub fn contains_ascii_ci_any(haystack: &str, needles: &[&[u8]]) -> bool {
     let hb = haystack.as_bytes();
-    for i in 0..hb.len() {
-        for needle in needles {
-            if needle.is_empty() {
-                return true;
-            }
-            if hb.len() - i < needle.len() {
-                continue;
-            }
-            if hb[i..i + needle.len()].eq_ignore_ascii_case(needle) {
-                return true;
-            }
-        }
-    }
-    false
+    needles.iter().any(|needle| {
+        needle.is_empty()
+            || (hb.len() >= needle.len()
+                && hb
+                    .windows(needle.len())
+                    .any(|window| window.eq_ignore_ascii_case(needle)))
+    })
 }
 
 pub fn parse_ffmpeg_time(line: &str) -> Option<f64> {
@@ -4445,6 +4592,22 @@ mod tests {
     #[test]
     fn max_volume_parser_rejects_missing_reports() {
         assert!(parse_max_volume_db(b"mean_volume: -20.0 dB\n").is_err());
+    }
+
+    #[test]
+    fn short_target_size_clips_preflight_with_a_scaled_sample() {
+        let opts = retry_test_options("libx264", Some(8.0));
+        // A 30 s clip previously skipped the preflight entirely (120 s floor).
+        assert!(should_preflight_standard_size(&opts, Some(1024), 30.0));
+        assert_eq!(preflight_sample_seconds(30.0), 3.75);
+        assert_eq!(
+            preflight_sample_seconds(600.0),
+            SIZE_PREFLIGHT_SAMPLE_SECONDS
+        );
+        assert!(should_preflight_standard_size(&opts, Some(1024), 600.0));
+        // No target, or a clip too short for a sample to beat a full encode.
+        assert!(!should_preflight_standard_size(&opts, None, 30.0));
+        assert!(!should_preflight_standard_size(&opts, Some(1024), 4.0));
     }
 
     #[test]
@@ -5026,10 +5189,10 @@ mod tests {
     #[test]
     fn batch_progress_tracks_active_and_completed_items() {
         let mut tracker = BatchProgressState::new(2);
-        assert_eq!(tracker.update(0, 25, "encoding"), (12, 1, 0));
+        assert_eq!(tracker.update(0, 25, "encoding"), (12, 1, 0, 0.25));
         assert_eq!(tracker.active.len(), 1);
-        assert_eq!(tracker.update(0, 100, "completed"), (50, 0, 1));
-        assert_eq!(tracker.update(1, 100, "failed"), (100, 0, 2));
+        assert_eq!(tracker.update(0, 100, "completed"), (50, 0, 1, 1.0));
+        assert_eq!(tracker.update(1, 100, "failed"), (100, 0, 2, 2.0));
     }
 
     #[test]

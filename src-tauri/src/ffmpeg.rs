@@ -1,4 +1,3 @@
-#[cfg(target_os = "linux")]
 use crate::log::vidcord_log;
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -15,13 +14,79 @@ pub use encoders::{
     get_available_encoders, get_or_discover_encoder_listing, invalidate_encoder_cache,
 };
 
-static VAAPI_CACHE: OnceLock<Option<String>> = OnceLock::new();
+static VAAPI_CACHE: OnceLock<Mutex<Option<Option<String>>>> = OnceLock::new();
 #[cfg(target_os = "linux")]
 static LINUX_AMD_DRM_DEVICE: OnceLock<bool> = OnceLock::new();
 
 pub const FFMPEG_MISSING_ERROR_MARKER: &str = "FFMPEG_MISSING:";
 const PROBE_CANCELLED_ERROR_MARKER: &str = "PROBE_CANCELLED:";
 const FFPROBE_TIMEOUT: Duration = Duration::from_secs(6);
+/// Keyframe discovery scans the whole file with `-skip_frame nokey`, so the
+/// generic 6 s probe deadline predictably expires on long recordings. Bound
+/// it like the browser edition instead: 60 s and at most 100,000 keyframes.
+const LOSSLESS_KEYFRAME_TIMEOUT: Duration = Duration::from_secs(60);
+const MAX_LOSSLESS_KEYFRAMES: usize = 100_000;
+const MAX_CACHED_PROBES: usize = 32;
+
+/// Identity of the probed file on disk. A cached probe is only reused while
+/// the canonical path, length, and modification time all still match, so a
+/// replaced file is always re-probed.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct ProbeCacheKey {
+    path: std::path::PathBuf,
+    len: u64,
+    modified_secs: u64,
+    modified_nanos: u32,
+}
+
+fn probe_cache_key(path: &str) -> Option<ProbeCacheKey> {
+    let metadata = std::fs::metadata(path).ok()?;
+    let modified = metadata
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    Some(ProbeCacheKey {
+        path: std::fs::canonicalize(path).ok()?,
+        len: metadata.len(),
+        modified_secs: modified.as_secs(),
+        modified_nanos: modified.subsec_nanos(),
+    })
+}
+
+type ProbeCache = OnceLock<Mutex<HashMap<ProbeCacheKey, serde_json::Value>>>;
+
+static VIDEO_PROBE_CACHE: ProbeCache = OnceLock::new();
+static LOSSLESS_PROBE_CACHE: ProbeCache = OnceLock::new();
+
+fn cached_probe(cache: &ProbeCache, key: &ProbeCacheKey) -> Option<serde_json::Value> {
+    cache
+        .get()?
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(key)
+        .cloned()
+}
+
+fn store_cached_probe(cache: &ProbeCache, key: ProbeCacheKey, value: serde_json::Value) {
+    let cache = cache.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.len() >= MAX_CACHED_PROBES && !guard.contains_key(&key) {
+        guard.clear();
+    }
+    guard.insert(key, value);
+}
+
+fn vaapi_cache() -> &'static Mutex<Option<Option<String>>> {
+    VAAPI_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+/// Drop the memoised VAAPI device so the next lookup re-probes. Called from
+/// `invalidate_encoder_cache()` after an FFmpeg install: a device probed
+/// while FFmpeg was missing must not stay `None` for the process lifetime.
+pub fn invalidate_vaapi_cache() {
+    *vaapi_cache().lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
 #[cfg(target_os = "linux")]
 const VAAPI_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(6);
 #[cfg(target_os = "linux")]
@@ -42,6 +107,14 @@ fn probe_command_output(
     cmd: &mut Command,
     generation: u64,
 ) -> Result<Output, Box<dyn std::error::Error>> {
+    probe_command_output_with_timeout(cmd, generation, FFPROBE_TIMEOUT)
+}
+
+fn probe_command_output_with_timeout(
+    cmd: &mut Command,
+    generation: u64,
+    timeout: Duration,
+) -> Result<Output, Box<dyn std::error::Error>> {
     if PROBE_GENERATION.load(Ordering::Acquire) != generation {
         return Err(format!("{PROBE_CANCELLED_ERROR_MARKER} Probe was cancelled.").into());
     }
@@ -61,7 +134,7 @@ fn probe_command_output(
         }
         guard.insert(pid, generation);
     }
-    let output = child.wait_for_output(FFPROBE_TIMEOUT);
+    let output = child.wait_for_output(timeout);
     pids.lock().unwrap_or_else(|e| e.into_inner()).remove(&pid);
     match output {
         Ok(Some(output)) => {
@@ -71,11 +144,7 @@ fn probe_command_output(
                 Ok(output)
             }
         }
-        Ok(None) => Err(format!(
-            "ffprobe timed out after {} seconds.",
-            FFPROBE_TIMEOUT.as_secs()
-        )
-        .into()),
+        Ok(None) => Err(format!("ffprobe timed out after {} seconds.", timeout.as_secs()).into()),
         Err(err) => Err(Box::new(err)),
     }
 }
@@ -252,6 +321,26 @@ pub fn probe_video(
     path: &str,
     generation: u64,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let cache_key = probe_cache_key(path);
+    if let Some(key) = &cache_key {
+        if PROBE_GENERATION.load(Ordering::Acquire) != generation {
+            return Err(format!("{PROBE_CANCELLED_ERROR_MARKER} Probe was cancelled.").into());
+        }
+        if let Some(cached) = cached_probe(&VIDEO_PROBE_CACHE, key) {
+            return Ok(cached);
+        }
+    }
+    let result = probe_video_once(path, generation)?;
+    if let Some(key) = cache_key {
+        store_cached_probe(&VIDEO_PROBE_CACHE, key, result.clone());
+    }
+    Ok(result)
+}
+
+fn probe_video_once(
+    path: &str,
+    generation: u64,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffprobe");
     cmd.args([
@@ -267,7 +356,7 @@ pub fn probe_video(
         // Select the stream-specific container with all its children. FFprobe
         // 4.x has no stream_side_data alias, and generic side_data also enables
         // packet/frame decoding (with malformed JSON in older versions).
-        "format=duration,bit_rate:stream=index,codec_name,codec_type,width,height,avg_frame_rate,r_frame_rate,sample_aspect_ratio,display_aspect_ratio,bit_rate,channels,duration,size,pix_fmt,color_space,color_transfer,color_primaries:stream_tags=title,name,language,handler_name:stream_side_data_list",
+        "format=duration,bit_rate,format_name:stream=index,codec_name,codec_type,width,height,avg_frame_rate,r_frame_rate,sample_aspect_ratio,display_aspect_ratio,bit_rate,channels,duration,size,pix_fmt,color_space,color_transfer,color_primaries:stream_tags=title,name,language,handler_name:stream_side_data_list",
         "--",
         path,
     ]);
@@ -455,6 +544,7 @@ fn parse_video_probe(stdout: &[u8]) -> Result<serde_json::Value, Box<dyn std::er
 
     Ok(serde_json::json!({
         "duration": duration,
+        "format_name": format["format_name"].as_str(),
         "width": width,
         "height": height,
         "display_width": display_width,
@@ -500,6 +590,29 @@ pub fn probe_lossless_trim_info(
     path: &str,
     generation: u64,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let cache_key = probe_cache_key(path);
+    if let Some(key) = &cache_key {
+        if PROBE_GENERATION.load(Ordering::Acquire) != generation {
+            return Err(format!("{PROBE_CANCELLED_ERROR_MARKER} Probe was cancelled.").into());
+        }
+        // Reuse the container reported by an earlier `probe_video` of the
+        // same unchanged file when the keyframe result itself is cached;
+        // the scan below is only repeated for a file never probed before.
+        if let Some(cached) = cached_probe(&LOSSLESS_PROBE_CACHE, key) {
+            return Ok(cached);
+        }
+    }
+    let result = probe_lossless_trim_info_once(path, generation)?;
+    if let Some(key) = cache_key {
+        store_cached_probe(&LOSSLESS_PROBE_CACHE, key, result.clone());
+    }
+    Ok(result)
+}
+
+fn probe_lossless_trim_info_once(
+    path: &str,
+    generation: u64,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffprobe");
     cmd.args([
@@ -516,8 +629,9 @@ pub fn probe_lossless_trim_info(
         "-show_frames",
         "-show_entries",
         "frame=best_effort_timestamp_time:format=format_name",
-        "-print_format",
-        "json",
+        "-of",
+        "default=noprint_wrappers=1",
+        "--",
         path,
     ]);
     configure_ffmpeg_command(&mut cmd);
@@ -527,7 +641,7 @@ pub fn probe_lossless_trim_info(
         cmd.creation_flags(0x08000000);
     }
 
-    let out = probe_command_output(&mut cmd, generation)?;
+    let out = probe_command_output_with_timeout(&mut cmd, generation, LOSSLESS_KEYFRAME_TIMEOUT)?;
     if !out.status.success() {
         return Err(format!(
             "ffprobe keyframe discovery failed: {}",
@@ -536,26 +650,19 @@ pub fn probe_lossless_trim_info(
         .into());
     }
 
-    let data: serde_json::Value = serde_json::from_slice(&out.stdout)?;
-    let format_name = data["format"]["format_name"]
-        .as_str()
-        .ok_or("FFprobe did not report a source container")?;
-    let source_container_extension = lossless_container_extension(path, format_name);
-    let frames = data["frames"]
-        .as_array()
-        .ok_or("FFprobe did not report keyframes")?;
-    let mut keyframe_times = Vec::with_capacity(frames.len());
-    for frame in frames {
-        let Some(value) = frame["best_effort_timestamp_time"].as_str() else {
-            continue;
-        };
-        let timestamp = value.parse::<f64>()?;
-        if timestamp.is_finite() && timestamp >= 0.0 {
-            keyframe_times.push(timestamp);
-        }
-    }
-    keyframe_times.sort_by(f64::total_cmp);
-    keyframe_times.dedup_by(|left, right| (*left - *right).abs() < 0.0005);
+    let (keyframe_times, format_name) = parse_lossless_keyframe_output(&out.stdout)?;
+    let format_name = format_name.ok_or("FFprobe did not report a source container")?;
+    // Prefer the container a cached full probe already established for this
+    // file; the scan's own report is identical for an unchanged file.
+    let cached_format_name = probe_cache_key(path)
+        .and_then(|key| cached_probe(&VIDEO_PROBE_CACHE, &key))
+        .and_then(|probe| {
+            probe["format_name"]
+                .as_str()
+                .map(std::borrow::ToOwned::to_owned)
+        });
+    let source_container_extension =
+        lossless_container_extension(path, cached_format_name.as_deref().unwrap_or(&format_name));
     if keyframe_times.is_empty() {
         return Err("FFprobe did not report usable keyframes".into());
     }
@@ -564,6 +671,51 @@ pub fn probe_lossless_trim_info(
         "keyframe_times": keyframe_times,
         "source_container_extension": source_container_extension
     }))
+}
+
+/// Line-parse the `default=noprint_wrappers=1` keyframe scan instead of
+/// materialising the whole run as a JSON `Value`: one `key=value` line per
+/// field keeps memory proportional to the keyframe list alone. A malformed
+/// timestamp is skipped and counted, never fatal on its own; discovery only
+/// fails when no usable keyframe remains (checked by the caller).
+fn parse_lossless_keyframe_output(
+    stdout: &[u8],
+) -> Result<(Vec<f64>, Option<String>), Box<dyn std::error::Error>> {
+    let text = String::from_utf8_lossy(stdout);
+    let mut keyframe_times: Vec<f64> = Vec::new();
+    let mut format_name: Option<String> = None;
+    let mut skipped_timestamps = 0usize;
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(value) = line.strip_prefix("best_effort_timestamp_time=") {
+            let value = value.trim().trim_matches('"');
+            match value.parse::<f64>() {
+                Ok(timestamp) if timestamp.is_finite() && timestamp >= 0.0 => {
+                    keyframe_times.push(timestamp);
+                    if keyframe_times.len() > MAX_LOSSLESS_KEYFRAMES {
+                        return Err(format!(
+                            "FFprobe reported more than {MAX_LOSSLESS_KEYFRAMES} keyframes; lossless keyframe discovery is bounded to that many."
+                        )
+                        .into());
+                    }
+                }
+                _ => skipped_timestamps += 1,
+            }
+        } else if let Some(value) = line.strip_prefix("format_name=") {
+            let value = value.trim().trim_matches('"');
+            if !value.is_empty() {
+                format_name = Some(value.to_string());
+            }
+        }
+    }
+    if skipped_timestamps > 0 {
+        vidcord_log(&format!(
+            "Lossless keyframe discovery skipped {skipped_timestamps} malformed timestamp(s)"
+        ));
+    }
+    keyframe_times.sort_by(f64::total_cmp);
+    keyframe_times.dedup_by(|left, right| (*left - *right).abs() < 0.0005);
+    Ok((keyframe_times, format_name))
 }
 
 #[cfg(test)]
@@ -607,8 +759,24 @@ pub fn best_audio_stream_from_json(data: &serde_json::Value) -> Option<usize> {
 // ---------------------------------------------------------------------------
 
 pub fn find_vaapi_device() -> Option<String> {
-    VAAPI_CACHE
-        .get_or_init(|| {
+    if let Some(cached) = vaapi_cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+    {
+        return cached;
+    }
+    let discovered = discover_vaapi_device();
+    let mut guard = vaapi_cache().lock().unwrap_or_else(|e| e.into_inner());
+    if guard.is_none() {
+        *guard = Some(discovered.clone());
+    }
+    guard.clone().unwrap_or(discovered)
+}
+
+fn discover_vaapi_device() -> Option<String> {
+    {
+        {
             #[cfg(target_os = "linux")]
             {
                 let dri = std::path::Path::new("/dev/dri");
@@ -700,8 +868,8 @@ pub fn find_vaapi_device() -> Option<String> {
             {
                 None
             }
-        })
-        .clone()
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -747,6 +915,29 @@ mod tests {
             Some("webm")
         );
         assert_eq!(lossless_container_extension("clip.bin", "unknown"), None);
+    }
+
+    #[test]
+    fn lossless_keyframe_output_skips_malformed_timestamps() {
+        let output = b"best_effort_timestamp_time=2.000000\nbest_effort_timestamp_time=N/A\nbest_effort_timestamp_time=oops\nbest_effort_timestamp_time=0.000000\nbest_effort_timestamp_time=-1.5\nformat_name=mov,mp4\n";
+        let (times, format_name) = parse_lossless_keyframe_output(output).unwrap();
+        assert_eq!(times, vec![0.0, 2.0]);
+        assert_eq!(format_name.as_deref(), Some("mov,mp4"));
+    }
+
+    #[test]
+    fn lossless_keyframe_output_dedups_and_sorts() {
+        let output = b"best_effort_timestamp_time=1.000000\nbest_effort_timestamp_time=1.000100\nbest_effort_timestamp_time=0.500000\n";
+        let (times, _) = parse_lossless_keyframe_output(output).unwrap();
+        assert_eq!(times, vec![0.5, 1.0]);
+    }
+
+    #[test]
+    fn vaapi_cache_can_be_invalidated() {
+        *vaapi_cache().lock().unwrap() = Some(Some("/dev/dri/renderD128".to_string()));
+        assert_eq!(find_vaapi_device(), Some("/dev/dri/renderD128".to_string()));
+        invalidate_vaapi_cache();
+        assert!(vaapi_cache().lock().unwrap().is_none());
     }
 
     #[test]

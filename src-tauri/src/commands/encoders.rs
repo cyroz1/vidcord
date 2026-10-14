@@ -324,8 +324,27 @@ fn ffmpeg_available_fresh() -> bool {
     // encoder-list cache so `detect_encoders` re-probes on next call.
     if result {
         invalidate_encoder_cache();
+        // The new binary may also ship filters (tonemap/zscale) that a
+        // pre-install probe cached as missing.
+        crate::commands::compression::invalidate_filter_cache();
     }
     result
+}
+
+/// Installs are not short probes, but a hung package manager must not wedge
+/// its `spawn_blocking` closure (and the install UI) forever either. Use the
+/// same ten-minute bound as the Linux privileged install path.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+const INSTALL_COMMAND_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// Run an installer command through the bounded captured-output helper.
+/// `Ok(Some(output))` is a finished run, `Ok(None)` is the deadline, and
+/// `Err` means the command could not be launched or produced too much output.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn run_install_command(
+    cmd: &mut std::process::Command,
+) -> std::io::Result<Option<std::process::Output>> {
+    spawn_captured_command(cmd).and_then(|child| child.wait_for_output(INSTALL_COMMAND_TIMEOUT))
 }
 
 #[cfg(target_os = "linux")]
@@ -559,8 +578,8 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
                 cmd.creation_flags(0x08000000);
             }
 
-            match cmd.status() {
-                Ok(status) if status.success() => {
+            match run_install_command(&mut cmd) {
+                Ok(Some(output)) if output.status.success() => {
                     if ffmpeg_available_fresh() {
                         FfmpegInstallResult {
                             status: "installed".to_string(),
@@ -583,12 +602,19 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
                         }
                     }
                 }
-                Ok(status) => FfmpegInstallResult {
+                Ok(Some(output)) => FfmpegInstallResult {
                     status: "failed".to_string(),
                     message: format!(
                         "winget failed with exit code {}. Install FFmpeg manually from the setup guide.",
-                        status.code().unwrap_or(-1)
+                        output.status.code().unwrap_or(-1)
                     ),
+                    hint_command: Some("winget install Gyan.FFmpeg".to_string()),
+                    guide_url: Some("https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md".to_string()),
+                },
+                Ok(None) => FfmpegInstallResult {
+                    status: "failed".to_string(),
+                    message: "winget timed out after 10 minutes. Install FFmpeg manually from the setup guide."
+                        .to_string(),
                     hint_command: Some("winget install Gyan.FFmpeg".to_string()),
                     guide_url: Some("https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md".to_string()),
                 },
@@ -614,11 +640,11 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
                 };
             }
 
-            match std::process::Command::new("brew")
-                .args(["install", "ffmpeg"])
-                .status()
-            {
-                Ok(status) if status.success() => {
+            #[allow(unused_mut)]
+            let mut brew_cmd = std::process::Command::new("brew");
+            brew_cmd.args(["install", "ffmpeg"]);
+            match run_install_command(&mut brew_cmd) {
+                Ok(Some(output)) if output.status.success() => {
                     if ffmpeg_available_fresh() {
                         FfmpegInstallResult {
                             status: "installed".to_string(),
@@ -636,12 +662,18 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
                         }
                     }
                 }
-                Ok(status) => FfmpegInstallResult {
+                Ok(Some(output)) => FfmpegInstallResult {
                     status: "failed".to_string(),
                     message: format!(
                         "brew install ffmpeg failed with exit code {}.",
-                        status.code().unwrap_or(-1)
+                        output.status.code().unwrap_or(-1)
                     ),
+                    hint_command: Some("brew install ffmpeg".to_string()),
+                    guide_url: Some("https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md".to_string()),
+                },
+                Ok(None) => FfmpegInstallResult {
+                    status: "failed".to_string(),
+                    message: "brew install ffmpeg timed out after 10 minutes.".to_string(),
                     hint_command: Some("brew install ffmpeg".to_string()),
                     guide_url: Some("https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md".to_string()),
                 },
