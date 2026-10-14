@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 #[cfg(target_os = "linux")]
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::time::Duration;
 use std::time::Instant;
@@ -126,15 +127,25 @@ impl ImportScanReporter {
     }
 }
 
+/// Generation of the most recently started import scan. A scan whose id no
+/// longer matches has been superseded by a newer selection, so it stops
+/// walking the filesystem instead of competing with its replacement.
+static LATEST_IMPORT_SCAN_ID: AtomicU64 = AtomicU64::new(0);
+
 #[tauri::command]
 pub async fn expand_import_paths(
     app: AppHandle,
     paths: Vec<String>,
     scan_id: u64,
 ) -> Result<ExpandedImportPaths, String> {
+    LATEST_IMPORT_SCAN_ID.fetch_max(scan_id, Ordering::SeqCst);
     tokio::task::spawn_blocking(move || expand_import_paths_blocking(app, paths, scan_id))
         .await
         .map_err(|error| error.to_string())
+}
+
+fn import_scan_superseded(scan_id: u64) -> bool {
+    LATEST_IMPORT_SCAN_ID.load(Ordering::SeqCst) != scan_id
 }
 
 fn expand_import_paths_blocking(
@@ -166,8 +177,15 @@ fn expand_import_paths_blocking(
     let mut skipped_folder_links = 0;
     let mut unreadable_items = 0;
     let mut folders_scanned = 0;
+    let mut items_processed = 0usize;
+    let mut superseded = false;
 
     while let Some((path, is_selected_root)) = pending.pop() {
+        items_processed += 1;
+        if items_processed.is_multiple_of(256) && import_scan_superseded(scan_id) {
+            superseded = true;
+            break;
+        }
         let metadata_result = if is_selected_root {
             std::fs::metadata(&path)
         } else {
@@ -218,9 +236,18 @@ fn expand_import_paths_blocking(
                         children.push(entry.path());
                         reporter.items_discovered += 1;
                         reporter.emit_if_due(false);
+                        if reporter.items_discovered.is_multiple_of(256)
+                            && import_scan_superseded(scan_id)
+                        {
+                            superseded = true;
+                            break;
+                        }
                     }
                     Err(_) => unreadable_items += 1,
                 }
+            }
+            if superseded {
+                break;
             }
             children.sort();
             pending.extend(children.into_iter().rev().map(|child| (child, false)));
@@ -244,12 +271,16 @@ fn expand_import_paths_blocking(
             continue;
         }
 
-        let canonical_path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-        if seen_videos.insert(import_path_key(&canonical_path)) {
+        // Dedupe on the traversal path itself: canonicalizing every video
+        // file is one of the most expensive path syscalls on Windows and
+        // network drives, and the traversal already visits each directory
+        // entry once. Only directories are canonicalized (above, for cycle
+        // protection against linked directory loops).
+        if seen_videos.insert(path.clone()) {
             let video_path = if path.is_absolute() {
                 path
             } else {
-                canonical_path
+                std::fs::canonicalize(&path).unwrap_or(path)
             };
             video_paths.push(video_path.to_string_lossy().into_owned());
             reporter.videos_found = video_paths.len();
@@ -257,7 +288,9 @@ fn expand_import_paths_blocking(
         }
     }
 
-    reporter.emit_if_due(true);
+    if !superseded {
+        reporter.emit_if_due(true);
+    }
     ExpandedImportPaths {
         video_paths,
         skipped_non_video_files,
@@ -686,9 +719,40 @@ pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn copy_files_to_clipboard_platform(files: &[std::path::PathBuf]) -> Result<(), String> {
+enum ClipboardHelperOutcome {
+    Success,
+    /// The helper is installed but the copy did not complete.
+    Failed,
+    /// The helper binary is not installed, so trying it cost nothing.
+    Unavailable,
+}
+
+#[cfg(target_os = "linux")]
+fn run_clipboard_helper(command: &mut Command, payload: &[u8]) -> ClipboardHelperOutcome {
     use std::io::Write;
 
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return ClipboardHelperOutcome::Unavailable;
+        }
+        Err(_) => return ClipboardHelperOutcome::Failed,
+    };
+    let written = match child.stdin.take() {
+        Some(mut stdin) => stdin.write_all(payload).is_ok(),
+        None => false,
+    };
+    let exited_ok = wait_for_desktop_child(child)
+        .is_ok_and(|status| status.is_some_and(|status| status.success()));
+    if written && exited_ok {
+        ClipboardHelperOutcome::Success
+    } else {
+        ClipboardHelperOutcome::Failed
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn copy_files_to_clipboard_platform(files: &[std::path::PathBuf]) -> Result<(), String> {
     if files.is_empty() {
         return Err("No output files are available to copy.".to_string());
     }
@@ -711,15 +775,18 @@ pub(crate) fn copy_files_to_clipboard_platform(files: &[std::path::PathBuf]) -> 
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         configure_desktop_command(&mut command);
-        if let Ok(mut child) = command.spawn() {
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(uri_list.as_bytes());
+        match run_clipboard_helper(&mut command, uri_list.as_bytes()) {
+            ClipboardHelperOutcome::Success => return Ok(()),
+            // wl-copy is present on this Wayland session but failed; xclip
+            // cannot serve a native Wayland clipboard, so don't burn a
+            // second helper timeout on it.
+            ClipboardHelperOutcome::Failed => {
+                return Err(
+                    "Copying the file to the Wayland clipboard failed. The output file was still saved."
+                        .to_string(),
+                );
             }
-            if wait_for_desktop_child(child)
-                .is_ok_and(|status| status.is_some_and(|status| status.success()))
-            {
-                return Ok(());
-            }
+            ClipboardHelperOutcome::Unavailable => {}
         }
     }
 
@@ -730,15 +797,11 @@ pub(crate) fn copy_files_to_clipboard_platform(files: &[std::path::PathBuf]) -> 
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     configure_desktop_command(&mut command);
-    if let Ok(mut child) = command.spawn() {
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(uri_list.as_bytes());
-        }
-        if wait_for_desktop_child(child)
-            .is_ok_and(|status| status.is_some_and(|status| status.success()))
-        {
-            return Ok(());
-        }
+    if matches!(
+        run_clipboard_helper(&mut command, uri_list.as_bytes()),
+        ClipboardHelperOutcome::Success
+    ) {
+        return Ok(());
     }
 
     Err(
@@ -979,12 +1042,20 @@ pub async fn send_system_notification(
     result
 }
 
+/// Serializes OS notification delivery in the backend itself, so banners
+/// retain their in-app order even if a caller invokes the command directly
+/// or concurrently instead of going through the frontend toast queue.
+static NOTIFICATION_DELIVERY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn send_system_notification_blocking(
     app: &tauri::AppHandle,
     title: &str,
     body: &str,
 ) -> Result<bool, String> {
     use tauri::Manager;
+    let _delivery_guard = NOTIFICATION_DELIVERY_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let is_focused = app
         .get_webview_window("main")
         .and_then(|window| window.is_focused().ok())
@@ -1102,12 +1173,68 @@ fn save_snapshot_image_blocking(
     result
 }
 
-#[tauri::command]
-pub async fn save_snapshot_image(
-    output_path: String,
-    png_bytes: Vec<u8>,
-    overwrite: bool,
+/// Percent-decodes a header value produced by `encodeURIComponent` on the
+/// frontend, so an arbitrary output path (including non-ASCII characters,
+/// which are not legal in raw header values) survives the raw-body request.
+fn percent_decode_header_value(value: &str) -> Result<String, String> {
+    fn hex_value(byte: u8) -> Option<u8> {
+        match byte {
+            b'0'..=b'9' => Some(byte - b'0'),
+            b'a'..=b'f' => Some(byte - b'a' + 10),
+            b'A'..=b'F' => Some(byte - b'A' + 10),
+            _ => None,
+        }
+    }
+
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let high = bytes
+                .get(index + 1)
+                .and_then(|byte| hex_value(*byte))
+                .ok_or_else(|| "The snapshot request was malformed.".to_string())?;
+            let low = bytes
+                .get(index + 2)
+                .and_then(|byte| hex_value(*byte))
+                .ok_or_else(|| "The snapshot request was malformed.".to_string())?;
+            decoded.push((high << 4) | low);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(decoded).map_err(|_| "The snapshot request was malformed.".to_string())
+}
+
+fn snapshot_request_header(
+    request: &tauri::ipc::Request<'_>,
+    name: &str,
 ) -> Result<String, String> {
+    request
+        .headers()
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+        .ok_or_else(|| "The snapshot request was malformed.".to_string())
+}
+
+/// The PNG crosses IPC as a raw binary body (`InvokeBody::Raw`), not as a
+/// JSON number array: the frontend sends the `Uint8Array` directly and the
+/// destination path / overwrite flag travel in request headers.
+#[tauri::command]
+pub async fn save_snapshot_image(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let png_bytes = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
+        tauri::ipc::InvokeBody::Json(_) => {
+            return Err("The snapshot image must be sent as raw bytes.".to_string());
+        }
+    };
+    let output_path =
+        percent_decode_header_value(&snapshot_request_header(&request, "x-vidcord-output-path")?)?;
+    let overwrite = snapshot_request_header(&request, "x-vidcord-overwrite")? == "true";
     tokio::task::spawn_blocking(move || {
         save_snapshot_image_blocking(output_path, png_bytes, overwrite)
     })
@@ -1191,7 +1318,7 @@ pub async fn resolve_batch_output_paths(
 
             let output =
                 unique_output_path_with_reserved(&input, &directory, &output_extension, &reserved);
-            reserved.insert(output.clone());
+            reserved.insert(output_path_key(&output));
             outputs.push(output.to_string_lossy().into_owned());
         }
         Ok(outputs)
@@ -1229,7 +1356,7 @@ fn unique_output_path_with_reserved(
     input_path: &std::path::Path,
     directory: &std::path::Path,
     output_extension: &str,
-    reserved: &HashSet<std::path::PathBuf>,
+    reserved_keys: &HashSet<String>,
 ) -> std::path::PathBuf {
     let stem = input_path
         .file_stem()
@@ -1243,11 +1370,7 @@ fn unique_output_path_with_reserved(
 
     let mut candidate = directory.join(format!("{stem}-{suffix}.{output_extension}"));
     let mut counter = 1u32;
-    while candidate.exists()
-        || reserved
-            .iter()
-            .any(|path| output_path_key(path) == output_path_key(&candidate))
-    {
+    while candidate.exists() || reserved_keys.contains(&output_path_key(&candidate)) {
         candidate = directory.join(format!("{stem}-{suffix}-{counter}.{output_extension}"));
         counter += 1;
     }
@@ -1368,24 +1491,25 @@ fn publish_staged_output_blocking(
         .filter(|name| !name.is_empty())
         .ok_or_else(|| "Choose a valid output filename.".to_string())?;
 
-    let mut temp_path = parent.join(format!(".{file_name}.vidcord-{}.tmp", std::process::id()));
-    let mut suffix = 1u32;
-    while temp_path.exists() {
-        temp_path = parent.join(format!(
-            ".{file_name}.vidcord-{}-{suffix}.tmp",
-            std::process::id()
-        ));
-        suffix += 1;
-    }
+    let temp_path = publish_to_temporary(&staged, parent, file_name, false)?;
 
     let publish_result = (|| -> Result<(), String> {
-        publish_to_temporary(&staged, &temp_path)?;
         crate::settings::replace_file(&temp_path, &destination).map_err(|e| e.to_string())?;
-        std::fs::remove_file(&staged).map_err(|e| e.to_string())?;
+        // The destination is now published. A staged copy that cannot be
+        // removed (e.g. a transient Windows lock) must not turn that success
+        // into a reported failure, so cleanup is log-only from here.
+        if let Err(error) = std::fs::remove_file(&staged) {
+            vidcord_log(&format!(
+                "publish: could not remove staged output after publishing: {error}"
+            ));
+        }
         Ok(())
     })();
 
     if publish_result.is_err() {
+        // Only reached when publication itself failed, and the temp path is
+        // one this call reserved, so removing it cannot delete another
+        // publish's temporary file.
         let _ = std::fs::remove_file(&temp_path);
     }
     publish_result?;
@@ -1442,21 +1566,9 @@ fn publish_staged_output_without_replacing_blocking(
         .filter(|name| !name.is_empty())
         .ok_or_else(|| "Choose a valid output filename.".to_string())?;
 
-    let mut temp_path = parent.join(format!(
-        ".{file_name}.vidcord-batch-{}.tmp",
-        std::process::id()
-    ));
-    let mut suffix = 1u32;
-    while temp_path.exists() {
-        temp_path = parent.join(format!(
-            ".{file_name}.vidcord-batch-{}-{suffix}.tmp",
-            std::process::id()
-        ));
-        suffix += 1;
-    }
+    let temp_path = publish_to_temporary(&staged, parent, file_name, true)?;
 
     let publish_result = (|| -> Result<(), String> {
-        publish_to_temporary(&staged, &temp_path)?;
         match std::fs::hard_link(&temp_path, &destination) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -1464,8 +1576,18 @@ fn publish_staged_output_without_replacing_blocking(
             }
             Err(_) => copy_file_to_new_destination(&temp_path, &destination)?,
         }
-        std::fs::remove_file(&temp_path).map_err(|error| error.to_string())?;
-        std::fs::remove_file(&staged).map_err(|error| error.to_string())?;
+        // The destination is now published; temp/staged cleanup failures are
+        // log-only so a successful publish is never reported as a failure.
+        if let Err(error) = std::fs::remove_file(&temp_path) {
+            vidcord_log(&format!(
+                "publish: could not remove publish temporary after publishing: {error}"
+            ));
+        }
+        if let Err(error) = std::fs::remove_file(&staged) {
+            vidcord_log(&format!(
+                "publish: could not remove staged output after publishing: {error}"
+            ));
+        }
         Ok(())
     })();
 
@@ -1516,28 +1638,76 @@ pub async fn publish_batch_staged_outputs(
 
 fn publish_to_temporary(
     staged: &std::path::Path,
-    temporary_path: &std::path::Path,
-) -> Result<bool, String> {
-    if std::fs::hard_link(staged, temporary_path).is_ok() {
-        std::fs::OpenOptions::new()
-            .write(true)
-            .open(temporary_path)
-            .and_then(|file| file.sync_all())
-            .map_err(|error| error.to_string())?;
-        return Ok(true);
-    }
-
-    let mut source = std::fs::File::open(staged).map_err(|error| error.to_string())?;
-    let mut temporary = std::fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(temporary_path)
-        .map_err(|error| error.to_string())?;
-    std::io::copy(&mut source, &mut temporary).map_err(|error| error.to_string())?;
+    parent: &std::path::Path,
+    file_name: &str,
+    batch: bool,
+) -> Result<std::path::PathBuf, String> {
     use std::io::Write;
-    temporary.flush().map_err(|error| error.to_string())?;
-    temporary.sync_all().map_err(|error| error.to_string())?;
-    Ok(false)
+
+    static PUBLISH_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let tag = if batch { "vidcord-batch" } else { "vidcord" };
+
+    // Reserve the temporary name atomically instead of check-then-create:
+    // both the hard link and the create-new copy fail with AlreadyExists
+    // when the name is taken, so a concurrent publish of the same
+    // destination retries with a fresh name instead of falling through to
+    // a copy that clashes, and error cleanup only ever removes a temp file
+    // this call actually created.
+    for _ in 0..100 {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let counter = PUBLISH_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let candidate = parent.join(format!(
+            ".{file_name}.{tag}-{}-{counter}-{nanos}.tmp",
+            std::process::id()
+        ));
+
+        match std::fs::hard_link(staged, &candidate) {
+            Ok(()) => {
+                let sync_result = std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&candidate)
+                    .and_then(|file| file.sync_all());
+                if let Err(error) = sync_result {
+                    let _ = std::fs::remove_file(&candidate);
+                    return Err(error.to_string());
+                }
+                return Ok(candidate);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => {
+                // Hard links are unavailable on this filesystem; a
+                // create-new copy reserves the name the same way.
+                let mut temporary = match std::fs::OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .open(&candidate)
+                {
+                    Ok(file) => file,
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => return Err(error.to_string()),
+                };
+                let copy_result = (|| -> Result<(), String> {
+                    let mut source =
+                        std::fs::File::open(staged).map_err(|error| error.to_string())?;
+                    std::io::copy(&mut source, &mut temporary)
+                        .map_err(|error| error.to_string())?;
+                    temporary.flush().map_err(|error| error.to_string())?;
+                    temporary.sync_all().map_err(|error| error.to_string())?;
+                    Ok(())
+                })();
+                drop(temporary);
+                if let Err(error) = copy_result {
+                    let _ = std::fs::remove_file(&candidate);
+                    return Err(error);
+                }
+                return Ok(candidate);
+            }
+        }
+    }
+    Err("Could not reserve a temporary output filename.".to_string())
 }
 
 #[tauri::command]
@@ -1588,10 +1758,25 @@ mod tests {
         deliver_notification_if_unfocused, escape_xdg_notification_markup,
         is_cargo_target_profile_directory, macos_clipboard_filename, macos_notification_arguments,
         normalize_windows_shell_path, notification_response_requests_focus, output_path_key,
-        publish_staged_output_blocking, publish_staged_output_without_replacing_blocking,
-        publish_to_temporary, resolve_output_path_blocking, staging_directory, unique_output_path,
+        percent_decode_header_value, publish_staged_output_blocking,
+        publish_staged_output_without_replacing_blocking, publish_to_temporary,
+        resolve_output_path_blocking, staging_directory, unique_output_path,
         unique_output_path_with_reserved, validated_clipboard_file, without_appimage_library_paths,
     };
+
+    #[test]
+    fn percent_decoded_snapshot_paths_round_trip_special_characters() {
+        assert_eq!(
+            percent_decode_header_value("C%3A%5CUsers%5Cvid%C3%A9o%20frame.png").unwrap(),
+            "C:\\Users\\vidéo frame.png"
+        );
+        assert_eq!(
+            percent_decode_header_value("/tmp/plain.png").unwrap(),
+            "/tmp/plain.png"
+        );
+        assert!(percent_decode_header_value("/tmp/bad%2.png").is_err());
+        assert!(percent_decode_header_value("/tmp/bad%zz.png").is_err());
+    }
 
     #[test]
     fn removes_only_appimage_library_paths() {
@@ -1643,7 +1828,7 @@ mod tests {
         let input = std::path::Path::new("holiday.mov");
 
         let first = unique_output_path_with_reserved(input, &directory, "mp4", &reserved);
-        reserved.insert(first.clone());
+        reserved.insert(output_path_key(&first));
         let second = unique_output_path_with_reserved(input, &directory, "mp4", &reserved);
 
         assert_eq!(first, directory.join("holiday-vidcord.mp4"));
@@ -1660,7 +1845,7 @@ mod tests {
         std::fs::create_dir_all(&directory).unwrap();
         let mut reserved = std::collections::HashSet::new();
         let first = directory.join("Holiday-vidcord.mp4");
-        reserved.insert(first.clone());
+        reserved.insert(output_path_key(&first));
 
         let second = unique_output_path_with_reserved(
             std::path::Path::new("holiday.mov"),
@@ -1806,11 +1991,14 @@ mod tests {
             std::env::temp_dir().join(format!("vidcord_publish_link_test_{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         let staged = directory.join("staged.mp4");
-        let temporary = directory.join("temporary.mp4");
         std::fs::write(&staged, b"compressed-video").unwrap();
 
-        assert!(publish_to_temporary(&staged, &temporary).unwrap());
+        let temporary = publish_to_temporary(&staged, &directory, "temporary.mp4", false).unwrap();
         assert_eq!(std::fs::read(&temporary).unwrap(), b"compressed-video");
+        // A second publish of the same destination reserves a distinct temp.
+        let second = publish_to_temporary(&staged, &directory, "temporary.mp4", false).unwrap();
+        assert_ne!(temporary, second);
+        assert_eq!(std::fs::read(&second).unwrap(), b"compressed-video");
 
         std::fs::remove_dir_all(directory).ok();
     }

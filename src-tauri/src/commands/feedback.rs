@@ -12,6 +12,50 @@ pub const FEEDBACK_EMAIL: &str = "owner@vidcord.app";
 const EMAIL_LOG_LINES: usize = 100;
 /// Log lines written to the full report file saved on disk.
 const FILE_LOG_LINES: usize = 500;
+/// Cap on the user's free-text description, so a pasted multi-MB log cannot
+/// multiply into several huge report strings and an unusable mailto URL.
+const MAX_DESCRIPTION_BYTES: usize = 8 * 1024;
+/// Saved report copies older than this are swept when a new report is
+/// collected, so one full-log file per submission does not accumulate in
+/// the shared temp directory forever.
+const REPORT_RETENTION: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 60 * 60);
+const REPORT_FILE_PREFIX: &str = "vidcord-bug-report-";
+
+/// Truncates an over-long description on a character boundary and marks
+/// the cut, before the text is embedded in any report copy.
+fn truncate_description(description: Option<String>) -> Option<String> {
+    description.map(|text| {
+        if text.len() <= MAX_DESCRIPTION_BYTES {
+            return text;
+        }
+        let mut end = MAX_DESCRIPTION_BYTES;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}\n[truncated]", &text[..end])
+    })
+}
+
+/// Best-effort removal of saved report copies past their retention window.
+fn sweep_stale_report_files(temp_dir: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(temp_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if !name.starts_with(REPORT_FILE_PREFIX) || !name.ends_with(".txt") {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .is_ok_and(|modified| modified.elapsed().is_ok_and(|age| age > REPORT_RETENTION));
+        if stale {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -98,7 +142,7 @@ fn write_report_file(contents: &str) -> Result<std::path::PathBuf, String> {
             .unwrap_or(0);
         let suffix = REPORT_COUNTER.fetch_add(1, Ordering::Relaxed);
         let path = temp_dir.join(format!(
-            "vidcord-bug-report-{}-{nanos}-{suffix}.txt",
+            "{REPORT_FILE_PREFIX}{}-{nanos}-{suffix}.txt",
             std::process::id()
         ));
         let mut file = match open_private_report_file(&path) {
@@ -150,18 +194,28 @@ fn format_report(
 }
 
 #[tauri::command]
-pub fn collect_bug_report(description: Option<String>) -> Result<BugReport, String> {
+pub async fn collect_bug_report(description: Option<String>) -> Result<BugReport, String> {
+    tokio::task::spawn_blocking(move || collect_bug_report_blocking(description))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn collect_bug_report_blocking(description: Option<String>) -> Result<BugReport, String> {
     let version = env!("CARGO_PKG_VERSION");
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
     let log_path = crate::log::log_file_path();
+    let description = truncate_description(description);
 
-    let email_tail = tail_lines(&log_path, EMAIL_LOG_LINES);
-    let body = format_report(description.as_deref(), version, os, arch, &email_tail);
+    // One pass over the log: the email body embeds the last EMAIL_LOG_LINES
+    // of the same tail the full report file is written from.
+    let file_tail = tail_lines(&log_path, FILE_LOG_LINES);
+    let email_tail = &file_tail[file_tail.len().saturating_sub(EMAIL_LOG_LINES)..];
+    let body = format_report(description.as_deref(), version, os, arch, email_tail);
 
     // Full report on disk in case the mail client truncates the mailto: body.
-    let file_tail = tail_lines(&log_path, FILE_LOG_LINES);
     let full = format_report(description.as_deref(), version, os, arch, &file_tail);
+    sweep_stale_report_files(&std::env::temp_dir());
     let report_path = write_report_file(&full)?;
 
     Ok(BugReport {
@@ -243,6 +297,53 @@ mod tests {
             assert!(body.contains("(no description provided)"));
             assert!(body.contains("(log unavailable)"));
         }
+    }
+
+    #[test]
+    fn long_descriptions_are_truncated_with_a_marker() {
+        let long = "x".repeat(MAX_DESCRIPTION_BYTES + 100);
+        let truncated = truncate_description(Some(long)).unwrap();
+        assert!(truncated.ends_with("[truncated]"));
+        assert!(truncated.len() <= MAX_DESCRIPTION_BYTES + "\n[truncated]".len());
+
+        let short = "short description".to_string();
+        assert_eq!(truncate_description(Some(short.clone())), Some(short));
+        assert_eq!(truncate_description(None), None);
+    }
+
+    #[test]
+    fn description_truncation_respects_character_boundaries() {
+        // 'é' is two bytes; a byte-naive cut inside it would panic on slicing.
+        let text = format!(
+            "{}é{}",
+            "a".repeat(MAX_DESCRIPTION_BYTES - 1),
+            "b".repeat(64)
+        );
+        let truncated = truncate_description(Some(text)).unwrap();
+        assert!(truncated.ends_with("[truncated]"));
+    }
+
+    #[test]
+    fn stale_report_sweep_only_removes_old_report_files() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "vidcord-feedback-sweep-test-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let fresh_report = directory.join("vidcord-bug-report-1-2-3.txt");
+        let other_file = directory.join("unrelated.txt");
+        std::fs::write(&fresh_report, "fresh").unwrap();
+        std::fs::write(&other_file, "keep").unwrap();
+
+        sweep_stale_report_files(&directory);
+
+        assert!(fresh_report.exists());
+        assert!(other_file.exists());
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

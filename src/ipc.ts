@@ -210,10 +210,6 @@ export function detectEncoders(): Promise<Encoder[]> {
   return invoke<Encoder[]>("detect_encoders");
 }
 
-export function checkFfmpegAvailable(): Promise<boolean> {
-  return invoke<boolean>("check_ffmpeg_available");
-}
-
 export function installFfmpegDependency(allowPrivileged: boolean): Promise<FfmpegInstallResult> {
   return invoke<FfmpegInstallResult>("install_ffmpeg_dependency", {
     opts: { allow_privileged: allowPrivileged },
@@ -343,9 +339,14 @@ export function saveSnapshotImage(
   pngBytes: Uint8Array,
   overwrite: boolean
 ): Promise<string> {
-  return invoke<string>("save_snapshot_image", {
-    outputPath,
-    pngBytes: Array.from(pngBytes),
-    overwrite,
+  // Raw binary IPC: the PNG bytes are the request body, so they cross once
+  // and unencoded instead of as one JSON number per byte. The destination
+  // travels in headers, percent-encoded because header values cannot carry
+  // arbitrary (e.g. non-ASCII) path characters.
+  return invoke<string>("save_snapshot_image", pngBytes, {
+    headers: {
+      "x-vidcord-output-path": encodeURIComponent(outputPath),
+      "x-vidcord-overwrite": overwrite ? "true" : "false",
+    },
   });
 }

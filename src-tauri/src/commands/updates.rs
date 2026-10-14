@@ -6,36 +6,49 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 use tokio::io::AsyncWriteExt;
 
-static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-static DOWNLOAD_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+static HTTP_CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+static DOWNLOAD_CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
 static TEMP_DOWNLOAD_COUNTER: AtomicU64 = AtomicU64::new(0);
 const MAX_UPDATE_INSTALLER_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_UPDATE_SIGNATURE_BYTES: usize = 64;
 const MAX_DOWNLOAD_NAME_COLLISIONS: usize = 10_000;
 const UPDATE_SIGNATURE_CONTEXT: &str = "vidcord-update-signature-v1";
 const UPDATE_SIGNING_PUBLIC_KEY_HEX: &str = include_str!("../../update-signing-public-key.hex");
+/// Longest allowed gap between download chunks. This replaces a total
+/// transfer timeout: a slow but progressing download may take as long as
+/// it needs, while a stalled connection still fails instead of hanging.
+const DOWNLOAD_CHUNK_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
-fn http_client() -> &'static reqwest::Client {
-    HTTP_CLIENT.get_or_init(|| {
-        reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(6))
-            .user_agent(concat!("vidcord-update-check/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .expect("failed to build HTTP client")
-    })
+fn http_client() -> Result<&'static reqwest::Client, String> {
+    HTTP_CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(6))
+                .user_agent(concat!("vidcord-update-check/", env!("CARGO_PKG_VERSION")))
+                .build()
+                .map_err(|error| format!("failed to build HTTP client: {error}"))
+        })
+        .as_ref()
+        .map_err(|error| error.clone())
 }
 
-fn download_client() -> &'static reqwest::Client {
-    DOWNLOAD_CLIENT.get_or_init(|| {
-        reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10 * 60))
-            .user_agent(concat!(
-                "vidcord-update-install/",
-                env!("CARGO_PKG_VERSION")
-            ))
-            .build()
-            .expect("failed to build download HTTP client")
-    })
+fn download_client() -> Result<&'static reqwest::Client, String> {
+    DOWNLOAD_CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                // No total `.timeout()`: the whole-body transfer is bounded
+                // by the per-chunk idle timeout while streaming instead, so
+                // slow connections can still finish a large installer.
+                .connect_timeout(std::time::Duration::from_secs(30))
+                .user_agent(concat!(
+                    "vidcord-update-install/",
+                    env!("CARGO_PKG_VERSION")
+                ))
+                .build()
+                .map_err(|error| format!("failed to build download HTTP client: {error}"))
+        })
+        .as_ref()
+        .map_err(|error| error.clone())
 }
 
 fn normalize_semver(input: &str) -> String {
@@ -180,7 +193,7 @@ fn select_platform_asset(release: &GitHubRelease) -> Result<SelectedAsset, Strin
 }
 
 async fn fetch_release(url: &str) -> Result<GitHubRelease, String> {
-    let resp = http_client()
+    let resp = http_client()?
         .get(url)
         .header("Accept", "application/vnd.github+json")
         .send()
@@ -409,7 +422,7 @@ async fn copy_download_without_clobber(source: &Path, destination: &Path) -> std
 }
 
 async fn download_release_signature(url: &str) -> Result<[u8; 64], String> {
-    let resp = download_client()
+    let resp = download_client()?
         .get(url)
         .header("Accept", "application/octet-stream")
         .send()
@@ -435,7 +448,14 @@ async fn download_release_signature(url: &str) -> Result<[u8; 64], String> {
     let mut signature = Vec::with_capacity(MAX_UPDATE_SIGNATURE_BYTES);
     let mut resp = resp;
     loop {
-        let chunk = resp.chunk().await.map_err(|e| e.to_string())?;
+        let chunk = match tokio::time::timeout(DOWNLOAD_CHUNK_IDLE_TIMEOUT, resp.chunk()).await {
+            Ok(result) => result.map_err(|e| e.to_string())?,
+            Err(_) => {
+                return Err(
+                    "Update installer signature download stalled and was cancelled.".to_string(),
+                );
+            }
+        };
         let Some(chunk) = chunk else { break };
         let Some(next_length) = signature.len().checked_add(chunk.len()) else {
             return Err("Update installer signature size overflowed.".to_string());
@@ -451,6 +471,34 @@ async fn download_release_signature(url: &str) -> Result<[u8; 64], String> {
         .map_err(|_| "Update installer has an invalid release signature.".to_string())
 }
 
+/// Deletes a partial update download when dropped, so a download whose
+/// future is aborted (app quit or kill mid-transfer) cannot leak a partial
+/// installer into the user's Downloads folder the way an error path that
+/// never runs would. Disarm after successful verification/publication,
+/// which take over ownership of the temporary file.
+struct TempDownloadGuard {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl TempDownloadGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for TempDownloadGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
 async fn write_download_stream(
     path: PathBuf,
     mut resp: reqwest::Response,
@@ -462,49 +510,52 @@ async fn write_download_stream(
         validate_download_size(content_length)?;
     }
 
-    let (tmp, mut file) = create_temp_download_file(&path).await?;
+    let (tmp, file) = create_temp_download_file(&path).await?;
+    let mut temp_guard = TempDownloadGuard::new(tmp.clone());
+    // Coalesce the transport's chunks into large writes instead of one
+    // blocking-pool file operation per network chunk.
+    let mut writer = tokio::io::BufWriter::with_capacity(256 * 1024, file);
     let mut written = 0u64;
     let mut hasher = Sha256::new();
 
     loop {
-        let chunk = match resp.chunk().await {
-            Ok(Some(chunk)) => chunk,
-            Ok(None) => break,
-            Err(err) => {
+        let chunk = match tokio::time::timeout(DOWNLOAD_CHUNK_IDLE_TIMEOUT, resp.chunk()).await {
+            Ok(Ok(Some(chunk))) => chunk,
+            Ok(Ok(None)) => break,
+            Ok(Err(err)) => {
                 let msg = err.to_string();
                 vidcord_log(&format!("update install: download read failed: {msg}"));
-                drop(file);
-                let _ = tokio::fs::remove_file(&tmp).await;
                 return Err(msg);
+            }
+            Err(_) => {
+                vidcord_log("update install: download stalled and was cancelled");
+                return Err("Update download stalled and was cancelled.".to_string());
             }
         };
         let Some(next_written) = written.checked_add(chunk.len() as u64) else {
-            drop(file);
-            let _ = tokio::fs::remove_file(&tmp).await;
             return Err("Update installer size overflowed.".to_string());
         };
         written = next_written;
-        if let Err(err) = validate_download_size(written) {
-            drop(file);
-            let _ = tokio::fs::remove_file(&tmp).await;
-            return Err(err);
-        }
-        if let Err(err) = file.write_all(&chunk).await {
-            drop(file);
-            let _ = tokio::fs::remove_file(&tmp).await;
+        validate_download_size(written)?;
+        if let Err(err) = writer.write_all(&chunk).await {
             return Err(err.to_string());
         }
         hasher.update(&chunk);
     }
 
-    if let Err(err) = file.flush().await {
-        drop(file);
-        let _ = tokio::fs::remove_file(&tmp).await;
+    if let Err(err) = writer.flush().await {
+        return Err(err.to_string());
+    }
+    // fsync before publication, like every other publish path: the hash is
+    // verified over the streamed bytes, and a torn on-disk file after a
+    // power loss must not be what gets published and opened.
+    let file = writer.into_inner();
+    if let Err(err) = file.sync_all().await {
         return Err(err.to_string());
     }
     drop(file);
 
-    finish_verified_download(
+    let published = finish_verified_download(
         &tmp,
         &path,
         content_length,
@@ -513,7 +564,9 @@ async fn write_download_stream(
         hasher.finalize().into(),
         signature,
     )
-    .await
+    .await?;
+    temp_guard.disarm();
+    Ok(published)
 }
 
 async fn finish_verified_download(
@@ -657,7 +710,7 @@ pub async fn download_and_open_update_installer(
         .await
         .map_err(|e| e.to_string())?;
 
-    let resp = download_client()
+    let resp = download_client()?
         .get(&asset.download_url)
         .header("Accept", "application/octet-stream")
         .send()
@@ -839,6 +892,25 @@ mod tests {
         assert!(safe_asset_filename("vidcord_9.0.0&calc.exe").is_err());
         assert!(safe_asset_filename("vidcord 9.0.0.dmg").is_err());
         assert!(safe_asset_filename("").is_err());
+    }
+
+    #[test]
+    fn temp_download_guard_removes_partial_download_unless_disarmed() {
+        let directory = unique_test_directory();
+        std::fs::create_dir(&directory).unwrap();
+        let partial = directory.join(".vidcord.download");
+        std::fs::write(&partial, b"partial installer").unwrap();
+        drop(TempDownloadGuard::new(partial.clone()));
+        assert!(!partial.exists());
+
+        let completed = directory.join(".vidcord-complete.download");
+        std::fs::write(&completed, b"verified installer").unwrap();
+        let mut guard = TempDownloadGuard::new(completed.clone());
+        guard.disarm();
+        drop(guard);
+        assert!(completed.exists());
+
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
