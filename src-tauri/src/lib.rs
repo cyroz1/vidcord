@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 use tauri::{webview::PageLoadEvent, AppHandle, Emitter, Manager};
 use tauri_plugin_window_state::StateFlags;
 
@@ -44,7 +44,10 @@ struct StartupTiming {
 
 #[cfg(test)]
 mod tests {
-    use super::append_pending_files;
+    use super::{
+        append_pending_files, existing_open_path, is_update_download_temp_name,
+        sweep_stale_update_downloads_in,
+    };
 
     #[test]
     fn pending_open_files_are_merged_before_frontend_ready() {
@@ -63,6 +66,85 @@ mod tests {
             ])
         );
     }
+
+    #[test]
+    fn open_paths_accept_plain_paths_and_file_urls_only_when_they_exist() {
+        let path =
+            std::env::temp_dir().join(format!("vidcord-open-path-test-{}.mp4", std::process::id()));
+        std::fs::write(&path, b"video").unwrap();
+        let plain = path.to_string_lossy().into_owned();
+        assert_eq!(existing_open_path(&plain), Some(plain.clone()));
+        let url = url::Url::from_file_path(&path).unwrap().to_string();
+        assert_eq!(existing_open_path(&url), Some(plain));
+        assert_eq!(existing_open_path("--flag"), None);
+        assert_eq!(
+            existing_open_path("/definitely/not/a/real/vidcord-file.mp4"),
+            None
+        );
+        assert_eq!(existing_open_path("file:///definitely/not/real.mp4"), None);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn update_download_temp_names_match_only_the_updater_pattern() {
+        for name in [
+            ".vidcord_7.7_x64-setup.exe.999999999.0.download",
+            ".vidcord_7.7_arm64-setup.exe.999999999.1.download",
+            ".vidcord_7.7_universal.dmg.999999999.0.download",
+            ".vidcord_7.7_amd64.AppImage.999999999.2.download",
+            ".vidcord_7.7_aarch64.AppImage.999999999.0.download",
+            ".vidcord-update.999999999.0.download",
+        ] {
+            assert!(is_update_download_temp_name(name), "{name}");
+        }
+        for name in [
+            // Missing the leading dot, wrong suffix, or not an installer.
+            "vidcord_7.7_x64-setup.exe.999999999.0.download",
+            ".vidcord_7.7_x64-setup.exe.999999999.0.download.bak",
+            ".vidcord_7.7_x64-setup.exe.999999999.download",
+            ".vidcord_7.7_x64-setup.exe.latest.0.download",
+            ".vidcord_7.7_x64-setup.exe.999999999.x.download",
+            ".other_1.0_x64-setup.exe.999999999.0.download",
+            ".vidcord_7.7_notes.txt.999999999.0.download",
+            "vidcord_7.7_x64-setup.exe",
+        ] {
+            assert!(!is_update_download_temp_name(name), "{name}");
+        }
+        // A temp file stamped with this process's own pid is never stale.
+        let own = format!(
+            ".vidcord_7.7_x64-setup.exe.{}.0.download",
+            std::process::id()
+        );
+        assert!(!is_update_download_temp_name(&own));
+    }
+
+    #[test]
+    fn stale_update_sweep_removes_only_old_matching_files() {
+        use std::time::{Duration, SystemTime};
+
+        let dir =
+            std::env::temp_dir().join(format!("vidcord-update-sweep-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let stale = dir.join(".vidcord_7.7_x64-setup.exe.999999999.0.download");
+        let unrelated = dir.join("keep-me.txt");
+        std::fs::write(&stale, b"partial").unwrap();
+        std::fs::write(&unrelated, b"keep").unwrap();
+
+        // Nothing is older than the epoch, so nothing is removed.
+        sweep_stale_update_downloads_in(std::slice::from_ref(&dir), SystemTime::UNIX_EPOCH);
+        assert!(stale.exists());
+
+        // With a process start after the files were written, only the
+        // matching temp file is removed.
+        sweep_stale_update_downloads_in(
+            std::slice::from_ref(&dir),
+            SystemTime::now() + Duration::from_secs(60),
+        );
+        assert!(!stale.exists());
+        assert!(unrelated.exists());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
 
 fn append_pending_files(pending: &mut Option<Vec<String>>, paths: Vec<String>) {
@@ -78,9 +160,18 @@ fn existing_open_path(argument: &str) -> Option<String> {
         return None;
     }
 
-    let path = match url::Url::parse(argument) {
-        Ok(url) if url.scheme() == "file" => url.to_file_path().ok()?,
-        _ => std::path::PathBuf::from(argument),
+    // Only file:// arguments need URL parsing; everything else is a plain
+    // filesystem path and goes straight to PathBuf.
+    let is_file_url = argument
+        .get(..7)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("file://"));
+    let path = if is_file_url {
+        match url::Url::parse(argument) {
+            Ok(url) if url.scheme() == "file" => url.to_file_path().ok()?,
+            _ => return None,
+        }
+    } else {
+        std::path::PathBuf::from(argument)
     };
 
     path.exists().then(|| path.to_string_lossy().into_owned())
@@ -91,6 +182,121 @@ fn existing_open_paths(arguments: impl IntoIterator<Item = String>) -> Vec<Strin
         .into_iter()
         .filter_map(|argument| existing_open_path(&argument))
         .collect()
+}
+
+/// Whether a filename matches the update installer's temporary-download
+/// pattern from `commands::updates::temp_download_path`:
+/// `.{asset}.{pid}.{counter}.download`, where the asset is a `vidcord_*`
+/// installer name ending in a known platform suffix.
+fn is_update_download_temp_name(file_name: &str) -> bool {
+    let Some(core) = file_name
+        .strip_prefix('.')
+        .and_then(|name| name.strip_suffix(".download"))
+    else {
+        return false;
+    };
+    let Some((rest, counter)) = core.rsplit_once('.') else {
+        return false;
+    };
+    let Some((asset, pid)) = rest.rsplit_once('.') else {
+        return false;
+    };
+    if counter.is_empty() || !counter.bytes().all(|byte| byte.is_ascii_digit()) {
+        return false;
+    }
+    if pid.is_empty() || !pid.bytes().all(|byte| byte.is_ascii_digit()) {
+        return false;
+    }
+    // Files stamped with this process's own pid are never stale.
+    if pid.parse::<u32>() == Ok(std::process::id()) {
+        return false;
+    }
+    let asset = asset.to_ascii_lowercase();
+    asset == "vidcord-update"
+        || (asset.starts_with("vidcord_")
+            && [
+                "_x64-setup.exe",
+                "_arm64-setup.exe",
+                "_universal.dmg",
+                "_amd64.appimage",
+                "_aarch64.appimage",
+            ]
+            .iter()
+            .any(|suffix| asset.ends_with(suffix)))
+}
+
+/// Remove partial update downloads left behind by a process that was killed
+/// before its cleanup guard could run. Only files matching the updater's
+/// exact temp pattern and last modified before this process started are
+/// removed, so a download in progress elsewhere is never touched. Best
+/// effort: failures are logged, never propagated.
+fn sweep_stale_update_downloads_in(
+    directories: &[std::path::PathBuf],
+    process_started: SystemTime,
+) {
+    let mut removed = 0usize;
+    for directory in directories {
+        let entries = match std::fs::read_dir(directory) {
+            Ok(entries) => entries,
+            Err(error) => {
+                vidcord_log(&format!(
+                    "Update cleanup: could not scan for stale partial downloads: {error}"
+                ));
+                continue;
+            }
+        };
+        for entry in entries.flatten() {
+            let file_name = entry.file_name();
+            let Some(file_name) = file_name.to_str() else {
+                continue;
+            };
+            if !is_update_download_temp_name(file_name) {
+                continue;
+            }
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            if !metadata.is_file() {
+                continue;
+            }
+            match metadata.modified() {
+                Ok(modified) if modified < process_started => {}
+                _ => continue,
+            }
+            match std::fs::remove_file(entry.path()) {
+                Ok(()) => removed += 1,
+                Err(error) => {
+                    vidcord_log(&format!(
+                        "Update cleanup: could not remove a stale partial download: {error}"
+                    ));
+                }
+            }
+        }
+    }
+    if removed > 0 {
+        vidcord_log(&format!(
+            "Update cleanup: removed {removed} stale partial update download(s)"
+        ));
+    }
+}
+
+fn sweep_stale_update_downloads(process_started: SystemTime) {
+    // The same directories the updater can place a download target in,
+    // mirroring the fallback chain in commands::updates::download_target_path.
+    let mut directories: Vec<std::path::PathBuf> = Vec::new();
+    for directory in [
+        dirs::download_dir(),
+        dirs::data_local_dir(),
+        Some(std::env::temp_dir()),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !directories.contains(&directory) {
+            directories.push(directory);
+        }
+    }
+    sweep_stale_update_downloads_in(&directories, process_started);
 }
 
 fn emit_or_defer_open_files(app: &AppHandle, paths: Vec<String>) {
@@ -193,6 +399,7 @@ fn sync_native_window_theme(app: AppHandle, dark: bool) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let startup_started_at = Instant::now();
+    let process_started_at = SystemTime::now();
     log::setup_crash_log();
 
     #[cfg(target_os = "linux")]
@@ -314,7 +521,7 @@ pub fn run() {
     #[cfg(feature = "e2e")]
     let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
 
-    builder
+    let builder = builder
         .manage(PendingFile(Mutex::new(None)))
         .manage(WebviewReady(AtomicBool::new(false)))
         .manage(StartupTiming {
@@ -326,17 +533,47 @@ pub fn run() {
                 // A reload destroys the current React listener. Reset readiness
                 // before accepting more OS file-open events; the new frontend
                 // will mark itself ready after its replacement listener exists.
-                let pending_file = webview.state::<PendingFile>();
-                let _pending = pending_file.0.lock().unwrap_or_else(|e| e.into_inner());
-                webview
-                    .state::<WebviewReady>()
-                    .0
-                    .store(false, Ordering::Release);
+                {
+                    let pending_file = webview.state::<PendingFile>();
+                    let _pending = pending_file.0.lock().unwrap_or_else(|e| e.into_inner());
+                    webview
+                        .state::<WebviewReady>()
+                        .0
+                        .store(false, Ordering::Release);
+                }
+                // The old page's preview URLs are dead after a reload; drop
+                // their registrations so leaked slots cannot accumulate.
+                preview_source::clear_preview_sources();
             }
         })
-        .setup(|app| {
+        .setup(move |app| {
+            // One-time sweep for partial update downloads orphaned by a
+            // killed process (the updater's cleanup guard cannot run after
+            // SIGKILL or power loss). Directory scans stay off the startup
+            // path, and the sweep only removes files older than this process.
+            if let Err(error) = std::thread::Builder::new()
+                .name("vidcord-update-cleanup".to_string())
+                .spawn(move || sweep_stale_update_downloads(process_started_at))
+            {
+                vidcord_log(&format!(
+                    "Could not start the stale update download cleanup: {error}"
+                ));
+            }
+
+            // AppImage folder Open With registration scans and writes desktop
+            // files; keep that filesystem work off the startup path and run
+            // it in the background after setup.
             #[cfg(target_os = "linux")]
-            desktop_integration::register_appimage_folder_open_with();
+            if std::env::var_os("APPIMAGE").is_some() {
+                if let Err(error) = std::thread::Builder::new()
+                    .name("vidcord-appimage-registration".to_string())
+                    .spawn(desktop_integration::register_appimage_folder_open_with)
+                {
+                    vidcord_log(&format!(
+                        "Could not start AppImage folder Open With registration: {error}"
+                    ));
+                }
+            }
 
             // Handle CLI file argument: `vidcord myfile.mp4`
             // File managers may pass local files as `file://` URLs; normalize
@@ -388,24 +625,34 @@ pub fn run() {
             get_os,
             send_system_notification,
             collect_bug_report,
-        ])
-        .build(tauri::generate_context!())
-        .expect("error while running tauri application")
-        .run(|app_handle, event| {
-            // macOS Finder "Open with" delivers files via Apple Events, not CLI args.
-            #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Opened { urls } = event {
-                let paths = urls
-                    .into_iter()
-                    .filter_map(|u: url::Url| u.to_file_path().ok())
-                    .map(|path| path.to_string_lossy().to_string())
-                    .collect::<Vec<_>>();
-                if !paths.is_empty() {
-                    vidcord_log(&format!("Received {} open-file path(s)", paths.len()));
-                    emit_or_defer_open_files(app_handle, paths);
-                }
+        ]);
+
+    // A build failure must reach the log file: with panic = "abort" an expect()
+    // message is invisible, especially in the Windows GUI subsystem.
+    let app = match builder.build(tauri::generate_context!()) {
+        Ok(app) => app,
+        Err(error) => {
+            vidcord_log(&format!(
+                "Startup: failed to build the Tauri application: {error}"
+            ));
+            std::process::exit(1);
+        }
+    };
+    app.run(|app_handle, event| {
+        // macOS Finder "Open with" delivers files via Apple Events, not CLI args.
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Opened { urls } = event {
+            let paths = urls
+                .into_iter()
+                .filter_map(|u: url::Url| u.to_file_path().ok())
+                .map(|path| path.to_string_lossy().to_string())
+                .collect::<Vec<_>>();
+            if !paths.is_empty() {
+                vidcord_log(&format!("Received {} open-file path(s)", paths.len()));
+                emit_or_defer_open_files(app_handle, paths);
             }
-            #[cfg(not(target_os = "macos"))]
-            let _ = (app_handle, event);
-        });
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (app_handle, event);
+    });
 }

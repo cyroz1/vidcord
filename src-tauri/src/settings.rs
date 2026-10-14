@@ -158,6 +158,10 @@ fn write_atomically(
     let dir = path.parent().ok_or("No parent directory")?;
     std::fs::create_dir_all(dir)?;
 
+    // The directory fsync below only needs to make a newly created file
+    // durable; when the settings file already existed, the atomic replace is
+    // covered by the file fsync, so skip the second fsync under the write lock.
+    let file_existed = path.exists();
     let tmp = dir.join(temp_name);
     let write_result = (|| -> Result<(), Box<dyn std::error::Error>> {
         let mut file = std::fs::File::create(&tmp)?;
@@ -167,7 +171,9 @@ fn write_atomically(
         replace_file(&tmp, path)?;
 
         #[cfg(unix)]
-        std::fs::File::open(dir)?.sync_all()?;
+        if !file_existed {
+            std::fs::File::open(dir)?.sync_all()?;
+        }
 
         Ok(())
     })();
@@ -178,19 +184,101 @@ fn write_atomically(
     write_result
 }
 
+/// Round-trip an outgoing payload through the typed `Settings` struct so a
+/// save can never persist a value that the next load would reject wholesale.
+/// Unknown keys are dropped, matching load-time migration semantics.
+fn normalize_for_save(
+    data: &serde_json::Value,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let typed: Settings = serde_json::from_value(data.clone())?;
+    Ok(serde_json::to_value(typed.migrate_legacy_gif_target())?)
+}
+
+fn typed_to_value(typed: Settings) -> Option<serde_json::Value> {
+    match serde_json::to_value(typed.migrate_legacy_gif_target()) {
+        Ok(value) => Some(value),
+        Err(error) => {
+            crate::log::vidcord_log(&format!(
+                "Settings: could not serialize loaded settings: {error}"
+            ));
+            None
+        }
+    }
+}
+
+/// Fallback for a settings file whose JSON is valid but where one or more
+/// fields have the wrong type: keep every field that parses on its own and
+/// report the names (never the contents) of the ones dropped.
+fn salvage_settings(raw: &serde_json::Value) -> Option<(Settings, Vec<String>)> {
+    let object = raw.as_object()?;
+    let mut kept = serde_json::Map::new();
+    let mut dropped = Vec::new();
+    for (key, value) in object {
+        let mut trial = serde_json::Map::new();
+        trial.insert(key.clone(), value.clone());
+        if serde_json::from_value::<Settings>(serde_json::Value::Object(trial)).is_ok() {
+            kept.insert(key.clone(), value.clone());
+        } else {
+            dropped.push(key.clone());
+        }
+    }
+    let typed = serde_json::from_value::<Settings>(serde_json::Value::Object(kept)).ok()?;
+    Some((typed, dropped))
+}
+
+fn backup_unparseable_settings(path: &Path) {
+    let mut backup_name = path.as_os_str().to_owned();
+    backup_name.push(".bak");
+    let backup = PathBuf::from(backup_name);
+    if let Err(error) = std::fs::copy(path, &backup) {
+        crate::log::vidcord_log(&format!(
+            "Settings: could not back up the unparseable settings file: {error}"
+        ));
+    }
+}
+
+fn load_settings_value(path: &Path) -> serde_json::Value {
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return serde_json::json!({});
+        }
+        Err(error) => {
+            crate::log::vidcord_log(&format!(
+                "Settings: could not read the settings file: {error}"
+            ));
+            return serde_json::json!({});
+        }
+    };
+    // Deserialize through the typed struct to silently drop unknown keys, then
+    // re-serialize to plain JSON for the frontend.
+    let parse_error = match serde_json::from_str::<Settings>(&content) {
+        Ok(typed) => return typed_to_value(typed).unwrap_or_else(|| serde_json::json!({})),
+        Err(error) => error,
+    };
+    if let Ok(raw) = serde_json::from_str::<serde_json::Value>(&content) {
+        if let Some((typed, dropped)) = salvage_settings(&raw) {
+            if !dropped.is_empty() {
+                crate::log::vidcord_log(&format!(
+                    "Settings: dropped invalid settings field(s): {}",
+                    dropped.join(", ")
+                ));
+            }
+            return typed_to_value(typed).unwrap_or_else(|| serde_json::json!({}));
+        }
+    }
+    // The file cannot be recovered field-by-field. Log the reason (never the
+    // contents) and keep a backup copy before a later save overwrites it.
+    crate::log::vidcord_log(&format!(
+        "Settings: could not parse the settings file ({parse_error}); using defaults"
+    ));
+    backup_unparseable_settings(path);
+    serde_json::json!({})
+}
+
 impl SettingsManager {
     pub fn load() -> serde_json::Value {
-        let path = settings_path();
-        if let Ok(content) = std::fs::read_to_string(path) {
-            // Deserialize through the typed struct to silently drop unknown or
-            // invalid keys, then re-serialize to plain JSON for the frontend.
-            if let Ok(typed) = serde_json::from_str::<Settings>(&content) {
-                if let Ok(v) = serde_json::to_value(typed.migrate_legacy_gif_target()) {
-                    return v;
-                }
-            }
-        }
-        serde_json::json!({})
+        load_settings_value(settings_path())
     }
 
     pub fn save(data: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
@@ -198,7 +286,12 @@ impl SettingsManager {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let path = settings_path();
-        write_atomically(data, path, &format!("settings_{}.tmp", std::process::id()))
+        let normalized = normalize_for_save(data)?;
+        write_atomically(
+            &normalized,
+            path,
+            &format!("settings_{}.tmp", std::process::id()),
+        )
     }
 
     /// Save to an explicit path (used in tests to avoid touching the real settings file).
@@ -207,8 +300,9 @@ impl SettingsManager {
         data: &serde_json::Value,
         path: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let normalized = normalize_for_save(data)?;
         write_atomically(
-            data,
+            &normalized,
             path,
             &format!("settings_test_{}.tmp", std::process::id()),
         )
@@ -217,14 +311,7 @@ impl SettingsManager {
     /// Load from an explicit path (used in tests).
     #[cfg(test)]
     pub fn load_from(path: &std::path::Path) -> serde_json::Value {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            if let Ok(typed) = serde_json::from_str::<Settings>(&content) {
-                if let Ok(v) = serde_json::to_value(typed.migrate_legacy_gif_target()) {
-                    return v;
-                }
-            }
-        }
-        serde_json::json!({})
+        load_settings_value(path)
     }
 }
 
@@ -357,6 +444,61 @@ mod tests {
 
         let loaded = SettingsManager::load_from(&path);
         assert_eq!(loaded, serde_json::json!({}));
+        // The unparseable file is preserved for recovery before any later save.
+        let backup = dir.join("settings.json.bak");
+        assert_eq!(
+            std::fs::read(&backup).unwrap(),
+            b"not valid json {{{".to_vec()
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_settings_load_salvages_valid_fields_around_one_bad_field() {
+        let dir = std::env::temp_dir().join(format!("vidcord_test_salvage_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        std::fs::write(
+            &path,
+            br#"{"quality_index": "not-a-number", "gif_mode": true, "encoder_index": 3}"#,
+        )
+        .unwrap();
+
+        let loaded = SettingsManager::load_from(&path);
+        assert_eq!(loaded["gif_mode"], true);
+        assert_eq!(loaded["encoder_index"], 3);
+        assert!(loaded.get("quality_index").is_none());
+        // Field-level salvage recovers the file, so no backup is needed.
+        assert!(!dir.join("settings.json.bak").exists());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_settings_save_round_trips_through_the_typed_struct() {
+        let dir =
+            std::env::temp_dir().join(format!("vidcord_test_save_typed_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+
+        // A genuine type mismatch is rejected instead of persisted.
+        assert!(SettingsManager::save_to(
+            &serde_json::json!({ "quality_index": "not-a-number" }),
+            &path
+        )
+        .is_err());
+        assert!(!path.exists());
+
+        // Unknown keys are dropped on save, matching load-time semantics.
+        SettingsManager::save_to(
+            &serde_json::json!({ "quality_index": 2, "removed_legacy_key": true }),
+            &path,
+        )
+        .unwrap();
+        let stored = std::fs::read_to_string(&path).unwrap();
+        assert!(!stored.contains("removed_legacy_key"));
+        assert_eq!(SettingsManager::load_from(&path)["quality_index"], 2);
 
         std::fs::remove_dir_all(&dir).ok();
     }

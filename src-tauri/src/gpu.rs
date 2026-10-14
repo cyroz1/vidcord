@@ -121,6 +121,10 @@ impl CapturedChild {
         let deadline = Instant::now()
             .checked_add(timeout)
             .unwrap_or_else(Instant::now);
+        // Checking the capture files' lengths is a metadata syscall each, so
+        // only re-check every tenth poll (~100 ms) instead of on every 10 ms
+        // wake-up; try_wait() itself stays on the fast cadence.
+        let mut iteration: u64 = 0;
         loop {
             if let Some(status) = self.child.try_wait()? {
                 self.finished = true;
@@ -131,13 +135,16 @@ impl CapturedChild {
                 }));
             }
 
-            if self.stdout.len()? > max_output_bytes || self.stderr.len()? > max_output_bytes {
+            if iteration.is_multiple_of(10)
+                && (self.stdout.len()? > max_output_bytes || self.stderr.len()? > max_output_bytes)
+            {
                 self.terminate_and_reap();
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     "process produced too much output",
                 ));
             }
+            iteration += 1;
 
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
@@ -198,7 +205,18 @@ fn gpu_command_output(cmd: &mut Command, deadline: Instant, command_name: &str) 
     }
 }
 
-pub fn get_system_gpus() -> &'static HashMap<String, bool> {
+/// Spawn GPU discovery on a dedicated thread and return its handle. This is
+/// the entry point other modules should use: discovery probes external tools
+/// under a multi-second deadline and must never run on the async runtime.
+pub(crate) fn spawn_gpu_discovery() -> std::thread::JoinHandle<&'static HashMap<String, bool>> {
+    std::thread::spawn(get_system_gpus_blocking)
+}
+
+/// Blocking GPU discovery. The first call runs the platform probe
+/// synchronously (up to `GPU_DISCOVERY_TIMEOUT`) and concurrent callers wait
+/// on the same cache, so call this only from a dedicated thread or a
+/// `spawn_blocking` context — use `spawn_gpu_discovery()` from async code.
+pub fn get_system_gpus_blocking() -> &'static HashMap<String, bool> {
     GPU_CACHE.get_or_init(|| {
         let mut gpus = HashMap::from([
             ("nvidia".to_string(), false),
@@ -233,16 +251,33 @@ pub(crate) fn cached_system_has_gpu(vendor: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Whether the (already lowercased) text contains an Apple-silicon chip
+/// token such as "m1" or "m4" as a standalone word — the token-scan
+/// equivalent of the previous `\bm\d+\b` regex, without a fallible compile.
+/// Its only production caller is the macOS discovery block; elsewhere it is
+/// exercised by its unit test.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn contains_apple_chip_token(text: &str) -> bool {
+    text.split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|token| {
+            token.len() >= 2
+                && token.starts_with('m')
+                && token[1..].chars().all(|c| c.is_ascii_digit())
+        })
+}
+
 fn detect_gpus() -> Option<HashMap<String, bool>> {
     let deadline = Instant::now()
         .checked_add(GPU_DISCOVERY_TIMEOUT)
         .unwrap_or_else(Instant::now);
-    let mut gpus = HashMap::from([
-        ("nvidia".to_string(), false),
-        ("amd".to_string(), false),
-        ("intel".to_string(), false),
-        ("apple".to_string(), false),
-    ]);
+    // Detection fills plain locals; the vendor map is built once at the end,
+    // so no key lookup can panic if the key set ever changes.
+    let mut nvidia = false;
+    let mut amd = false;
+    let mut intel = false;
+    // Only assigned by the macOS probe; on other platforms it stays false.
+    #[allow(unused_mut)]
+    let mut apple = false;
 
     #[cfg(target_os = "macos")]
     {
@@ -253,19 +288,10 @@ fn detect_gpus() -> Option<HashMap<String, bool>> {
             return None;
         }
         let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
-        if text.contains("nvidia") {
-            *gpus.get_mut("nvidia").unwrap() = true;
-        }
-        if text.contains("amd") || text.contains("radeon") {
-            *gpus.get_mut("amd").unwrap() = true;
-        }
-        if text.contains("intel") {
-            *gpus.get_mut("intel").unwrap() = true;
-        }
-        let apple_re = regex_lite::Regex::new(r"\bm\d+\b").expect("invalid regex literal");
-        if text.contains("apple") || apple_re.is_match(&text) {
-            *gpus.get_mut("apple").unwrap() = true;
-        }
+        nvidia = text.contains("nvidia");
+        amd = text.contains("amd") || text.contains("radeon");
+        intel = text.contains("intel");
+        apple = text.contains("apple") || contains_apple_chip_token(&text);
     }
 
     #[cfg(target_os = "windows")]
@@ -289,11 +315,17 @@ fn detect_gpus() -> Option<HashMap<String, bool>> {
                 String::from_utf8_lossy(&out.stdout).to_lowercase()
             }
             _ => {
-                // Fallback: wmic (works on older Windows / restricted PowerShell)
+                // Fallback: wmic (works on older Windows / restricted PowerShell).
+                // It gets its own fresh deadline: sharing the PowerShell
+                // deadline meant a PowerShell timeout left no time for the
+                // fallback to ever run.
+                let fallback_deadline = Instant::now()
+                    .checked_add(GPU_DISCOVERY_TIMEOUT)
+                    .unwrap_or_else(Instant::now);
                 let mut wmic = Command::new("wmic");
                 wmic.args(["path", "win32_VideoController", "get", "name"])
                     .creation_flags(0x08000000);
-                let wmic_result = gpu_command_output(&mut wmic, deadline, "wmic");
+                let wmic_result = gpu_command_output(&mut wmic, fallback_deadline, "wmic");
                 match wmic_result {
                     Some(ref out) if out.status.success() => {
                         String::from_utf8_lossy(&out.stdout).to_lowercase()
@@ -303,15 +335,9 @@ fn detect_gpus() -> Option<HashMap<String, bool>> {
             }
         };
 
-        if text.contains("nvidia") {
-            *gpus.get_mut("nvidia").unwrap() = true;
-        }
-        if text.contains("amd") || text.contains("radeon") {
-            *gpus.get_mut("amd").unwrap() = true;
-        }
-        if text.contains("intel") {
-            *gpus.get_mut("intel").unwrap() = true;
-        }
+        nvidia = text.contains("nvidia");
+        amd = text.contains("amd") || text.contains("radeon");
+        intel = text.contains("intel");
     }
 
     #[cfg(target_os = "linux")]
@@ -324,20 +350,19 @@ fn detect_gpus() -> Option<HashMap<String, bool>> {
         let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
         for line in text.lines() {
             if line.contains("vga") || line.contains("display") || line.contains("3d") {
-                if line.contains("nvidia") {
-                    *gpus.get_mut("nvidia").unwrap() = true;
-                }
-                if line.contains("amd") || line.contains("radeon") {
-                    *gpus.get_mut("amd").unwrap() = true;
-                }
-                if line.contains("intel") {
-                    *gpus.get_mut("intel").unwrap() = true;
-                }
+                nvidia |= line.contains("nvidia");
+                amd |= line.contains("amd") || line.contains("radeon");
+                intel |= line.contains("intel");
             }
         }
     }
 
-    Some(gpus)
+    Some(HashMap::from([
+        ("nvidia".to_string(), nvidia),
+        ("amd".to_string(), amd),
+        ("intel".to_string(), intel),
+        ("apple".to_string(), apple),
+    ]))
 }
 
 #[cfg(test)]
@@ -372,6 +397,14 @@ mod tests {
             command.arg("2");
             command
         }
+    }
+
+    #[test]
+    fn apple_chip_tokens_are_detected_as_standalone_words() {
+        assert!(contains_apple_chip_token("chipset model: m4 pro"));
+        assert!(contains_apple_chip_token("apple m1"));
+        assert!(!contains_apple_chip_token("radeon rx 6600m"));
+        assert!(!contains_apple_chip_token("intel iris xe"));
     }
 
     #[test]

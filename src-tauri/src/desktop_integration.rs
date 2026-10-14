@@ -12,27 +12,47 @@ pub(crate) fn register_appimage_folder_open_with() {
     let Some(appimage) = std::env::var_os("APPIMAGE").map(PathBuf::from) else {
         return;
     };
-    let Ok(appimage) = fs::canonicalize(&appimage) else {
-        return;
+    let appimage = match fs::canonicalize(&appimage) {
+        Ok(appimage) => appimage,
+        Err(error) => {
+            crate::log::vidcord_log(&format!(
+                "AppImage folder Open With registration skipped: could not resolve the AppImage path: {error}"
+            ));
+            return;
+        }
     };
     if !appimage.is_file() {
+        crate::log::vidcord_log(
+            "AppImage folder Open With registration skipped: the AppImage path is not a file",
+        );
         return;
     }
 
     let Some(data_directory) = dirs::data_local_dir() else {
+        crate::log::vidcord_log(
+            "AppImage folder Open With registration skipped: no local data directory is available",
+        );
         return;
     };
     let applications_directory = data_directory.join("applications");
-    if fs::create_dir_all(&applications_directory).is_err() {
+    if let Err(error) = fs::create_dir_all(&applications_directory) {
+        crate::log::vidcord_log(&format!(
+            "AppImage folder Open With registration skipped: could not create the applications directory: {error}"
+        ));
         return;
     }
 
     let desktop_file = applications_directory.join(DESKTOP_FILE_NAME);
-    if registered_appimage_entry_exists(&applications_directory, &desktop_file, &appimage) {
+    let (already_registered, existing_contents) =
+        registered_appimage_entry_exists(&applications_directory, &desktop_file, &appimage);
+    if already_registered {
         return;
     }
 
     let Some(exec_path) = desktop_exec_path(&appimage) else {
+        crate::log::vidcord_log(
+            "AppImage folder Open With registration skipped: the AppImage path is not usable in a desktop entry",
+        );
         return;
     };
     let contents = format!(
@@ -49,7 +69,7 @@ pub(crate) fn register_appimage_folder_open_with() {
          {INTEGRATION_MARKER}\n"
     );
 
-    match write_desktop_entry(&desktop_file, &contents) {
+    match write_desktop_entry(&desktop_file, &contents, existing_contents) {
         Ok(true) => refresh_desktop_database(&applications_directory),
         Ok(false) => {}
         Err(_) => crate::log::vidcord_log("Could not register the Linux folder Open With entry"),
@@ -71,23 +91,26 @@ fn desktop_exec_path(path: &Path) -> Option<String> {
     Some(format!("\"{escaped}\""))
 }
 
+/// Returns whether registration can stop here, plus the current contents of
+/// our own desktop file when it could be read, so the writer does not have to
+/// read the same file a second time.
 fn registered_appimage_entry_exists(
     applications_directory: &Path,
     desktop_file: &Path,
     appimage: &Path,
-) -> bool {
+) -> (bool, Option<String>) {
     if let Ok(existing) = fs::read_to_string(desktop_file) {
-        return !existing.contains(INTEGRATION_MARKER);
+        return (!existing.contains(INTEGRATION_MARKER), Some(existing));
     }
 
     let Some(appimage_name) = appimage.file_name().and_then(OsStr::to_str) else {
-        return false;
+        return (false, None);
     };
     let Ok(entries) = fs::read_dir(applications_directory) else {
-        return false;
+        return (false, None);
     };
 
-    entries.flatten().any(|entry| {
+    let found = entries.flatten().any(|entry| {
         if entry.path() == desktop_file || entry.path().extension() != Some(OsStr::new("desktop")) {
             return false;
         }
@@ -99,11 +122,11 @@ fn registered_appimage_entry_exists(
                 line.strip_prefix("MimeType=")
                     .is_some_and(|types| types.split(';').any(|mime| mime == "inode/directory"))
             })
-    })
+    });
+    (found, None)
 }
 
-fn write_desktop_entry(path: &Path, contents: &str) -> io::Result<bool> {
-    let current = fs::read_to_string(path).ok();
+fn write_desktop_entry(path: &Path, contents: &str, current: Option<String>) -> io::Result<bool> {
     if current.as_deref() == Some(contents) {
         return Ok(false);
     }
