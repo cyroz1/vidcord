@@ -26,6 +26,14 @@ export function exitApp(): Promise<void> {
   return invoke<void>("exit_app");
 }
 
+export function preparePreviewSource(path: string): Promise<string | null> {
+  return invoke("prepare_preview_source", { path });
+}
+
+export function releasePreviewSource(url: string): Promise<void> {
+  return invoke("release_preview_source", { url });
+}
+
 export type OutputExtension = LosslessVideoExtension | "gif" | "png";
 
 export type ProbeData = {

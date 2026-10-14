@@ -473,6 +473,13 @@ one generation; preserve generation-wide cancellation when that batch is superse
 
 Desktop preview uses the HTML `<video>` element on every platform. The Tauri UI controls its playback and seek position directly. Do not use FFmpeg to generate preview frames, filmstrips, or playback clips. Frame snapshots are captured from the current HTML video frame and saved through a Tauri file command.
 
+Linux WebKitGTK rejects custom asset URLs for media. `preview_source.rs` serves the original selected
+file through a loopback-only HTTP endpoint with byte-range support and bounded request concurrency,
+headers, and socket timeouts. Opening a source validates Tauri's asset scope and creates an
+unguessable capability URL; HTTP requests cannot name filesystem paths. Keep exact Host validation,
+source-specific revocation, and stale frontend preparation cleanup. Other platforms retain the
+scoped asset protocol. This is file delivery to the HTML player, with no FFmpeg rendering or upload.
+
 ### Settings
 
 `settings.rs` deserializes into a typed `Settings` struct and re-serializes to drop unknown keys — this silently migrates away from removed fields. When adding a field:

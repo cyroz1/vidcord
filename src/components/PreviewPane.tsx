@@ -10,6 +10,7 @@ import {
 } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { ProbeData } from "../ipc";
+import { preparePreviewSource, releasePreviewSource } from "../ipc";
 import {
   canPreserveDirectVideoSource,
   getCompletedPlaybackTime,
@@ -209,6 +210,36 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const schedulePlaybackBoundaryRef = useRef<(() => void) | null>(null);
   const playbackSessionRef = useRef(0);
   const urlCacheRef = useRef<Map<string, string[]>>(new Map());
+  const [preparedSource, setPreparedSource] = useState<{ path: string } | null>(null);
+
+  useEffect(() => {
+    setPreparedSource(null);
+    if (!filePath || !probeData) return;
+    const cache = urlCacheRef.current;
+    let disposed = false;
+    let ownedUrl: string | null = null;
+    void preparePreviewSource(filePath)
+      .then((url) => {
+        if (disposed) {
+          if (url) void releasePreviewSource(url).catch(() => {});
+          return;
+        }
+        ownedUrl = url;
+        if (url) cache.set(filePath, [url]);
+        setVideoLoadFailed(false);
+        setPreparedSource({ path: filePath });
+      })
+      .catch(() => {
+        if (!disposed) setVideoLoadFailed(true);
+      });
+    return () => {
+      disposed = true;
+      if (ownedUrl) {
+        if (cache.get(filePath)?.[0] === ownedUrl) cache.delete(filePath);
+        void releasePreviewSource(ownedUrl).catch(() => {});
+      }
+    };
+  }, [filePath, probeData]);
 
   const getPlaybackTime = useCallback(() => {
     const video = videoRef.current;
@@ -322,6 +353,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       return;
     }
     if (videoLoadFailed) return;
+    if (preparedSource?.path !== filePath) return;
 
     if (playingRef.current) return;
     const sources = buildPlaybackUrls(filePath);
@@ -343,7 +375,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     vid.preload = "auto";
     vid.src = src;
     vid.load();
-  }, [buildPlaybackUrls, filePath, probeData, playing, videoLoadFailed]);
+  }, [buildPlaybackUrls, filePath, probeData, playing, videoLoadFailed, preparedSource]);
 
   const handleVideoReady = useCallback(
     (event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -624,7 +656,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
-  const canPlay = !!filePath && !!probeData && endTime > startTime;
+  const canPlay =
+    !!filePath && !!probeData && preparedSource?.path === filePath && endTime > startTime;
   const showPreviewVideo = !!filePath && !!probeData && videoReady;
   return (
     <div

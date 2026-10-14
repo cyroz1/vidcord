@@ -10,6 +10,7 @@ mod desktop_integration;
 mod ffmpeg;
 mod gpu;
 mod log;
+mod preview_source;
 mod settings;
 
 use commands::app::exit_app;
@@ -358,6 +359,8 @@ pub fn run() {
             sync_native_window_theme,
             probe,
             probe_batch,
+            preview_source::prepare_preview_source,
+            preview_source::release_preview_source,
             get_lossless_trim_info,
             cancel_lossless_trim_probe,
             detect_encoders,
