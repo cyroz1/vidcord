@@ -5,7 +5,9 @@ use std::io::ErrorKind;
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use std::time::Instant;
 
 mod encoders;
 
@@ -262,7 +264,9 @@ pub fn probe_video(
         "-print_format",
         "json",
         "-show_entries",
-        "format=duration,bit_rate:stream=index,codec_name,codec_type,width,height,avg_frame_rate,r_frame_rate,sample_aspect_ratio,display_aspect_ratio,bit_rate,channels,duration,size,pix_fmt,color_space,color_transfer,color_primaries:stream_tags=title,name,language,handler_name:stream_side_data=rotation",
+        // FFprobe 4.x has no stream_side_data unique name; side_data works on
+        // both older system installations and current FFmpeg releases.
+        "format=duration,bit_rate:stream=index,codec_name,codec_type,width,height,avg_frame_rate,r_frame_rate,sample_aspect_ratio,display_aspect_ratio,bit_rate,channels,duration,size,pix_fmt,color_space,color_transfer,color_primaries:stream_tags=title,name,language,handler_name:side_data=rotation",
         "--",
         path,
     ]);

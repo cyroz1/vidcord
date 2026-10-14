@@ -410,7 +410,11 @@ describe("vidcord desktop end-to-end workflow", function () {
     const pngBefore = fileSet(outputDirectory, ".png");
     await pressShortcut({ key: "S", ctrlKey: true, shiftKey: true });
     await browser.waitUntil(
-      async () => newOutputs(outputDirectory, pngBefore, ".png").length >= 1,
+      async () => {
+        const snapshotError = await browser.$(".toast.toast-error");
+        if (await snapshotError.isDisplayed()) throw new Error(await snapshotError.getText());
+        return newOutputs(outputDirectory, pngBefore, ".png").length >= 1;
+      },
       { timeout: 60_000, timeoutMsg: "The snapshot shortcut did not produce a PNG" }
     );
     assertPngOutput(newestOutput(outputDirectory, pngBefore, ".png"));

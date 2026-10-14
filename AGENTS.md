@@ -597,7 +597,9 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 
 `.github/workflows/e2e.yml` runs the browser end-to-end suite and the native desktop suite on Linux,
 macOS, and Windows for app-source changes; the suites upload screenshots, logs, traces, and reports
-as workflow artifacts. See `scripts/e2e/README.md` for local prerequisites and commands.
+as workflow artifacts. Linux test runners need the GStreamer base, good, and libav plugins for
+HTML video decoding, matching the packaged app's media dependencies. See `scripts/e2e/README.md`
+for local prerequisites and commands.
 
 Concurrency groups branch pushes and pull-request synchronization events by head commit so the same
 revision is not built twice. Release tags and explicit manual packaging runs use isolated groups and
