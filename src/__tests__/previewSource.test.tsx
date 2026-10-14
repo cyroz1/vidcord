@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from "react";
+import { act, createRef } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 
@@ -14,7 +14,7 @@ vi.mock("../ipc", () => ({
 vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string) => `asset://localhost${path}`,
 }));
-import PreviewPane from "../components/PreviewPane";
+import PreviewPane, { type PreviewHandle } from "../components/PreviewPane";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -62,4 +62,57 @@ it("releases stale preparation results without replacing the newly selected prev
     await act(async () => root.unmount());
   }
   expect(mocks.release).toHaveBeenCalledWith("http://127.0.0.1:9000/private-b");
+});
+
+it("keeps the paused HTML player on its current frame when playback stops", async () => {
+  mocks.prepare.mockReset().mockResolvedValue("http://127.0.0.1:9000/private-a");
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  const handle = createRef<PreviewHandle>();
+  const probe = {
+    duration: 6,
+    width: 320,
+    height: 180,
+    bitrate: 1000,
+    codec: "h264",
+    audio_tracks: [],
+  };
+  try {
+    await act(async () =>
+      root.render(
+        <PreviewPane
+          ref={handle}
+          filePath="/a.mp4"
+          probeData={probe}
+          cropAspectRatio=""
+          loadingVideo={false}
+          startTime={0}
+          endTime={6}
+          previewTime={null}
+          isScrubbing={false}
+          removeAudio={true}
+          loopPlayback={false}
+        />
+      )
+    );
+    const video = container.querySelector("video");
+    expect(video?.src).toBe("http://127.0.0.1:9000/private-a");
+    await act(async () => {
+      video?.dispatchEvent(new Event("loadedmetadata"));
+    });
+    expect(video?.style.display).toBe("block");
+    await act(async () => {
+      handle.current?.startPlayback();
+    });
+    await act(async () => {
+      handle.current?.stopPlayback();
+    });
+    // Stopping only pauses the element: the source is not torn down or
+    // reloaded and the video stays visible on the frame it stopped on.
+    expect(video?.src).toBe("http://127.0.0.1:9000/private-a");
+    expect(video?.style.display).toBe("block");
+    expect(video?.paused).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+  }
 });

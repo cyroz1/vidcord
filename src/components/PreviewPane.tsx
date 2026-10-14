@@ -414,12 +414,6 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   const stopPlayback = useCallback(() => {
     const vid = videoRef.current;
-    const directSourceMatches =
-      !!vid && scrubVideoSrcRef.current !== null && vid.src === scrubVideoSrcRef.current;
-    const preserveDirectSource = canPreserveDirectVideoSource(
-      (vid?.readyState ?? 0) >= 1,
-      directSourceMatches
-    );
     // Always invalidate the session. A play() request can still be pending
     // before playingRef/handlers are populated.
     playbackSessionRef.current += 1;
@@ -433,17 +427,23 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       vid.onloadedmetadata = null;
       vid.onseeked = null;
       vid.onerror = null;
+      // Just pause the HTML player. A paused media element keeps displaying
+      // the frame it stopped on, so never tear down or reload its source
+      // here: swapping in a generated still or re-seeking after a reload
+      // loses the exact frame the user paused on. Adopt the element's actual
+      // source as the scrub source so the source-loading effect also leaves
+      // the element untouched.
       vid.pause();
+      const activeSource = vid.currentSrc || vid.src;
+      if (activeSource) {
+        scrubVideoSrcRef.current = activeSource;
+      }
     }
     // Read the media element after pausing so a quick stop preserves the
     // position shown by the HTML player.
     const stoppedTime =
       vid && vid.readyState >= 1 ? getPlaybackTime() : currentPlaybackTimeRef.current;
     const preservedTime = getStoppedPlaybackTime(stoppedTime, startTime, endTime);
-    if (!preserveDirectSource) {
-      scrubVideoSrcRef.current = null;
-      setVideoReady(false);
-    }
     currentPlaybackTimeRef.current = preservedTime;
     setCurrentPlaybackTime(preservedTime);
     playingRef.current = false;
