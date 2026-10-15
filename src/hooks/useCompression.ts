@@ -405,7 +405,9 @@ export function calculateBitrate(
   const totalKbits = sizeMb * 1024 * 8;
   const audioKbits = removeAudio ? 0 : AUDIO_TRACK_BITRATE_KBPS * audioTrackCount * durationSec;
   const videoBitrate = (totalKbits - audioKbits) / durationSec;
-  return Math.max(100, Math.floor(videoBitrate * 0.95));
+  // Send the full budget: the backend owns the single size safety factor
+  // (SIZE_TARGET_SAFETY) and applies it to measured encode results.
+  return Math.max(100, Math.floor(videoBitrate));
 }
 
 export function resolveVideoBitrate(

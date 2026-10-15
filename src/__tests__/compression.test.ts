@@ -11,10 +11,11 @@ import {
 
 describe("calculateBitrate", () => {
   it("returns correct bitrate with audio at 100 MB / 60 s", () => {
-    // (100 * 1024 * 8 - 128 * 60) / 60 * 0.95 = ~12,849 kbps
+    // (100 * 1024 * 8 - 128 * 60) / 60 = ~13,525 kbps (full budget; the
+    // backend applies the only size safety factor)
     const result = calculateBitrate(100, 60, false);
-    expect(result).toBeGreaterThan(11_000);
-    expect(result).toBeLessThan(13_000);
+    expect(result).toBeGreaterThan(13_000);
+    expect(result).toBeLessThan(14_000);
   });
 
   it("returns higher bitrate when audio is removed", () => {
@@ -27,7 +28,7 @@ describe("calculateBitrate", () => {
     const oneTrack = calculateBitrate(100, 60, false, 1);
     const twoTracks = calculateBitrate(100, 60, false, 2);
     expect(twoTracks).toBeLessThan(oneTrack);
-    expect(oneTrack - twoTracks).toBe(122);
+    expect(oneTrack - twoTracks).toBe(128);
   });
 
   it("clamps to minimum 100 kbps for tiny size targets", () => {

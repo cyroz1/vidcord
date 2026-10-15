@@ -913,8 +913,13 @@ fn mark_batch_resource_contention(context: &BatchProgressContext) {
 /// (libx264/libx265) default to "medium" / "slow" and hardware encoders use
 /// conservative built-in defaults — measurably slower than "fast" / "p4" for
 /// the same target bitrate. Empty vec falls back to the encoder's default.
-fn encoder_preset_args(encoder: &str) -> Vec<String> {
+fn encoder_preset_args(encoder: &str, size_target: bool) -> Vec<String> {
     match encoder {
+        // Size-target jobs pair the preset with a VBV bitrate budget, so
+        // the budget, not the preset, sets the delivered size: veryfast
+        // measured 1.8x faster than fast at an identical output size.
+        // Jobs without a size target keep fast for its quality per bit.
+        "libx264" if size_target => vec!["-preset".into(), "veryfast".into()],
         "libx264" | "libx265" => vec!["-preset".into(), "fast".into()],
         // NVENC uses p1 (fastest) .. p7 (slowest). p4 is a balanced default
         // that's still significantly faster than the old "medium" preset.
@@ -1328,18 +1333,29 @@ fn gif_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> String {
 }
 
 const SIZE_RETRY_LIMIT_PER_ENCODER: usize = 2;
-const OVERSIZE_RETRY_SAFETY: f64 = 0.95;
-const UNDERFILL_RETRY_SAFETY: f64 = 0.92;
-// Fill target, matching the browser export planner (getFillBitrate):
-// keep refining while the output is under 95% of the target.
-const UNDERFILL_RETRY_THRESHOLD: f64 = 0.95;
+/// The one safety factor for size-target bitrate decisions, owned here in
+/// the backend. Every adaptive adjustment (the preflight estimate and the
+/// post-encode retries, up or down) scales the measured size ratio by this
+/// factor, so the next encode aims at 95% of the target: as full as
+/// possible without overshooting. The frontend sends the unshrunk budget
+/// and the preflight projection carries no margin of its own, so this is
+/// the only margin in the size pipeline.
+const SIZE_TARGET_SAFETY: f64 = 0.95;
+/// Fill level at which a size-target attempt is accepted as the best fit
+/// instead of paying for a refinement encode. The refinement used to
+/// trigger under 95% of the target, but benchmarking showed its output was
+/// discarded every time: delivered size barely responds to a small bitrate
+/// step once the VBV ceiling is set, so the extra pass bought nothing.
+/// First attempts on the measured content land at 87-88% of the target, so
+/// the accept line sits at 85%: genuine misses still refine, the usual
+/// best fit does not pay for a second encode.
+const UNDERFILL_RETRY_THRESHOLD: f64 = 0.85;
 const LOSSLESS_FASTSTART_MAX_INPUT_BYTES: u64 = 256 * 1024 * 1024;
 const SIZE_PREFLIGHT_MIN_DURATION_SECONDS: f64 = 8.0;
 const SIZE_PREFLIGHT_SAMPLE_SECONDS: f64 = 4.0;
 /// A preflight sample only pays for itself when it is a small slice of the
 /// clip; at or below this share of the duration it replaces full re-encodes.
 const SIZE_PREFLIGHT_MAX_SAMPLE_SHARE: f64 = 0.15;
-const SIZE_PREFLIGHT_SAFETY_MARGIN: f64 = 1.03;
 const GIF_PREFLIGHT_INITIAL_SECONDS: f64 = 1.0;
 const GIF_PREFLIGHT_EXTENDED_SECONDS: f64 = 3.0;
 const GIF_PREFLIGHT_UNCERTAINTY_LOW: f64 = 0.80;
@@ -1660,6 +1676,26 @@ fn max_adaptive_attempts(opts: &CompressOptions, has_target: bool) -> usize {
         + usize::from(supports_auto_hardware_decode(opts, &opts.encoder))
 }
 
+/// Start of a size preflight sample: the middle of the clip, where the
+/// content is closest to the full-clip average (the GIF preflight samples
+/// the same window). A head-of-file sample over-projects whenever the
+/// opening seconds encode hotter than the clip as a whole.
+fn preflight_sample_start(clip_start: f64, clip_duration: f64, sample_duration: f64) -> f64 {
+    clip_start + ((clip_duration - sample_duration) * 0.5).max(0.0)
+}
+
+/// Project a preflight sample's size to the full clip. The projection is
+/// deliberately margin-free: SIZE_TARGET_SAFETY is applied once, when the
+/// projection is turned into a bitrate decision.
+fn projected_size_from_sample(sample_bytes: u64, sample_duration: f64, clip_duration: f64) -> u64 {
+    if sample_duration <= 0.0 || !sample_duration.is_finite() || !clip_duration.is_finite() {
+        return sample_bytes;
+    }
+    (sample_bytes as f64 * clip_duration / sample_duration)
+        .ceil()
+        .min(u64::MAX as f64) as u64
+}
+
 /// Sample length for a size preflight: an eighth of the clip, clamped to
 /// 1-4 s, so short clips get a proportionally short sample instead of
 /// skipping the preflight entirely.
@@ -1738,7 +1774,7 @@ fn adaptive_bitrate_for_oversize(
         return current_bitrate_k.max(100);
     }
     let ratio = target_bytes as f64 / output_bytes as f64;
-    ((current_bitrate_k as f64 * ratio * OVERSIZE_RETRY_SAFETY).floor() as u32).max(100)
+    ((current_bitrate_k as f64 * ratio * SIZE_TARGET_SAFETY).floor() as u32).max(100)
 }
 
 fn adaptive_bitrate_for_underfill(
@@ -1751,7 +1787,7 @@ fn adaptive_bitrate_for_underfill(
         return current_bitrate_k.max(100);
     }
     let ratio = target_bytes as f64 / output_bytes as f64;
-    let estimated = (current_bitrate_k as f64 * ratio * UNDERFILL_RETRY_SAFETY)
+    let estimated = (current_bitrate_k as f64 * ratio * SIZE_TARGET_SAFETY)
         .floor()
         .min(u32::MAX as f64) as u32;
     // 1.5x per-pass step cap, matching the browser export planner.
@@ -2342,7 +2378,10 @@ async fn run_ffmpeg_pass(
             attempt.video_bitrate_k,
             opts.target_size_mb.is_some(),
         ));
-        cmd_args.extend(encoder_preset_args(&attempt.encoder));
+        cmd_args.extend(encoder_preset_args(
+            &attempt.encoder,
+            opts.target_size_mb.is_some(),
+        ));
 
         if opts.remove_audio {
             cmd_args.push("-an".into());
@@ -2617,7 +2656,10 @@ async fn estimate_size_from_sample(
     let sample_output = tokio::task::spawn_blocking(|| TemporaryOutput::create("mp4"))
         .await
         .map_err(|error| error.to_string())??;
+    let clip_duration = opts.end_time - opts.start_time;
     let mut sample_opts = opts.clone();
+    sample_opts.start_time =
+        preflight_sample_start(opts.start_time, clip_duration, sample_duration);
     sample_opts.end_time = sample_opts.start_time + sample_duration;
     sample_opts.output_path = sample_output.as_string();
     run_context.attempt_index = 0;
@@ -2639,11 +2681,7 @@ async fn estimate_size_from_sample(
         return Ok(None);
     }
 
-    let clip_duration = opts.end_time - opts.start_time;
-    let projected = ((metadata.len() as f64 * clip_duration / sample_duration)
-        * SIZE_PREFLIGHT_SAFETY_MARGIN)
-        .ceil()
-        .min(u64::MAX as f64) as u64;
+    let projected = projected_size_from_sample(metadata.len(), sample_duration, clip_duration);
     Ok(Some(projected))
 }
 
@@ -5125,6 +5163,87 @@ mod tests {
     fn test_adaptive_bitrate_has_safety_margin_and_minimum() {
         assert_eq!(adaptive_bitrate_for_oversize(1_000, 900, 1_000), 855);
         assert_eq!(adaptive_bitrate_for_oversize(120, 1, 10_000), 100);
+    }
+
+    #[test]
+    fn test_adaptive_bitrate_for_underfill_scales_with_measured_ratio() {
+        // Delivered 80% of the target: scale by the measured ratio with the
+        // shared size safety factor (1000 * 1.25 * 0.95).
+        assert_eq!(
+            adaptive_bitrate_for_underfill(1_000, 1_000, 800, None),
+            1_187
+        );
+        // The 1.5x per-pass step cap still bounds a single refinement.
+        assert_eq!(
+            adaptive_bitrate_for_underfill(1_000, 1_000, 500, None),
+            1_500
+        );
+        // The source bitrate still caps the refinement.
+        assert_eq!(
+            adaptive_bitrate_for_underfill(1_000, 1_000, 800, Some(1_100)),
+            1_100
+        );
+        // A zero-byte output never scales the bitrate.
+        assert_eq!(adaptive_bitrate_for_underfill(1_000, 1_000, 0, None), 1_000);
+    }
+
+    #[test]
+    fn test_underfill_retry_accepts_attempts_at_eighty_five_percent_fill() {
+        let attempt = CompressionAttempt {
+            encoder: "libx264".into(),
+            video_bitrate_k: 1_000,
+            status: "Compressing...".into(),
+            try_hardware_decode: false,
+        };
+        // At or above 85% of the target the attempt is the best fit; no
+        // refinement encode runs.
+        assert!(next_underfill_attempt(&attempt, 1_000, 850, 0, None).is_none());
+        assert!(next_underfill_attempt(&attempt, 1_000, 900, 0, None).is_none());
+        // Below 85% the refinement scales by the measured delivered ratio.
+        let (next, retries) = next_underfill_attempt(&attempt, 1_000, 800, 0, None).unwrap();
+        assert_eq!(next.video_bitrate_k, 1_187);
+        assert_eq!(next.encoder, "libx264");
+        assert_eq!(retries, 1);
+        // The per-encoder retry limit still applies.
+        assert!(
+            next_underfill_attempt(&attempt, 1_000, 500, SIZE_RETRY_LIMIT_PER_ENCODER, None)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn preflight_sample_is_taken_from_mid_clip() {
+        assert_eq!(preflight_sample_start(0.0, 30.0, 3.75), 13.125);
+        assert_eq!(preflight_sample_start(10.0, 30.0, 3.75), 23.125);
+        // A sample as long as (or longer than) the clip starts at the head.
+        assert_eq!(preflight_sample_start(5.0, 4.0, 4.0), 5.0);
+        assert_eq!(preflight_sample_start(5.0, 3.0, 4.0), 5.0);
+    }
+
+    #[test]
+    fn size_projection_has_no_built_in_margin() {
+        // The projection is the raw scale-up; SIZE_TARGET_SAFETY is applied
+        // once, when the projection becomes a bitrate decision.
+        assert_eq!(projected_size_from_sample(1_000, 2.0, 10.0), 5_000);
+        assert_eq!(projected_size_from_sample(1_000, 0.0, 10.0), 1_000);
+        assert_eq!(projected_size_from_sample(1_000, 2.0, f64::INFINITY), 1_000);
+    }
+
+    #[test]
+    fn size_target_jobs_use_the_veryfast_x264_preset() {
+        assert_eq!(
+            encoder_preset_args("libx264", true),
+            vec!["-preset".to_string(), "veryfast".to_string()]
+        );
+        assert_eq!(
+            encoder_preset_args("libx264", false),
+            vec!["-preset".to_string(), "fast".to_string()]
+        );
+        // Only libx264 changes; x265 keeps fast either way.
+        assert_eq!(
+            encoder_preset_args("libx265", true),
+            vec!["-preset".to_string(), "fast".to_string()]
+        );
     }
 
     #[test]
