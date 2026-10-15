@@ -34,6 +34,11 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ### Performance
 
+- Size-target exports are much faster and land closer to the requested size. An export that
+  fills at least 85% of the target is now accepted as the best fit instead of being encoded a
+  second time, the size estimate samples the middle of the clip and no longer stacks several
+  safety margins on top of each other, and x264 size-target exports use the veryfast preset,
+  which encodes about 1.8x faster at the same output size.
 - Compression progress and folder import scanning now update smoothly instead of flooding the
   interface with an update for every event.
 - Folder imports of very large trees now stop at a generous cap and report that the results
