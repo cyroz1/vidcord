@@ -158,10 +158,6 @@ fn write_atomically(
     let dir = path.parent().ok_or("No parent directory")?;
     std::fs::create_dir_all(dir)?;
 
-    // The directory fsync below only needs to make a newly created file
-    // durable; when the settings file already existed, the atomic replace is
-    // covered by the file fsync, so skip the second fsync under the write lock.
-    let file_existed = path.exists();
     let tmp = dir.join(temp_name);
     let write_result = (|| -> Result<(), Box<dyn std::error::Error>> {
         let mut file = std::fs::File::create(&tmp)?;
@@ -171,9 +167,7 @@ fn write_atomically(
         replace_file(&tmp, path)?;
 
         #[cfg(unix)]
-        if !file_existed {
-            std::fs::File::open(dir)?.sync_all()?;
-        }
+        std::fs::File::open(dir)?.sync_all()?;
 
         Ok(())
     })();

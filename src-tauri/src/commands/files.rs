@@ -103,7 +103,7 @@ const MAX_IMPORT_SCAN_ENTRIES: usize = 100_000;
 #[derive(serde::Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct ImportScanProgress {
-    scan_id: u64,
+    scan_id: String,
     items_discovered: usize,
     videos_found: usize,
     folders_scanned: usize,
@@ -111,7 +111,8 @@ struct ImportScanProgress {
 
 struct ImportScanReporter {
     app: AppHandle,
-    scan_id: u64,
+    scan_id: String,
+    generation: u64,
     items_discovered: usize,
     videos_found: usize,
     folders_scanned: usize,
@@ -126,9 +127,12 @@ impl ImportScanReporter {
         {
             return;
         }
+        if import_scan_superseded(self.generation) {
+            return;
+        }
 
         let progress = ImportScanProgress {
-            scan_id: self.scan_id,
+            scan_id: self.scan_id.clone(),
             items_discovered: self.items_discovered,
             videos_found: self.videos_found,
             folders_scanned: self.folders_scanned,
@@ -138,27 +142,28 @@ impl ImportScanReporter {
     }
 }
 
-/// Registry for the currently running import scan.
-///
-/// The frontend scan counter lives in a `useRef`, so it restarts from a low
-/// value when the WebView reloads or remounts. Ratcheting the backend's
-/// latest id up with `fetch_max` therefore condemned the first post-reload
-/// scan: its id was below the stale maximum, so it looked superseded from
-/// the start and silently truncated. Instead the backend owns the effective
-/// generation: when no scan is running it adopts the caller's id verbatim
-/// (resetting any stale high-water mark), and while a scan is running a new
-/// scan gets a generation strictly above both the running one and its own
-/// requested id. Progress events still carry the caller's `scan_id`, which
-/// is what the frontend matches on.
+/// Monotonic backend generations identify scans independently of the opaque
+/// caller IDs, which change when the WebView reloads. Keeping the high-water
+/// mark after a scan finishes prevents a late worker from becoming current
+/// again when a caller ID is reused.
 struct ImportScanState {
     latest_generation: u64,
-    scan_running: bool,
+}
+
+impl ImportScanState {
+    fn claim_next(&mut self) -> u64 {
+        self.latest_generation = self.latest_generation.saturating_add(1);
+        self.latest_generation
+    }
+
+    fn is_superseded(&self, generation: u64) -> bool {
+        self.latest_generation != generation
+    }
 }
 
 static IMPORT_SCAN_STATE: std::sync::Mutex<ImportScanState> =
     std::sync::Mutex::new(ImportScanState {
         latest_generation: 0,
-        scan_running: false,
     });
 
 fn lock_import_scan_state() -> std::sync::MutexGuard<'static, ImportScanState> {
@@ -167,34 +172,12 @@ fn lock_import_scan_state() -> std::sync::MutexGuard<'static, ImportScanState> {
         .unwrap_or_else(|error| error.into_inner())
 }
 
-fn claim_import_scan_generation(requested: u64) -> u64 {
-    let mut state = lock_import_scan_state();
-    if state.scan_running {
-        let generation = if requested > state.latest_generation {
-            requested
-        } else {
-            state.latest_generation.saturating_add(1)
-        };
-        state.latest_generation = generation;
-        generation
-    } else {
-        state.scan_running = true;
-        state.latest_generation = requested;
-        requested
-    }
-}
-
-fn release_import_scan(generation: u64) {
-    let mut state = lock_import_scan_state();
-    // Only the latest scan owns the running flag; an older scan finishing
-    // after a newer one claimed the registry must not clear it.
-    if state.latest_generation == generation {
-        state.scan_running = false;
-    }
+fn claim_import_scan_generation() -> u64 {
+    lock_import_scan_state().claim_next()
 }
 
 fn import_scan_superseded(generation: u64) -> bool {
-    lock_import_scan_state().latest_generation != generation
+    lock_import_scan_state().is_superseded(generation)
 }
 
 /// Grants the user-selected roots to Tauri's runtime asset-protocol scope,
@@ -223,22 +206,24 @@ fn grant_import_paths_to_asset_scope(app: &AppHandle, paths: &[String]) {
 pub async fn expand_import_paths(
     app: AppHandle,
     paths: Vec<String>,
-    scan_id: u64,
+    scan_id: String,
 ) -> Result<ExpandedImportPaths, String> {
-    grant_import_paths_to_asset_scope(&app, &paths);
-    let generation = claim_import_scan_generation(scan_id);
-    let result = tokio::task::spawn_blocking(move || {
+    // Claim at command entry, before path grants can block. Otherwise an
+    // older request with a slow grant could claim after a newer selection
+    // and supersede the user's latest scan.
+    let generation = claim_import_scan_generation();
+    tokio::task::spawn_blocking(move || {
+        grant_import_paths_to_asset_scope(&app, &paths);
         expand_import_paths_blocking(app, paths, scan_id, generation)
     })
-    .await;
-    release_import_scan(generation);
-    result.map_err(|error| error.to_string())
+    .await
+    .map_err(|error| error.to_string())
 }
 
 fn expand_import_paths_blocking(
     app: AppHandle,
     paths: Vec<String>,
-    scan_id: u64,
+    scan_id: String,
     generation: u64,
 ) -> ExpandedImportPaths {
     const VIDEO_EXTENSIONS: &[&str] = &["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"];
@@ -246,6 +231,7 @@ fn expand_import_paths_blocking(
     let mut reporter = ImportScanReporter {
         app,
         scan_id,
+        generation,
         items_discovered: paths.len(),
         videos_found: 0,
         folders_scanned: 0,
@@ -1930,14 +1916,14 @@ mod tests {
     }
 
     use super::{
-        claim_import_scan_generation, deliver_notification_if_unfocused,
-        escape_xdg_notification_markup, import_scan_superseded, is_cargo_target_profile_directory,
-        macos_clipboard_filename, macos_notification_arguments, normalize_lexical_path,
-        normalize_windows_shell_path, notification_response_requests_focus, output_path_key,
-        percent_decode_header_value, publish_staged_output_blocking,
+        deliver_notification_if_unfocused, escape_xdg_notification_markup,
+        is_cargo_target_profile_directory, macos_clipboard_filename, macos_notification_arguments,
+        normalize_lexical_path, normalize_windows_shell_path, notification_response_requests_focus,
+        output_path_key, percent_decode_header_value, publish_staged_output_blocking,
         publish_staged_output_without_replacing_blocking, publish_to_temporary,
-        release_import_scan, resolve_output_path_blocking, staging_directory, unique_output_path,
+        resolve_output_path_blocking, staging_directory, unique_output_path,
         unique_output_path_with_reserved, validated_clipboard_file, without_appimage_library_paths,
+        ImportScanState,
     };
 
     #[test]
@@ -1962,31 +1948,24 @@ mod tests {
     }
 
     #[test]
-    fn import_scan_generation_resets_when_no_scan_is_running() {
-        // A high generation from before a WebView reload must not condemn
-        // the first post-reload scan, whose counter restarted low.
-        let first = claim_import_scan_generation(41);
-        assert_eq!(first, 41);
-        assert!(!import_scan_superseded(first));
-        release_import_scan(first);
+    fn import_scan_generations_remain_monotonic_across_reloads_and_late_workers() {
+        let mut state = ImportScanState {
+            latest_generation: 0,
+        };
+        let older_worker = state.claim_next();
+        let newer_scan = state.claim_next();
 
-        let after_reload = claim_import_scan_generation(1);
-        assert_eq!(after_reload, 1);
-        assert!(!import_scan_superseded(after_reload));
+        assert!(newer_scan > older_worker);
+        assert!(state.is_superseded(older_worker));
+        assert!(!state.is_superseded(newer_scan));
 
-        // While that scan runs, a newer scan still supersedes it, even
-        // with a lower requested id.
-        let newer = claim_import_scan_generation(1);
-        assert!(newer > after_reload);
-        assert!(import_scan_superseded(after_reload));
-        assert!(!import_scan_superseded(newer));
-
-        // The older scan finishing must not clear the newer scan's claim.
-        release_import_scan(after_reload);
-        let third = claim_import_scan_generation(1);
-        assert!(third > newer);
-        release_import_scan(newer);
-        release_import_scan(third);
+        // A WebView reload can reuse its caller ID, but the backend generation
+        // continues forward and never makes an older worker current again.
+        let after_reload = state.claim_next();
+        assert!(after_reload > newer_scan);
+        assert!(state.is_superseded(older_worker));
+        assert!(state.is_superseded(newer_scan));
+        assert!(!state.is_superseded(after_reload));
     }
 
     #[test]

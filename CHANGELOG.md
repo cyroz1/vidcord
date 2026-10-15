@@ -15,6 +15,7 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   frame.
 - PNG snapshots are capped at 1920 pixels on the longest side, keeping snapshot files and memory
   use bounded on high-resolution sources.
+- Preview playback now works for videos selected through file symlinks.
 - Fixed Linux previews failing after many videos had been opened in one session.
 - Fixed the preview pane getting stuck when an initial playback source fails and a fallback
   source loads successfully.
@@ -31,6 +32,10 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Cancelling while a desktop export is preparing prevents it from starting later.
 - Lossless Trim now finds keyframes in long recordings instead of stalling or failing on large
   keyframe lists.
+- Frontend rendering errors show a recovery screen; after three failed retries, it offers a full
+  app reload instead of returning to the same crashing state.
+- FFmpeg package-manager installs now stop after ten minutes and report a timeout instead of
+  leaving setup stuck indefinitely.
 
 ### Performance
 
@@ -41,13 +46,24 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   which encodes about 1.8x faster at the same output size.
 - Compression progress and folder import scanning now update smoothly instead of flooding the
   interface with an update for every event.
+- Parallel Batch progress stays attached to each video row, including when several files report
+  progress in the same display frame.
 - Folder imports of very large trees now stop at a generous cap and report that the results
   were truncated instead of scanning indefinitely.
+- Folder import progress and results stay with the latest selection across overlapping scans and
+  WebView reloads; incomplete scans are identified before their partial results can be loaded.
+- Repeated settings saves now flush the directory entry after atomic replacement, improving
+  durability if the app or system stops immediately afterward.
 
 ### Updates
 
 - Update downloads no longer fail on slow connections; a download only gives up when it stops
   making progress.
+
+### Feedback
+
+- Successful direct bug-report submissions delete the saved full report. Failed submissions keep
+  the local copy for the email fallback, and copies older than seven days are cleaned up.
 
 ### Security
 

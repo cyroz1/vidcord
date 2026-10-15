@@ -577,11 +577,24 @@ fn restore_published_permissions(path: &Path, permissions: Option<std::fs::Permi
 /// shared for debugging) and does not fail the command itself: the later
 /// scope validation in the preview path reports a genuine refusal.
 fn grant_preview_asset_scope(app: &AppHandle, path: &str) {
-    if let Err(error) = app.asset_protocol_scope().allow_file(path) {
-        vidcord_log(&format!(
-            "Could not grant the selected file to the preview asset scope: {error}"
-        ));
+    let scope = app.asset_protocol_scope();
+    for path in preview_asset_scope_paths(std::path::Path::new(path)) {
+        if let Err(error) = scope.allow_file(path.as_path()) {
+            vidcord_log(&format!(
+                "Could not grant the selected file to the preview asset scope: {error}"
+            ));
+        }
     }
+}
+
+fn preview_asset_scope_paths(path: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut paths = vec![path.to_path_buf()];
+    if let Ok(canonical) = std::fs::canonicalize(path) {
+        if !paths.contains(&canonical) {
+            paths.push(canonical);
+        }
+    }
+    paths
 }
 
 #[tauri::command]
@@ -4453,6 +4466,32 @@ pub fn format_eta(secs: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn preview_asset_scope_includes_a_selected_symlink_and_its_target() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "vidcord-preview-scope-symlink-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let target = directory.join("target.mp4");
+        let selected = directory.join("selected.mp4");
+        std::fs::write(&target, b"video").unwrap();
+        std::os::unix::fs::symlink(&target, &selected).unwrap();
+
+        let scoped_paths = preview_asset_scope_paths(&selected);
+        assert!(scoped_paths.contains(&selected));
+        assert!(scoped_paths.contains(&std::fs::canonicalize(&target).unwrap()));
+
+        std::fs::remove_file(selected).unwrap();
+        std::fs::remove_file(target).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
 
     #[test]
     fn acl_text_detection_handles_colon_delimited_allow_entries() {

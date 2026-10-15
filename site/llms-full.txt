@@ -1,6 +1,6 @@
 # vidcord full agent context
 
-> vidcord is a free, open-source desktop video compressor for Discord upload limits with a quick browser demo. The website leads with the native app for faster encoding, GPU support, and OS integrations, then links the no-install demo beneath the download CTA for in-a-pinch phone, tablet, or desktop-browser use. Both editions process selected videos locally and do not upload them for compression. No account is required and no automatic usage telemetry is collected. Feedback is sent to the developer only when submitted, with diagnostics described in the form.
+> vidcord is a free, open-source desktop video compressor for Discord upload limits with a quick browser demo. The website leads with the native app for faster encoding, GPU support, and OS integrations, then links the no-install demo beneath the download CTA for in-a-pinch phone, tablet, or desktop-browser use. Both editions process selected videos locally and do not upload them for compression. No account is required and no automatic usage telemetry is collected. Feedback is sent to the developer only when submitted, with diagnostics described in the form. A successful direct bug-report submission deletes its saved full report; a failed send keeps the local copy for the email fallback, and copies older than seven days are cleaned up.
 
 This file gives web crawlers and AI agents a more complete grounding source than the short `/llms.txt` summary. It is public and contains no secrets or private user data.
 
@@ -50,7 +50,7 @@ The desktop app compresses local video files under Discord upload limits with sy
 
 ### Desktop batch processing
 
-Selecting two or more supported videos through Browse, drag-and-drop, Open With, command-line file arguments, or a second-instance launch automatically switches the desktop app into Batch mode. One selected video keeps the normal single-video workflow. Folders can be dropped, selected in the native folder picker, or opened from a file-manager context menu; folder imports scan subfolders with progress, queue supported video files, and report skipped non-video files, linked folders, or unreadable items. Linux AppImages register a per-user folder Open With entry on first launch. Desktop Batch uses shared standard Compress settings, supports separate start and end trim seconds for every source, runs up to two native encodes concurrently by default, and falls back to one at a time when device/session/resource contention is detected.
+Selecting two or more supported videos through Browse, drag-and-drop, Open With, command-line file arguments, or a second-instance launch automatically switches the desktop app into Batch mode. One selected video keeps the normal single-video workflow. Folders can be dropped, selected in the native folder picker, or opened from a file-manager context menu; folder imports scan subfolders with progress up to a safety limit, queue supported video files, report skipped non-video files, linked folders, or unreadable items, and warn when results may be incomplete. Linux AppImages register a per-user folder Open With entry on first launch. Desktop Batch uses shared standard Compress settings, supports separate start and end trim seconds for every source, runs up to two native encodes concurrently by default, and falls back to one at a time when device/session/resource contention is detected.
 
 The desktop queue probes each file and displays filename, resolution, frame rate, codec, average bitrate, duration, and status. Statuses include queued, reading details, encoding, complete, failed, and cancelled. Users can reorder the queue with drag-and-drop or keyboard arrow controls, remove queued items before export, use Clear queue to remove all queued videos at once, and retry failed or cancelled items individually or together. Saved presets are disabled while Batch is active so every queued video keeps the shared Compress profile. Individual probe or encode failures do not stop the queue. Aggregate progress and ETA cover the remaining batch, and cancellation terminates active children while skipping queued items.
 
@@ -78,11 +78,11 @@ Lossless Trim stream-copies source streams at outward-snapped source keyframes w
 
 GIF Mode removes audio, generates an FFmpeg color palette, and creates animated GIFs for the 5 MB, 10 MB, or 20 MB target at 15, 30, or Discord-safe maximum 50 FPS. Higher selected frame rates begin with lower spatial detail, and oversized GIF results retry with reduced dimensions and palette complexity while preserving the selected FPS.
 
-Full-resolution PNG snapshots are available from the preview. The desktop snapshot follows the configured native output destination and completion action; its independent close-after-export preference applies to snapshots too. The browser snapshot downloads through the browser.
+PNG snapshots are available from the preview. Desktop snapshots capture the current frame at up to 1920 pixels on the longest side, follow the configured native output destination and completion action, and honor the independent close-after-export preference. The browser snapshot downloads through the browser.
 
 ## Desktop integrations and reliability
 
-- Desktop preview: the Tauri controls seek, play, and pause the HTML video player on Windows, macOS, and Linux. PNG snapshots capture the current video frame. Linux AppImages bundle GStreamer for WebKitGTK playback; unsupported sources show a preview error.
+- Desktop preview: the Tauri controls seek, play, and pause the HTML video player on Windows, macOS, and Linux. PNG snapshots capture the current video frame at up to 1920 pixels on the longest side. Linux AppImages bundle GStreamer for WebKitGTK playback; unsupported sources show a preview error.
 - Desktop encoder behavior: vidcord detects CPU and GPU encoders exposed by FFmpeg, prefers a validated H.264 hardware encoder on first run, preserves saved choices including CPU, and falls back to CPU when hardware encoding fails. Supported families include NVENC, AMF, QSV, VAAPI, and VideoToolbox.
 - Desktop output: Downloads by default, the imported clip's folder, a remembered custom folder, or an Ask when done save prompt. Auto-named outputs are collision-safe and never replace an unrelated existing file.
 - Desktop progress: native compression progress and ETA include attempt, encoder, and bitrate details; the taskbar or Dock can mirror progress while the app is unfocused. The browser displays in-page progress and ETA.
@@ -126,7 +126,7 @@ No system install is required for the browser edition. It loads the site's FFmpe
 
 ### Can vidcord compress multiple videos?
 
-Yes. Browser Batch accepts up to 12 Browse or drag-and-drop selections, applies one shared full-duration Compress profile, supports queue reordering/removal and retrying failed or cancelled items without rerunning completed downloads, and reports per-file plus aggregate progress and ETA. Desktop Batch also imports folders recursively through drag-and-drop, the folder picker, and file-manager context menus; it accepts Open With, command-line arguments, and second-instance selections and adds separate trims, native workers, collision-safe outputs, and grouped completion actions.
+Yes. Browser Batch accepts up to 12 Browse or drag-and-drop selections, applies one shared full-duration Compress profile, supports queue reordering/removal and retrying failed or cancelled items without rerunning completed downloads, and reports per-file plus aggregate progress and ETA. Desktop Batch also imports folders recursively through drag-and-drop, the folder picker, and file-manager context menus; folder scans have a safety limit and warn when results may be incomplete. It accepts Open With, command-line arguments, and second-instance selections and adds separate trims, native workers, collision-safe outputs, and grouped completion actions.
 
 ### Is the browser demo suitable for mobile?
 

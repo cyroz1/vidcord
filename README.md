@@ -29,8 +29,9 @@ cancelled files without rerunning completed downloads.
 The desktop app additionally supports folder imports from drag-and-drop, the
 folder picker, and file-manager context menus, plus Open With, command-line file
 arguments, second-instance forwarding, per-video batch trims, native output
-handling, and native parallel workers. Folder imports scan subfolders, queue
-supported videos, and report skipped files.
+handling, and native parallel workers. Folder imports scan subfolders up to a
+safety limit, queue supported videos, report skipped files, and warn when a
+large scan stops before it reaches every item.
 
 The native desktop app supports **MP4, MOV, MKV, AVI, WebM, FLV, WMV**, and
 other formats handled by your system [FFmpeg](https://ffmpeg.org) install. It
@@ -146,8 +147,9 @@ and retry oversized results with safer bitrates and CPU fallback.
 - **Desktop folder imports** — drop a folder, choose one or more folders with **Add Folder**, or
   choose **Import folder in vidcord** from a Windows folder menu, **Open With → vidcord** in Finder,
   or **Open With → vidcord** in a Linux file manager. Linux AppImages register the folder action the
-  first time vidcord launches. vidcord scans subfolders, shows scan progress, queues supported
-  videos, and reports skipped or unreadable items.
+  first time vidcord launches. vidcord scans subfolders up to a safety limit, shows scan progress,
+  queues supported videos, reports skipped or unreadable items, and warns if results may be
+  incomplete.
 - **Five Discord target profiles** covering current Discord tiers:
   - 20 MB @ 480p — Discord free tier
   - 50 MB @ 720p — Nitro Basic / Boost Level 2
@@ -176,10 +178,10 @@ and retry oversized results with safer bitrates and CPU fallback.
   in Advanced mode; each selected track is encoded at 128 kbps and included in
   the video bitrate budget. Browser input track selection is limited by browser
   media APIs and uses the first audio stream for re-encoded exports.
-- **Full-resolution frame snapshots** — save the frame at the playhead as a
-  PNG with the preview overlay. Desktop snapshots follow the configured output
-  destination and completion action, and follow the separate close-app setting;
-  browser snapshots download through the browser.
+- **Frame snapshots** — save the current frame as a PNG with the preview overlay. Desktop
+  snapshots are capped at 1920 pixels on the longest side and follow the configured output
+  destination, completion action, and separate close-app setting; browser snapshots download
+  through the browser.
 - **Output FPS controls** — standard mode can leave FPS unchanged or cap it
   at 24, 30, or 60 FPS. The desktop app hides choices at or above the FFprobe
   frame rate when they would be redundant. When browser frame-rate metadata is
@@ -487,8 +489,9 @@ preserve the full selection.
    folder in vidcord** from a Windows folder menu, **Open With → vidcord** in
    Finder or a Linux file manager, or click **Browse File** or **Add Folder**.
    Linux AppImages register the folder action on first launch. Folder imports scan
-   subfolders, show progress, and report skipped files, linked folders, or
-   unreadable items in a notification.
+   subfolders up to a safety limit, show progress, and report skipped files,
+   linked folders, or unreadable items. If a large scan reaches the limit,
+   vidcord warns that its results may be incomplete.
 2. **Choose where to save** — use Downloads, the imported clip's folder, a
    remembered custom folder, or **Ask when done**. After export, choose **Copy file**,
    **Show in folder**, or **Do nothing**; optionally enable **Close app** after a
@@ -856,7 +859,8 @@ aggregate ETA, and can retry failed or cancelled items. The desktop app also
 accepts Open With, command-line file arguments, and second-instance launches;
 folders can be imported recursively from drag-and-drop, the folder picker, and
 file-manager context menus. Its Batch mode adds separate start/end trims, up to
-two native workers, and native output handling.
+two native workers, and native output handling. Folder scans stop at a safety
+limit and warn when results may be incomplete.
 
 ### Does vidcord require Discord Nitro?
 

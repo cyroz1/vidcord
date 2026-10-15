@@ -198,6 +198,7 @@ impl Server {
         // Unix, canonical comparison elsewhere) checks the same resolved
         // form the scope check saw.
         let path = std::fs::canonicalize(&path).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
         let metadata = std::fs::metadata(&path).map_err(|e| e.to_string())?;
         #[cfg(unix)]
         let (dev, ino) = {

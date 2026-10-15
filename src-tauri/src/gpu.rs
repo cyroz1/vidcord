@@ -278,15 +278,8 @@ fn detect_gpus() -> Option<HashMap<String, bool>> {
         .unwrap_or_else(Instant::now);
     // Detection fills plain locals; the vendor map is built once at the end,
     // so no key lookup can panic if the key set ever changes.
-    let mut nvidia = false;
-    let mut amd = false;
-    let mut intel = false;
-    // Only assigned by the macOS probe; on other platforms it stays false.
-    #[allow(unused_mut)]
-    let mut apple = false;
-
     #[cfg(target_os = "macos")]
-    {
+    let (nvidia, amd, intel, apple) = {
         let mut command = Command::new("system_profiler");
         command.args(["SPDisplaysDataType", "-detailLevel", "mini"]);
         let out = gpu_command_output(&mut command, deadline, "system_profiler")?;
@@ -294,14 +287,16 @@ fn detect_gpus() -> Option<HashMap<String, bool>> {
             return None;
         }
         let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
-        nvidia = text.contains("nvidia");
-        amd = text.contains("amd") || text.contains("radeon");
-        intel = text.contains("intel");
-        apple = text.contains("apple") || contains_apple_chip_token(&text);
-    }
+        (
+            text.contains("nvidia"),
+            text.contains("amd") || text.contains("radeon"),
+            text.contains("intel"),
+            text.contains("apple") || contains_apple_chip_token(&text),
+        )
+    };
 
     #[cfg(target_os = "windows")]
-    {
+    let (nvidia, amd, intel, apple) = {
         use std::os::windows::process::CommandExt;
         // Primary: PowerShell Get-CimInstance (Windows 10+)
         let mut powershell = Command::new("powershell");
@@ -341,13 +336,16 @@ fn detect_gpus() -> Option<HashMap<String, bool>> {
             }
         };
 
-        nvidia = text.contains("nvidia");
-        amd = text.contains("amd") || text.contains("radeon");
-        intel = text.contains("intel");
-    }
+        (
+            text.contains("nvidia"),
+            text.contains("amd") || text.contains("radeon"),
+            text.contains("intel"),
+            false,
+        )
+    };
 
     #[cfg(target_os = "linux")]
-    {
+    let (nvidia, amd, intel, apple) = {
         let mut command = Command::new("lspci");
         let out = gpu_command_output(&mut command, deadline, "lspci")?;
         if !out.status.success() {
@@ -361,7 +359,11 @@ fn detect_gpus() -> Option<HashMap<String, bool>> {
                 intel |= line.contains("intel");
             }
         }
-    }
+        (nvidia, amd, intel, false)
+    };
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    let (nvidia, amd, intel, apple) = (false, false, false, false);
 
     Some(HashMap::from([
         ("nvidia".to_string(), nvidia),

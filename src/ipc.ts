@@ -16,7 +16,7 @@ export type ExpandedImportPaths = {
 };
 
 export type ImportScanProgress = {
-  scanId: number;
+  scanId: string;
   itemsDiscovered: number;
   videosFound: number;
   foldersScanned: number;
@@ -186,7 +186,7 @@ export function frontendReady(): Promise<void> {
   return invoke("frontend_ready");
 }
 
-export function expandImportPaths(paths: string[], scanId: number): Promise<ExpandedImportPaths> {
+export function expandImportPaths(paths: string[], scanId: string): Promise<ExpandedImportPaths> {
   return invoke<ExpandedImportPaths>("expand_import_paths", { paths, scanId });
 }
 

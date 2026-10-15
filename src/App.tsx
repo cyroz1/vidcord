@@ -21,6 +21,8 @@ import AudioTrackPicker from "./components/AudioTrackPicker";
 import { useToasts } from "./hooks/useToasts";
 import { useSettings, type CompletionAction, type OutputDestination } from "./hooks/useSettings";
 import { useEncoders, type Encoder } from "./hooks/useEncoders";
+import { createImportScanId } from "./importScanId";
+import { summarizeImportResults } from "./importSummary";
 import {
   FFMPEG_MISSING_LOAD_MESSAGE,
   FFMPEG_MISSING_TOAST_MESSAGE,
@@ -525,7 +527,7 @@ export default function App() {
   const batchProbeDataRef = useRef<Map<number, ProbeData>>(new Map());
   const settingsLoadedRef = useRef(settingsLoaded);
   const pendingSelectionRef = useRef<readonly string[] | null>(null);
-  const importScanGenerationRef = useRef(0);
+  const importScanGenerationRef = useRef<string | null>(null);
   const openFileListenerReadyRef = useRef(false);
   const frontendReadySentRef = useRef(false);
   const [fileLoadGeneration, setFileLoadGeneration] = useState(0);
@@ -1560,7 +1562,8 @@ export default function App() {
         return;
       }
 
-      const scanGeneration = ++importScanGenerationRef.current;
+      const scanGeneration = createImportScanId();
+      importScanGenerationRef.current = scanGeneration;
       setSelectionScanning(true);
       setSelectionScanProgress({
         scanId: scanGeneration,
@@ -1632,6 +1635,10 @@ export default function App() {
         } catch {
           // Importing still works when progress events are unavailable.
         }
+        // Listener registration is asynchronous. A newer selection can start
+        // while this call is waiting, so do not let the stale request claim a
+        // newer backend scan generation after its listener finally resolves.
+        if (scanGeneration !== importScanGenerationRef.current) return;
         expanded = await expandImportPaths([...paths], scanGeneration);
       } catch (error) {
         if (scanGeneration === importScanGenerationRef.current) {
@@ -1650,54 +1657,14 @@ export default function App() {
         SUPPORTED_VIDEO_EXTENSION,
         pathPlatform
       );
-      const videoLabel = normalizedPaths.length === 1 ? "video" : "videos";
-      const importSummary =
-        normalizedPaths.length > 0
-          ? [`Queued ${normalizedPaths.length} ${videoLabel}`]
-          : ["No supported videos found"];
-      if (expanded.skippedNonVideoFiles > 0) {
-        const fileLabel = expanded.skippedNonVideoFiles === 1 ? "file" : "files";
-        importSummary.push(`skipped ${expanded.skippedNonVideoFiles} non-video ${fileLabel}`);
-      }
-      if (expanded.skippedFolderLinks > 0) {
-        const folderLabel = expanded.skippedFolderLinks === 1 ? "folder link" : "folder links";
-        importSummary.push(`skipped ${expanded.skippedFolderLinks} ${folderLabel}`);
-      }
-      if (expanded.unreadableItems > 0) {
-        const itemLabel = expanded.unreadableItems === 1 ? "item" : "items";
-        importSummary.push(`could not read ${expanded.unreadableItems} ${itemLabel}`);
-      }
-      const shouldReportImport =
-        expanded.foldersScanned > 0 ||
-        expanded.skippedNonVideoFiles > 0 ||
-        expanded.skippedFolderLinks > 0 ||
-        expanded.unreadableItems > 0 ||
-        normalizedPaths.length === 0;
-
-      if (shouldReportImport) {
-        const foundVideos = normalizedPaths.length > 0;
-        const hasSkippedItems =
-          expanded.skippedNonVideoFiles > 0 ||
-          expanded.skippedFolderLinks > 0 ||
-          expanded.unreadableItems > 0;
-        const title = foundVideos
-          ? expanded.foldersScanned > 0
-            ? "Folder Import Complete"
-            : "Import Results"
-          : "No Videos Found";
-        const details = importSummary.join(" · ");
-        const folderLabel = expanded.foldersScanned === 1 ? "folder" : "folders";
-        const folderSummary =
-          expanded.foldersScanned > 0 ? ` · scanned ${expanded.foldersScanned} ${folderLabel}` : "";
-        addToast(
-          hasSkippedItems || !foundVideos ? "warning" : "success",
-          title,
-          `${details}${folderSummary}`
-        );
+      const importSummary = summarizeImportResults(expanded, normalizedPaths.length);
+      if (importSummary.shouldReport) {
+        addToast(importSummary.tone, importSummary.title, importSummary.message);
       }
 
       setSelectionScanning(false);
       setSelectionScanProgress(null);
+      if (expanded.superseded) return;
       if (normalizedPaths.length > 1) {
         await loadBatch(normalizedPaths);
       } else if (normalizedPaths.length === 1) {

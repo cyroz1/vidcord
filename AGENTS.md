@@ -25,6 +25,8 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   ├── index.css              # Global CSS vars (--accent, --surface, --blur…)
 │   ├── web/                   # Browser editor, WebAssembly FFmpeg engine, and export helpers
 │   ├── ffmpegErrors.ts        # Shared FFmpeg-missing error detection/copy
+│   ├── importScanId.ts        # Page-session-unique IDs for folder import progress events
+│   ├── importSummary.ts       # Import result and incomplete-scan messaging
 │   ├── previewScrub.ts        # Pure preview-seek and native-context-menu helpers
 │   ├── timelineZoom.ts        # Pure trim-timeline zoom/view calculations
 │   ├── videoMetadata.ts       # Pure source-metadata formatting helpers
@@ -54,7 +56,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   │   │   └── encoders.rs    # FFmpeg encoder detection + encoder cache invalidation
 │   │   ├── gpu.rs             # Vendor detection (lspci / system_profiler / Get-CimInstance)
 │   │   ├── log.rs             # Rotating ~/…/vidcord/vidcord.log (5 MB cap)
-│   │   ├── settings.rs        # Typed settings persisted via atomic rename
+│   │   ├── settings.rs        # Typed settings persisted via atomic replacement and durable flushes
 │   │   └── commands/          # #[tauri::command] handlers
 │   │       ├── app.rs         # Application-level actions
 │   │       ├── compression.rs # compression jobs/retries/reservations + preview/probe commands
@@ -415,7 +417,7 @@ Open-with / right-click → Open must work across three delivery mechanisms:
 
 The frontend registers its `open-file` listener and then invokes `frontend_ready`; that command marks the listener ready and drains `PendingFile` under the same mutex used by event delivery. `on_page_load` resets readiness at `PageLoadEvent::Started` so a WebView reload cannot emit into a stale React listener. Do **not** collapse these paths into one — each handles a real race that exists on at least one platform.
 
-Folder imports are registered as an alternate `public.folder` handler in the macOS app bundle and as `inode/directory` in Linux desktop metadata. A directly launched Linux AppImage also writes a per-user desktop entry on first launch so file managers can offer vidcord in **Open With** without requiring an AppImage integration utility. Linux file-manager arguments may arrive as `file://` URLs; normalize them before checking paths and forwarding them to the frontend. Do not make vidcord the default handler for all folders.
+Folder imports are registered as an alternate `public.folder` handler in the macOS app bundle and as `inode/directory` in Linux desktop metadata. A directly launched Linux AppImage also writes a per-user desktop entry on first launch so file managers can offer vidcord in **Open With** without requiring an AppImage integration utility. Linux file-manager arguments may arrive as `file://` URLs; normalize them before checking paths and forwarding them to the frontend. Recursive imports are capped at 100,000 selected roots and discovered entries; return `truncated` and make the frontend identify incomplete results instead of treating them as complete. Keep scan generations backend-owned and monotonic across WebView reloads, and ignore progress/results from a stale selection. Do not make vidcord the default handler for all folders.
 
 ### Update downloads
 
@@ -497,7 +499,7 @@ scoped asset protocol. This is file delivery to the HTML player, with no FFmpeg 
 3. Call `saveSettings({ your_key: … })`; writes are debounced 250 ms and flushed on unmount.
 
 Persisted to `~/.local/share/vidcord/settings.json` (Linux), `~/Library/Application Support/vidcord/settings.json` (macOS), or `%LOCALAPPDATA%\vidcord\settings.json` (Windows) via `dirs::data_local_dir()`.
-Writes use a flushed temporary file plus atomic replacement. Windows must use `MoveFileExW` with replace/write-through flags because `std::fs::rename` cannot replace an existing destination there; do not regress repeated settings saves to a plain rename.
+Writes use a flushed temporary file plus atomic replacement. Unix also syncs the containing directory after every replacement so the directory entry is durable even when replacing an existing file. Windows must use `MoveFileExW` with replace/write-through flags because `std::fs::rename` cannot replace an existing destination there; do not regress repeated settings saves to a plain rename.
 
 Named presets are stored in the optional `presets` array as `{ id, name, settings }` records. The
 frontend parses and normalizes them through `settingsPresets.ts`, accepts at most 20 presets, limits
