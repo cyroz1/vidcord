@@ -77,7 +77,10 @@ export function targetBitrateKbps(
 export function getAvailableFpsOptions(sourceFrameRate: number | null | undefined) {
   const hasSourceFrameRate =
     typeof sourceFrameRate === "number" && Number.isFinite(sourceFrameRate) && sourceFrameRate > 0;
-  if (!hasSourceFrameRate) return FPS_OPTIONS.filter((option) => option.fps === null);
+  // The browser does not expose a source frame rate for every supported file.
+  // Keep the standard choices available in that case; a selected rate is
+  // applied as requested when FFmpeg cannot validate it against the source.
+  if (!hasSourceFrameRate) return FPS_OPTIONS;
   return FPS_OPTIONS.filter((option) => option.fps === null || option.fps < sourceFrameRate);
 }
 
@@ -208,16 +211,12 @@ function getExportFps(
     typeof metadata.frameRate === "number" &&
     Number.isFinite(metadata.frameRate) &&
     metadata.frameRate > 0;
-  // Standard mode exposes FPS values as caps, so keep its safe source-FPS
-  // fallback when the browser cannot verify the source rate. Advanced mode
-  // explicitly requests an output rate and FFmpeg can apply it without that
-  // metadata; an unknown source rate only means the cap cannot be validated.
-  if (!hasSourceFrameRate) return mode === "compress" ? "off" : normalized;
-  if (mode !== "compress") return normalized;
+  if (mode !== "compress" || normalized === "off") return normalized;
 
   const option = FPS_OPTIONS.find((candidate) => candidate.value === normalized);
   if (!option) return "off";
   if (
+    hasSourceFrameRate &&
     option.fps !== null &&
     typeof metadata.frameRate === "number" &&
     Number.isFinite(metadata.frameRate) &&

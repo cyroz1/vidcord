@@ -184,10 +184,10 @@ and retry oversized results with safer bitrates and CPU fallback.
   through the browser.
 - **Output FPS controls** — standard mode can leave FPS unchanged or cap it
   at 24, 30, or 60 FPS. The desktop app hides choices at or above the FFprobe
-  frame rate when they would be redundant. When browser frame-rate metadata is
-  unavailable, the browser keeps Source as the only safe FPS choice and
-  disables typed Advanced FPS rather than upsampling by accident. Advanced
-  mode otherwise accepts a custom FPS value, or an empty field shown as Off
+  frame rate when they would be redundant. The browser applies the same
+  filtering when its metadata includes the source rate; when that rate is
+  unavailable, it shows all standard choices and applies the selected rate.
+  Advanced mode accepts a custom FPS value, or an empty field shown as Off
   for no change.
 - **Desktop completion actions** — copy the finished output file to the system
   clipboard by default, with an automatic reveal fallback; show it in
@@ -871,8 +871,8 @@ targets cover Nitro Basic, boosted servers, and Nitro.
 
 Yes. Standard mode offers Off, 24, 30, and 60 FPS, and hides choices at or
 above the source video's frame rate when they would be redundant. In the browser,
-unknown source-rate metadata leaves only Source and disables custom FPS so the
-export cannot accidentally upsample. Advanced mode otherwise lets you enter any
+unknown source-rate metadata leaves the standard choices visible because the
+browser cannot identify a redundant rate. Advanced mode lets you enter any
 positive FPS value, or leave the Off field empty to keep the original cadence.
 
 ### How is vidcord different from using FFmpeg directly?

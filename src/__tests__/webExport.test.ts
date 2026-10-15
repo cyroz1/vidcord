@@ -188,7 +188,12 @@ describe("browser export planning", () => {
 
   it("matches desktop FPS filtering and peak-normalization analysis", () => {
     expect(getAvailableFpsOptions(30).map((option) => option.value)).toEqual(["off", "24"]);
-    expect(getAvailableFpsOptions(null).map((option) => option.value)).toEqual(["off"]);
+    expect(getAvailableFpsOptions(null).map((option) => option.value)).toEqual([
+      "off",
+      "24",
+      "30",
+      "60",
+    ]);
     expect(
       parsePeakNormalizationGain(
         "[volumedetect] max_volume: -12.5 dB\n[volumedetect] max_volume: -2.0 dB"

@@ -207,6 +207,26 @@ function WebApp() {
     dropHandlerRef.current?.(Array.from(event.dataTransfer.files));
   }, []);
 
+  useLayoutEffect(() => {
+    const scrollToHash = () => {
+      const hash = window.location.hash;
+      if (!hash || hash === "#") return;
+
+      let targetId = hash.slice(1);
+      try {
+        targetId = decodeURIComponent(targetId);
+      } catch {
+        return;
+      }
+
+      document.getElementById(targetId)?.scrollIntoView({ block: "start", behavior: "instant" });
+    };
+
+    scrollToHash();
+    window.addEventListener("hashchange", scrollToHash);
+    return () => window.removeEventListener("hashchange", scrollToHash);
+  }, []);
+
   useEffect(() => {
     const root = document.querySelector<HTMLElement>(".web-app");
     if (
