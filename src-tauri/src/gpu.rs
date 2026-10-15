@@ -352,13 +352,16 @@ fn detect_gpus() -> Option<HashMap<String, bool>> {
             return None;
         }
         let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
-        for line in text.lines() {
-            if line.contains("vga") || line.contains("display") || line.contains("3d") {
-                nvidia |= line.contains("nvidia");
-                amd |= line.contains("amd") || line.contains("radeon");
-                intel |= line.contains("intel");
-            }
-        }
+        let (nvidia, amd, intel) = text
+            .lines()
+            .filter(|line| line.contains("vga") || line.contains("display") || line.contains("3d"))
+            .fold((false, false, false), |(nvidia, amd, intel), line| {
+                (
+                    nvidia || line.contains("nvidia"),
+                    amd || line.contains("amd") || line.contains("radeon"),
+                    intel || line.contains("intel"),
+                )
+            });
         (nvidia, amd, intel, false)
     };
 
