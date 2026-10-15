@@ -10,17 +10,30 @@ import path from "node:path";
 // browser engine keeps its uncompressed fallback for non-hosted use.
 // This step runs after `vite build` as part of `npm run build`, which is
 // also what the Tauri beforeBuildCommand and the CI frontend job run, so
-// the dist/ that gets embedded never carries the encoder assets.
+// the dist/ that gets embedded never carries the encoder assets. The
+// same applies to the browser-route chunks listed below, which the
+// desktop entry never imports at runtime.
 const assetDir = path.join("dist", "assets");
 if (!fs.existsSync(assetDir)) {
   throw new Error("dist/assets is missing; run vite build before pruning the desktop dist");
 }
 
 const encoderAsset = /^(?:ffmpeg-core-.+|worker-.+)\.js$/;
+// Browser-route-only chunks: src/main.tsx mounts WebApp only when
+// __TAURI_INTERNALS__ is absent, so the desktop webview never loads the
+// WebApp/WebEditor route or its browser export/progress helpers. The
+// hosted browser bundle stages separately (scripts/build-web-site.mjs)
+// and keeps all of them.
+const browserChunk = /^(?:WebApp|WebEditor|browserExport|browserProgress)-.+\.(?:js|css)$/;
 let removedBytes = 0;
 let removedCount = 0;
 for (const name of fs.readdirSync(assetDir)) {
-  if (name.endsWith(".wasm") || name.endsWith(".wasm.gz") || encoderAsset.test(name)) {
+  if (
+    name.endsWith(".wasm") ||
+    name.endsWith(".wasm.gz") ||
+    encoderAsset.test(name) ||
+    browserChunk.test(name)
+  ) {
     removedBytes += fs.statSync(path.join(assetDir, name)).size;
     fs.rmSync(path.join(assetDir, name));
     removedCount += 1;
@@ -44,7 +57,7 @@ html = html
 fs.writeFileSync(indexPath, html);
 
 console.log(
-  `desktop dist pruned: removed ${removedCount} browser-encoder asset(s) (${(
+  `desktop dist pruned: removed ${removedCount} browser-only asset(s) (${(
     removedBytes /
     1024 /
     1024

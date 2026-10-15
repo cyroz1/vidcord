@@ -25,6 +25,8 @@ on:
       - "scripts/check-assets.mjs"
       - "scripts/check-bundle-size.mjs"
       - "scripts/check-build-tools.mjs"
+      - "scripts/check-video-extensions.mjs"
+      - "scripts/prune-desktop-dist.mjs"
       - "tools/tauri-cli/**"
       - ".github/workflows/**"
   pull_request:
@@ -47,6 +49,8 @@ on:
       - "scripts/check-assets.mjs"
       - "scripts/check-bundle-size.mjs"
       - "scripts/check-build-tools.mjs"
+      - "scripts/check-video-extensions.mjs"
+      - "scripts/prune-desktop-dist.mjs"
       - "tools/tauri-cli/**"
       - ".github/workflows/**"
   workflow_dispatch:
@@ -163,6 +167,13 @@ jobs:
       - name: Audit Rust dependencies
         run: cargo audit
         working-directory: src-tauri
+
+      # Report-only (mirrors `npm run duplicates:report`): cargo audit above
+      # is the gate for advisories; this just keeps duplicate crate majors
+      # visible in the job log so new ones are a conscious decision.
+      - name: Report duplicate Rust dependencies
+        run: cargo tree --duplicates --manifest-path src-tauri/Cargo.toml
+        continue-on-error: true
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6

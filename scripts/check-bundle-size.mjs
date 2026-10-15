@@ -69,10 +69,11 @@ const limits = {
   // The browser editor also carries the integrated desktop feature story, responsive layout,
   // and the platform-aware download/architecture-choice surfaces.
   cssGzip: 18.5 * 1024,
-  // These include the shared entry shell plus the route loaded immediately on
-  // launch. Keep the browser and desktop budgets separate so a lazy route
-  // cannot hide a regression in the initial experience for the other one.
-  browserEntryGzip: 80 * 1024,
+  // This includes the shared entry shell plus the desktop route loaded
+  // immediately on launch. There is no browser-route budget here: the
+  // browser chunks are pruned from the desktop dist this checker runs
+  // against (and hard-fail above if present); the hosted browser bundle
+  // is built and size-checked separately by the site pipeline.
   desktopEntryGzip: 110 * 1024,
 };
 
@@ -95,38 +96,41 @@ const files = fs
   .filter((name) => name.endsWith(".js") || name.endsWith(".css"));
 
 // The deferred FFmpeg loader and its class worker are browser-only and are
-// pruned from the desktop dist; if a direct `vite build` left them behind,
-// report them on their own line instead of counting them toward the total
-// JS budgets. The per-route budgets below already guard startup weight, so
-// the totals cover the JS a route can actually load, not deferred assets.
-const deferredFfmpegAssets = files.filter((name) => /^(?:ffmpeg-core|worker)-.*\.js$/.test(name));
-const totalledFiles = files.filter((name) => !deferredFfmpegAssets.includes(name));
+// pruned from the desktop dist. Their presence here means the check is
+// running against an unpruned `vite build` output (or the prune regressed),
+// so fail hard instead of excluding them from the totals: the budgets below
+// cover exactly the JS/CSS the desktop dist ships.
+const ffmpegLoaderAssets = files.filter((name) => /^(?:ffmpeg-core|worker)-.*\.js$/.test(name));
+if (ffmpegLoaderAssets.length > 0) {
+  throw new Error(
+    `desktop dist contains browser-only FFmpeg loader asset(s): ${ffmpegLoaderAssets.join(", ")}`
+  );
+}
 
-const browserEntry = files.find((name) => /^WebApp-.*\.js$/.test(name));
-if (!browserEntry) throw new Error("the browser editor chunk is missing");
+// The browser route (WebApp/WebEditor and its export/progress helpers) is
+// likewise pruned from the desktop dist: src/main.tsx mounts it only
+// outside Tauri. Leftover chunks mean the prune missed them.
+const browserChunks = files.filter((name) =>
+  /^(?:WebApp|WebEditor|browserExport|browserProgress)-.*\.(?:js|css)$/.test(name)
+);
+if (browserChunks.length > 0) {
+  throw new Error(
+    `desktop dist contains browser-route-only chunk(s): ${browserChunks.join(", ")}`
+  );
+}
+
 const desktopEntry = files.find((name) => /^App-.*\.js$/.test(name));
 if (!desktopEntry) throw new Error("the desktop app chunk is missing");
 const rootEntry = files.find((name) => /^index-.*\.js$/.test(name));
 if (!rootEntry) throw new Error("the root application chunk is missing");
-const browserEntrySource = fs.readFileSync(path.join(assetDir, browserEntry), "utf8");
-if (/@ffmpeg\/|ffmpeg-core|\.wasm/.test(browserEntrySource)) {
-  throw new Error("the initial browser editor chunk contains deferred FFmpeg/WASM assets");
-}
 
 function totalSize(extension, gzip) {
-  return totalledFiles
+  return files
     .filter((name) => name.endsWith(extension))
     .reduce((total, name) => {
       const bytes = fs.readFileSync(path.join(assetDir, name));
       return total + (gzip ? zlib.gzipSync(bytes).length : bytes.length);
     }, 0);
-}
-
-function deferredSize(gzip) {
-  return deferredFfmpegAssets.reduce((total, name) => {
-    const bytes = fs.readFileSync(path.join(assetDir, name));
-    return total + (gzip ? zlib.gzipSync(bytes).length : bytes.length);
-  }, 0);
 }
 
 function routeSize(entry, routePrefix, gzip) {
@@ -163,7 +167,6 @@ const sizes = {
   javascriptRaw: totalSize(".js", false),
   javascriptGzip: totalSize(".js", true),
   cssGzip: totalSize(".css", true),
-  browserEntryGzip: routeSize(browserEntry, "WebApp-", true),
   desktopEntryGzip: routeSize(desktopEntry, "App-", true),
 };
 
@@ -178,11 +181,7 @@ for (const [name, value] of Object.entries(sizes)) {
 console.log(
   `bundle sizes ok: JS ${(sizes.javascriptRaw / 1024).toFixed(1)} KiB raw / ${(
     sizes.javascriptGzip / 1024
-  ).toFixed(1)} KiB gzip; CSS ${(sizes.cssGzip / 1024).toFixed(1)} KiB gzip; browser route ${(
-    sizes.browserEntryGzip / 1024
-  ).toFixed(1)} KiB gzip; desktop route ${(sizes.desktopEntryGzip / 1024).toFixed(
-    1
-  )} KiB gzip; deferred FFmpeg loader ${(deferredSize(false) / 1024).toFixed(1)} KiB raw / ${(
-    deferredSize(true) / 1024
-  ).toFixed(1)} KiB gzip (excluded from totals)`
+  ).toFixed(1)} KiB gzip; CSS ${(sizes.cssGzip / 1024).toFixed(1)} KiB gzip; desktop route ${(
+    sizes.desktopEntryGzip / 1024
+  ).toFixed(1)} KiB gzip`
 );
