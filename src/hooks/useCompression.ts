@@ -60,12 +60,21 @@ function batchProgressEqual(
   );
 }
 
+// While the window is hidden, requestAnimationFrame is paused by the
+// WebView, so a RAF-only schedule would freeze progress for the whole
+// hidden period. Race every RAF schedule against this timeout instead:
+// whichever fires first flushes and cancels the other.
+const HIDDEN_FLUSH_DELAY_MS = 250;
+
+function documentHidden(): boolean {
+  return typeof document !== "undefined" && document.hidden;
+}
+
 export function useCompression({ onBatchProgress }: Props = {}) {
   const [compressing, setCompressing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [progress, setProgress] = useState(0);
   const [eta, setEta] = useState("Ready");
-  const [batchProgress, setBatchProgress] = useState<BatchProgressPayload | null>(null);
   const cancellingRef = useRef(false);
   const preparationRef = useRef<AbortController | null>(null);
   const onBatchProgressRef = useRef(onBatchProgress);
@@ -74,9 +83,16 @@ export function useCompression({ onBatchProgress }: Props = {}) {
   // animation-frame rate, skipping flushes whose displayed values are
   // unchanged so a progress tick does not re-render the whole app.
   const pendingProgressRef = useRef<CompressProgressPayload | null>(null);
-  const pendingBatchProgressRef = useRef<BatchProgressPayload | null>(null);
+  // Batch progress is kept per item, not in a single slot: if item A
+  // reaches a terminal phase and item B emits progress in the same frame,
+  // a single slot would overwrite A's payload before it is ever flushed,
+  // leaving A's row stuck on "encoding" until the batch ends. The map is
+  // delete-then-set on each event so iteration order is arrival order.
+  const pendingBatchProgressRef = useRef<Map<number, BatchProgressPayload>>(new Map());
   const progressRafRef = useRef<number | null>(null);
   const batchProgressRafRef = useRef<number | null>(null);
+  const progressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const batchProgressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastProgressRef = useRef<{ percent: number; eta: string } | null>(null);
   const lastBatchProgressRef = useRef<BatchProgressPayload | null>(null);
 
@@ -84,8 +100,30 @@ export function useCompression({ onBatchProgress }: Props = {}) {
     onBatchProgressRef.current = onBatchProgress;
   }, [onBatchProgress]);
 
-  const flushProgress = useCallback(() => {
+  const clearProgressSchedule = useCallback(() => {
+    if (progressRafRef.current !== null && typeof window !== "undefined") {
+      window.cancelAnimationFrame(progressRafRef.current);
+    }
     progressRafRef.current = null;
+    if (progressTimeoutRef.current !== null) {
+      clearTimeout(progressTimeoutRef.current);
+      progressTimeoutRef.current = null;
+    }
+  }, []);
+
+  const clearBatchProgressSchedule = useCallback(() => {
+    if (batchProgressRafRef.current !== null && typeof window !== "undefined") {
+      window.cancelAnimationFrame(batchProgressRafRef.current);
+    }
+    batchProgressRafRef.current = null;
+    if (batchProgressTimeoutRef.current !== null) {
+      clearTimeout(batchProgressTimeoutRef.current);
+      batchProgressTimeoutRef.current = null;
+    }
+  }, []);
+
+  const flushProgress = useCallback(() => {
+    clearProgressSchedule();
     const payload = pendingProgressRef.current;
     pendingProgressRef.current = null;
     if (!payload || cancellingRef.current) return;
@@ -94,61 +132,80 @@ export function useCompression({ onBatchProgress }: Props = {}) {
     if (last?.percent !== payload.percent) setProgress(payload.percent);
     if (last?.eta !== nextEta) setEta(nextEta);
     lastProgressRef.current = { percent: payload.percent, eta: nextEta };
-  }, []);
+  }, [clearProgressSchedule]);
 
   const scheduleProgressFlush = useCallback(() => {
-    if (progressRafRef.current !== null) return;
-    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    if (progressRafRef.current !== null || progressTimeoutRef.current !== null) return;
+    if (documentHidden()) {
+      progressTimeoutRef.current = setTimeout(flushProgress, HIDDEN_FLUSH_DELAY_MS);
+    } else if (
+      typeof window !== "undefined" &&
+      typeof window.requestAnimationFrame === "function"
+    ) {
       progressRafRef.current = window.requestAnimationFrame(flushProgress);
+      // The window can be hidden after this schedule; the timeout race
+      // keeps progress moving in that case and is cancelled by the RAF
+      // flush when the window stays visible.
+      progressTimeoutRef.current = setTimeout(flushProgress, HIDDEN_FLUSH_DELAY_MS);
     } else {
       flushProgress();
     }
   }, [flushProgress]);
 
   const cancelProgressFlush = useCallback(() => {
-    if (progressRafRef.current !== null && typeof window !== "undefined") {
-      window.cancelAnimationFrame(progressRafRef.current);
-    }
-    progressRafRef.current = null;
+    clearProgressSchedule();
     pendingProgressRef.current = null;
-  }, []);
+  }, [clearProgressSchedule]);
 
   const flushBatchProgress = useCallback(() => {
-    batchProgressRafRef.current = null;
-    const payload = pendingBatchProgressRef.current;
-    pendingBatchProgressRef.current = null;
-    if (!payload || cancellingRef.current) return;
-    if (batchProgressEqual(lastBatchProgressRef.current, payload)) return;
-    lastBatchProgressRef.current = payload;
-    const nextEta = formatBatchProgress(payload);
-    setBatchProgress(payload);
-    setProgress(payload.percent);
-    setEta(nextEta);
-    lastProgressRef.current = { percent: payload.percent, eta: nextEta };
-    // Fold the batch-queue item update into this same flush: the callback
-    // updates App's queue state synchronously, so React batches it with the
-    // progress setters above into a single render instead of a second
-    // render from a derived-state effect.
-    onBatchProgressRef.current?.(payload);
-  }, []);
+    clearBatchProgressSchedule();
+    const payloads = Array.from(pendingBatchProgressRef.current.values());
+    pendingBatchProgressRef.current.clear();
+    if (payloads.length === 0 || cancellingRef.current) return;
+    for (const payload of payloads) {
+      if (batchProgressEqual(lastBatchProgressRef.current, payload)) continue;
+      lastBatchProgressRef.current = payload;
+      const nextEta = formatBatchProgress(payload);
+      setProgress(payload.percent);
+      setEta(nextEta);
+      lastProgressRef.current = { percent: payload.percent, eta: nextEta };
+      // Fold the batch-queue item update into this same flush: the callback
+      // updates App's queue state synchronously, so React batches it with
+      // the progress setters above into a single render instead of a second
+      // render from a derived-state effect.
+      onBatchProgressRef.current?.(payload);
+    }
+  }, [clearBatchProgressSchedule]);
 
   const scheduleBatchProgressFlush = useCallback(() => {
-    if (batchProgressRafRef.current !== null) return;
-    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    // A terminal payload (completed / failed / cancelled) must not wait
+    // for, or be overwritten during, a coalescing frame: flush every
+    // pending per-item payload synchronously as soon as one arrives.
+    for (const pending of pendingBatchProgressRef.current.values()) {
+      if (pending.phase !== "encoding") {
+        flushBatchProgress();
+        return;
+      }
+    }
+    if (batchProgressRafRef.current !== null || batchProgressTimeoutRef.current !== null) return;
+    if (documentHidden()) {
+      batchProgressTimeoutRef.current = setTimeout(flushBatchProgress, HIDDEN_FLUSH_DELAY_MS);
+    } else if (
+      typeof window !== "undefined" &&
+      typeof window.requestAnimationFrame === "function"
+    ) {
       batchProgressRafRef.current = window.requestAnimationFrame(flushBatchProgress);
+      batchProgressTimeoutRef.current = setTimeout(flushBatchProgress, HIDDEN_FLUSH_DELAY_MS);
     } else {
       flushBatchProgress();
     }
   }, [flushBatchProgress]);
 
   const cancelBatchProgressFlush = useCallback(() => {
-    if (batchProgressRafRef.current !== null && typeof window !== "undefined") {
-      window.cancelAnimationFrame(batchProgressRafRef.current);
-    }
-    batchProgressRafRef.current = null;
-    pendingBatchProgressRef.current = null;
+    clearBatchProgressSchedule();
+    pendingBatchProgressRef.current.clear();
     lastBatchProgressRef.current = null;
-  }, []);
+  }, [clearBatchProgressSchedule]);
 
   const beginPreparation = useCallback(() => {
     preparationRef.current?.abort();
@@ -186,7 +243,9 @@ export function useCompression({ onBatchProgress }: Props = {}) {
     });
     const unsub3 = listen<BatchProgressPayload>("batch-progress", (e) => {
       if (cancellingRef.current) return;
-      pendingBatchProgressRef.current = e.payload;
+      // Delete-then-set keeps the map ordered by latest arrival per item.
+      pendingBatchProgressRef.current.delete(e.payload.item_id);
+      pendingBatchProgressRef.current.set(e.payload.item_id, e.payload);
       scheduleBatchProgressFlush();
     });
     const unsub4 = listen<BatchDonePayload>("batch-done", (e) => {
@@ -195,7 +254,6 @@ export function useCompression({ onBatchProgress }: Props = {}) {
       cancellingRef.current = false;
       setCancelling(false);
       setCompressing(false);
-      setBatchProgress(null);
       const nextProgress = e.payload.success
         ? 100
         : e.payload.cancelled
@@ -259,7 +317,6 @@ export function useCompression({ onBatchProgress }: Props = {}) {
     lastProgressRef.current = { percent: 0, eta: "Ready" };
     setProgress(0);
     setEta("Ready");
-    setBatchProgress(null);
   }, [cancelBatchProgressFlush, cancelProgressFlush]);
 
   return {
@@ -268,7 +325,6 @@ export function useCompression({ onBatchProgress }: Props = {}) {
     cancelling,
     progress,
     eta,
-    batchProgress,
     cancelCompress,
     beginPreparation,
     finishPreparation,

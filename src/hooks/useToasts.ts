@@ -79,12 +79,33 @@ export function useToasts() {
       if (durationMs === null) persistentIdsRef.current.add(id);
 
       let next = [...toastsRef.current, { id, type, title, message, actions: options?.actions }];
+      let newcomerDropped = false;
       while (next.length > MAX_TOASTS) {
+        // Prefer dropping the oldest non-persistent toast. A persistent
+        // toast (e.g. the lossless offer, which carries action buttons)
+        // must never be evicted for a non-persistent newcomer: when every
+        // retained toast is persistent, the only non-persistent candidate
+        // is the newcomer itself, so it is the one dropped.
         const dropIndex = next.findIndex((toast) => !persistentIdsRef.current.has(toast.id));
-        const dropped = next[dropIndex === -1 ? 0 : dropIndex];
+        const dropped =
+          next[
+            dropIndex === -1
+              ? // All retained toasts and the newcomer are persistent; fall
+                // back to dropping the oldest to keep the cap.
+                0
+              : dropIndex
+          ];
         clearTimer(dropped.id);
         persistentIdsRef.current.delete(dropped.id);
+        if (dropped.id === id) newcomerDropped = true;
         next = next.filter((toast) => toast.id !== dropped.id);
+      }
+      if (newcomerDropped) {
+        // The newcomer never became a toast, so it must not mirror to a
+        // system notification either: system notifications mirror in-app
+        // toasts, and there is no in-app toast for this one. Drop silently
+        // (no notification, no timer) and leave the queue untouched.
+        return;
       }
       applyToasts(next);
 

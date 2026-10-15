@@ -1574,9 +1574,13 @@ export default function App() {
         try {
           let lastShownScanProgress: ImportScanProgress | null = null;
           let scanProgressRaf: number | null = null;
+          let scanProgressTimeout: ReturnType<typeof setTimeout> | null = null;
           let pendingScanProgress: ImportScanProgress | null = null;
           const flushScanProgress = () => {
+            if (scanProgressRaf !== null) window.cancelAnimationFrame(scanProgressRaf);
             scanProgressRaf = null;
+            if (scanProgressTimeout !== null) clearTimeout(scanProgressTimeout);
+            scanProgressTimeout = null;
             const pending = pendingScanProgress;
             pendingScanProgress = null;
             if (!pending || scanGeneration !== importScanGenerationRef.current) return;
@@ -1601,13 +1605,22 @@ export default function App() {
               return;
             }
             pendingScanProgress = payload;
-            if (scanProgressRaf === null) {
+            if (scanProgressRaf !== null || scanProgressTimeout !== null) return;
+            // RAF pauses while the window is hidden/minimized, so fall back
+            // to a ~250 ms timeout flush then (and race it against RAF so a
+            // window hidden after scheduling still updates its counters).
+            if (typeof document !== "undefined" && document.hidden) {
+              scanProgressTimeout = setTimeout(flushScanProgress, 250);
+            } else {
               scanProgressRaf = window.requestAnimationFrame(flushScanProgress);
+              scanProgressTimeout = setTimeout(flushScanProgress, 250);
             }
           });
           const cancelScanProgressFlush = () => {
             if (scanProgressRaf !== null) window.cancelAnimationFrame(scanProgressRaf);
             scanProgressRaf = null;
+            if (scanProgressTimeout !== null) clearTimeout(scanProgressTimeout);
+            scanProgressTimeout = null;
             pendingScanProgress = null;
           };
           // Wrap unlisten so the finally block also cancels a pending flush.
@@ -4786,7 +4799,13 @@ export default function App() {
 
       {/* Bug report dialog — lazy-loaded, only rendered after user opens it */}
       {feedbackOpen && (
-        <Suspense fallback={null}>
+        <Suspense
+          fallback={
+            <div className="encoders-dialog" role="status">
+              Loading…
+            </div>
+          }
+        >
           <FeedbackDialog onClose={handleFeedbackClose} />
         </Suspense>
       )}

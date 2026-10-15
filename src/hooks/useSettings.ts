@@ -84,31 +84,35 @@ export function useSettings() {
         // legacy field while the typed Rust loader still accepts old files.
         gif_quality_index: undefined,
       };
-      settingsRef.current = migratedSettings;
+      const savedLosslessMode =
+        typeof s.lossless_mode === "boolean" ? s.lossless_mode : s.quality_index === 5;
+      const migratedLosslessPreset = typeof s.lossless_mode !== "boolean" && s.quality_index === 5;
+      // Apply the lossless migration BEFORE the persist check below.
+      // Previously settingsRef was persisted first and only then rewritten
+      // with quality_index: 0 / lossless_mode: true, so the migrated values
+      // diverged from disk until some unrelated save happened to flush them.
+      settingsRef.current = migratedLosslessPreset
+        ? {
+            // Migrate the short-lived Lossless Trim quality preset to its
+            // dedicated mode toggle.
+            ...migratedSettings,
+            quality_index: 0,
+            lossless_mode: true,
+            advanced_mode: false,
+          }
+        : migratedSettings;
       loadCompletedRef.current = true;
       if (
         s.gif_target_mb !== gifTargetMb ||
         s.gif_quality_index !== undefined ||
         legacyCloseAction ||
+        migratedLosslessPreset ||
         Object.keys(patchesDuringLoadRef.current).length > 0
       ) {
         void persistSettings(settingsRef.current).catch(() => {});
       }
       const loadedPresets = parseSettingsPresets(s.presets);
       presetsRef.current = loadedPresets;
-      const savedLosslessMode =
-        typeof s.lossless_mode === "boolean" ? s.lossless_mode : s.quality_index === 5;
-      const migratedLosslessPreset = typeof s.lossless_mode !== "boolean" && s.quality_index === 5;
-      if (migratedLosslessPreset) {
-        // Migrate the short-lived Lossless Trim quality preset to its
-        // dedicated mode toggle.
-        settingsRef.current = {
-          ...settingsRef.current,
-          quality_index: 0,
-          lossless_mode: true,
-          advanced_mode: false,
-        };
-      }
       startTransition(() => {
         if (cancelled) return;
         setPresets(loadedPresets);
