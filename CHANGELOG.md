@@ -16,6 +16,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - PNG snapshots are capped at 1920 pixels on the longest side, keeping snapshot files and memory
   use bounded on high-resolution sources.
 - Fixed Linux previews failing after many videos had been opened in one session.
+- Fixed the preview pane getting stuck when an initial playback source fails and a fallback
+  source loads successfully.
 
 ### Browser exports
 
@@ -34,11 +36,18 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 - Compression progress and folder import scanning now update smoothly instead of flooding the
   interface with an update for every event.
+- Folder imports of very large trees now stop at a generous cap and report that the results
+  were truncated instead of scanning indefinitely.
 
 ### Updates
 
 - Update downloads no longer fail on slow connections; a download only gives up when it stops
   making progress.
+
+### Security
+
+- The desktop app now receives access to a video file only when you open or import it, instead
+  of holding standing permission for every video file on the system.
 
 ### Packaging
 

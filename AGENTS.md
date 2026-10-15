@@ -174,10 +174,12 @@ generated root entries in sync with the source browser code when publishing a br
 
 The WebAssembly binary is larger than Cloudflare's 25 MiB per-file static-asset limit. `web:build`
 therefore publishes the generated `.wasm` as `.wasm.gz`, and `src/web/ffmpegEngine.ts` decompresses
-it in the browser before loading FFmpeg. The desktop build prunes the browser-encoder assets from
-`dist/` before bundling (`scripts/prune-desktop-dist.mjs`, wired into `npm run build`), so desktop
-installers do not ship them; the uncompressed asset remains the fallback when the browser app runs
-outside the hosted site. `npm run site:check` enforces the same per-file limit for future
+it in the browser before loading FFmpeg. The desktop build prunes the browser-encoder assets and
+the browser-route chunks from `dist/` before bundling (`scripts/prune-desktop-dist.mjs`, wired
+into `npm run build`), so desktop installers do not ship them; the uncompressed asset remains the
+fallback when the browser app runs outside the hosted site. `npm run preview` therefore builds
+the browser edition into the `site/.browser-build` staging directory and serves that, never the
+pruned desktop `dist/`. `npm run site:check` enforces the same per-file limit for future
 generated output.
 
 Browser encoder loads are abortable and bounded to two minutes. Each session mounts its input
@@ -603,7 +605,7 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 `.github/workflows/build.yml` has five jobs:
 
 1. **frontend** (ubuntu-latest) — `npm ci`, audit (high), version and asset checks, lint, typecheck, test, build, and bundle-size budget; uploads `dist/` as an artifact for every platform matrix job to download.
-2. **rust-compile-checks** (ubuntu-22.04) — `cargo fmt --check`, `cargo audit`, `cargo clippy -D warnings`, and `cargo test`. Clippy and tests use the `ci` profile and explicit Linux x86_64 target, sharing the `rust-linux-ubuntu-22.04-v1` `Swatinem/rust-cache` key and compatible artifacts with the Linux x86_64 build job.
+2. **rust-compile-checks** (ubuntu-22.04) — `cargo fmt --check`, `cargo audit`, `cargo clippy -D warnings`, and `cargo test`; a report-only step also prints `cargo tree --duplicates` (same as `npm run duplicates:report`) so dependency duplication stays visible without gating on it. Clippy and tests use the `ci` profile and explicit Linux x86_64 target, sharing the `rust-linux-ubuntu-22.04-v1` `Swatinem/rust-cache` key and compatible artifacts with the Linux x86_64 build job.
 3. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. App-source pushes and pull requests build, stage, and upload CI-profile installers for inspection; tagged `v*` refs build release-profile installers; explicit manual runs build CI-profile installers for testing. Build artifacts are retained for seven days. Only tags run signing and release publication.
 4. **sign-release-artifacts** (ubuntu-latest, only on tags) — verifies build provenance attestations and Ed25519-signs the installers; uploads the signed bundle.
 5. **publish-release** (ubuntu-latest, only on tags) — downloads the signed artifacts, extracts the matching CHANGELOG section, and publishes the signed GitHub release.
@@ -635,6 +637,6 @@ browser output. Content and marketing-asset changes therefore avoid rebuilding F
 - The Tauri window is opaque (`transparent: false`), while inner app surfaces still use glass-style translucency. Keep `--bg` fully opaque so WebView/Desktop compositor quirks cannot bleed through.
 - `convertFileSrc` is required for local file URLs in the video preview; paths fed directly to `<video src>` will fail under the asset-protocol CSP. The CSP lives in `src-tauri/tauri.conf.json` → `app.security.csp`.
 - Linux uses the same HTML `<video>` scrubbing and Tauri-controlled Play/Stop trim controls as other platforms. AppImage builds must enable `bundleMediaFramework` and install the GStreamer base, good, bad (including the H.264 parser), and libav plugins before packaging. Do not add an FFmpeg preview-rendering fallback for sources WebKitGTK cannot load; surface the HTML player error instead.
-- CSP also gates drive roots on Windows (`C:/**` … `Z:/**`). If a user reports a path refused by the asset protocol, check `assetProtocol.scope`.
+- The asset protocol's static scope (`assetProtocol.scope` in `tauri.conf.json`) is empty by design; access is granted at runtime per selected file via `app.asset_protocol_scope()` at the file-open routes in `lib.rs`, the probe/preview/compression commands in `commands/compression.rs`, and folder import in `commands/files.rs`. If a user reports a path refused by the asset protocol, check that one of those routes granted the path before preview.
 - EncodersDialog is `React.lazy` + `Suspense` — don't import it eagerly in `App.tsx`, that re-grows the entry bundle.
 - Tests default to a **Node** environment, and the Tauri runtime APIs are mocked in `src/__mocks__/@tauri-apps/api/*`. Browser component tests opt into the existing **happy-dom** environment; mock metadata, encoder, and external download requests at their boundaries. Keep pure helpers in Node and native behavior in Rust unit tests; do not add another DOM test environment.
