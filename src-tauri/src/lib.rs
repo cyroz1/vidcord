@@ -22,7 +22,7 @@ use commands::encoders::{
     check_ffmpeg_available, detect_encoders, get_vaapi_device, install_ffmpeg_dependency,
     list_ffmpeg_video_encoders,
 };
-use commands::feedback::collect_bug_report;
+use commands::feedback::{collect_bug_report, delete_bug_report};
 use commands::files::{
     copy_file_to_clipboard, copy_files_to_clipboard, discard_staged_output, expand_import_paths,
     get_os, publish_batch_staged_outputs, publish_staged_output, resolve_batch_output_paths,
@@ -74,8 +74,13 @@ mod tests {
         std::fs::write(&path, b"video").unwrap();
         let plain = path.to_string_lossy().into_owned();
         assert_eq!(existing_open_path(&plain), Some(plain.clone()));
-        let url = url::Url::from_file_path(&path).unwrap().to_string();
-        assert_eq!(existing_open_path(&url), Some(plain));
+        let parsed_url = url::Url::from_file_path(&path).unwrap();
+        let url = parsed_url.to_string();
+        assert_eq!(existing_open_path(&url), Some(plain.clone()));
+        // The single-slash file:/ form parses as the same file URL. The
+        // URL path component supplies the leading slash on every platform.
+        let single_slash = format!("file:{}", parsed_url.path());
+        assert_eq!(existing_open_path(&single_slash), Some(plain));
         assert_eq!(existing_open_path("--flag"), None);
         assert_eq!(
             existing_open_path("/definitely/not/a/real/vidcord-file.mp4"),
@@ -160,11 +165,15 @@ fn existing_open_path(argument: &str) -> Option<String> {
         return None;
     }
 
-    // Only file:// arguments need URL parsing; everything else is a plain
-    // filesystem path and goes straight to PathBuf.
+    // Only file-URL arguments need URL parsing; everything else is a plain
+    // filesystem path and goes straight to PathBuf. Both the `file://` form
+    // file managers emit and the single-slash `file:/path` form count:
+    // `Url::parse` handles both, and silently treating the latter as a
+    // literal path would drop a valid open-file argument.
     let is_file_url = argument
-        .get(..7)
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("file://"));
+        .get(..5)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("file:"))
+        && argument.as_bytes().get(5) == Some(&b'/');
     let path = if is_file_url {
         match url::Url::parse(argument) {
             Ok(url) if url.scheme() == "file" => url.to_file_path().ok()?,
@@ -299,7 +308,35 @@ fn sweep_stale_update_downloads(process_started: SystemTime) {
     sweep_stale_update_downloads_in(&directories, process_started);
 }
 
+/// Grant the runtime asset-protocol scope for user-selected open paths.
+///
+/// The static scope in `tauri.conf.json` no longer pre-authorises broad
+/// filesystem patterns, so every route that delivers a user-selected path
+/// to the frontend must grant it here first, before the path can reach
+/// preview (the Linux loopback server in `preview_source.rs` validates the
+/// same scope with `is_allowed`). Files are granted individually; folders
+/// are granted recursively so the files a folder import expands to are
+/// covered. Grants are process-lifetime and idempotent.
+fn grant_asset_protocol_scope(app: &AppHandle, paths: &[String]) {
+    let scope = app.asset_protocol_scope();
+    for path in paths {
+        let path = std::path::Path::new(path);
+        let result = if path.is_dir() {
+            scope.allow_directory(path, true)
+        } else {
+            scope.allow_file(path)
+        };
+        if result.is_err() {
+            vidcord_log("Asset scope: could not grant access to an opened file or folder");
+        }
+    }
+}
+
 fn emit_or_defer_open_files(app: &AppHandle, paths: Vec<String>) {
+    // Grant before any emit/defer: the frontend may start a preview as soon
+    // as it receives these paths (or as soon as `frontend_ready` drains the
+    // deferred copies), and preview validates the runtime scope.
+    grant_asset_protocol_scope(app, &paths);
     // The pending-file mutex is also the readiness-transition gate. Holding it
     // through the readiness check and emit linearizes file-open delivery with a
     // page reload's Started event, when the old React listener is torn down.
@@ -346,6 +383,11 @@ fn frontend_ready(app: AppHandle) {
     let mut pending = pending_file.0.lock().unwrap_or_else(|e| e.into_inner());
     app.state::<WebviewReady>().0.store(true, Ordering::Release);
     if let Some(paths) = pending.take() {
+        // The routes that queued these paths already granted them (CLI args
+        // in setup(), and emit_or_defer_open_files for the rest); grant
+        // again here as the last point before delivery so the drain itself
+        // never depends on how a path arrived. Grants are idempotent.
+        grant_asset_protocol_scope(&app, &paths);
         if let Some(win) = app.get_webview_window("main") {
             let _ = win.emit("open-file", &paths);
         }
@@ -581,6 +623,10 @@ pub fn run() {
             let paths = existing_open_paths(std::env::args().skip(1));
             if !paths.is_empty() {
                 vidcord_log(&format!("Received {} open-file path(s)", paths.len()));
+                // Grant the runtime asset scope before these are stored as
+                // pending: the frontend_ready drain emits them straight to
+                // the frontend, which may immediately request a preview.
+                grant_asset_protocol_scope(app.handle(), &paths);
                 *app.state::<PendingFile>()
                     .0
                     .lock()
@@ -625,6 +671,7 @@ pub fn run() {
             get_os,
             send_system_notification,
             collect_bug_report,
+            delete_bug_report,
         ]);
 
     // A build failure must reach the log file: with panic = "abort" an expect()
@@ -635,6 +682,7 @@ pub fn run() {
             vidcord_log(&format!(
                 "Startup: failed to build the Tauri application: {error}"
             ));
+            log::flush_log();
             std::process::exit(1);
         }
     };

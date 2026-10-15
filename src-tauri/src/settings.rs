@@ -282,11 +282,14 @@ impl SettingsManager {
     }
 
     pub fn save(data: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
+        // Normalize (full-payload clone + typed round-trip) before taking
+        // the lock: the global write lock only needs to cover the atomic
+        // write itself, not the serialization work ahead of it.
+        let normalized = normalize_for_save(data)?;
         let _write_guard = SETTINGS_WRITE_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let path = settings_path();
-        let normalized = normalize_for_save(data)?;
         write_atomically(
             &normalized,
             path,

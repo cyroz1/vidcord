@@ -121,9 +121,12 @@ impl CapturedChild {
         let deadline = Instant::now()
             .checked_add(timeout)
             .unwrap_or_else(Instant::now);
-        // Checking the capture files' lengths is a metadata syscall each, so
-        // only re-check every tenth poll (~100 ms) instead of on every 10 ms
-        // wake-up; try_wait() itself stays on the fast cadence.
+        // Checking a capture file's length is a metadata syscall, so check
+        // only one file per 10 ms poll, alternating between stdout and
+        // stderr: each file is re-checked every ~20 ms (keeping the output
+        // cap's enforcement window tight) at half the stat cost of checking
+        // both files on every wake-up. try_wait() stays on the fast cadence
+        // and read_all() re-enforces the cap on the completed output.
         let mut iteration: u64 = 0;
         loop {
             if let Some(status) = self.child.try_wait()? {
@@ -135,9 +138,12 @@ impl CapturedChild {
                 }));
             }
 
-            if iteration.is_multiple_of(10)
-                && (self.stdout.len()? > max_output_bytes || self.stderr.len()? > max_output_bytes)
-            {
+            let capture_len = if iteration.is_multiple_of(2) {
+                self.stdout.len()?
+            } else {
+                self.stderr.len()?
+            };
+            if capture_len > max_output_bytes {
                 self.terminate_and_reap();
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
@@ -316,16 +322,16 @@ fn detect_gpus() -> Option<HashMap<String, bool>> {
             }
             _ => {
                 // Fallback: wmic (works on older Windows / restricted PowerShell).
-                // It gets its own fresh deadline: sharing the PowerShell
-                // deadline meant a PowerShell timeout left no time for the
-                // fallback to ever run.
-                let fallback_deadline = Instant::now()
-                    .checked_add(GPU_DISCOVERY_TIMEOUT)
-                    .unwrap_or_else(Instant::now);
+                // It shares the one overall discovery deadline, so worst-case
+                // Windows discovery stays within GPU_DISCOVERY_TIMEOUT as
+                // documented on get_system_gpus_blocking(); if PowerShell
+                // already consumed the deadline, gpu_command_output logs
+                // that the fallback could not start and discovery fails
+                // over to enabling all vendors.
                 let mut wmic = Command::new("wmic");
                 wmic.args(["path", "win32_VideoController", "get", "name"])
                     .creation_flags(0x08000000);
-                let wmic_result = gpu_command_output(&mut wmic, fallback_deadline, "wmic");
+                let wmic_result = gpu_command_output(&mut wmic, deadline, "wmic");
                 match wmic_result {
                     Some(ref out) if out.status.success() => {
                         String::from_utf8_lossy(&out.stdout).to_lowercase()

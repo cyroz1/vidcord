@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -37,6 +37,36 @@ struct Server {
     port: u16,
     host: String,
     sources: Arc<Mutex<SourceTable>>,
+    /// Set by the accept thread for its whole lifetime (cleared by a drop
+    /// guard, so a panic clears it too). A cached server whose accept thread
+    /// is gone must not keep handing out URLs for a dead port.
+    alive: Arc<AtomicBool>,
+}
+
+impl Server {
+    fn is_alive(&self) -> bool {
+        self.alive.load(Ordering::Acquire)
+    }
+}
+
+/// Clears the server's liveness flag when the accept thread exits or panics.
+struct AcceptAliveGuard(Arc<AtomicBool>);
+
+impl Drop for AcceptAliveGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+/// Owns one request-concurrency slot: dropping it (including while unwinding
+/// a panic inside `serve()`) returns the slot, so a panic cannot leak one of
+/// the eight slots permanently.
+struct ActiveRequestGuard(Arc<AtomicUsize>);
+
+impl Drop for ActiveRequestGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 // Only a successful start is cached: a failed bind leaves the slot empty so
@@ -54,7 +84,14 @@ fn current_server() -> Option<Arc<Server>> {
 fn preview_server() -> Result<Arc<Server>, String> {
     let mut slot = SERVER.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(server) = slot.as_ref() {
-        return Ok(Arc::clone(server));
+        if server.is_alive() {
+            return Ok(Arc::clone(server));
+        }
+        // The accept thread is gone: drop the dead server and restart below
+        // instead of handing out URLs for a port nothing listens on. The old
+        // server's registrations die with it; its URLs were unusable anyway.
+        crate::log::vidcord_log("Preview server: accept thread stopped; restarting the server");
+        *slot = None;
     }
     let server = Arc::new(Server::start()?);
     *slot = Some(Arc::clone(&server));
@@ -85,20 +122,40 @@ impl Server {
             port,
             host: format!("127.0.0.1:{port}"),
             sources,
+            alive: Arc::new(AtomicBool::new(true)),
         };
         let owned_sources = Arc::clone(&server.sources);
         let host_header = server.host.clone();
         let active = Arc::new(AtomicUsize::new(0));
+        let alive_guard = AcceptAliveGuard(Arc::clone(&server.alive));
         std::thread::Builder::new()
             .name("vidcord-preview-server".to_string())
             .spawn(move || {
+                // Dropping this guard on exit or panic marks the server dead
+                // so `preview_server()` restarts it instead of reusing it.
+                let _alive_guard = alive_guard;
+                let mut consecutive_accept_errors: u32 = 0;
                 for incoming in listener.incoming() {
                     let stream = match incoming {
-                        Ok(stream) => stream,
+                        Ok(stream) => {
+                            consecutive_accept_errors = 0;
+                            stream
+                        }
                         Err(error) => {
-                            crate::log::vidcord_log(&format!(
-                                "Preview server: accept failed: {error}"
-                            ));
+                            consecutive_accept_errors = consecutive_accept_errors.saturating_add(1);
+                            // A persistent accept error (for example EMFILE)
+                            // must not spin at full speed flooding the log:
+                            // back off exponentially up to a second, and only
+                            // log the first failure and every doubling.
+                            if consecutive_accept_errors == 1
+                                || consecutive_accept_errors.is_power_of_two()
+                            {
+                                crate::log::vidcord_log(&format!(
+                                    "Preview server: accept failed: {error}"
+                                ));
+                            }
+                            let shift = (consecutive_accept_errors - 1).min(5);
+                            std::thread::sleep(Duration::from_millis((50u64 << shift).min(1000)));
                             continue;
                         }
                     };
@@ -106,34 +163,40 @@ impl Server {
                         active.fetch_sub(1, Ordering::AcqRel);
                         continue;
                     }
+                    // The guard returns the slot on drop, including when
+                    // `serve()` panics or the spawn below fails and drops
+                    // the closure.
+                    let request_guard = ActiveRequestGuard(Arc::clone(&active));
                     let sources = Arc::clone(&owned_sources);
-                    let request_active = Arc::clone(&active);
                     let host = host_header.clone();
                     let spawned = std::thread::Builder::new()
                         .name("vidcord-preview-request".to_string())
                         .spawn(move || {
+                            let _request_guard = request_guard;
                             if let Err(error) = serve(stream, &host, &sources) {
                                 crate::log::vidcord_log(&format!(
                                     "Preview server: request failed: {error}"
                                 ));
                             }
-                            request_active.fetch_sub(1, Ordering::AcqRel);
                         });
                     if let Err(error) = spawned {
-                        active.fetch_sub(1, Ordering::AcqRel);
                         crate::log::vidcord_log(&format!(
                             "Preview server: could not spawn a request thread: {error}"
                         ));
                     }
                 }
             })
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                server.alive.store(false, Ordering::Release);
+                e.to_string()
+            })?;
         Ok(server)
     }
 
     fn insert(&self, path: PathBuf) -> Result<String, String> {
-        // Store the canonical path so serve-time canonicalization compares
-        // against the same resolved form the scope check saw.
+        // Store the canonical path so serve-time validation (dev/ino on
+        // Unix, canonical comparison elsewhere) checks the same resolved
+        // form the scope check saw.
         let path = std::fs::canonicalize(&path).map_err(|e| e.to_string())?;
         let metadata = std::fs::metadata(&path).map_err(|e| e.to_string())?;
         #[cfg(unix)]
@@ -291,16 +354,25 @@ fn serve(
     let Some(source) = source else {
         return reply(&mut stream, "404 Not Found");
     };
-    // Re-validate the stored path at serve time: it must still canonicalize
-    // to the scope-checked path and still name the same file, so a symlink
-    // swapped in after preparation cannot redirect the request elsewhere.
-    let Ok(canonical) = std::fs::canonicalize(&source.path) else {
+    // Re-validate the stored file at serve time, so a symlink swapped in
+    // after preparation cannot redirect the request elsewhere. On Unix that
+    // needs no per-request canonicalize (a full per-component path walk on
+    // every range request): open the stored path first and let the fstat
+    // dev/ino check on the opened handle below reject the request if the
+    // path now names a different file, which any symlink swap does. Other
+    // platforms keep the canonicalize comparison as the fallback.
+    #[cfg(unix)]
+    let Ok(mut file) = File::open(&source.path) else {
         return reply(&mut stream, "404 Not Found");
     };
-    if canonical != source.path {
-        return reply(&mut stream, "404 Not Found");
-    }
-    let Ok(mut file) = File::open(&canonical) else {
+    #[cfg(not(unix))]
+    let Ok(mut file) = (|| {
+        let canonical = std::fs::canonicalize(&source.path).ok()?;
+        if canonical != source.path {
+            return None;
+        }
+        File::open(&canonical).ok()
+    })() else {
         return reply(&mut stream, "404 Not Found");
     };
     let length = match file.metadata() {
@@ -372,6 +444,26 @@ fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn request_guard_returns_the_slot_on_drop() {
+        let active = Arc::new(AtomicUsize::new(0));
+        active.fetch_add(1, Ordering::AcqRel);
+        let guard = ActiveRequestGuard(Arc::clone(&active));
+        assert_eq!(active.load(Ordering::Acquire), 1);
+        drop(guard);
+        assert_eq!(active.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn server_liveness_follows_the_accept_guard() {
+        let server = Server::start().unwrap();
+        assert!(server.is_alive());
+        // Simulate the accept thread dying: clearing the flag (which its
+        // drop guard does) makes the cached server ineligible for reuse.
+        server.alive.store(false, Ordering::Release);
+        assert!(!server.is_alive());
+    }
 
     #[test]
     fn ranges_cover_seeking_suffixes_and_invalid_requests() {
