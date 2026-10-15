@@ -366,7 +366,7 @@ fn serve(
         return reply(&mut stream, "404 Not Found");
     };
     #[cfg(not(unix))]
-    let Ok(mut file) = (|| {
+    let Some(mut file) = (|| {
         let canonical = std::fs::canonicalize(&source.path).ok()?;
         if canonical != source.path {
             return None;
