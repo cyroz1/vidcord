@@ -18,6 +18,11 @@ const UPDATE_SIGNING_PUBLIC_KEY_HEX: &str = include_str!("../../update-signing-p
 /// transfer timeout: a slow but progressing download may take as long as
 /// it needs, while a stalled connection still fails instead of hanging.
 const DOWNLOAD_CHUNK_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// Longest allowed wait for a request to produce response headers. The
+/// per-chunk idle timeout only starts once `.send()` returns, so without
+/// this bound a server or proxy that accepts the connection and then
+/// stalls before sending headers would hang the download forever.
+const DOWNLOAD_SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 fn http_client() -> Result<&'static reqwest::Client, String> {
     HTTP_CLIENT
@@ -422,16 +427,27 @@ async fn copy_download_without_clobber(source: &Path, destination: &Path) -> std
 }
 
 async fn download_release_signature(url: &str) -> Result<[u8; 64], String> {
-    let resp = download_client()?
-        .get(url)
-        .header("Accept", "application/octet-stream")
-        .send()
-        .await
-        .map_err(|e| {
+    let send_result = tokio::time::timeout(
+        DOWNLOAD_SEND_TIMEOUT,
+        download_client()?
+            .get(url)
+            .header("Accept", "application/octet-stream")
+            .send(),
+    )
+    .await;
+    let resp = match send_result {
+        Ok(result) => result.map_err(|e| {
             let msg = e.to_string();
             vidcord_log(&format!("update install: signature request failed: {msg}"));
             msg
-        })?;
+        })?,
+        Err(_) => {
+            vidcord_log("update install: signature request timed out waiting for response headers");
+            return Err(
+                "Update installer signature download stalled and was cancelled.".to_string(),
+            );
+        }
+    };
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -710,16 +726,25 @@ pub async fn download_and_open_update_installer(
         .await
         .map_err(|e| e.to_string())?;
 
-    let resp = download_client()?
-        .get(&asset.download_url)
-        .header("Accept", "application/octet-stream")
-        .send()
-        .await
-        .map_err(|e| {
+    let send_result = tokio::time::timeout(
+        DOWNLOAD_SEND_TIMEOUT,
+        download_client()?
+            .get(&asset.download_url)
+            .header("Accept", "application/octet-stream")
+            .send(),
+    )
+    .await;
+    let resp = match send_result {
+        Ok(result) => result.map_err(|e| {
             let msg = e.to_string();
             vidcord_log(&format!("update install: download request failed: {msg}"));
             msg
-        })?;
+        })?,
+        Err(_) => {
+            vidcord_log("update install: download request timed out waiting for response headers");
+            return Err("Update download stalled and was cancelled.".to_string());
+        }
+    };
 
     if !resp.status().is_success() {
         let status = resp.status();

@@ -4,8 +4,7 @@
 //! submits it through the feedback endpoint; the frontend can open a `mailto:`
 //! link as a fallback. This command also saves a full local report copy.
 
-use std::collections::VecDeque;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 
 pub const FEEDBACK_EMAIL: &str = "owner@vidcord.app";
 /// Log lines embedded in the email body (kept small so mailto: URLs stay usable).
@@ -68,26 +67,60 @@ pub struct BugReport {
 /// Last `max_lines` of the file at `path`, oldest first. A missing or
 /// unreadable file yields an empty vec — a bug report without logs is still
 /// more useful than no bug report.
+///
+/// Reads a trailing window starting near EOF instead of streaming the
+/// whole file from byte 0; the window grows (x4) until it holds enough
+/// complete lines or reaches the start of the file, so correctness does
+/// not depend on guessing a line length.
 fn tail_lines(path: &std::path::Path, max_lines: usize) -> Vec<String> {
     if max_lines == 0 {
         return Vec::new();
     }
-    let file = match std::fs::File::open(path) {
+    let mut file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return Vec::new(),
     };
-    let mut ring: VecDeque<String> = VecDeque::with_capacity(max_lines);
-    for line in BufReader::new(file).lines() {
-        let text = match line {
-            Ok(t) => t,
-            Err(_) => break,
-        };
-        if ring.len() == max_lines {
-            ring.pop_front();
-        }
-        ring.push_back(text);
+    let file_len = match file.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(_) => return Vec::new(),
+    };
+    if file_len == 0 {
+        return Vec::new();
     }
-    ring.into_iter().collect()
+
+    const INITIAL_WINDOW_BYTES: u64 = 128 * 1024;
+    let mut window = INITIAL_WINDOW_BYTES;
+    loop {
+        let start = file_len.saturating_sub(window);
+        if file.seek(SeekFrom::Start(start)).is_err() {
+            return Vec::new();
+        }
+        let mut buffer = Vec::with_capacity((file_len - start) as usize);
+        if file.read_to_end(&mut buffer).is_err() {
+            return Vec::new();
+        }
+        let text = String::from_utf8_lossy(&buffer);
+        let mut lines: Vec<String> = text
+            .split('\n')
+            .map(|line| line.strip_suffix('\r').unwrap_or(line).to_string())
+            .collect();
+        // `split` yields a trailing empty segment for a final newline;
+        // that is a terminator, not an extra empty line.
+        if lines.last().is_some_and(|line| line.is_empty()) {
+            lines.pop();
+        }
+        if start > 0 {
+            // The first segment is a partial line cut by the window edge.
+            if !lines.is_empty() {
+                lines.remove(0);
+            }
+        }
+        if lines.len() > max_lines || start == 0 {
+            let skip = lines.len().saturating_sub(max_lines);
+            return lines.into_iter().skip(skip).collect();
+        }
+        window = window.saturating_mul(4);
+    }
 }
 
 /// Current UTC time as `YYYY-MM-DD HH:MM:SS`, without extra dependencies.
@@ -130,11 +163,82 @@ fn open_private_report_file(path: &std::path::Path) -> std::io::Result<std::fs::
     options.open(path)
 }
 
+/// Directory that saved report copies live in.
+///
+/// Unix keeps reports in the shared temp directory, with the file itself
+/// hardened to mode 0o600 by `open_private_report_file`. Windows has no
+/// mode equivalent for a file created in the shared temp directory, so
+/// there the reports go under the per-user cache directory instead,
+/// whose ACL is inherited from the user profile and is not shared with
+/// other local users — the same per-user location the compression code
+/// uses for private temporary output on non-Unix platforms.
+fn report_directory() -> std::path::PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(cache_dir) = dirs::cache_dir() {
+            let directory = cache_dir.join("vidcord").join("bug-reports");
+            if std::fs::create_dir_all(&directory).is_ok() {
+                return directory;
+            }
+        }
+    }
+    std::env::temp_dir()
+}
+
+/// Validates that `path` names a saved report copy in the report
+/// directory, so the delete command can never be pointed at an unrelated
+/// file. Returns the validated path.
+fn validated_report_path(path: &str) -> Result<std::path::PathBuf, String> {
+    let candidate = std::path::PathBuf::from(path);
+    let file_name = candidate
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "Invalid bug report path.".to_string())?;
+    if !file_name.starts_with(REPORT_FILE_PREFIX) || !file_name.ends_with(".txt") {
+        return Err("Invalid bug report path.".to_string());
+    }
+    let directory = report_directory();
+    let parent = candidate
+        .parent()
+        .ok_or_else(|| "Invalid bug report path.".to_string())?;
+    let parent_matches = std::fs::canonicalize(parent)
+        .ok()
+        .zip(std::fs::canonicalize(&directory).ok())
+        .is_some_and(|(parent, directory)| parent == directory)
+        || parent == directory.as_path();
+    if !parent_matches {
+        return Err("Invalid bug report path.".to_string());
+    }
+    Ok(candidate)
+}
+
+fn delete_bug_report_blocking(report_path: String) -> Result<(), String> {
+    let path = validated_report_path(&report_path)?;
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        // Already gone (swept or removed by the user) is still deleted
+        // as far as the caller is concerned.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("could not delete bug report: {error}")),
+    }
+}
+
+/// Deletes a saved report copy after the frontend confirms the report
+/// was sent through the feedback endpoint, so a confirmed send does not
+/// leave a full log copy behind. The mailto fallback path does not call
+/// this: the user may still need the file there.
+#[tauri::command]
+pub async fn delete_bug_report(report_path: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || delete_bug_report_blocking(report_path))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 fn write_report_file(contents: &str) -> Result<std::path::PathBuf, String> {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static REPORT_COUNTER: AtomicU64 = AtomicU64::new(0);
-    let temp_dir = std::env::temp_dir();
+    let temp_dir = report_directory();
     for _ in 0..32 {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -215,7 +319,7 @@ fn collect_bug_report_blocking(description: Option<String>) -> Result<BugReport,
 
     // Full report on disk in case the mail client truncates the mailto: body.
     let full = format_report(description.as_deref(), version, os, arch, &file_tail);
-    sweep_stale_report_files(&std::env::temp_dir());
+    sweep_stale_report_files(&report_directory());
     let report_path = write_report_file(&full)?;
 
     Ok(BugReport {
@@ -272,6 +376,43 @@ mod tests {
         let path = write_temp_log(&["one"]);
         assert!(tail_lines(&path, 0).is_empty());
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn tail_lines_reads_past_the_initial_window() {
+        // ~400 KB of log: the trailing window has to grow before the last
+        // 500 complete lines are inside it, and no partial line may leak.
+        let lines: Vec<String> = (0..2000)
+            .map(|index| format!("log line {index:04} {}", "x".repeat(180)))
+            .collect();
+        let path = write_temp_log(&lines.iter().map(String::as_str).collect::<Vec<_>>());
+        let tail = tail_lines(&path, 500);
+        assert_eq!(tail.len(), 500);
+        assert_eq!(tail.first().unwrap(), &lines[1500]);
+        assert_eq!(tail.last().unwrap(), &lines[1999]);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn delete_bug_report_only_accepts_report_files_in_the_report_directory() {
+        let directory = report_directory();
+        let report = directory.join("vidcord-bug-report-1-2-3.txt");
+        std::fs::write(&report, "report").unwrap();
+        assert!(delete_bug_report_blocking(report.to_string_lossy().into_owned()).is_ok());
+        assert!(!report.exists());
+
+        // A real file elsewhere, a non-report name, and a missing report
+        // parent must all be refused or handled without deleting anything.
+        let other = write_temp_log(&["keep me"]);
+        assert!(delete_bug_report_blocking(other.to_string_lossy().into_owned()).is_err());
+        assert!(other.exists());
+        let _ = std::fs::remove_file(&other);
+
+        let wrong_name = directory.join("notes.txt");
+        assert!(validated_report_path(&wrong_name.to_string_lossy()).is_err());
+        // Deleting an already-gone report is a no-op success.
+        let gone = directory.join("vidcord-bug-report-9-9-9.txt");
+        assert!(delete_bug_report_blocking(gone.to_string_lossy().into_owned()).is_ok());
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 #[cfg(target_os = "linux")]
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::time::Duration;
 use std::time::Instant;
@@ -87,7 +87,18 @@ pub struct ExpandedImportPaths {
     pub skipped_folder_links: usize,
     pub unreadable_items: usize,
     pub folders_scanned: usize,
+    /// True when the scan stopped at `MAX_IMPORT_SCAN_ENTRIES` instead of
+    /// walking the whole selection, so the result is knowingly incomplete.
+    pub truncated: bool,
+    /// True when the scan stopped early because a newer selection
+    /// superseded it, so the result is knowingly incomplete.
+    pub superseded: bool,
 }
+
+/// Hard bound on one folder-import scan (root paths plus every directory
+/// entry discovered). Without it, dropping a drive root walks the whole
+/// volume; at the cap the scan stops and reports `truncated`.
+const MAX_IMPORT_SCAN_ENTRIES: usize = 100_000;
 
 #[derive(serde::Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -127,10 +138,86 @@ impl ImportScanReporter {
     }
 }
 
-/// Generation of the most recently started import scan. A scan whose id no
-/// longer matches has been superseded by a newer selection, so it stops
-/// walking the filesystem instead of competing with its replacement.
-static LATEST_IMPORT_SCAN_ID: AtomicU64 = AtomicU64::new(0);
+/// Registry for the currently running import scan.
+///
+/// The frontend scan counter lives in a `useRef`, so it restarts from a low
+/// value when the WebView reloads or remounts. Ratcheting the backend's
+/// latest id up with `fetch_max` therefore condemned the first post-reload
+/// scan: its id was below the stale maximum, so it looked superseded from
+/// the start and silently truncated. Instead the backend owns the effective
+/// generation: when no scan is running it adopts the caller's id verbatim
+/// (resetting any stale high-water mark), and while a scan is running a new
+/// scan gets a generation strictly above both the running one and its own
+/// requested id. Progress events still carry the caller's `scan_id`, which
+/// is what the frontend matches on.
+struct ImportScanState {
+    latest_generation: u64,
+    scan_running: bool,
+}
+
+static IMPORT_SCAN_STATE: std::sync::Mutex<ImportScanState> =
+    std::sync::Mutex::new(ImportScanState {
+        latest_generation: 0,
+        scan_running: false,
+    });
+
+fn lock_import_scan_state() -> std::sync::MutexGuard<'static, ImportScanState> {
+    IMPORT_SCAN_STATE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+}
+
+fn claim_import_scan_generation(requested: u64) -> u64 {
+    let mut state = lock_import_scan_state();
+    if state.scan_running {
+        let generation = if requested > state.latest_generation {
+            requested
+        } else {
+            state.latest_generation.saturating_add(1)
+        };
+        state.latest_generation = generation;
+        generation
+    } else {
+        state.scan_running = true;
+        state.latest_generation = requested;
+        requested
+    }
+}
+
+fn release_import_scan(generation: u64) {
+    let mut state = lock_import_scan_state();
+    // Only the latest scan owns the running flag; an older scan finishing
+    // after a newer one claimed the registry must not clear it.
+    if state.latest_generation == generation {
+        state.scan_running = false;
+    }
+}
+
+fn import_scan_superseded(generation: u64) -> bool {
+    lock_import_scan_state().latest_generation != generation
+}
+
+/// Grants the user-selected roots to Tauri's runtime asset-protocol scope,
+/// so videos reached through a folder import can be previewed later without
+/// a broad static scope in `tauri.conf.json`. Selected folders are granted
+/// recursively; selected files are granted individually.
+fn grant_import_paths_to_asset_scope(app: &AppHandle, paths: &[String]) {
+    use tauri::Manager;
+
+    let scope = app.asset_protocol_scope();
+    for raw_path in paths {
+        let path = std::path::PathBuf::from(raw_path);
+        match std::fs::metadata(&path) {
+            Ok(metadata) if metadata.is_dir() => {
+                let _ = scope.allow_directory(&path, true);
+            }
+            Ok(metadata) if metadata.is_file() => {
+                let _ = scope.allow_file(&path);
+            }
+            _ => {}
+        }
+    }
+}
 
 #[tauri::command]
 pub async fn expand_import_paths(
@@ -138,20 +225,21 @@ pub async fn expand_import_paths(
     paths: Vec<String>,
     scan_id: u64,
 ) -> Result<ExpandedImportPaths, String> {
-    LATEST_IMPORT_SCAN_ID.fetch_max(scan_id, Ordering::SeqCst);
-    tokio::task::spawn_blocking(move || expand_import_paths_blocking(app, paths, scan_id))
-        .await
-        .map_err(|error| error.to_string())
-}
-
-fn import_scan_superseded(scan_id: u64) -> bool {
-    LATEST_IMPORT_SCAN_ID.load(Ordering::SeqCst) != scan_id
+    grant_import_paths_to_asset_scope(&app, &paths);
+    let generation = claim_import_scan_generation(scan_id);
+    let result = tokio::task::spawn_blocking(move || {
+        expand_import_paths_blocking(app, paths, scan_id, generation)
+    })
+    .await;
+    release_import_scan(generation);
+    result.map_err(|error| error.to_string())
 }
 
 fn expand_import_paths_blocking(
     app: AppHandle,
     paths: Vec<String>,
     scan_id: u64,
+    generation: u64,
 ) -> ExpandedImportPaths {
     const VIDEO_EXTENSIONS: &[&str] = &["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"];
 
@@ -177,13 +265,19 @@ fn expand_import_paths_blocking(
     let mut skipped_folder_links = 0;
     let mut unreadable_items = 0;
     let mut folders_scanned = 0;
-    let mut items_processed = 0usize;
     let mut superseded = false;
+    let mut truncated = false;
 
     while let Some((path, is_selected_root)) = pending.pop() {
-        items_processed += 1;
-        if items_processed.is_multiple_of(256) && import_scan_superseded(scan_id) {
+        // Supersede and cap checks run once per pending item and once per
+        // read_dir batch below, not on a 256-item cadence keyed off a
+        // counter that also counts root paths.
+        if import_scan_superseded(generation) {
             superseded = true;
+            break;
+        }
+        if reporter.items_discovered >= MAX_IMPORT_SCAN_ENTRIES {
+            truncated = true;
             break;
         }
         let metadata_result = if is_selected_root {
@@ -198,7 +292,8 @@ fn expand_import_paths_blocking(
                 continue;
             }
         };
-        let metadata = if entry_metadata.file_type().is_symlink() {
+        let entry_is_symlink = entry_metadata.file_type().is_symlink();
+        let metadata = if entry_is_symlink {
             match std::fs::metadata(&path) {
                 Ok(metadata) if metadata.is_dir() => {
                     skipped_folder_links += 1;
@@ -233,20 +328,25 @@ fn expand_import_paths_blocking(
             for entry in entries {
                 match entry {
                     Ok(entry) => {
+                        if reporter.items_discovered >= MAX_IMPORT_SCAN_ENTRIES {
+                            truncated = true;
+                            break;
+                        }
                         children.push(entry.path());
                         reporter.items_discovered += 1;
                         reporter.emit_if_due(false);
-                        if reporter.items_discovered.is_multiple_of(256)
-                            && import_scan_superseded(scan_id)
-                        {
-                            superseded = true;
-                            break;
-                        }
                     }
                     Err(_) => unreadable_items += 1,
                 }
             }
-            if superseded {
+            // One supersede check per read_dir batch: a superseded scan
+            // drops its pending queue here, and the payload's `superseded`
+            // flag accounts for the work it did not finish.
+            if import_scan_superseded(generation) {
+                superseded = true;
+                break;
+            }
+            if truncated {
                 break;
             }
             children.sort();
@@ -271,12 +371,20 @@ fn expand_import_paths_blocking(
             continue;
         }
 
-        // Dedupe on the traversal path itself: canonicalizing every video
-        // file is one of the most expensive path syscalls on Windows and
-        // network drives, and the traversal already visits each directory
-        // entry once. Only directories are canonicalized (above, for cycle
-        // protection against linked directory loops).
-        if seen_videos.insert(path.clone()) {
+        // Dedupe without canonicalizing every video file (one of the most
+        // expensive path syscalls on Windows and network drives): the key
+        // is the lexically normalized traversal path, so the same file
+        // spelled with `./`, `../`, or duplicate separators still dedupes.
+        // Only selected roots and symlinked files are canonicalized, since
+        // those are the spellings lexical normalization cannot reconcile
+        // (a root picked directly and again through its parent folder, or
+        // a file symlink and its target).
+        let dedupe_key = if is_selected_root || entry_is_symlink {
+            std::fs::canonicalize(&path).unwrap_or_else(|_| normalize_lexical_path(&path))
+        } else {
+            normalize_lexical_path(&path)
+        };
+        if seen_videos.insert(dedupe_key) {
             let video_path = if path.is_absolute() {
                 path
             } else {
@@ -297,7 +405,34 @@ fn expand_import_paths_blocking(
         skipped_folder_links,
         unreadable_items,
         folders_scanned,
+        truncated,
+        superseded,
     }
+}
+
+/// Lexically resolves `.` and `..` components without touching the
+/// filesystem, so path spellings of the same file compare equal. `..` at
+/// the root (or with nothing to pop) is dropped, matching how the OS
+/// resolves it there.
+fn normalize_lexical_path(path: &std::path::Path) -> std::path::PathBuf {
+    use std::path::Component;
+
+    let mut normalized = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::RootDir => normalized.push(std::path::MAIN_SEPARATOR.to_string()),
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+    if normalized.as_os_str().is_empty() {
+        normalized.push(".");
+    }
+    normalized
 }
 
 fn import_path_key(path: &std::path::Path) -> String {
@@ -910,11 +1045,29 @@ fn focus_main_window(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|error| format!("could not focus the main window: {error}"))
 }
 
+/// Upper bound on notification response listeners waiting at once. Each
+/// listener owns an OS thread blocked in `wait_for_response`; the platform
+/// response timeout (set on the notification itself) normally retires
+/// them, and this cap keeps a burst of ignored notifications from
+/// accumulating threads without limit in the meantime.
+const MAX_NOTIFICATION_RESPONSE_LISTENERS: usize = 8;
+
+static ACTIVE_NOTIFICATION_RESPONSE_LISTENERS: AtomicUsize = AtomicUsize::new(0);
+
 fn listen_for_notification_activation<F>(listener: F) -> Result<(), String>
 where
     F: FnOnce() -> Result<(), String> + Send + 'static,
 {
-    std::thread::Builder::new()
+    if ACTIVE_NOTIFICATION_RESPONSE_LISTENERS.fetch_add(1, Ordering::SeqCst)
+        >= MAX_NOTIFICATION_RESPONSE_LISTENERS
+    {
+        ACTIVE_NOTIFICATION_RESPONSE_LISTENERS.fetch_sub(1, Ordering::SeqCst);
+        // The notification was already delivered; only its click listener
+        // is skipped, so this is log-only rather than a delivery failure.
+        vidcord_log("System notification response listener skipped: too many already pending");
+        return Ok(());
+    }
+    let spawn_result = std::thread::Builder::new()
         .name("vidcord-notification-response".to_string())
         .spawn(move || {
             if let Err(error) = listener() {
@@ -922,11 +1075,17 @@ where
                     "System notification response listener failed: {error}"
                 ));
             }
-        })
-        .map(|_| ())
-        .map_err(|error| {
-            format!("Could not start the system notification response listener: {error}")
-        })
+            ACTIVE_NOTIFICATION_RESPONSE_LISTENERS.fetch_sub(1, Ordering::SeqCst);
+        });
+    match spawn_result {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            ACTIVE_NOTIFICATION_RESPONSE_LISTENERS.fetch_sub(1, Ordering::SeqCst);
+            Err(format!(
+                "Could not start the system notification response listener: {error}"
+            ))
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -992,10 +1151,19 @@ fn deliver_platform_notification(
     #[cfg(target_os = "linux")]
     notification
         .body(&escape_xdg_notification_markup(body))
-        .action("default", "Open vidcord");
+        .action("default", "Open vidcord")
+        // The XDG expire timeout makes the notification server close the
+        // notification after an hour, which resolves the response
+        // listener with a dismissal instead of leaving its thread
+        // blocked in `wait_for_response` forever.
+        .timeout(std::time::Duration::from_secs(60 * 60));
 
     #[cfg(target_os = "windows")]
     {
+        // No response timeout is set here: the WinRT toast always reports
+        // activation or dismissal (including system expiry of the toast),
+        // which resolves the response listener, and the listener cap in
+        // `listen_for_notification_activation` bounds how many can wait.
         notification.body(body);
         if let Ok(executable) = tauri::utils::platform::current_exe() {
             if let Some(directory) = executable.parent() {
@@ -1227,7 +1395,14 @@ fn snapshot_request_header(
 #[tauri::command]
 pub async fn save_snapshot_image(request: tauri::ipc::Request<'_>) -> Result<String, String> {
     let png_bytes = match request.body() {
-        tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
+        tauri::ipc::InvokeBody::Raw(bytes) => {
+            // Reject oversized bodies before cloning them and paying a
+            // spawn_blocking hop; the blocking save re-checks the size.
+            if bytes.len() > MAX_SNAPSHOT_PNG_BYTES {
+                return Err("The snapshot image has an invalid size.".to_string());
+            }
+            bytes.clone()
+        }
         tauri::ipc::InvokeBody::Json(_) => {
             return Err("The snapshot image must be sent as raw bytes.".to_string());
         }
@@ -1755,14 +1930,64 @@ mod tests {
     }
 
     use super::{
-        deliver_notification_if_unfocused, escape_xdg_notification_markup,
-        is_cargo_target_profile_directory, macos_clipboard_filename, macos_notification_arguments,
+        claim_import_scan_generation, deliver_notification_if_unfocused,
+        escape_xdg_notification_markup, import_scan_superseded, is_cargo_target_profile_directory,
+        macos_clipboard_filename, macos_notification_arguments, normalize_lexical_path,
         normalize_windows_shell_path, notification_response_requests_focus, output_path_key,
         percent_decode_header_value, publish_staged_output_blocking,
         publish_staged_output_without_replacing_blocking, publish_to_temporary,
-        resolve_output_path_blocking, staging_directory, unique_output_path,
+        release_import_scan, resolve_output_path_blocking, staging_directory, unique_output_path,
         unique_output_path_with_reserved, validated_clipboard_file, without_appimage_library_paths,
     };
+
+    #[test]
+    fn lexical_normalization_reconciles_path_spellings() {
+        assert_eq!(
+            normalize_lexical_path(std::path::Path::new("/videos/./clip.mp4")),
+            std::path::PathBuf::from("/videos/clip.mp4")
+        );
+        assert_eq!(
+            normalize_lexical_path(std::path::Path::new("/videos/sub/../clip.mp4")),
+            std::path::PathBuf::from("/videos/clip.mp4")
+        );
+        assert_eq!(
+            normalize_lexical_path(std::path::Path::new("videos//clip.mp4")),
+            std::path::PathBuf::from("videos/clip.mp4")
+        );
+        // `..` cannot climb above the root.
+        assert_eq!(
+            normalize_lexical_path(std::path::Path::new("/../clip.mp4")),
+            std::path::PathBuf::from("/clip.mp4")
+        );
+    }
+
+    #[test]
+    fn import_scan_generation_resets_when_no_scan_is_running() {
+        // A high generation from before a WebView reload must not condemn
+        // the first post-reload scan, whose counter restarted low.
+        let first = claim_import_scan_generation(41);
+        assert_eq!(first, 41);
+        assert!(!import_scan_superseded(first));
+        release_import_scan(first);
+
+        let after_reload = claim_import_scan_generation(1);
+        assert_eq!(after_reload, 1);
+        assert!(!import_scan_superseded(after_reload));
+
+        // While that scan runs, a newer scan still supersedes it, even
+        // with a lower requested id.
+        let newer = claim_import_scan_generation(1);
+        assert!(newer > after_reload);
+        assert!(import_scan_superseded(after_reload));
+        assert!(!import_scan_superseded(newer));
+
+        // The older scan finishing must not clear the newer scan's claim.
+        release_import_scan(after_reload);
+        let third = claim_import_scan_generation(1);
+        assert!(third > newer);
+        release_import_scan(newer);
+        release_import_scan(third);
+    }
 
     #[test]
     fn percent_decoded_snapshot_paths_round_trip_special_characters() {

@@ -9,6 +9,10 @@ export type ExpandedImportPaths = {
   skippedFolderLinks: number;
   unreadableItems: number;
   foldersScanned: number;
+  /** True when the scan stopped at the backend entry cap, so results are incomplete. */
+  truncated: boolean;
+  /** True when a newer selection superseded this scan, so results are incomplete. */
+  superseded: boolean;
 };
 
 export type ImportScanProgress = {
@@ -332,6 +336,15 @@ export type BugReport = {
 
 export function collectBugReport(description: string | null): Promise<BugReport> {
   return invoke<BugReport>("collect_bug_report", { description });
+}
+
+/**
+ * Deletes the saved full report copy after a confirmed endpoint send, so
+ * a full log copy does not linger on disk. Not for the mailto fallback,
+ * where the user may still need the file.
+ */
+export function deleteBugReport(reportPath: string): Promise<void> {
+  return invoke("delete_bug_report", { reportPath });
 }
 
 export function saveSnapshotImage(
