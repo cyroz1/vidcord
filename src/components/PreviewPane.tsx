@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -116,6 +117,44 @@ const snapshotBtnStyle: React.CSSProperties = {
   zIndex: 10,
 };
 
+// The playback-time readout lives in its own tiny component: syncPlaybackTime
+// writes the live text straight to this node's textContent (outside React)
+// at timeupdate rate, so the invariant that a React render of the node
+// re-derives its text from the latest playback time is structural — only
+// this component ever renders the node, and its text prop is always built
+// from currentPlaybackTimeRef at render time. Keeping the node inside the
+// full pane tree made that easy to break silently by memoizing the pane.
+const PlaybackTimeOverlay = memo(
+  forwardRef<HTMLDivElement, { text: string }>(function PlaybackTimeOverlay({ text }, ref) {
+    return (
+      <div ref={ref} style={currentTimeOverlayStyle}>
+        {text}
+      </div>
+    );
+  })
+);
+
+type AssignedCandidate = {
+  /** The raw candidate string handed to the element. */
+  source: string;
+  /**
+   * The same candidate in the form the element reports it back (read from
+   * `vid.src` immediately after assignment): browsers resolve/percent-encode
+   * the raw string, so error/ready events must be compared against this
+   * form, never against the raw prepared string.
+   */
+  resolvedSource: string;
+};
+
+function captureAssignedCandidate(vid: HTMLVideoElement, source: string): AssignedCandidate {
+  return { source, resolvedSource: vid.src || vid.currentSrc || source };
+}
+
+function matchesAssignedCandidate(reported: string, assigned: AssignedCandidate | null): boolean {
+  if (!assigned) return true;
+  return reported === assigned.resolvedSource || reported === assigned.source;
+}
+
 type Props = {
   cropAspectRatio: string;
   filePath: string | null;
@@ -213,6 +252,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     setVideoLoadFailed(false);
     setVideoReady(false);
     appliedPreviewTimeRef.current = null;
+    assignedCandidateRef.current = null;
+    consumedErrorEventsRef.current = 0;
     syncPlaybackTime(0);
     onTimeUpdateRef.current?.(filePath ? 0 : null);
   }, [filePath, syncPlaybackTime]);
@@ -226,6 +267,20 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubVideoSrcRef = useRef<string | null>(null);
+  // Which candidate the current load attempt was assigned, captured at
+  // assignment time (see AssignedCandidate). The React onError handler
+  // compares against this — not against whatever source happens to be
+  // current when the handler runs — so a stale error from a superseded
+  // candidate is ignored and a genuine error from the current candidate,
+  // whose reported URL form differs from the raw string, still surfaces.
+  const assignedCandidateRef = useRef<AssignedCandidate | null>(null);
+  // Error events the imperative playback fallback has already consumed by
+  // advancing to the next candidate. The same event also reaches the React
+  // onError handler (by then the element already reports the *next*
+  // candidate, so no source comparison can tell it apart from a genuine
+  // error for that candidate); the fallback bumps this count when it
+  // advances and the React handler ignores exactly that many deliveries.
+  const consumedErrorEventsRef = useRef(0);
   const pendingScrubVideoSeekRef = useRef<number | null>(null);
   const sourceIndexRef = useRef(0);
   // Listener reference so we can unbind on stop. Replaces the previous 100 ms
@@ -333,20 +388,15 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     }
 
     const normalizedPath = path.replace(/\\/g, "/");
+    // Preview sources are only the Tauri asset protocol (Windows/macOS) and
+    // the prepared loopback URL (Linux, already in the cache above). There
+    // is deliberately no file:// candidate: the CSP cannot allow file: media
+    // while keeping the preview surface locked to scoped sources, and a
+    // file:// URL handed to the element directly was never a scoped route.
     const urls: Set<string> = new Set([convertFileSrc(path)]);
 
     if (normalizedPath !== path) {
       urls.add(convertFileSrc(normalizedPath));
-    }
-
-    try {
-      if (/^[a-zA-Z]:\//.test(normalizedPath)) {
-        urls.add(new URL(`file:///${normalizedPath}`).toString());
-      } else if (normalizedPath.startsWith("/")) {
-        urls.add(new URL(`file://${normalizedPath}`).toString());
-      }
-    } catch {
-      // ignore malformed fallback URLs and continue with asset protocol URLs
     }
 
     const result = Array.from(urls);
@@ -370,6 +420,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       setVideoReady(false);
       if (!playingRef.current) {
         scrubVideoSrcRef.current = null;
+        assignedCandidateRef.current = null;
         pendingScrubVideoSeekRef.current = null;
         vid.pause();
         vid.removeAttribute("src");
@@ -387,6 +438,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     if (activeIndex >= 0) {
       sourceIndexRef.current = activeIndex;
       scrubVideoSrcRef.current = activeSource;
+      assignedCandidateRef.current = captureAssignedCandidate(vid, activeSource);
       return;
     }
     const src = sources[0];
@@ -399,12 +451,18 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     setVideoLoadFailed(false);
     vid.preload = "auto";
     vid.src = src;
+    assignedCandidateRef.current = captureAssignedCandidate(vid, src);
     vid.load();
   }, [buildPlaybackUrls, filePath, probeData, playing, videoLoadFailed, preparedSource]);
 
   const handleVideoReady = useCallback(
     (event: React.SyntheticEvent<HTMLVideoElement>) => {
-      if (
+      const assigned = assignedCandidateRef.current;
+      if (assigned !== null) {
+        if (!matchesAssignedCandidate(event.currentTarget.src, assigned)) {
+          return;
+        }
+      } else if (
         scrubVideoSrcRef.current !== null &&
         event.currentTarget.src !== scrubVideoSrcRef.current
       ) {
@@ -419,6 +477,36 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     },
     [seekVideoElement]
   );
+
+  const handleVideoError = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
+    // An error the imperative playback fallback already consumed by
+    // advancing to the next candidate also reaches this handler, with the
+    // element already reporting the next candidate. It is not a failure of
+    // that candidate — ignore exactly that delivery.
+    if (consumedErrorEventsRef.current > 0) {
+      consumedErrorEventsRef.current -= 1;
+      return;
+    }
+    // Ignore errors from a superseded candidate: compare the reported
+    // source against the candidate captured when the current load attempt
+    // was assigned (in the element's own reported form), so a stale error
+    // cannot wedge the pane and a genuine error from the current candidate
+    // is never mistaken for a stale one over a URL-form difference.
+    const assigned = assignedCandidateRef.current;
+    if (assigned !== null) {
+      const reported = event.currentTarget.src;
+      if (reported && !matchesAssignedCandidate(reported, assigned)) {
+        return;
+      }
+    } else if (
+      scrubVideoSrcRef.current !== null &&
+      event.currentTarget.src !== scrubVideoSrcRef.current
+    ) {
+      return;
+    }
+    setVideoReady(false);
+    setVideoLoadFailed(true);
+  }, []);
 
   useEffect(() => {
     if (previewTime === null || playing) return;
@@ -464,6 +552,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       const activeSource = vid.currentSrc || vid.src;
       if (activeSource) {
         scrubVideoSrcRef.current = activeSource;
+        assignedCandidateRef.current = captureAssignedCandidate(vid, activeSource);
       }
     }
     // Read the media element after pausing so a quick stop preserves the
@@ -569,6 +658,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         stopPlayback();
         return;
       }
+      // Advancing (initially or as a fallback) is a fresh load attempt: a
+      // React error handler that raced ahead of the fallback must not leave
+      // the pane wedged on the previous candidate's failure.
+      setVideoLoadFailed(false);
       sourceIndex = index;
       sourceIndexRef.current = index;
       const source = sources[index];
@@ -578,9 +671,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         vid.src === source
       );
       if (reuseDirectSource) {
+        assignedCandidateRef.current = captureAssignedCandidate(vid, source);
         seekVideoElement(resumeTime);
       } else {
         vid.src = source;
+        assignedCandidateRef.current = captureAssignedCandidate(vid, source);
         vid.load();
       }
       vid
@@ -605,8 +700,20 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
 
     vid.onerror = () => {
       if (playbackSessionRef.current !== session) return;
-      if (vid.src !== sources[sourceIndex]) return;
+      // Only the candidate assigned for this attempt can fail playback;
+      // compare in the element's reported form (see AssignedCandidate).
+      if (
+        assignedCandidateRef.current !== null
+          ? !matchesAssignedCandidate(vid.src, assignedCandidateRef.current)
+          : vid.src !== sources[sourceIndex]
+      ) {
+        return;
+      }
       if (sourceIndex + 1 < sources.length) {
+        // This same error event is also delivered to the React onError
+        // handler after the fallback has advanced the element to the next
+        // candidate; mark it consumed so that delivery is ignored there.
+        consumedErrorEventsRef.current += 1;
         beginPlayback(sourceIndex + 1);
         return;
       }
@@ -694,13 +801,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const canPlay =
     !!filePath && !!probeData && preparedSource?.path === filePath && endTime > startTime;
   const showPreviewVideo = !!filePath && !!probeData && videoReady;
-  return (
-    <div
-      className={`preview-pane${filePath ? " has-media" : " is-empty"}`}
-      style={containerStyle}
-      aria-busy={loadingVideo || (!!filePath && !videoReady && !videoLoadFailed)}
-    >
-      <PreviewCrop crop={cropAspectRatio}>
+  // PreviewCrop is memoized, so its children must be referentially stable
+  // for the memo to ever bail: building the placeholder + video inline here
+  // recreated them on every pane render (every trim-scrub tick) and defeated
+  // it. Memoize the children on exactly the values they read.
+  const previewChildren = useMemo(
+    () => (
+      <>
         {!playing && !showPreviewVideo && (
           <span className="preview-placeholder" role="status" aria-live="polite">
             {!filePath && (
@@ -741,23 +848,30 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
           style={playing || showPreviewVideo ? videoVisibleStyle : videoHiddenStyle}
           onLoadedMetadata={handleVideoReady}
           onCanPlay={handleVideoReady}
-          onError={(event) => {
-            // Ignore errors from a superseded source: a guarded playback
-            // fallback may still succeed on the next candidate URL, and
-            // wedging videoLoadFailed here would stick the pane on the
-            // "preview unavailable" placeholder even after it does.
-            if (
-              scrubVideoSrcRef.current !== null &&
-              event.currentTarget.src !== scrubVideoSrcRef.current
-            ) {
-              return;
-            }
-            setVideoReady(false);
-            setVideoLoadFailed(true);
-          }}
+          onError={handleVideoError}
           onEnded={handleVideoEnded}
         />
-      </PreviewCrop>
+      </>
+    ),
+    [
+      playing,
+      showPreviewVideo,
+      filePath,
+      loadingVideo,
+      videoLoadFailed,
+      removeAudio,
+      handleVideoReady,
+      handleVideoError,
+      handleVideoEnded,
+    ]
+  );
+  return (
+    <div
+      className={`preview-pane${filePath ? " has-media" : " is-empty"}`}
+      style={containerStyle}
+      aria-busy={loadingVideo || (!!filePath && !videoReady && !videoLoadFailed)}
+    >
+      <PreviewCrop crop={cropAspectRatio}>{previewChildren}</PreviewCrop>
 
       {/* Play/Stop overlay controls the HTML video element from the Tauri UI. */}
       {canPlay && (
@@ -821,9 +935,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       )}
 
       {probeData && (
-        <div ref={playbackTimeOverlayRef} style={currentTimeOverlayStyle}>
-          {currentPlaybackTimeRef.current.toFixed(1)}s / {probeData.duration.toFixed(1)}s
-        </div>
+        <PlaybackTimeOverlay
+          ref={playbackTimeOverlayRef}
+          text={`${currentPlaybackTimeRef.current.toFixed(1)}s / ${probeData.duration.toFixed(1)}s`}
+        />
       )}
     </div>
   );

@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import {
   batchOutputSummary,
   isBatchItemRetryable,
@@ -43,10 +43,28 @@ function BatchQueue({
   const [draggedItemId, setDraggedItemId] = useState<number | null>(null);
   const [dragOverItemId, setDragOverItemId] = useState<number | null>(null);
   const { completed, failed, cancelled, retryable } = batchOutputSummary(items);
-  const fileNames = useMemo(
-    () => new Map(items.map((item) => [item.id, fileName(item.inputPath)])),
-    [items]
-  );
+  // Cache display names per item, keyed by (id, inputPath). The items array
+  // gets a new identity on every status/progress tick during encoding, so a
+  // memo on the array rebuilt the whole Map (and re-ran the path split for
+  // every item) on every tick; a per-item cache only computes a name when
+  // that item's id/path pair is first seen.
+  const fileNameCacheRef = useRef(new Map<string, string>());
+  const cachedFileName = (item: BatchQueueItem): string => {
+    const key = `${item.id}\0${item.inputPath}`;
+    const cached = fileNameCacheRef.current.get(key);
+    if (cached !== undefined) return cached;
+    const name = fileName(item.inputPath);
+    fileNameCacheRef.current.set(key, name);
+    return name;
+  };
+  // Keep the cache bounded to the live queue: drop entries for items that
+  // were removed or whose path changed.
+  useEffect(() => {
+    const liveKeys = new Set(items.map((item) => `${item.id}\0${item.inputPath}`));
+    for (const key of fileNameCacheRef.current.keys()) {
+      if (!liveKeys.has(key)) fileNameCacheRef.current.delete(key);
+    }
+  }, [items]);
 
   const clearDragState = () => {
     setDraggedItemId(null);
@@ -90,7 +108,7 @@ function BatchQueue({
       </div>
       <ol className="batch-queue-list" aria-label="Batch queue">
         {items.map((item, index) => {
-          const name = fileNames.get(item.id) ?? fileName(item.inputPath);
+          const name = cachedFileName(item);
           const retryItem = isBatchItemRetryable(item.status);
           return (
             <li

@@ -129,6 +129,37 @@ it("disables queue actions while an export is running", async () => {
   expect(container.querySelector("li")?.getAttribute("draggable")).toBe("false");
 });
 
+it("keeps item names stable across progress-only updates", async () => {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  const renderItems = (items: BatchQueueItem[]) => (
+    <BatchQueue
+      items={items}
+      onClearQueue={vi.fn()}
+      onMoveItem={vi.fn()}
+      onReorderItem={vi.fn()}
+      onRemoveItem={vi.fn()}
+      onRetryItem={vi.fn()}
+      onRetryFailed={vi.fn()}
+      actionsDisabled={false}
+    />
+  );
+
+  await act(async () => root!.render(renderItems(ITEMS)));
+  expect(names()).toEqual(["alpha.mp4", "beta.mp4", "gamma.mp4"]);
+
+  // A progress tick replaces the items array identity (and the encoding
+  // item's object) without changing any id/path: names must stay put and
+  // the new progress must render.
+  const ticked = ITEMS.map((item) =>
+    item.id === 1 ? { ...item, status: "encoding" as const, progress: 55 } : item
+  );
+  await act(async () => root!.render(renderItems(ticked)));
+  expect(names()).toEqual(["alpha.mp4", "beta.mp4", "gamma.mp4"]);
+  expect(container.querySelector('[aria-label="55% complete"]')).not.toBeNull();
+});
+
 it("forwards drag-and-drop reordering by stable item ids", async () => {
   const onReorderItem = vi.fn();
   container = document.createElement("div");

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ALL_CROP_OPTIONS,
   detectMatchingCropPreset,
   formatAverageBitrate,
   formatCodec,
@@ -86,6 +87,18 @@ describe("video metadata formatting", () => {
     expect(summary.label).toBe(
       "Resolution 1920×1080, frame rate 29.97 fps, codec H.264, average bitrate 4.5 Mbps, length 1:23.4"
     );
+  });
+
+  it("never produces non-finite cropped dimensions for any crop option", () => {
+    // Guards the ratio table build: a non-ratio option value must not be
+    // able to inject a NaN ratio that leaks into cropped dimensions.
+    for (const option of ALL_CROP_OPTIONS) {
+      const [width, height] = getCroppedDimensions(1920, 1080, option.value);
+      expect(Number.isFinite(width)).toBe(true);
+      expect(Number.isFinite(height)).toBe(true);
+      expect(width).toBeGreaterThan(0);
+      expect(height).toBeGreaterThan(0);
+    }
   });
 
   it("calculates cropped target dimensions for scale filter calculations", () => {

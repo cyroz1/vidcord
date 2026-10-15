@@ -7,7 +7,7 @@ import {
   useDialogFocusTrap,
 } from "./useDialogFocusTrap";
 import { buildMailto, FEEDBACK_EMAIL, sendBugReport } from "../feedback";
-import { collectBugReport, type BugReport } from "../ipc";
+import { collectBugReport, deleteBugReport, type BugReport } from "../ipc";
 
 type Props = { onClose: () => void };
 
@@ -118,6 +118,15 @@ export default function FeedbackDialog({ onClose }: Props) {
       const collected = await collectBugReport(description.trim() === "" ? null : description);
       setReport(collected);
       await sendBugReport(collected);
+      // The endpoint send is confirmed, so the on-disk full report copy can
+      // go; the mailto fallback path keeps it. Best effort: a failed delete
+      // must not turn a successful send into an error (the copy is also
+      // swept after 7 days).
+      try {
+        await deleteBugReport(collected.reportPath);
+      } catch {
+        // ignored
+      }
       setSent(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

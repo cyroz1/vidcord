@@ -117,6 +117,155 @@ it("keeps the paused HTML player on its current frame when playback stops", asyn
   }
 });
 
+it("shows the failure state when the current preview candidate errors", async () => {
+  mocks.prepare.mockReset().mockResolvedValue("http://127.0.0.1:9000/private-a");
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  const probe = {
+    duration: 6,
+    width: 320,
+    height: 180,
+    bitrate: 1000,
+    codec: "h264",
+    audio_tracks: [],
+  };
+  try {
+    await act(async () =>
+      root.render(
+        <PreviewPane
+          filePath="/a.mp4"
+          probeData={probe}
+          cropAspectRatio=""
+          loadingVideo={false}
+          startTime={0}
+          endTime={6}
+          previewTime={null}
+          isScrubbing={false}
+          removeAudio={true}
+          loopPlayback={false}
+        />
+      )
+    );
+    const video = container.querySelector("video")!;
+    expect(video.src).toBe("http://127.0.0.1:9000/private-a");
+    await act(async () => {
+      video.dispatchEvent(new Event("error"));
+    });
+    expect(container.textContent).toContain("HTML video preview unavailable");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it("does not wedge when the first playback candidate fails and the fallback succeeds", async () => {
+  // A Windows-style path yields two asset-protocol candidates (the raw path
+  // and its forward-slash normalization); prepare returns null off Linux, so
+  // playback walks the candidate list itself.
+  mocks.prepare.mockReset().mockResolvedValue(null);
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  const handle = createRef<PreviewHandle>();
+  const probe = {
+    duration: 6,
+    width: 320,
+    height: 180,
+    bitrate: 1000,
+    codec: "h264",
+    audio_tracks: [],
+  };
+  const filePath = "C:\\clips\\a.mp4";
+  const firstCandidate = `asset://localhost${filePath}`;
+  const fallbackCandidate = "asset://localhostC:/clips/a.mp4";
+  try {
+    await act(async () =>
+      root.render(
+        <PreviewPane
+          ref={handle}
+          filePath={filePath}
+          probeData={probe}
+          cropAspectRatio=""
+          loadingVideo={false}
+          startTime={0}
+          endTime={6}
+          previewTime={null}
+          isScrubbing={false}
+          removeAudio={true}
+          loopPlayback={false}
+        />
+      )
+    );
+    const video = container.querySelector("video")!;
+    expect(video.getAttribute("src")).toBe(firstCandidate);
+    // Keep playback deterministic: happy-dom does not decode media.
+    Object.assign(video, { play: () => Promise.resolve() });
+    await act(async () => {
+      handle.current?.startPlayback();
+    });
+    // The first candidate errors: the imperative fallback advances the
+    // element to the next candidate, and the React error handler receives
+    // the same event with the element already reporting that candidate.
+    // Neither may wedge the pane on the failure placeholder.
+    await act(async () => {
+      video.dispatchEvent(new Event("error"));
+    });
+    expect(video.getAttribute("src")).toBe(fallbackCandidate);
+    expect(container.textContent).not.toContain("HTML video preview unavailable");
+    // The fallback then loads and the pane becomes ready on it.
+    await act(async () => {
+      video.dispatchEvent(new Event("loadedmetadata"));
+    });
+    expect(video.style.display).toBe("block");
+    expect(container.textContent).not.toContain("HTML video preview unavailable");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it("keeps the playback-time overlay in sync through the isolated readout", async () => {
+  mocks.prepare.mockReset().mockResolvedValue("http://127.0.0.1:9000/private-a");
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  const handle = createRef<PreviewHandle>();
+  const probe = {
+    duration: 6,
+    width: 320,
+    height: 180,
+    bitrate: 1000,
+    codec: "h264",
+    audio_tracks: [],
+  };
+  try {
+    await act(async () =>
+      root.render(
+        <PreviewPane
+          ref={handle}
+          filePath="/a.mp4"
+          probeData={probe}
+          cropAspectRatio=""
+          loadingVideo={false}
+          startTime={0}
+          endTime={6}
+          previewTime={null}
+          isScrubbing={false}
+          removeAudio={true}
+          loopPlayback={false}
+        />
+      )
+    );
+    const overlay = () =>
+      Array.from(container.querySelectorAll("div")).find((node) =>
+        /^\d+\.\ds \/ \d+\.\ds$/.test(node.textContent ?? "")
+      );
+    expect(overlay()?.textContent).toBe("0.0s / 6.0s");
+    await act(async () => {
+      handle.current?.seekTo(2);
+    });
+    expect(overlay()?.textContent).toBe("2.0s / 6.0s");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 it("does not seek back to the scrub point when playback stops mid-clip", async () => {
   mocks.prepare.mockReset().mockResolvedValue("http://127.0.0.1:9000/private-a");
   const container = document.createElement("div");

@@ -188,7 +188,19 @@ const TimelineTimeInput = memo(function TimelineTimeInput({
   const [draft, setDraft] = useState<string | null>(null);
   const [invalid, setInvalid] = useState(false);
   const cancelCommitRef = useRef(false);
+  const editingRef = useRef(false);
   const displayValue = draft ?? formatTimelineTime(time, clockFormat);
+
+  // A rejected draft is retained after blur so the user can see what was
+  // refused, but it must not mask the trim value forever: when the time
+  // prop changes externally (undo/redo, handle drags, zoom commits) while
+  // this field is not being edited, drop the stale draft and re-sync to
+  // the prop. While the field is focused the in-progress draft wins.
+  useEffect(() => {
+    if (editingRef.current) return;
+    setDraft(null);
+    setInvalid(false);
+  }, [time]);
 
   return (
     <input
@@ -205,12 +217,14 @@ const TimelineTimeInput = memo(function TimelineTimeInput({
           : "Enter seconds or h:m:s; press Enter to apply"
       }
       onFocus={(event) => {
+        editingRef.current = true;
         onFocus();
         setDraft(event.currentTarget.value);
         event.currentTarget.select();
       }}
       onChange={(event) => setDraft(event.currentTarget.value)}
       onBlur={(event) => {
+        editingRef.current = false;
         if (cancelCommitRef.current) {
           cancelCommitRef.current = false;
           setInvalid(false);
@@ -613,6 +627,9 @@ function TrimTimeline({
                 focusedHandleRef.current = "start";
                 onStartHandleFocus();
               }}
+              onBlur={() => {
+                if (focusedHandleRef.current === "start") focusedHandleRef.current = null;
+              }}
               onPointerDown={onStartHandlePointerDown}
               onPointerUp={onPointerUp}
               onPointerCancel={onPointerUp}
@@ -641,6 +658,9 @@ function TrimTimeline({
               onFocus={() => {
                 focusedHandleRef.current = "end";
                 onEndHandleFocus();
+              }}
+              onBlur={() => {
+                if (focusedHandleRef.current === "end") focusedHandleRef.current = null;
               }}
               onPointerDown={onEndHandlePointerDown}
               onPointerUp={onPointerUp}

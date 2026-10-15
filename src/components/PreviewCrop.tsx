@@ -15,6 +15,13 @@ const outerStyle: CSSProperties = {
   placeItems: "center",
 };
 
+const innerBaseStyle: CSSProperties = {
+  position: "relative",
+  overflow: "hidden",
+  display: "grid",
+  placeItems: "center",
+};
+
 /** Fit a centered crop inside the preview without changing its outer frame. */
 export default memo(function PreviewCrop({
   crop,
@@ -42,14 +49,14 @@ export default memo(function PreviewCrop({
     const [width, height] = crop.split(":").map(Number);
     return width > 0 && height > 0 ? width / height : null;
   }, [crop]);
-  const innerStyle: CSSProperties = {
-    position: "relative",
-    overflow: "hidden",
-    width: `${ratio ? Math.min(1, ratio / frameRatio) * 100 : 100}%`,
-    height: `${ratio ? Math.min(1, frameRatio / ratio) * 100 : 100}%`,
-    display: "grid",
-    placeItems: "center",
-  };
+  const innerStyle = useMemo<CSSProperties>(
+    () => ({
+      ...innerBaseStyle,
+      width: `${ratio ? Math.min(1, ratio / frameRatio) * 100 : 100}%`,
+      height: `${ratio ? Math.min(1, frameRatio / ratio) * 100 : 100}%`,
+    }),
+    [ratio, frameRatio]
+  );
   return (
     <div ref={ref} style={outerStyle}>
       <div className={ratio ? "preview-crop-active" : undefined} style={innerStyle}>

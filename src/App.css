@@ -2195,6 +2195,11 @@ select optgroup {
   opacity: 0.48;
 }
 
+.time-label-input[aria-invalid="true"] {
+  border-color: var(--error);
+  color: var(--error);
+}
+
 .time-label-left {
   text-align: left;
 }

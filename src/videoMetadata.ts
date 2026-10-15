@@ -65,10 +65,15 @@ export const ALL_CROP_OPTIONS: CropOption[] = [
 // preset detection and export-dimension math can never drift apart.
 const CROP_RATIO_TABLE: ReadonlyArray<readonly [string, number]> = ALL_CROP_OPTIONS.filter(
   (option) => option.value !== "off"
-).map((option) => {
-  const [width, height] = option.value.split(":").map(Number);
-  return [option.value, width / height] as const;
-});
+)
+  .map((option) => {
+    const [width, height] = option.value.split(":").map(Number);
+    return [option.value, width / height] as const;
+  })
+  // Only genuine "W:H" options belong in the table: a future non-ratio
+  // option (e.g. "auto") would compute NaN here, and a NaN entry would make
+  // getCroppedDimensions return NaN dimensions instead of the source size.
+  .filter(([, ratio]) => Number.isFinite(ratio) && ratio > 0);
 const CROP_RATIOS: ReadonlyMap<string, number> = new Map(CROP_RATIO_TABLE);
 
 export function detectMatchingCropPreset(dw?: number, dh?: number): string | null {
