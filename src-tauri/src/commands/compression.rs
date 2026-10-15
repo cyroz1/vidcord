@@ -565,8 +565,28 @@ fn restore_published_permissions(path: &Path, permissions: Option<std::fs::Permi
 // Tauri commands — video info
 // ---------------------------------------------------------------------------
 
+/// Grant one user-selected input file to Tauri's runtime asset protocol
+/// scope. Called at the entry of every command that receives a picked
+/// file (probe, batch probe, lossless probe, and the compression entry
+/// points), before any preview source is opened or scope validation
+/// happens, so previewing a picked file works purely from runtime grants
+/// even with the static scope in `tauri.conf.json` minimized. This is a
+/// safety net under the route-level grants in `lib.rs` (CLI args, Apple
+/// Events, single-instance, PendingFile) and the folder-import grants in
+/// `files.rs`. A grant failure is logged without the path (the log is
+/// shared for debugging) and does not fail the command itself: the later
+/// scope validation in the preview path reports a genuine refusal.
+fn grant_preview_asset_scope(app: &AppHandle, path: &str) {
+    if let Err(error) = app.asset_protocol_scope().allow_file(path) {
+        vidcord_log(&format!(
+            "Could not grant the selected file to the preview asset scope: {error}"
+        ));
+    }
+}
+
 #[tauri::command]
-pub async fn probe(path: String) -> Result<serde_json::Value, String> {
+pub async fn probe(app: AppHandle, path: String) -> Result<serde_json::Value, String> {
+    grant_preview_asset_scope(&app, &path);
     let started_at = Instant::now();
     let generation = start_probe_generation();
     let result = tokio::task::spawn_blocking(move || {
@@ -595,8 +615,15 @@ pub struct BatchProbeResult {
 }
 
 #[tauri::command]
-pub async fn probe_batch(paths: Vec<String>) -> Result<Vec<BatchProbeResult>, String> {
+pub async fn probe_batch(
+    app: AppHandle,
+    paths: Vec<String>,
+) -> Result<Vec<BatchProbeResult>, String> {
     const PROBE_CONCURRENCY: usize = 2;
+
+    for path in &paths {
+        grant_preview_asset_scope(&app, path);
+    }
 
     if paths.is_empty() {
         return Ok(Vec::new());
@@ -654,9 +681,11 @@ pub async fn probe_batch(paths: Vec<String>) -> Result<Vec<BatchProbeResult>, St
 
 #[tauri::command]
 pub async fn get_lossless_trim_info(
+    app: AppHandle,
     path: String,
     request_id: Option<u64>,
 ) -> Result<serde_json::Value, String> {
+    grant_preview_asset_scope(&app, &path);
     let generation = start_probe_generation();
     let request_id = request_id.unwrap_or(0);
     crate::ffmpeg::register_lossless_trim_probe(request_id, generation);
@@ -1062,6 +1091,28 @@ pub fn invalidate_filter_cache() {
     }
 }
 
+/// Upper bound for one filter probe (`ffmpeg -h filter=<name>` runs under
+/// a 10 s deadline), so a waiter that is never notified re-checks the
+/// cache on this cadence instead of hanging forever.
+const FILTER_PROBE_WAIT_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Owns one in-flight filter probe. Dropping it removes the name from
+/// `in_flight` and wakes the waiters, so even a panicked probing thread
+/// cannot leave every future HDR encode waiting on a probe that will
+/// never finish.
+struct FilterProbeGuard {
+    name: String,
+}
+
+impl Drop for FilterProbeGuard {
+    fn drop(&mut self) {
+        let (cache, ready) = filter_cache();
+        let mut state = cache.lock().unwrap_or_else(|e| e.into_inner());
+        state.in_flight.remove(&self.name);
+        ready.notify_all();
+    }
+}
+
 fn ffmpeg_has_filter(name: &str) -> bool {
     let (cache, ready) = filter_cache();
     // Single-flight: the first caller for a name probes while concurrent
@@ -1076,8 +1127,18 @@ fn ffmpeg_has_filter(name: &str) -> bool {
                 state.in_flight.insert(name.to_string());
                 break state.generation;
             }
-            state = ready.wait(state).unwrap_or_else(|e| e.into_inner());
+            // Bounded wait with a re-check loop: after each timeout the
+            // loop re-reads the cache and the in-flight set, so a waiter
+            // whose prober died without notifying still makes progress
+            // (it becomes the next prober once the guard clears the slot).
+            let (guard, _wait_result) = ready
+                .wait_timeout(state, FILTER_PROBE_WAIT_TIMEOUT)
+                .unwrap_or_else(|e| e.into_inner());
+            state = guard;
         }
+    };
+    let _probe_guard = FilterProbeGuard {
+        name: name.to_string(),
     };
     #[allow(unused_mut)]
     let mut cmd = Command::new("ffmpeg");
@@ -1097,11 +1158,12 @@ fn ffmpeg_has_filter(name: &str) -> bool {
         })
         .unwrap_or(false);
     let mut state = cache.lock().unwrap_or_else(|e| e.into_inner());
-    state.in_flight.remove(name);
     if state.generation == probe_generation {
         state.results.insert(name.to_string(), available);
     }
-    ready.notify_all();
+    drop(state);
+    // `_probe_guard` drops here, clearing `in_flight` and waking waiters
+    // only after the result above is visible in the cache.
     available
 }
 
@@ -2384,9 +2446,16 @@ async fn run_ffmpeg_pass(
         None => {
             // `panic = "abort"` in release: never unwrap here. Reap the
             // child exactly like the not-registered branch above and fail
-            // the attempt with an ordinary error.
+            // the attempt with an ordinary error. Also drop the reaped PID
+            // from the job's process table, like the normal completion
+            // path does: leaving it registered would let a later cancel
+            // signal a dead, potentially reused PID until `finish_job`.
             let _ = child.kill();
             let _ = child.wait();
+            compression_state()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear_process_pid(context.job_id, pid);
             return Err("FFmpeg did not provide a stderr stream to monitor.".to_string());
         }
     };
@@ -3247,6 +3316,9 @@ pub async fn compress_batch(
     app: AppHandle,
     items: Vec<BatchCompressItem>,
 ) -> Result<BatchDonePayload, String> {
+    for item in &items {
+        grant_preview_asset_scope(&app, &item.opts.input_path);
+    }
     if items.is_empty() {
         return Err("Batch mode requires at least one video.".to_string());
     }
@@ -3471,6 +3543,7 @@ pub async fn compress_batch(
 
 #[tauri::command]
 pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<String, String> {
+    grant_preview_asset_scope(&app, &opts.input_path);
     // Validate encoder name: only alphanumeric characters and underscores are valid.
     if !valid_encoder_name(&opts.encoder) {
         return Err(format!("Invalid encoder name: {}", opts.encoder));
@@ -3608,8 +3681,14 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
         && target_bytes.is_some()
         && clip_duration > GIF_PREFLIGHT_INITIAL_SECONDS * 2.0
     {
-        match tokio::task::spawn_blocking(|| TemporaryOutput::create("gif")).await {
-            Ok(Ok(preflight_output)) => {
+        // Flatten the join error into the creation error so both failure
+        // shapes share the single log arm below instead of duplicating it.
+        match tokio::task::spawn_blocking(|| TemporaryOutput::create("gif"))
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|created| created)
+        {
+            Ok(preflight_output) => {
                 let mut sample_duration = GIF_PREFLIGHT_INITIAL_SECONDS.min(clip_duration);
                 loop {
                     let mut preflight_opts = opts.clone();
@@ -3694,9 +3773,6 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                     }
                 }
             }
-            Ok(Err(error)) => vidcord_log(&format!(
-                "GIF sizing sample could not reserve temporary output ({error}); continuing with the normal encode."
-            )),
             Err(error) => vidcord_log(&format!(
                 "GIF sizing sample could not reserve temporary output ({error}); continuing with the normal encode."
             )),

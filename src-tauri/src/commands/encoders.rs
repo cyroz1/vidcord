@@ -337,14 +337,40 @@ fn ffmpeg_available_fresh() -> bool {
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 const INSTALL_COMMAND_TIMEOUT: Duration = Duration::from_secs(600);
 
-/// Run an installer command through the bounded captured-output helper.
-/// `Ok(Some(output))` is a finished run, `Ok(None)` is the deadline, and
-/// `Err` means the command could not be launched or produced too much output.
+/// Run an installer command to completion under the install deadline.
+///
+/// Installs are long jobs, not short discovery probes, so they do not go
+/// through `spawn_captured_command`: a chatty winget/brew run can produce
+/// far more than that helper's 8 MiB per-stream capture cap, and hitting
+/// the cap killed the install mid-run with a misleading "failed to run"
+/// error. The install callers only use the exit status, so the child's
+/// output goes to null instead of a capped capture: there is no output
+/// cap to hit, no output is buffered in memory, and the exit status is
+/// reported exactly. `Ok(Some(output))` is a finished run (with empty
+/// stdout/stderr), `Ok(None)` is the deadline (the child is killed and
+/// reaped first), and `Err` means the command could not be launched.
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn run_install_command(
     cmd: &mut std::process::Command,
 ) -> std::io::Result<Option<std::process::Output>> {
-    spawn_captured_command(cmd).and_then(|child| child.wait_for_output(INSTALL_COMMAND_TIMEOUT))
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
+    let mut child = cmd.spawn()?;
+    let deadline = Instant::now() + INSTALL_COMMAND_TIMEOUT;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(std::process::Output {
+                status,
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+            }));
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(None);
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -531,7 +557,12 @@ pub async fn detect_encoders() -> Vec<serde_json::Value> {
 
 #[tauri::command]
 pub async fn check_ffmpeg_available() -> bool {
-    tokio::task::spawn_blocking(ffmpeg_available_fresh)
+    // Plain availability checks go through the 30 s TTL cache. The fresh
+    // probe (`ffmpeg_available_fresh`) is reserved for post-install flows:
+    // it re-probes both tools and, on success, invalidates the encoder and
+    // filter caches, which would otherwise force full encoder re-detection
+    // plus tonemap/zscale re-probes after every cheap availability check.
+    tokio::task::spawn_blocking(ffmpeg_available)
         .await
         .unwrap_or(false)
 }

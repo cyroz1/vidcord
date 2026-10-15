@@ -1,9 +1,9 @@
 use crate::log::vidcord_log;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::ErrorKind;
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::Duration;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use std::time::Instant;
@@ -27,6 +27,12 @@ const FFPROBE_TIMEOUT: Duration = Duration::from_secs(6);
 const LOSSLESS_KEYFRAME_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_LOSSLESS_KEYFRAMES: usize = 100_000;
 const MAX_CACHED_PROBES: usize = 32;
+/// The lossless cache holds a whole keyframe list per entry, so it gets a
+/// much smaller entry cap than the video-probe cache plus a budget on the
+/// total keyframes retained across all of its entries. One maximum-size
+/// scan (100,000 keyframes) can be cached, but never several at once.
+const MAX_CACHED_LOSSLESS_PROBES: usize = 4;
+const MAX_CACHED_LOSSLESS_KEYFRAMES: usize = MAX_LOSSLESS_KEYFRAMES;
 
 /// Identity of the probed file on disk. A cached probe is only reused while
 /// the canonical path, length, and modification time all still match, so a
@@ -54,27 +60,150 @@ fn probe_cache_key(path: &str) -> Option<ProbeCacheKey> {
     })
 }
 
-type ProbeCache = OnceLock<Mutex<HashMap<ProbeCacheKey, serde_json::Value>>>;
+struct ProbeCacheStore {
+    entries: HashMap<ProbeCacheKey, serde_json::Value>,
+    /// Insertion order of `entries`, oldest first, for single-entry
+    /// eviction instead of clear-all when the cache fills up.
+    insertion_order: VecDeque<ProbeCacheKey>,
+    /// Keys with a probe currently running, so concurrent probes of the
+    /// same uncached file share one ffprobe spawn instead of duplicating it.
+    in_flight: HashSet<ProbeCacheKey>,
+}
+
+type ProbeCache = OnceLock<(Mutex<ProbeCacheStore>, Condvar)>;
 
 static VIDEO_PROBE_CACHE: ProbeCache = OnceLock::new();
 static LOSSLESS_PROBE_CACHE: ProbeCache = OnceLock::new();
 
+fn probe_cache(cache: &ProbeCache) -> &(Mutex<ProbeCacheStore>, Condvar) {
+    cache.get_or_init(|| {
+        (
+            Mutex::new(ProbeCacheStore {
+                entries: HashMap::new(),
+                insertion_order: VecDeque::new(),
+                in_flight: HashSet::new(),
+            }),
+            Condvar::new(),
+        )
+    })
+}
+
 fn cached_probe(cache: &ProbeCache, key: &ProbeCacheKey) -> Option<serde_json::Value> {
     cache
         .get()?
+        .0
         .lock()
         .unwrap_or_else(|e| e.into_inner())
+        .entries
         .get(key)
         .cloned()
 }
 
+fn cached_keyframe_count(value: &serde_json::Value) -> usize {
+    value
+        .get("keyframe_times")
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len)
+}
+
 fn store_cached_probe(cache: &ProbeCache, key: ProbeCacheKey, value: serde_json::Value) {
-    let cache = cache.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
-    if guard.len() >= MAX_CACHED_PROBES && !guard.contains_key(&key) {
-        guard.clear();
+    store_cached_probe_with_limits(cache, key, value, MAX_CACHED_PROBES, usize::MAX);
+}
+
+fn store_cached_lossless_probe(cache: &ProbeCache, key: ProbeCacheKey, value: serde_json::Value) {
+    store_cached_probe_with_limits(
+        cache,
+        key,
+        value,
+        MAX_CACHED_LOSSLESS_PROBES,
+        MAX_CACHED_LOSSLESS_KEYFRAMES,
+    );
+}
+
+fn store_cached_probe_with_limits(
+    cache: &ProbeCache,
+    key: ProbeCacheKey,
+    value: serde_json::Value,
+    max_entries: usize,
+    max_keyframes: usize,
+) {
+    let keyframes = cached_keyframe_count(&value);
+    if keyframes > max_keyframes {
+        return;
     }
-    guard.insert(key, value);
+    let (mutex, _) = probe_cache(cache);
+    let mut store = mutex.lock().unwrap_or_else(|e| e.into_inner());
+    if store.entries.remove(&key).is_some() {
+        store.insertion_order.retain(|existing| existing != &key);
+    }
+    // Evict the oldest single entry at a time until the new entry fits both
+    // the entry cap and the total-keyframe budget.
+    while store.entries.len() >= max_entries
+        || store
+            .entries
+            .values()
+            .map(cached_keyframe_count)
+            .sum::<usize>()
+            + keyframes
+            > max_keyframes
+    {
+        let Some(oldest) = store.insertion_order.pop_front() else {
+            break;
+        };
+        store.entries.remove(&oldest);
+    }
+    store.entries.insert(key.clone(), value);
+    store.insertion_order.push_back(key);
+}
+
+/// Owns one in-flight probe slot. Dropping it (including on a panic or an
+/// early `?` return) releases the slot and wakes any waiters, so a failed
+/// probe can never wedge later probes of the same file.
+struct ProbeFlightGuard {
+    cache: &'static ProbeCache,
+    key: ProbeCacheKey,
+}
+
+impl Drop for ProbeFlightGuard {
+    fn drop(&mut self) {
+        if let Some((mutex, ready)) = self.cache.get() {
+            let mut store = mutex.lock().unwrap_or_else(|e| e.into_inner());
+            store.in_flight.remove(&self.key);
+            ready.notify_all();
+        }
+    }
+}
+
+enum ProbeFlight {
+    Cached(serde_json::Value),
+    Owner(ProbeFlightGuard),
+}
+
+/// Single-flight entry to a probe cache: returns the cached value when one
+/// exists, waits while another caller probes the same key, and otherwise
+/// claims the in-flight slot for this caller.
+fn acquire_probe_flight(
+    cache: &'static ProbeCache,
+    key: &ProbeCacheKey,
+    generation: u64,
+) -> Result<ProbeFlight, Box<dyn std::error::Error>> {
+    let (mutex, ready) = probe_cache(cache);
+    let mut store = mutex.lock().unwrap_or_else(|e| e.into_inner());
+    loop {
+        if PROBE_GENERATION.load(Ordering::Acquire) != generation {
+            return Err(format!("{PROBE_CANCELLED_ERROR_MARKER} Probe was cancelled.").into());
+        }
+        if let Some(cached) = store.entries.get(key) {
+            return Ok(ProbeFlight::Cached(cached.clone()));
+        }
+        if store.in_flight.insert(key.clone()) {
+            return Ok(ProbeFlight::Owner(ProbeFlightGuard {
+                cache,
+                key: key.clone(),
+            }));
+        }
+        store = ready.wait(store).unwrap_or_else(|e| e.into_inner());
+    }
 }
 
 fn vaapi_cache() -> &'static Mutex<Option<Option<String>>> {
@@ -322,19 +451,17 @@ pub fn probe_video(
     generation: u64,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let cache_key = probe_cache_key(path);
-    if let Some(key) = &cache_key {
-        if PROBE_GENERATION.load(Ordering::Acquire) != generation {
-            return Err(format!("{PROBE_CANCELLED_ERROR_MARKER} Probe was cancelled.").into());
-        }
-        if let Some(cached) = cached_probe(&VIDEO_PROBE_CACHE, key) {
-            return Ok(cached);
-        }
-    }
-    let result = probe_video_once(path, generation)?;
     if let Some(key) = cache_key {
-        store_cached_probe(&VIDEO_PROBE_CACHE, key, result.clone());
+        match acquire_probe_flight(&VIDEO_PROBE_CACHE, &key, generation)? {
+            ProbeFlight::Cached(cached) => return Ok(cached),
+            ProbeFlight::Owner(_flight) => {
+                let result = probe_video_once(path, generation)?;
+                store_cached_probe(&VIDEO_PROBE_CACHE, key, result.clone());
+                return Ok(result);
+            }
+        }
     }
-    Ok(result)
+    probe_video_once(path, generation)
 }
 
 fn probe_video_once(
@@ -591,27 +718,27 @@ pub fn probe_lossless_trim_info(
     generation: u64,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let cache_key = probe_cache_key(path);
-    if let Some(key) = &cache_key {
-        if PROBE_GENERATION.load(Ordering::Acquire) != generation {
-            return Err(format!("{PROBE_CANCELLED_ERROR_MARKER} Probe was cancelled.").into());
-        }
-        // Reuse the container reported by an earlier `probe_video` of the
-        // same unchanged file when the keyframe result itself is cached;
-        // the scan below is only repeated for a file never probed before.
-        if let Some(cached) = cached_probe(&LOSSLESS_PROBE_CACHE, key) {
-            return Ok(cached);
-        }
-    }
-    let result = probe_lossless_trim_info_once(path, generation)?;
     if let Some(key) = cache_key {
-        store_cached_probe(&LOSSLESS_PROBE_CACHE, key, result.clone());
+        match acquire_probe_flight(&LOSSLESS_PROBE_CACHE, &key, generation)? {
+            ProbeFlight::Cached(cached) => return Ok(cached),
+            ProbeFlight::Owner(_flight) => {
+                // Pass the wrapper's key along: recomputing it after the
+                // scan would pay a second metadata/canonicalize round and
+                // could describe a different file version than the one
+                // that was actually scanned.
+                let result = probe_lossless_trim_info_once(path, generation, Some(&key))?;
+                store_cached_lossless_probe(&LOSSLESS_PROBE_CACHE, key, result.clone());
+                return Ok(result);
+            }
+        }
     }
-    Ok(result)
+    probe_lossless_trim_info_once(path, generation, None)
 }
 
 fn probe_lossless_trim_info_once(
     path: &str,
     generation: u64,
+    cache_key: Option<&ProbeCacheKey>,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffprobe");
@@ -654,8 +781,8 @@ fn probe_lossless_trim_info_once(
     let format_name = format_name.ok_or("FFprobe did not report a source container")?;
     // Prefer the container a cached full probe already established for this
     // file; the scan's own report is identical for an unchanged file.
-    let cached_format_name = probe_cache_key(path)
-        .and_then(|key| cached_probe(&VIDEO_PROBE_CACHE, &key))
+    let cached_format_name = cache_key
+        .and_then(|key| cached_probe(&VIDEO_PROBE_CACHE, key))
         .and_then(|probe| {
             probe["format_name"]
                 .as_str()
@@ -678,19 +805,33 @@ fn probe_lossless_trim_info_once(
 /// field keeps memory proportional to the keyframe list alone. A malformed
 /// timestamp is skipped and counted, never fatal on its own; discovery only
 /// fails when no usable keyframe remains (checked by the caller).
+fn trim_ascii_bytes(mut slice: &[u8]) -> &[u8] {
+    while slice.first().is_some_and(|byte| byte.is_ascii_whitespace()) {
+        slice = &slice[1..];
+    }
+    while slice.last().is_some_and(|byte| byte.is_ascii_whitespace()) {
+        slice = &slice[..slice.len() - 1];
+    }
+    slice
+}
+
 fn parse_lossless_keyframe_output(
     stdout: &[u8],
 ) -> Result<(Vec<f64>, Option<String>), Box<dyn std::error::Error>> {
-    let text = String::from_utf8_lossy(stdout);
+    // Iterate the captured output as bytes and only decode the small value
+    // slice of each matching line; the scan itself is never copied whole.
     let mut keyframe_times: Vec<f64> = Vec::new();
     let mut format_name: Option<String> = None;
     let mut skipped_timestamps = 0usize;
-    for line in text.lines() {
-        let line = line.trim();
-        if let Some(value) = line.strip_prefix("best_effort_timestamp_time=") {
-            let value = value.trim().trim_matches('"');
-            match value.parse::<f64>() {
-                Ok(timestamp) if timestamp.is_finite() && timestamp >= 0.0 => {
+    for line in stdout.split(|byte| *byte == b'\n') {
+        let line = trim_ascii_bytes(line);
+        if let Some(value) = line.strip_prefix(b"best_effort_timestamp_time=") {
+            let parsed = std::str::from_utf8(trim_ascii_bytes(value))
+                .ok()
+                .map(|value| value.trim_matches('"'))
+                .and_then(|value| value.parse::<f64>().ok());
+            match parsed {
+                Some(timestamp) if timestamp.is_finite() && timestamp >= 0.0 => {
                     keyframe_times.push(timestamp);
                     if keyframe_times.len() > MAX_LOSSLESS_KEYFRAMES {
                         return Err(format!(
@@ -701,10 +842,12 @@ fn parse_lossless_keyframe_output(
                 }
                 _ => skipped_timestamps += 1,
             }
-        } else if let Some(value) = line.strip_prefix("format_name=") {
-            let value = value.trim().trim_matches('"');
-            if !value.is_empty() {
-                format_name = Some(value.to_string());
+        } else if let Some(value) = line.strip_prefix(b"format_name=") {
+            if let Ok(value) = std::str::from_utf8(trim_ascii_bytes(value)) {
+                let value = value.trim_matches('"');
+                if !value.is_empty() {
+                    format_name = Some(value.to_string());
+                }
             }
         }
     }
@@ -759,19 +902,19 @@ pub fn best_audio_stream_from_json(data: &serde_json::Value) -> Option<usize> {
 // ---------------------------------------------------------------------------
 
 pub fn find_vaapi_device() -> Option<String> {
-    if let Some(cached) = vaapi_cache()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-    {
+    // Single-flight: hold the cache lock across discovery. Checking and
+    // releasing first let concurrent callers (up to three hardware-encoder
+    // validation threads at once) each duplicate the up-to-6 s discovery;
+    // the original `OnceLock::get_or_init` shape ran it exactly once.
+    // `discover_vaapi_device` never touches this cache, so holding the
+    // lock cannot deadlock.
+    let mut guard = vaapi_cache().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(cached) = guard.clone() {
         return cached;
     }
     let discovered = discover_vaapi_device();
-    let mut guard = vaapi_cache().lock().unwrap_or_else(|e| e.into_inner());
-    if guard.is_none() {
-        *guard = Some(discovered.clone());
-    }
-    guard.clone().unwrap_or(discovered)
+    *guard = Some(discovered.clone());
+    discovered
 }
 
 fn discover_vaapi_device() -> Option<String> {
@@ -930,6 +1073,93 @@ mod tests {
         let output = b"best_effort_timestamp_time=1.000000\nbest_effort_timestamp_time=1.000100\nbest_effort_timestamp_time=0.500000\n";
         let (times, _) = parse_lossless_keyframe_output(output).unwrap();
         assert_eq!(times, vec![0.5, 1.0]);
+    }
+
+    fn test_probe_key(name: &str) -> ProbeCacheKey {
+        ProbeCacheKey {
+            path: std::path::PathBuf::from(name),
+            len: 1,
+            modified_secs: 1,
+            modified_nanos: 0,
+        }
+    }
+
+    #[test]
+    fn probe_cache_evicts_only_the_oldest_entry_when_full() {
+        let cache: ProbeCache = OnceLock::new();
+        for index in 0..MAX_CACHED_PROBES {
+            store_cached_probe(
+                &cache,
+                test_probe_key(&format!("/clip-{index}.mp4")),
+                serde_json::json!({ "index": index }),
+            );
+        }
+        store_cached_probe(
+            &cache,
+            test_probe_key("/clip-new.mp4"),
+            serde_json::json!({ "index": "new" }),
+        );
+
+        assert!(cached_probe(&cache, &test_probe_key("/clip-0.mp4")).is_none());
+        assert!(cached_probe(&cache, &test_probe_key("/clip-1.mp4")).is_some());
+        assert!(cached_probe(&cache, &test_probe_key("/clip-new.mp4")).is_some());
+        let (mutex, _) = probe_cache(&cache);
+        assert_eq!(
+            mutex.lock().unwrap().entries.len(),
+            MAX_CACHED_PROBES,
+            "eviction must remove a single entry, not clear the whole cache"
+        );
+    }
+
+    #[test]
+    fn lossless_cache_is_capped_by_entries_and_total_keyframes() {
+        let cache: ProbeCache = OnceLock::new();
+        let entry = |count: usize| serde_json::json!({ "keyframe_times": vec![0.0; count] });
+        for index in 0..MAX_CACHED_LOSSLESS_PROBES {
+            store_cached_lossless_probe(
+                &cache,
+                test_probe_key(&format!("/kf-{index}.mp4")),
+                entry(10),
+            );
+        }
+        store_cached_lossless_probe(&cache, test_probe_key("/kf-new.mp4"), entry(10));
+        assert!(cached_probe(&cache, &test_probe_key("/kf-0.mp4")).is_none());
+        assert!(cached_probe(&cache, &test_probe_key("/kf-new.mp4")).is_some());
+
+        // A single entry past the total-keyframe budget is never retained.
+        store_cached_lossless_probe(
+            &cache,
+            test_probe_key("/kf-huge.mp4"),
+            entry(MAX_CACHED_LOSSLESS_KEYFRAMES + 1),
+        );
+        assert!(cached_probe(&cache, &test_probe_key("/kf-huge.mp4")).is_none());
+
+        // Entries that together exceed the budget evict the oldest ones.
+        let budget_cache: ProbeCache = OnceLock::new();
+        let half = MAX_CACHED_LOSSLESS_KEYFRAMES / 2;
+        store_cached_lossless_probe(&budget_cache, test_probe_key("/a.mp4"), entry(half));
+        store_cached_lossless_probe(&budget_cache, test_probe_key("/b.mp4"), entry(half));
+        store_cached_lossless_probe(&budget_cache, test_probe_key("/c.mp4"), entry(half));
+        assert!(cached_probe(&budget_cache, &test_probe_key("/a.mp4")).is_none());
+        assert!(cached_probe(&budget_cache, &test_probe_key("/b.mp4")).is_some());
+        assert!(cached_probe(&budget_cache, &test_probe_key("/c.mp4")).is_some());
+    }
+
+    #[test]
+    fn probe_flight_releases_its_slot_when_the_guard_drops() {
+        let cache: &'static ProbeCache = Box::leak(Box::new(OnceLock::new()));
+        let key = test_probe_key("/flight.mp4");
+        let generation = PROBE_GENERATION.load(Ordering::Acquire);
+        match acquire_probe_flight(cache, &key, generation).unwrap() {
+            ProbeFlight::Owner(guard) => drop(guard),
+            ProbeFlight::Cached(_) => panic!("an uncached key must not report a cache hit"),
+        }
+        // With no result stored and the first owner gone, the next caller
+        // must become the owner instead of waiting forever.
+        match acquire_probe_flight(cache, &key, generation).unwrap() {
+            ProbeFlight::Owner(_guard) => {}
+            ProbeFlight::Cached(_) => panic!("a dropped flight must not report a cache hit"),
+        }
     }
 
     #[test]
