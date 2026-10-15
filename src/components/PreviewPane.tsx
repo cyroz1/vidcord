@@ -266,6 +266,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const playingRef = useRef(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const playbackConfigRef = useRef({ startTime, endTime, loopPlayback });
+  playbackConfigRef.current = { startTime, endTime, loopPlayback };
   const scrubVideoSrcRef = useRef<string | null>(null);
   // Which candidate the current load attempt was assigned, captured at
   // assignment time (see AssignedCandidate). The React onError handler
@@ -291,6 +293,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const schedulePlaybackBoundaryRef = useRef<(() => void) | null>(null);
   const playbackSessionRef = useRef(0);
   const urlCacheRef = useRef<Map<string, string[]>>(new Map());
+
+  useEffect(() => {
+    if (playingRef.current) schedulePlaybackBoundaryRef.current?.();
+  }, [startTime, endTime, loopPlayback]);
   const [preparedSource, setPreparedSource] = useState<{ path: string } | null>(null);
 
   useEffect(() => {
@@ -325,12 +331,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   const getPlaybackTime = useCallback(() => {
     const video = videoRef.current;
     const raw = video && video.readyState >= 1 ? video.currentTime : currentPlaybackTimeRef.current;
-    const min = Math.min(startTime, endTime);
-    const max = Math.max(startTime, endTime);
-    if (raw < min) return min;
-    if (raw > max) return max;
-    return raw;
-  }, [startTime, endTime]);
+    return Number.isFinite(raw) ? raw : currentPlaybackTimeRef.current;
+  }, []);
 
   const seekVideoElement = useCallback((mediaTime: number) => {
     if (!Number.isFinite(mediaTime)) return;
@@ -559,6 +561,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     // position shown by the HTML player.
     const stoppedTime =
       vid && vid.readyState >= 1 ? getPlaybackTime() : currentPlaybackTimeRef.current;
+    const { startTime, endTime } = playbackConfigRef.current;
     const preservedTime = getStoppedPlaybackTime(stoppedTime, startTime, endTime);
     // The stopped position is now the preview's position. Consume the
     // current focus value so the previewTime effect cannot re-seek the
@@ -568,10 +571,11 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     playingRef.current = false;
     setPlaying(false);
     onTimeUpdateRef.current?.(preservedTime);
-  }, [clearEndBoundaryTimer, endTime, getPlaybackTime, startTime, syncPlaybackTime]);
+  }, [clearEndBoundaryTimer, getPlaybackTime, syncPlaybackTime]);
 
   const handlePlaybackBoundary = useCallback(() => {
     if (!playingRef.current) return;
+    const { startTime, endTime, loopPlayback } = playbackConfigRef.current;
     if (loopPlayback && endTime > startTime) {
       seekTo(startTime);
       schedulePlaybackBoundaryRef.current?.();
@@ -585,7 +589,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     syncPlaybackTime(completedTime);
     onTimeUpdateRef.current?.(completedTime);
     stopPlayback();
-  }, [endTime, loopPlayback, seekTo, startTime, stopPlayback, syncPlaybackTime]);
+  }, [seekTo, stopPlayback, syncPlaybackTime]);
 
   const startPlayback = useCallback(() => {
     if (!filePath || !probeData) return;
@@ -596,6 +600,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     playbackSessionRef.current = session;
     vid.muted = removeAudio;
     pendingScrubVideoSeekRef.current = null;
+    const { startTime, endTime } = playbackConfigRef.current;
     // Resume from the last scrubbed/paused position if it falls within the
     // trim range; otherwise start at trim-in.
     const scrubbed = currentPlaybackTimeRef.current;
@@ -619,13 +624,25 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       const scheduleBoundaryTimer = () => {
         clearEndBoundaryTimer();
         if (playbackSessionRef.current !== session || !playingRef.current) return;
-        const remainingMs = Math.max(0, (endTime - currentPlaybackTimeRef.current) * 1000);
-        endBoundaryTimerRef.current = setTimeout(() => {
-          endBoundaryTimerRef.current = null;
-          if (playbackSessionRef.current === session) {
-            handlePlaybackBoundary();
-          }
-        }, remainingMs);
+        const currentEndTime = playbackConfigRef.current.endTime;
+        const remainingMs = Math.max(0, (currentEndTime - getPlaybackTime()) * 1000);
+        endBoundaryTimerRef.current = setTimeout(
+          () => {
+            endBoundaryTimerRef.current = null;
+            if (playbackSessionRef.current !== session || !playingRef.current) return;
+            const latestEndTime = playbackConfigRef.current.endTime;
+            const actualTime = getPlaybackTime();
+            if (!vid.seeking && (vid.ended || actualTime >= latestEndTime)) {
+              handlePlaybackBoundary();
+            } else {
+              // Buffering can make wall-clock time pass without advancing the
+              // media clock. Recheck shortly instead of stopping at the trim
+              // boundary based on elapsed time alone.
+              scheduleBoundaryTimer();
+            }
+          },
+          Math.max(50, Math.min(remainingMs, 250))
+        );
       };
 
       schedulePlaybackBoundaryRef.current = scheduleBoundaryTimer;
@@ -634,7 +651,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
         const playbackTime = getPlaybackTime();
         syncPlaybackTime(playbackTime);
         onTimeUpdateRef.current?.(playbackTime);
-        if (playbackTime >= endTime || vid.ended) {
+        if (!vid.seeking && (playbackTime >= playbackConfigRef.current.endTime || vid.ended)) {
           handlePlaybackBoundary();
           return;
         }
@@ -737,8 +754,6 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   }, [
     filePath,
     probeData,
-    startTime,
-    endTime,
     removeAudio,
     stopPlayback,
     buildPlaybackUrls,
@@ -753,7 +768,10 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     handlePlaybackBoundary();
   }, [handlePlaybackBoundary]);
 
-  const captureCurrentFrame = useCallback(() => capturePreviewFramePng(videoRef.current), []);
+  const captureCurrentFrame = useCallback(
+    () => capturePreviewFramePng(videoRef.current, cropAspectRatio),
+    [cropAspectRatio]
+  );
 
   const captureAndSaveSnapshot = useCallback(async () => {
     if (!onSnapshot) return;

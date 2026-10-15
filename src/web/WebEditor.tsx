@@ -298,6 +298,7 @@ export default function WebEditor({
   const [queueStatuses, setQueueStatuses] = useState<Record<number, BrowserBatchItemStatus>>({});
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewFrameReady, setPreviewFrameReady] = useState(false);
   const [metadata, setMetadata] = useState<BrowserVideoMetadata | null>(null);
   const [metadataLoading, setMetadataLoading] = useState(false);
   const [startTime, setStartTime] = useState(0);
@@ -320,6 +321,7 @@ export default function WebEditor({
   const [lastExport, setLastExport] = useState<{ name: string; bytes: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const pendingPreviewSeekRef = useRef<{ source: string; time: number } | null>(null);
   const playbackTimeRef = useRef<HTMLSpanElement>(null);
   const loadGenerationRef = useRef(0);
   const keyframeProbeGenerationRef = useRef(0);
@@ -483,6 +485,8 @@ export default function WebEditor({
     const generation = ++loadGenerationRef.current;
     if (!file) {
       setPreviewUrl(null);
+      setPreviewFrameReady(false);
+      pendingPreviewSeekRef.current = null;
       setPausedFrameDataUrl(null);
       setPreviewError(null);
       setMetadata(null);
@@ -496,6 +500,8 @@ export default function WebEditor({
     const url = getPreviewUrl(file);
     const controller = new AbortController();
     setPreviewUrl(url);
+    setPreviewFrameReady(false);
+    pendingPreviewSeekRef.current = null;
     setPausedFrameDataUrl(null);
     setPreviewError(null);
     setMetadata(null);
@@ -843,16 +849,91 @@ export default function WebEditor({
     (time: number) => {
       setPausedFrameDataUrl(null);
       const next = Math.max(0, Math.min(time, duration));
-      if (videoRef.current) {
+      if (previewUrl) {
+        pendingPreviewSeekRef.current = { source: previewUrl, time: next };
+      }
+      setPreviewFrameReady(false);
+      const video = videoRef.current;
+      if (
+        video &&
+        previewUrl &&
+        video.readyState >= 1 &&
+        (video.currentSrc === previewUrl || video.src === previewUrl)
+      ) {
         try {
-          videoRef.current.currentTime = next;
+          if (Math.abs(video.currentTime - next) <= 0.001) {
+            pendingPreviewSeekRef.current = null;
+            setPreviewFrameReady(
+              (video.currentSrc || video.src) === previewUrl &&
+                !video.seeking &&
+                video.readyState >= 2 &&
+                video.videoWidth > 0 &&
+                video.videoHeight > 0
+            );
+          } else {
+            video.currentTime = next;
+          }
         } catch {
-          // The media element can reject seeks until metadata has settled.
+          // Keep the target until this preview element's metadata is ready.
         }
       }
     },
-    [duration]
+    [duration, previewUrl]
   );
+
+  const applyPendingPreviewSeek = useCallback(
+    (video: HTMLVideoElement) => {
+      const pending = pendingPreviewSeekRef.current;
+      if (!pending || pending.source !== previewUrl || video.readyState < 1) return;
+      if (video.src !== pending.source && video.currentSrc !== pending.source) return;
+      const target =
+        Number.isFinite(video.duration) && video.duration >= 0
+          ? Math.min(pending.time, video.duration)
+          : pending.time;
+      if (target !== pending.time) pendingPreviewSeekRef.current = { ...pending, time: target };
+      if (Math.abs(video.currentTime - target) <= 0.001) {
+        pendingPreviewSeekRef.current = null;
+        return;
+      }
+      try {
+        video.currentTime = target;
+      } catch {
+        // Retry from loadeddata/canplay if the WebView still rejects the seek.
+      }
+    },
+    [previewUrl]
+  );
+
+  const syncPreviewFrameReady = useCallback(
+    (video: HTMLVideoElement) => {
+      const pending = pendingPreviewSeekRef.current;
+      const pendingReached =
+        !pending ||
+        pending.source !== previewUrl ||
+        Math.abs(video.currentTime - pending.time) <= 0.001;
+      if (pendingReached && pending?.source === previewUrl) pendingPreviewSeekRef.current = null;
+      const source = video.currentSrc || video.src;
+      setPreviewFrameReady(
+        Boolean(
+          previewUrl &&
+          source === previewUrl &&
+          pendingReached &&
+          !video.seeking &&
+          video.readyState >= 2 &&
+          video.videoWidth > 0 &&
+          video.videoHeight > 0
+        )
+      );
+    },
+    [previewUrl]
+  );
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    applyPendingPreviewSeek(video);
+    syncPreviewFrameReady(video);
+  }, [applyPendingPreviewSeek, previewUrl, syncPreviewFrameReady]);
 
   const capturePausedPreviewFrame = useCallback(() => {
     const video = videoRef.current;
@@ -883,6 +964,15 @@ export default function WebEditor({
       const safeEnd = Math.max(safeStart, Math.min(requestedEnd, safeDuration));
       const nextRange = snapTrimRange(safeStart, safeEnd);
       resetExportFeedback();
+      if (
+        (Math.abs(nextRange.start - startTime) > 0.001 ||
+          Math.abs(nextRange.end - endTime) > 0.001) &&
+        videoRef.current &&
+        !videoRef.current.paused
+      ) {
+        videoRef.current.pause();
+        setPreviewPlaying(false);
+      }
       setStartTime(nextRange.start);
       setEndTime(nextRange.end);
 
@@ -895,7 +985,7 @@ export default function WebEditor({
         );
       }
     },
-    [duration, resetExportFeedback, seekTo, snapTrimRange]
+    [duration, endTime, resetExportFeedback, seekTo, snapTrimRange, startTime]
   );
 
   useEffect(() => {
@@ -919,14 +1009,15 @@ export default function WebEditor({
     const video = videoRef.current;
     if (!video || !activeFile) return;
     try {
-      const blob = await blobFromCanvas(video);
+      const crop = settings.mode === "lossless" ? "off" : settings.crop;
+      const blob = await blobFromCanvas(video, crop);
       const name = `${fileStem(activeFile.name)}-snapshot.png`;
       downloadBlob(blob, name);
       showNotice("success", `${name} downloaded.`);
     } catch (error: unknown) {
       showNotice("error", String(error));
     }
-  }, [activeFile, showNotice]);
+  }, [activeFile, settings.crop, settings.mode, showNotice]);
 
   const togglePreviewPlayback = useCallback(() => {
     const video = videoRef.current;
@@ -942,13 +1033,18 @@ export default function WebEditor({
     }
 
     if (video.currentTime < startTime || video.currentTime >= selectedEnd - 0.05) {
-      video.currentTime = startTime;
+      if (previewUrl) pendingPreviewSeekRef.current = { source: previewUrl, time: startTime };
+      try {
+        video.currentTime = startTime;
+      } catch {
+        // The preview element may still be loading its metadata.
+      }
     }
     void video
       .play()
       .then(() => setPreviewPlaying(true))
       .catch(() => setPreviewPlaying(false));
-  }, [duration, endTime, metadata, startTime]);
+  }, [duration, endTime, metadata, previewUrl, startTime]);
 
   const handleVideoEnded = useCallback(() => {
     capturePausedPreviewFrame();
@@ -1263,6 +1359,7 @@ export default function WebEditor({
   const handleVideoTimeUpdate = useCallback(
     (event: SyntheticEvent<HTMLVideoElement>) => {
       const video = event.currentTarget;
+      syncPreviewFrameReady(video);
       const playbackTimeText = playbackTimeRef.current?.firstChild;
       if (playbackTimeText) {
         const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
@@ -1278,7 +1375,7 @@ export default function WebEditor({
         }
       }
     },
-    [duration, endTime, loopPlayback, startTime]
+    [duration, endTime, loopPlayback, startTime, syncPreviewFrameReady]
   );
 
   const standardFps = standardFpsOptions.some((option) => option.value === settings.fps)
@@ -1809,10 +1906,26 @@ export default function WebEditor({
                           <video
                             ref={videoRef}
                             src={previewUrl}
+                            muted={settings.removeAudio}
                             playsInline
                             preload="metadata"
                             onTimeUpdate={handleVideoTimeUpdate}
-                            onSeeked={handleVideoTimeUpdate}
+                            onSeeking={() => setPreviewFrameReady(false)}
+                            onSeeked={(event) => {
+                              syncPreviewFrameReady(event.currentTarget);
+                              handleVideoTimeUpdate(event);
+                              if (!previewPlaying) capturePausedPreviewFrame();
+                            }}
+                            onLoadedData={(event) => {
+                              applyPendingPreviewSeek(event.currentTarget);
+                              syncPreviewFrameReady(event.currentTarget);
+                              if (!previewPlaying) capturePausedPreviewFrame();
+                            }}
+                            onCanPlay={(event) => {
+                              applyPendingPreviewSeek(event.currentTarget);
+                              syncPreviewFrameReady(event.currentTarget);
+                            }}
+                            onEmptied={() => setPreviewFrameReady(false)}
                             onPlay={() => {
                               setPausedFrameDataUrl(null);
                               setPreviewPlaying(true);
@@ -1822,10 +1935,12 @@ export default function WebEditor({
                               setPreviewPlaying(false);
                             }}
                             onEnded={handleVideoEnded}
-                            onError={() =>
-                              setPreviewError("The browser could not play this video.")
-                            }
+                            onError={() => {
+                              setPreviewFrameReady(false);
+                              setPreviewError("The browser could not play this video.");
+                            }}
                             onLoadedMetadata={(event) => {
+                              applyPendingPreviewSeek(event.currentTarget);
                               if (!metadata && Number.isFinite(event.currentTarget.duration)) {
                                 setEndTime(event.currentTarget.duration);
                               }
@@ -1858,6 +1973,7 @@ export default function WebEditor({
                           aria-label="Download a PNG snapshot of the current frame"
                           title="Download frame snapshot"
                           onClick={() => void handleSnapshot()}
+                          disabled={!previewFrameReady}
                         >
                           <Icon name="snapshot" size={18} />
                         </button>

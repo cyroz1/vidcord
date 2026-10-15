@@ -1040,6 +1040,7 @@ export default function App() {
       const prev = { start: startValRef.current, end: endValRef.current };
       const next = normalizeTrim(rawStart, rawEnd, anchor);
       if (next.start === prev.start && next.end === prev.end) return null;
+      previewRef.current?.stopPlayback();
       if (record) {
         pushUndoSnapshot(prev);
         redoStackRef.current = [];
@@ -1064,6 +1065,7 @@ export default function App() {
       syncTrimHistorySize();
       return;
     }
+    previewRef.current?.stopPlayback();
     redoStackRef.current.push(current);
     startValRef.current = next.start;
     endValRef.current = next.end;
@@ -1176,6 +1178,7 @@ export default function App() {
       syncTrimHistorySize();
       return;
     }
+    previewRef.current?.stopPlayback();
     pushUndoSnapshot(current);
     startValRef.current = next.start;
     endValRef.current = next.end;
@@ -3550,9 +3553,13 @@ export default function App() {
       dragListenersCleanupRef.current = () => {
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        window.removeEventListener("blur", onUp);
       };
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
+      window.addEventListener("pointercancel", onUp);
+      window.addEventListener("blur", onUp);
     },
     [
       applyTrim,
@@ -3662,9 +3669,13 @@ export default function App() {
       dragListenersCleanupRef.current = () => {
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        window.removeEventListener("blur", onUp);
       };
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
+      window.addEventListener("pointercancel", onUp);
+      window.addEventListener("blur", onUp);
     },
     [
       probeData,

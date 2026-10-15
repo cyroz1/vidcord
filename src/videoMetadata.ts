@@ -125,18 +125,31 @@ export function getCroppedDimensions(
   oh: number,
   crop: string | null | undefined
 ): [number, number] {
+  const { width, height } = getCenteredCropRect(ow, oh, crop);
+  return [width, height];
+}
+
+export type CropRect = { x: number; y: number; width: number; height: number };
+
+/** Return the centered source-pixel crop used by the preview and exports. */
+export function getCenteredCropRect(
+  ow: number,
+  oh: number,
+  crop: string | null | undefined
+): CropRect {
   if (!ow || !oh || ow <= 0 || oh <= 0 || !crop || crop === "off") {
-    return [ow, oh];
+    return { x: 0, y: 0, width: ow, height: oh };
   }
   const targetRatio = CROP_RATIOS.get(crop);
-  if (targetRatio === undefined) return [ow, oh];
+  if (targetRatio === undefined) return { x: 0, y: 0, width: ow, height: oh };
 
   const sourceRatio = ow / oh;
-  if (sourceRatio > targetRatio) {
-    const cw = Math.round(oh * targetRatio);
-    return [cw, oh];
-  } else {
-    const ch = Math.round(ow / targetRatio);
-    return [ow, ch];
-  }
+  const width = sourceRatio > targetRatio ? Math.round(oh * targetRatio) : ow;
+  const height = sourceRatio > targetRatio ? oh : Math.round(ow / targetRatio);
+  return {
+    x: Math.floor((ow - width) / 2),
+    y: Math.floor((oh - height) / 2),
+    width,
+    height,
+  };
 }

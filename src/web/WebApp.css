@@ -322,6 +322,11 @@
   background: rgba(8, 121, 237, 0.86);
 }
 
+.web-snapshot-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .web-preview-footer {
   min-height: 38px;
   padding: 0 14px;

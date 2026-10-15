@@ -431,19 +431,11 @@ function WebTrimTimeline({
     (side: "start" | "end", value: number) => {
       const nextValue = clamp(value, 0, safeDuration);
       if (side === "start") {
-        applyRange(
-          { start: Math.min(nextValue, safeEnd - MIN_TRIM_GAP), end: safeEnd },
-          nextValue,
-          false,
-          "start"
-        );
+        const nextStart = Math.min(nextValue, safeEnd - MIN_TRIM_GAP);
+        applyRange({ start: nextStart, end: safeEnd }, nextStart, false, "start");
       } else {
-        applyRange(
-          { start: safeStart, end: Math.max(nextValue, safeStart + MIN_TRIM_GAP) },
-          nextValue,
-          false,
-          "end"
-        );
+        const nextEnd = Math.max(nextValue, safeStart + MIN_TRIM_GAP);
+        applyRange({ start: safeStart, end: nextEnd }, nextEnd, false, "end");
       }
     },
     [applyRange, safeDuration, safeEnd, safeStart]

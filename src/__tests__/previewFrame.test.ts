@@ -35,17 +35,17 @@ describe("HTML preview snapshots", () => {
     state.seeking = false;
     video.dispatchEvent(new Event("seeked"));
     expect(await capture).toEqual(new Uint8Array([137, 80, 78, 71]));
-    expect(draw).toHaveBeenCalledWith(video, 0, 0, 320, 180);
+    expect(draw).toHaveBeenCalledWith(video, 0, 0, 320, 180, 0, 0, 320, 180);
   });
 
-  it("caps the snapshot canvas at a 1920 px longest side", async () => {
+  it("keeps the snapshot canvas at source resolution", async () => {
     const { video, state, draw } = preview();
     state.readyState = 2;
     state.seeking = false;
     state.videoWidth = 3840;
     state.videoHeight = 2160;
     expect(await capturePreviewFramePng(video)).toEqual(new Uint8Array([137, 80, 78, 71]));
-    expect(draw).toHaveBeenCalledWith(video, 0, 0, 1920, 1080);
+    expect(draw).toHaveBeenCalledWith(video, 0, 0, 3840, 2160, 0, 0, 3840, 2160);
   });
 
   it("reports encode failures with the descriptive snapshot error", async () => {

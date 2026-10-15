@@ -1,7 +1,9 @@
+import { getCenteredCropRect } from "./videoMetadata";
+
 /** Capture the currently decoded video frame at preview size for a pause overlay. */
 export function capturePreviewFrameDataUrl(video: HTMLVideoElement): string | null {
   const { videoWidth: width, videoHeight: height } = video;
-  if (video.readyState < 2 || !width || !height) return null;
+  if (video.seeking || video.readyState < 2 || !width || !height) return null;
   const scale = Math.min(1, 960 / Math.max(width, height));
   const canvas = document.createElement("canvas");
   canvas.width = width * scale;
@@ -17,27 +19,35 @@ export function capturePreviewFrameDataUrl(video: HTMLVideoElement): string | nu
   }
 }
 
-// Snapshots cap the longest side at 1920 px: a native-resolution canvas for a
-// 4K/8K source costs tens of MB of backing store plus full-res PNG encode time
-// on the click path, for no visible gain in a saved preview still.
-const MAX_SNAPSHOT_SIDE_PX = 1920;
-
-export async function capturePreviewFramePng(video: HTMLVideoElement | null): Promise<Uint8Array> {
+export async function capturePreviewFramePng(
+  video: HTMLVideoElement | null,
+  cropAspectRatio = "off"
+): Promise<Uint8Array> {
   if (!video) {
     throw new Error("The preview frame is not ready yet.");
   }
   await waitForPreviewFrame(video);
 
-  const scale = Math.min(1, MAX_SNAPSHOT_SIDE_PX / Math.max(video.videoWidth, video.videoHeight));
+  const crop = getCenteredCropRect(video.videoWidth, video.videoHeight, cropAspectRatio);
   const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-  canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+  canvas.width = crop.width;
+  canvas.height = crop.height;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("The app could not create a snapshot canvas.");
 
   let blob: Blob | null;
   try {
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    context.drawImage(
+      video,
+      crop.x,
+      crop.y,
+      crop.width,
+      crop.height,
+      0,
+      0,
+      crop.width,
+      crop.height
+    );
     blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
   } catch {
     throw new Error("The app could not encode the snapshot.");

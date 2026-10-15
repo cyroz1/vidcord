@@ -1,3 +1,5 @@
+import { getCenteredCropRect } from "../videoMetadata";
+
 export type BrowserVideoMetadata = {
   name: string;
   sizeBytes: number;
@@ -157,11 +159,7 @@ export function inferBrowserAudioMetadata(
   if (typeof media.mozHasAudio === "boolean") {
     return {
       hasAudio: media.mozHasAudio,
-      audioTrackCount: hasReportedTrackCount
-        ? reportedTrackCount
-        : media.mozHasAudio
-          ? 1
-          : 0,
+      audioTrackCount: hasReportedTrackCount ? reportedTrackCount : media.mozHasAudio ? 1 : 0,
     };
   }
 
@@ -187,9 +185,10 @@ export async function readVideoMetadata(
       >
     >((resolve, reject) => {
       const video = document.createElement("video");
-      const extendedVideo = video as HTMLVideoElement & BrowserAudioTrackInfo & {
-        frameRate?: number;
-      };
+      const extendedVideo = video as HTMLVideoElement &
+        BrowserAudioTrackInfo & {
+          frameRate?: number;
+        };
       video.preload = "metadata";
       video.muted = true;
       video.playsInline = true;
@@ -269,21 +268,57 @@ export async function readVideoMetadata(
   }
 }
 
-export async function blobFromCanvas(video: HTMLVideoElement): Promise<Blob> {
-  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth <= 0) {
-    throw new Error("The preview frame is not ready yet.");
-  }
+export async function blobFromCanvas(
+  video: HTMLVideoElement,
+  cropAspectRatio = "off"
+): Promise<Blob> {
+  await waitForVideoFrame(video);
+  const crop = getCenteredCropRect(video.videoWidth, video.videoHeight, cropAspectRatio);
 
   const canvas = document.createElement("canvas");
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
+  canvas.width = crop.width;
+  canvas.height = crop.height;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("The browser could not create a snapshot canvas.");
-  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  context.drawImage(video, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height);
 
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
   if (!blob) throw new Error("The browser could not encode the snapshot.");
   return blob;
+}
+
+function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
+  const source = video.currentSrc || video.src;
+  const ready = () =>
+    !video.seeking &&
+    video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+    video.videoWidth > 0 &&
+    video.videoHeight > 0;
+  if (video.error || !source) return Promise.reject(new Error("The preview frame is unavailable."));
+  if (ready()) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    const events = ["loadeddata", "canplay", "seeked", "error", "emptied"];
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      events.forEach((event) => video.removeEventListener(event, check));
+    };
+    const fail = () => {
+      cleanup();
+      reject(new Error("The preview frame is not ready yet."));
+    };
+    const check = () => {
+      if (video.error || (video.currentSrc || video.src) !== source) {
+        fail();
+      } else if (ready()) {
+        cleanup();
+        resolve();
+      }
+    };
+    const timeout = window.setTimeout(fail, 5000);
+    events.forEach((event) => video.addEventListener(event, check));
+    check();
+  });
 }
 
 export function downloadBlob(blob: Blob, name: string): void {
