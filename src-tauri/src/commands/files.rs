@@ -1558,7 +1558,7 @@ fn output_path_key(path: &std::path::Path) -> String {
 fn valid_output_extension(extension: &str) -> bool {
     matches!(
         extension,
-        "mp4" | "mov" | "mkv" | "webm" | "avi" | "flv" | "wmv" | "gif" | "png"
+        "mp4" | "mov" | "mkv" | "webm" | "avi" | "flv" | "wmv" | "gif" | "webp" | "png"
     )
 }
 

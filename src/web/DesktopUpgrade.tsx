@@ -568,7 +568,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <p className="hero-lede">The full desktop app for local Discord compression.</p>
           <p className="hero-body">
             Compress MP4, MOV, MKV, AVI, WebM, FLV, and WMV for Discord&apos;s 20 MB–1 GB limits
-            with system FFmpeg. Trim without re-encoding or make target-size GIFs.
+            with system FFmpeg. Trim without re-encoding or make target-size animated GIF or WebP
+            files.
           </p>
           <p className="hero-body">
             Download for GPU acceleration, Open With, native outputs, and the full desktop workflow.
@@ -733,8 +734,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           </svg>
           <h2>Discord targets</h2>
           <p>
-            Auto-calculate for 20, 50, 100, 500 MB, or 1 GB Nitro targets. GIFs target 5, 10, or 20
-            MB at 15, 30, or up to 50 FPS.
+            Auto-calculate for 20, 50, 100, 500 MB, or 1 GB Nitro targets. GIF and WebP exports
+            target 5, 10, or 20 MB at 15, 30, or up to 50 FPS.
           </p>
         </article>
         <article>
@@ -794,7 +795,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
 
       <DetailSection
         title="Simple when you want it. Precise when you need it."
-        copy="Both editions offer crop, size, resolution, FPS, and audio controls. Desktop adds encoder selection, source-track mixing, presets, native destinations, copy/reveal/no-action completion choices, and an optional close-after-export setting."
+        copy="Both editions offer crop, size, resolution, FPS, and audio controls. Browser Advanced shows source-track choices when its media APIs expose them, and preview plays only the first selected track. Desktop adds encoder selection, full source-track mixing, presets, native destinations, copy/reveal/no-action completion choices, and an optional close-after-export setting."
         items={[
           "Browser Batch: up to 12 full-length files, one Compress profile, per-file details, and aggregate ETA. Desktop adds per-file trims and parallel encoding.",
           "Long target-size exports sample a short segment for the initial bitrate estimate, then refine undersized results while keeping the best in-range output.",
@@ -841,11 +842,11 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
       />
 
       <DetailSection
-        title="Turn the best moment into a Discord-ready GIF."
-        copy="Create local, target-size GIFs in either edition."
+        title="Turn the best moment into an animated GIF or WebP."
+        copy="Create local, target-size animated images in either edition."
         items={[
-          "Target 5, 10, or 20 MB at 15, 30, or up to 50 FPS.",
-          "Palette optimization and size retries preserve the selected rate; GIFs are silent.",
+          "Choose GIF or WebP, then target 5, 10, or 20 MB at 15, 30, or up to 50 FPS.",
+          "Palette or quality optimization and size retries preserve the selected rate; animated images are silent.",
         ]}
         reverse
         image={{
@@ -858,7 +859,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           ],
           width: 1144,
           height: 1668,
-          alt: "vidcord GIF mode with Discord size targets, frame-rate control, trim timeline, and Create GIF button",
+          alt: "vidcord GIF mode with Discord size targets, frame-rate control, trim timeline, and animated image export controls",
         }}
       />
 
@@ -997,7 +998,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
             <h3>Which Discord upload limits are supported?</h3>
             <p>
               Compress targets: 20, 50, 100, 500 MB, or 1 GB Nitro. Advanced adds custom size,
-              resolution, FPS, and desktop encoder controls. GIFs target 5, 10, or 20 MB.
+              resolution, FPS, and desktop encoder controls. GIF and WebP exports target 5, 10, or
+              20 MB.
             </p>
           </article>
           <article>

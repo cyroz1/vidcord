@@ -107,8 +107,13 @@ import {
   getCroppedDimensions,
 } from "./videoMetadata";
 import { MAX_SETTINGS_PRESETS, type SettingsPreset } from "./settingsPresets";
-import { defaultAudioTrackIndices, normalizeAudioTrackIndices } from "./audioTracks";
+import {
+  audioTrackOrdinals,
+  defaultAudioTrackIndices,
+  normalizeAudioTrackIndices,
+} from "./audioTracks";
 import { GIF_PRESETS } from "./gifPresets";
+import { GIF_OUTPUT_FORMATS, gifOutputFormatLabel } from "./gifOutputFormat";
 import pkg from "../package.json";
 import { GITHUB_SPONSORS_URL } from "./donate";
 
@@ -291,6 +296,7 @@ function outputExtensionForPath(path: string, fallback: OutputExtension): Output
     extension === "flv" ||
     extension === "wmv" ||
     extension === "gif" ||
+    extension === "webp" ||
     extension === "png"
   ) {
     return extension;
@@ -442,6 +448,8 @@ export default function App() {
     setQualityIdx,
     gifMode,
     setGifMode,
+    gifOutputFormat,
+    setGifOutputFormat,
     gifQualityIdx,
     setGifQualityIdx,
     gifFps,
@@ -702,6 +710,11 @@ export default function App() {
     () => normalizeAudioTrackIndices(audioTrackSelection, audioTracks),
     [audioTrackSelection, audioTracks]
   );
+  const previewAudioTrackIndices = useMemo(
+    () =>
+      audioTrackOrdinals(advancedMode ? activeAudioTrackIndices : defaultAudioTracks, audioTracks),
+    [activeAudioTrackIndices, advancedMode, audioTracks, defaultAudioTracks]
+  );
   const sourceFrameRate =
     typeof probeData?.frame_rate === "number" &&
     Number.isFinite(probeData.frame_rate) &&
@@ -837,7 +850,7 @@ export default function App() {
         standardFpsValue === "off" ? "Keep source FPS" : `${standardFpsValue} fps`
       }`
     : gifMode
-      ? `GIF · up to ${selectedGifPreset.sizeMb} MB · ${cropSummary} · ${gifFps} fps`
+      ? `${gifOutputFormatLabel(gifOutputFormat)} · up to ${selectedGifPreset.sizeMb} MB · ${cropSummary} · ${gifFps} fps`
       : losslessTrim
         ? "Original quality · keyframe-aligned trim"
         : advancedMode
@@ -854,7 +867,7 @@ export default function App() {
   const readyActionLabel = isBatchMode
     ? `Compress ${batchPaths.length} videos`
     : gifMode
-      ? `Create ${selectedGifPreset.sizeMb} MB GIF`
+      ? `Create ${selectedGifPreset.sizeMb} MB ${gifOutputFormatLabel(gifOutputFormat)}`
       : losslessTrim
         ? "Trim Without Re-encoding"
         : advancedMode && hasAdvancedTargetSize
@@ -2797,7 +2810,7 @@ export default function App() {
       const preset = GIF_PRESETS[gifQualityIdx] ?? GIF_PRESETS[0];
       targetSize = preset.sizeMb;
       targetH = preset.targetHeight;
-      encoderName = "gif";
+      encoderName = gifOutputFormat === "webp" ? "libwebp_anim" : "gif";
       outputFps = gifFps;
     } else if (losslessTrim) {
       targetSize = null;
@@ -2920,7 +2933,7 @@ export default function App() {
 
     // Output-path resolution and VAAPI discovery are independent, so keep
     // their IPC work parallel. Ask mode stages privately until encoding ends.
-    const outputExtension: OutputExtension = gifMode ? "gif" : "mp4";
+    const outputExtension: OutputExtension = gifMode ? gifOutputFormat : "mp4";
     const fallbackExtension = losslessTrim ? losslessInfo?.source_container_extension : null;
     const isVaapi = !gifMode && !losslessTrim && encoderName.endsWith("_vaapi");
     const preparation = beginPreparation();
@@ -2988,6 +3001,7 @@ export default function App() {
       source_color_transfer: probeData.color_transfer ?? null,
       vaapi_device: vaapiDevice,
       gif_mode: gifMode,
+      gif_output_format: gifMode ? gifOutputFormat : "gif",
       lossless_trim: losslessTrim,
       fallback_output_path: fallbackOutput,
       fallback_target_size_mb: losslessOfferMode ? losslessOfferTargetSize : null,
@@ -3009,19 +3023,25 @@ export default function App() {
       try {
         const stem = fileName.replace(/\.[^.]+$/, "") || "video";
         const actualOutputExtension = outputExtensionForPath(outputPath, outputExtension);
-        const isGifOutput = actualOutputExtension === "gif";
         let savedOutput: string | null = null;
         while (!savedOutput) {
           const selected = await saveDialog({
-            title: isGifOutput ? "Save GIF" : "Save trimmed video",
+            title:
+              actualOutputExtension === "gif"
+                ? "Save GIF"
+                : actualOutputExtension === "webp"
+                  ? "Save WebP"
+                  : "Save trimmed video",
             defaultPath: `${stem}-vidcord.${actualOutputExtension}`,
             filters: [
-              isGifOutput
+              actualOutputExtension === "gif"
                 ? { name: "GIF Image", extensions: ["gif"] }
-                : {
-                    name: "Video",
-                    extensions: ["mp4", "mov", "mkv", "webm", "avi", "flv", "wmv"],
-                  },
+                : actualOutputExtension === "webp"
+                  ? { name: "WebP Image", extensions: ["webp"] }
+                  : {
+                      name: "Video",
+                      extensions: ["mp4", "mov", "mkv", "webm", "avi", "flv", "wmv"],
+                    },
             ],
           });
           if (!selected) {
@@ -3072,6 +3092,7 @@ export default function App() {
     encoders,
     removeAudio,
     audioNormalize,
+    gifOutputFormat,
     activeAudioTrackIndices,
     audioTrackSelection,
     defaultAudioTracks,
@@ -4058,6 +4079,23 @@ export default function App() {
                   {/* GIF settings */}
                   {gifMode && (
                     <div className="row settings-row gif-settings-row">
+                      <label className="gif-format-label">
+                        Output format
+                        <select
+                          value={gifOutputFormat}
+                          onChange={(event) => {
+                            const next = event.target.value === "webp" ? "webp" : "gif";
+                            setGifOutputFormat(next);
+                            saveSettings({ gif_output_format: next });
+                          }}
+                        >
+                          {GIF_OUTPUT_FORMATS.map((format) => (
+                            <option key={format.value} value={format.value}>
+                              {format.label} (.{format.extension})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                       <label className="target-label">
                         Target size
                         <select
@@ -4604,7 +4642,8 @@ export default function App() {
                 isScrubbing={previewScrubbing}
                 loopPlayback={loopPlayback}
                 probeData={probeData}
-                removeAudio={gifMode || removeAudio}
+                removeAudio={gifMode || removeAudio || previewAudioTrackIndices.length === 0}
+                previewAudioTrackIndices={previewAudioTrackIndices}
                 onTimeUpdate={handlePreviewTimeUpdate}
                 onSnapshot={handleSnapshot}
                 onSnapshotError={handleSnapshotError}

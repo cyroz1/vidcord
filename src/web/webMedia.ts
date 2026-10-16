@@ -12,9 +12,30 @@ export type BrowserVideoMetadata = {
   codec: string;
   hasAudio: boolean;
   audioTrackCount?: number;
+  audioTracks?: BrowserAudioTrackMetadata[];
   displayWidth?: number;
   displayHeight?: number;
 };
+
+export type BrowserAudioTrackMetadata = {
+  index: number;
+  label: string;
+  language: string;
+};
+
+export function normalizeBrowserAudioTrackIndices(
+  selection: readonly number[] | null,
+  metadata: Pick<BrowserVideoMetadata, "hasAudio" | "audioTrackCount" | "audioTracks">,
+  removeAudio = false
+): number[] {
+  if (removeAudio || !metadata.hasAudio) return [];
+  const available =
+    metadata.audioTracks && metadata.audioTracks.length > 0
+      ? metadata.audioTracks.map((track) => track.index)
+      : Array.from({ length: Math.max(1, metadata.audioTrackCount ?? 1) }, (_, index) => index);
+  const requested = new Set(selection ?? [available[0] ?? 0]);
+  return available.filter((index) => requested.has(index));
+}
 
 const VIDEO_EXTENSION = /\.(mp4|avi|mov|mkv|flv|wmv|webm|m4v|mpeg|mpg|ogv)$/i;
 export const VIDEO_FILE_ACCEPT = "video/*,.mp4,.avi,.mov,.mkv,.flv,.wmv,.webm,.m4v,.mpeg,.mpg,.ogv";
@@ -139,9 +160,27 @@ export function getPreviewUrl(file: File): string {
 }
 
 type BrowserAudioTrackInfo = {
-  audioTracks?: { length: number };
+  audioTracks?: {
+    length: number;
+    [index: number]: { label?: string; language?: string };
+  };
   mozHasAudio?: boolean;
 };
+
+function readBrowserAudioTracks(media: BrowserAudioTrackInfo): BrowserAudioTrackMetadata[] {
+  const list = media.audioTracks;
+  if (!list || !Number.isInteger(list.length) || list.length < 0) return [];
+  return Array.from({ length: list.length }, (_, index) => {
+    const track = list[index];
+    const language = typeof track?.language === "string" ? track.language.trim() : "";
+    const label = typeof track?.label === "string" ? track.label.trim() : "";
+    return {
+      index,
+      label: label || (language ? `Track ${index + 1} · ${language}` : `Track ${index + 1}`),
+      language,
+    };
+  });
+}
 
 export function inferBrowserAudioMetadata(
   media: BrowserAudioTrackInfo
@@ -181,7 +220,13 @@ export async function readVideoMetadata(
     const metadata = await new Promise<
       Pick<
         BrowserVideoMetadata,
-        "duration" | "width" | "height" | "frameRate" | "hasAudio" | "audioTrackCount"
+        | "duration"
+        | "width"
+        | "height"
+        | "frameRate"
+        | "hasAudio"
+        | "audioTrackCount"
+        | "audioTracks"
       >
     >((resolve, reject) => {
       const video = document.createElement("video");
@@ -213,6 +258,7 @@ export async function readVideoMetadata(
           return;
         }
         const { hasAudio, audioTrackCount } = inferBrowserAudioMetadata(extendedVideo);
+        const audioTracks = readBrowserAudioTracks(extendedVideo);
         const frameRate =
           typeof extendedVideo.frameRate === "number" &&
           Number.isFinite(extendedVideo.frameRate) &&
@@ -220,7 +266,7 @@ export async function readVideoMetadata(
             ? extendedVideo.frameRate
             : null;
         cleanup();
-        resolve({ duration, width, height, frameRate, hasAudio, audioTrackCount });
+        resolve({ duration, width, height, frameRate, hasAudio, audioTrackCount, audioTracks });
       };
       const onError = () => {
         cleanup();
@@ -257,6 +303,7 @@ export async function readVideoMetadata(
       codec: browserContainerLabel(file),
       hasAudio: metadata.hasAudio,
       audioTrackCount: metadata.audioTrackCount,
+      audioTracks: metadata.audioTracks,
       // videoWidth/videoHeight are the browser's intrinsic display dimensions;
       // keep them separate so crop UI can use display geometry when a browser
       // exposes encoded dimensions through another metadata path in the future.

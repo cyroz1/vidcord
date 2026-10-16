@@ -1,4 +1,5 @@
 import { migrateLegacyGifQualityIndex, normalizeGifTarget, type GifTargetMb } from "./gifPresets";
+import { normalizeGifOutputFormat, type GifOutputFormat } from "./gifOutputFormat";
 
 export type OutputDestination = "downloads" | "source" | "ask" | "custom";
 export type CompletionAction = "reveal" | "copy" | "none";
@@ -6,6 +7,7 @@ export type CompletionAction = "reveal" | "copy" | "none";
 export type PresetSettings = {
   quality_index: number;
   gif_mode: boolean;
+  gif_output_format: GifOutputFormat;
   gif_target_mb: GifTargetMb;
   gif_fps: number;
   advanced_mode: boolean;
@@ -32,6 +34,7 @@ export const MAX_PRESET_NAME_LENGTH = 40;
 const DEFAULT_PRESET_SETTINGS: PresetSettings = {
   quality_index: 0,
   gif_mode: false,
+  gif_output_format: "gif",
   gif_target_mb: 5,
   gif_fps: 15,
   advanced_mode: false,
@@ -69,6 +72,7 @@ export function normalizePresetSettings(value: unknown): PresetSettings {
     record.gif_target_mb,
     migrateLegacyGifQualityIndex(record.gif_quality_index) ?? 5
   );
+  normalized.gif_output_format = normalizeGifOutputFormat(record.gif_output_format);
 
   const migratedLosslessPreset =
     typeof record.lossless_mode !== "boolean" && record.quality_index === 5;

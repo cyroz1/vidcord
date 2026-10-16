@@ -18,7 +18,7 @@ choose a **20 MB, 50 MB, 100 MB, 500 MB, or 1 GB** target, trim the clip, or cho
 download through the browser; selected videos never leave the device. It is a
 lighter fallback for quick jobs: inputs must be readable by the browser and
 are limited to **512 MB per file**, and speed depends on the device, browser,
-available memory, and source format. GIF Mode creates animated `.gif` exports
+available memory, and source format. GIF Mode creates animated `.gif` or `.webp` exports
 with **5 MB**, **10 MB**, or **20 MB** size targets.
 
 Select multiple videos through the browser's file picker or drag-and-drop to
@@ -157,16 +157,19 @@ and retry oversized results with safer bitrates and CPU fallback.
     [Clips Bypass](https://github.com/riolubruh/YABDP4Nitro?tab=readme-ov-file#clips)
   - 500 MB @ native — legacy Nitro limit
   - 1 GB @ native — Nitro
-- **GIF Mode** — export an optimized animated GIF for a 5 MB, 10 MB, or 20 MB target at 15, 30, or
-  Discord-safe maximum 50 FPS. Video-only encoder, audio,
+- **GIF Mode** — export an optimized animated GIF or WebP for a 5 MB, 10 MB, or 20 MB
+  target at 15, 30, or Discord-safe maximum 50 FPS. Choose the output format in the GIF
+  settings. Video-only encoder, audio,
   and unrelated video controls are hidden while GIF Mode is active; the aspect-ratio crop selector
-  remains available because it still applies to GIF output. Higher frame rates trade spatial detail
-  for motion, and oversized GIFs are retried at
+  remains available because it still applies to animated image output. Higher frame rates trade
+  spatial detail for motion, and oversized exports are retried at
   progressively lower visual complexity without changing the selected FPS.
 - **Advanced mode** — custom target size (MB), output resolution, FPS, and audio
   normalization in both editions. The desktop app additionally accepts any
   FFmpeg video encoder string, offers autocomplete from installed encoders, and
-  provides a per-video audio-track mixer. Leave target size empty to encode at
+  provides a per-video audio-track mixer; the browser shows track choices when
+  its media APIs expose multiple tracks. Preview plays only the first selected
+  track when several are selected. Leave target size empty to encode at
   the source bitrate without a file-size limit.
 - **Aspect-ratio cropping** — available in Compress, Advanced, and GIF Mode;
   crop to 16:9, 1:1, 9:16, 4:3, 3:4, 4:5, or 5:4 before scaling. A preset
@@ -176,8 +179,9 @@ and retry oversized results with safer bitrates and CPU fallback.
   desktop app starts with the first source track, switches to a later track only
   when it is at least 20% larger by estimated data, and can mix selected tracks
   in Advanced mode; each selected track is encoded at 128 kbps and included in
-  the video bitrate budget. Browser input track selection is limited by browser
-  media APIs and uses the first audio stream for re-encoded exports.
+  the video bitrate budget. Browser Advanced shows track choices when its media
+  APIs expose them, otherwise it keeps the first stream. Preview plays only the
+  first selected track.
 - **Frame snapshots** — save the current frame as a full-resolution PNG with the preview overlay.
   Desktop snapshots preserve the pixel dimensions of the selected frame or crop and follow the
   configured output destination, completion action, and separate close-app setting; browser
@@ -280,7 +284,7 @@ combination your system FFmpeg can demux. Standard and Advanced mode output is
 `.mp4` — H.264 (AVC) by default or H.265 (HEVC) if you pick an `hevc_*`
 encoder. Lossless Trim prefers `.mp4` and can use the validated source video
 extension when the source container is the compatible stream-copy choice. GIF
-Mode creates an animated `.gif`.
+Mode creates an animated `.gif` or `.webp`, according to the selected output format.
 
 The browser edition accepts video files that the browser can decode. It recognizes
 common video extensions including MP4, MOV, MKV, AVI, WebM, FLV, WMV, M4V, MPEG,
@@ -302,7 +306,9 @@ downloads.
 The browser editor includes Compress, Advanced, Lossless Trim, GIF, single-file
 trim and preview, crop, audio normalization, audio removal for re-encoded
 exports, lossless audio removal, standard FPS controls, typed Advanced FPS when
-the source rate is known, snapshots, and same-profile multi-file batches. Each
+the source rate is known, snapshots, and same-profile multi-file batches. In
+Advanced mode it can select source audio tracks when browser media APIs expose
+them, with preview playback using only the first selected track. Each
 selected browser input is capped at 512 MB because FFmpeg WebAssembly processes
 the file in browser memory. Browser Batch accepts up to 12 files and applies
 one standard Compress profile to each file at full duration, reports per-file
@@ -315,9 +321,9 @@ encoder-load and export-stage progress. It warns before exports estimated to
 need substantial memory; phones use a faster x264 preset to reduce encode time.
 
 The browser encoder is intentionally fixed to `libx264` in WebAssembly. Advanced
-mode can set a custom target size, resolution, and FPS, but cannot select a
-different encoder or source audio tracks; re-encoded exports use the first
-audio stream exposed by the browser. Lossless Trim copies the source streams at
+mode can set a custom target size, resolution, and FPS, and can select source
+audio tracks when browser media APIs expose them. Otherwise, re-encoded exports
+use the first audio stream exposed by the browser. Lossless Trim copies the source streams at
 locally discovered keyframes and can omit audio streams with `-an`. Keyframe
 discovery is limited to 60 seconds and 100,000 keyframes; if it exceeds either
 limit, use Compress or the desktop app for that file. Its trim panel supports
@@ -339,8 +345,8 @@ integrations—use the native app.
 | Processing engine      | Local FFmpeg WebAssembly                                                  | Local system `ffmpeg` and `ffprobe`                      |
 | Video encoder          | Fixed `libx264`                                                           | CPU and detected GPU encoders, selectable on desktop     |
 | Inputs                 | Formats the browser can decode                                            | Formats the installed FFmpeg can demux                   |
-| Modes                  | Compress, Advanced, Lossless Trim, GIF                                    | Compress, Advanced, Lossless Trim, GIF                   |
-| Audio                  | Normalize/remove re-encoded audio; lossless `-an`; first source stream    | Track selection/mixing, normalization, or removal        |
+| Modes                  | Compress, Advanced, Lossless Trim, GIF (GIF or WebP)                      | Compress, Advanced, Lossless Trim, GIF (GIF or WebP)     |
+| Audio                  | Normalize/remove; Advanced track choices when exposed; preview plays first selected | Track selection/mixing, normalization, or removal; preview plays first selected |
 | Batch                  | Up to 12 files; shared Compress profile, full duration, browser downloads | Shared controls plus per-file trims and native workers   |
 | Output                 | Browser downloads                                                         | Downloads, source folder, custom folder, or save prompt  |
 | Saved settings presets | Not available                                                             | Available in the desktop footer                          |
@@ -498,7 +504,8 @@ preserve the full selection.
    successful export.
 3. **Pick a mode or target** — choose **Compress**, **Advanced**, **Lossless
    Trim**, or **GIF**, then select a target size for that mode: 20/50/100/500 MB or 1 GB for video or
-   5/10/20 MB for GIF. Compress, Advanced, and GIF Mode expose the aspect-ratio crop selector;
+   5/10/20 MB for GIF or WebP. GIF Mode lets you choose the output format.
+   Compress, Advanced, and GIF Mode expose the aspect-ratio crop selector;
    Advanced also exposes custom target size, resolution, FPS, audio normalization,
    and encoder controls. Leaving its size empty uses the source bitrate
    without a file-size limit. Standard mode can cap output FPS at 24, 30, or 60
@@ -513,7 +520,7 @@ preserve the full selection.
    only; each selected track reserves 128 kbps.
 6. **Export.** Compress and Advanced re-encode to the selected target, Lossless
    Trim uses **Trim Without Re-encoding** after keyframe discovery, and GIF mode
-   creates an animated GIF. Progress shows the current attempt, encoder,
+   creates the selected animated GIF or WebP format. Progress shows the current attempt, encoder,
    bitrate, and ETA for encoding modes; when the export is done, vidcord reports
    the result and runs your selected completion action.
 

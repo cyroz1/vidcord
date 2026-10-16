@@ -38,7 +38,7 @@ export function releasePreviewSource(url: string): Promise<void> {
   return invoke("release_preview_source", { url });
 }
 
-export type OutputExtension = LosslessVideoExtension | "gif" | "png";
+export type OutputExtension = LosslessVideoExtension | "gif" | "webp" | "png";
 
 export type ProbeData = {
   duration: number;
@@ -110,6 +110,7 @@ export type CompressOptions = {
   source_color_transfer?: string | null;
   vaapi_device: string | null;
   gif_mode: boolean;
+  gif_output_format?: "gif" | "webp" | null;
   lossless_trim: boolean;
   fallback_output_path?: string | null;
   fallback_target_size_mb?: number | null;

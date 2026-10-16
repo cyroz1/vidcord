@@ -190,9 +190,14 @@ export default memo(function AudioTrackPicker({
             )}
           </div>
           <div className="audio-track-popup-footer">
-            {removeAudio
-              ? "Audio muted · video bitrate reserves 0 kbps"
-              : `${selectionLabel} · video bitrate reserves ${AUDIO_TRACK_BITRATE_KBPS * selectedIndices.length} kbps`}
+            <span>
+              {removeAudio
+                ? "Audio muted · video bitrate reserves 0 kbps"
+                : `${selectionLabel} · video bitrate reserves ${AUDIO_TRACK_BITRATE_KBPS * selectedIndices.length} kbps`}
+            </span>
+            <span className="audio-track-preview-note">
+              Preview plays the first selected track.
+            </span>
           </div>
         </div>
       )}

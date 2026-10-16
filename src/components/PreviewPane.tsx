@@ -18,6 +18,7 @@ import {
   getStoppedPlaybackTime,
 } from "../previewScrub";
 import { capturePreviewFramePng } from "../previewFrame";
+import { applyPreviewAudioTrackSelection } from "../audioTracks";
 
 const FIXED_PREVIEW_CSS_WIDTH = 432;
 const PREVIEW_ASPECT_WIDTH = 16;
@@ -164,6 +165,7 @@ type Props = {
   previewTime: number | null;
   isScrubbing: boolean;
   removeAudio: boolean;
+  previewAudioTrackIndices?: readonly number[];
   loopPlayback: boolean;
   probeData: ProbeData | null;
   // Fired whenever the playback position changes (timeupdate / seek / stop).
@@ -197,6 +199,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     previewTime,
     isScrubbing,
     removeAudio,
+    previewAudioTrackIndices = [],
     loopPlayback,
     probeData,
     onTimeUpdate,
@@ -218,6 +221,8 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   useEffect(() => {
     onPlaybackErrorRef.current = onPlaybackError;
   }, [onPlaybackError]);
+  const previewAudioTrackIndicesRef = useRef<readonly number[]>(previewAudioTrackIndices);
+  previewAudioTrackIndicesRef.current = previewAudioTrackIndices;
   // Latest previewTime prop, mirrored so stopPlayback can mark the current
   // focus value as consumed without depending on the prop in its dep array.
   const previewTimeRef = useRef(previewTime);
@@ -260,8 +265,9 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.muted = removeAudio;
+      applyPreviewAudioTrackSelection(videoRef.current, previewAudioTrackIndices);
     }
-  }, [removeAudio]);
+  }, [previewAudioTrackIndices, removeAudio]);
   const [playing, setPlaying] = useState(false);
   const playingRef = useRef(false);
 
@@ -472,12 +478,13 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
       }
       setVideoReady(true);
       setVideoLoadFailed(false);
+      applyPreviewAudioTrackSelection(event.currentTarget, previewAudioTrackIndices);
       const pending = pendingScrubVideoSeekRef.current;
       if (pending === null) return;
       pendingScrubVideoSeekRef.current = null;
       seekVideoElement(pending);
     },
-    [seekVideoElement]
+    [previewAudioTrackIndices, seekVideoElement]
   );
 
   const handleVideoError = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -599,6 +606,7 @@ const PreviewPane = forwardRef<PreviewHandle, Props>(function PreviewPane(
     const session = playbackSessionRef.current + 1;
     playbackSessionRef.current = session;
     vid.muted = removeAudio;
+    applyPreviewAudioTrackSelection(vid, previewAudioTrackIndicesRef.current);
     pendingScrubVideoSeekRef.current = null;
     const { startTime, endTime } = playbackConfigRef.current;
     // Resume from the last scrubbed/paused position if it falls within the

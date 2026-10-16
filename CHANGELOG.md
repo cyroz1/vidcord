@@ -22,6 +22,9 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ### Browser exports
 
+- GIF Mode now exports animated GIF or WebP files in both the browser editor and desktop app.
+- Advanced preview follows the selected audio track; when several tracks are selected, preview plays
+  only the first one instead of mixing them together.
 - Browser export progress now spans the full export and reports output checks and finalization
   instead of showing 100% and “Continuing…” between encoding passes.
 - GIF exports recover their palette after a browser encoder restart. Desktop GIF exports generate

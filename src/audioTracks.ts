@@ -43,6 +43,34 @@ export function normalizeAudioTrackIndices(
   return tracks.map((track) => track.index).filter((index) => sourceSet.has(index));
 }
 
+export function audioTrackOrdinals(indices: readonly number[], tracks: AudioTrack[]): number[] {
+  return normalizeAudioTrackIndices([...indices], tracks)
+    .map((index) => tracks.findIndex((track) => track.index === index))
+    .filter((ordinal) => ordinal >= 0);
+}
+
+export function applyPreviewAudioTrackSelection(
+  media: HTMLMediaElement | null,
+  selectedOrdinals: readonly number[]
+): void {
+  if (!media) return;
+  const trackList = (
+    media as unknown as {
+      audioTracks?: { length: number; [index: number]: { enabled: boolean } };
+    }
+  ).audioTracks;
+  if (!trackList || !Number.isInteger(trackList.length) || trackList.length < 0) return;
+
+  const firstSelected = selectedOrdinals.find(
+    (ordinal) => Number.isInteger(ordinal) && ordinal >= 0 && ordinal < trackList.length
+  );
+  const selectedOrdinal = firstSelected ?? -1;
+  for (let index = 0; index < trackList.length; index += 1) {
+    const track = trackList[index];
+    if (track) track.enabled = index === selectedOrdinal;
+  }
+}
+
 export function formatAudioTrackSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "Size unavailable";
   const mb = bytes / (1024 * 1024);

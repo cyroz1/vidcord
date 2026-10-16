@@ -6,6 +6,7 @@ import {
   normalizeGifTarget,
   GIF_PRESETS,
 } from "../gifPresets";
+import { normalizeGifOutputFormat, type GifOutputFormat } from "../gifOutputFormat";
 
 import {
   createSettingsPresetId,
@@ -42,6 +43,7 @@ export function useSettings() {
   // Persisted settings values
   const [qualityIdx, setQualityIdx] = useState(0);
   const [gifMode, setGifMode] = useState(false);
+  const [gifOutputFormat, setGifOutputFormat] = useState<GifOutputFormat>("gif");
   const [gifQualityIdx, setGifQualityIdx] = useState(0);
   const [gifFps, setGifFps] = useState(15);
   const [advancedMode, setAdvancedMode] = useState(false);
@@ -132,6 +134,7 @@ export function useSettings() {
           setQualityIdx(s.quality_index);
         }
         if (typeof s.gif_mode === "boolean") setGifMode(s.gif_mode);
+        setGifOutputFormat(normalizeGifOutputFormat(s.gif_output_format));
         setGifQualityIdx(gifPresetIndexForTarget(gifTargetMb));
         if (s.gif_fps === 15 || s.gif_fps === 30 || s.gif_fps === 50) {
           setGifFps(s.gif_fps);
@@ -231,6 +234,7 @@ export function useSettings() {
     (encoderIndex = 0, encoderLabel = ""): PresetSettings => ({
       quality_index: qualityIdx,
       gif_mode: gifMode,
+      gif_output_format: gifOutputFormat,
       gif_target_mb: GIF_PRESETS[gifQualityIdx]?.sizeMb ?? GIF_PRESETS[0].sizeMb,
       gif_fps: gifFps,
       advanced_mode: advancedMode,
@@ -261,6 +265,7 @@ export function useSettings() {
       fpsOption,
       gifFps,
       gifMode,
+      gifOutputFormat,
       gifQualityIdx,
       losslessMode,
       qualityIdx,
@@ -272,6 +277,7 @@ export function useSettings() {
     const restored = normalizePresetSettings(value);
     setQualityIdx(restored.quality_index);
     setGifMode(restored.gif_mode);
+    setGifOutputFormat(restored.gif_output_format);
     setGifQualityIdx(gifPresetIndexForTarget(restored.gif_target_mb));
     setGifFps(restored.gif_fps);
     setAdvancedMode(restored.advanced_mode);
@@ -354,6 +360,8 @@ export function useSettings() {
     setQualityIdx,
     gifMode,
     setGifMode,
+    gifOutputFormat,
+    setGifOutputFormat,
     gifQualityIdx,
     setGifQualityIdx,
     gifFps,

@@ -742,6 +742,7 @@ pub struct CompressOptions {
     pub source_color_transfer: Option<String>,
     pub vaapi_device: Option<String>,
     pub gif_mode: bool,
+    pub gif_output_format: Option<String>,
     pub lossless_trim: bool,
     pub fallback_output_path: Option<String>,
     pub fallback_target_size_mb: Option<f64>,
@@ -990,6 +991,21 @@ fn valid_output_fps(fps: Option<f64>) -> bool {
 
 fn valid_gif_fps(gif_mode: bool, fps: Option<f64>) -> bool {
     !gif_mode || matches!(fps, Some(15.0 | 30.0 | 50.0))
+}
+
+fn gif_output_format(opts: &CompressOptions) -> &str {
+    match opts.gif_output_format.as_deref() {
+        Some("webp") => "webp",
+        _ => "gif",
+    }
+}
+
+fn gif_output_extension(opts: &CompressOptions) -> &str {
+    gif_output_format(opts)
+}
+
+fn valid_gif_output_format(gif_mode: bool, format: Option<&str>) -> bool {
+    !gif_mode || matches!(format, None | Some("gif") | Some("webp"))
 }
 
 fn valid_scale_filter(filter: Option<&str>) -> bool {
@@ -1335,6 +1351,13 @@ fn gif_visual_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> (S
     )
 }
 
+fn webp_quality(opts: &CompressOptions, attempt: &CompressionAttempt) -> u32 {
+    let retry_quality = (attempt.video_bitrate_k as f64 / opts.video_bitrate_k.max(1) as f64)
+        .clamp(0.04, 1.0)
+        .sqrt();
+    (78.0 * retry_quality).round().clamp(20.0, 78.0) as u32
+}
+
 fn gif_palette_filter(opts: &CompressOptions, attempt: &CompressionAttempt) -> String {
     let (visual, colors) = gif_visual_filter(opts, attempt);
     format!("{visual},palettegen=max_colors={colors}:stats_mode=diff")
@@ -1642,6 +1665,7 @@ impl Drop for TemporaryOutput {
 fn supports_auto_hardware_decode(opts: &CompressOptions, encoder: &str) -> bool {
     encoder != "libx264"
         && encoder != "gif"
+        && encoder != "libwebp_anim"
         && !encoder.ends_with("_vaapi")
         && !opts.lossless_trim
         && opts.crop_aspect_ratio.as_deref().unwrap_or("off") == "off"
@@ -1653,7 +1677,11 @@ fn supports_auto_hardware_decode(opts: &CompressOptions, encoder: &str) -> bool 
 
 fn initial_attempt(opts: &CompressOptions) -> CompressionAttempt {
     let encoder = if opts.gif_mode {
-        "gif".into()
+        if gif_output_format(opts) == "webp" {
+            "libwebp_anim".into()
+        } else {
+            "gif".into()
+        }
     } else {
         opts.encoder.clone()
     };
@@ -1662,7 +1690,11 @@ fn initial_attempt(opts: &CompressOptions) -> CompressionAttempt {
         encoder,
         video_bitrate_k: opts.video_bitrate_k.max(100),
         status: if opts.gif_mode {
-            "Creating GIF...".into()
+            if gif_output_format(opts) == "webp" {
+                "Creating animated WebP...".into()
+            } else {
+                "Creating GIF...".into()
+            }
         } else {
             "Compressing...".into()
         },
@@ -1759,9 +1791,13 @@ fn next_gif_attempt(
     (next_bitrate < current.video_bitrate_k).then(|| {
         (
             CompressionAttempt {
-                encoder: "gif".into(),
+                encoder: current.encoder.clone(),
                 video_bitrate_k: next_bitrate,
-                status: "Optimizing GIF to fit...".into(),
+                status: if current.encoder == "libwebp_anim" {
+                    "Optimizing WebP to fit...".into()
+                } else {
+                    "Optimizing GIF to fit...".into()
+                },
                 try_hardware_decode: false,
             },
             retry_count + 1,
@@ -2192,7 +2228,7 @@ async fn run_ffmpeg_attempt(
     attempt: &CompressionAttempt,
     context: FfmpegRunContext,
 ) -> Result<FfmpegRunResult, String> {
-    if !opts.gif_mode {
+    if !opts.gif_mode || gif_output_format(opts) == "webp" {
         return run_ffmpeg_pass(app, opts, attempt, context, None).await;
     }
 
@@ -2312,26 +2348,45 @@ async fn run_ffmpeg_pass(
         // Stream-copy arguments are complete above. Audio removal remains
         // compatible because `-an` drops audio streams without re-encoding.
     } else if opts.gif_mode {
-        match gif_pass {
-            Some(GifPass::Palette(_)) => cmd_args.extend([
-                "-vf".into(),
-                gif_palette_filter(opts, attempt),
-                "-frames:v".into(),
-                "1".into(),
-                "-an".into(),
-            ]),
-            Some(GifPass::Render(palette)) => cmd_args.extend([
-                "-i".into(),
-                palette.into(),
-                "-filter_complex".into(),
-                gif_filter(opts, attempt),
+        if gif_output_format(opts) == "webp" {
+            if gif_pass.is_some() {
+                return Err("WebP encoding does not use a palette pass.".into());
+            }
+            cmd_args.extend([
                 "-map".into(),
-                "[gif]".into(),
+                "0:v:0".into(),
+                "-vf".into(),
+                gif_visual_filter(opts, attempt).0,
+                "-c:v".into(),
+                "libwebp_anim".into(),
+                "-quality".into(),
+                webp_quality(opts, attempt).to_string(),
                 "-loop".into(),
                 "0".into(),
                 "-an".into(),
-            ]),
-            None => return Err("GIF encoding requires a palette pass.".into()),
+            ]);
+        } else {
+            match gif_pass {
+                Some(GifPass::Palette(_)) => cmd_args.extend([
+                    "-vf".into(),
+                    gif_palette_filter(opts, attempt),
+                    "-frames:v".into(),
+                    "1".into(),
+                    "-an".into(),
+                ]),
+                Some(GifPass::Render(palette)) => cmd_args.extend([
+                    "-i".into(),
+                    palette.into(),
+                    "-filter_complex".into(),
+                    gif_filter(opts, attempt),
+                    "-map".into(),
+                    "[gif]".into(),
+                    "-loop".into(),
+                    "0".into(),
+                    "-an".into(),
+                ]),
+                None => return Err("GIF encoding requires a palette pass.".into()),
+            }
         }
     } else {
         cmd_args.extend([
@@ -3602,6 +3657,9 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     if !valid_output_fps(opts.output_fps) {
         return Err("Invalid output FPS".to_string());
     }
+    if !valid_gif_output_format(opts.gif_mode, opts.gif_output_format.as_deref()) {
+        return Err("GIF output format must be gif or webp".to_string());
+    }
     if !valid_gif_fps(opts.gif_mode, opts.output_fps) {
         return Err("GIF FPS must be 15, 30, or 50".to_string());
     }
@@ -3734,7 +3792,8 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     {
         // Flatten the join error into the creation error so both failure
         // shapes share the single log arm below instead of duplicating it.
-        match tokio::task::spawn_blocking(|| TemporaryOutput::create("gif"))
+        let sample_extension = gif_output_extension(&opts).to_string();
+        match tokio::task::spawn_blocking(move || TemporaryOutput::create(&sample_extension))
             .await
             .map_err(|error| error.to_string())
             .and_then(|created| created)
@@ -4856,6 +4915,7 @@ mod tests {
             source_color_transfer: None,
             vaapi_device: None,
             gif_mode: false,
+            gif_output_format: None,
             lossless_trim: false,
             fallback_output_path: None,
             fallback_target_size_mb: None,

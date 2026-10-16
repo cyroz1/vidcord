@@ -10,6 +10,7 @@ import {
   buildGifArgs,
   buildGifPaletteArgs,
   buildLosslessArgs,
+  buildWebpArgs,
   createExportPlan,
   getFillBitrate,
   getRetryBitrate,
@@ -18,8 +19,13 @@ import {
   type ExportPlan,
 } from "./exportPlan";
 import { progressFromMediaTime } from "./browserProgress";
-import { isMobileDevice, type BrowserVideoMetadata } from "./webMedia";
+import {
+  isMobileDevice,
+  normalizeBrowserAudioTrackIndices,
+  type BrowserVideoMetadata,
+} from "./webMedia";
 import type { BrowserMode, BrowserSettings } from "./webSettings";
+import { gifOutputFormatLabel } from "../gifOutputFormat";
 
 const SIZE_SAMPLE_MIN_DURATION_SECONDS = 120;
 const SIZE_SAMPLE_DURATION_SECONDS = 4;
@@ -53,6 +59,7 @@ export type BrowserExportResult = {
 
 function extensionMimeType(extension: string): string {
   if (extension === "gif") return "image/gif";
+  if (extension === "webp") return "image/webp";
   if (extension === "mov") return "video/quicktime";
   if (extension === "webm") return "video/webm";
   if (extension === "mkv") return "video/x-matroska";
@@ -105,6 +112,7 @@ export async function exportBrowserFile({
   file,
   metadata,
   settings,
+  audioTrackSelection = null,
   mode,
   startTime,
   endTime,
@@ -115,13 +123,26 @@ export async function exportBrowserFile({
   file: File;
   metadata: BrowserVideoMetadata;
   settings: BrowserSettings;
+  audioTrackSelection?: readonly number[] | null;
   mode: BrowserMode;
   startTime: number;
   endTime: number;
   fileIndex?: number;
   onProgress?: ExportProgressHandler;
 }): Promise<BrowserExportResult> {
-  const plan = createExportPlan(metadata, settings, mode, startTime, endTime);
+  const selectedAudioTrackIndices = normalizeBrowserAudioTrackIndices(
+    audioTrackSelection,
+    metadata,
+    settings.removeAudio
+  );
+  const plan = createExportPlan(
+    metadata,
+    settings,
+    mode,
+    startTime,
+    endTime,
+    selectedAudioTrackIndices
+  );
   const baseName = outputFileName(file.name, plan.outputExtension, fileIndex);
   // Keep user-facing filenames out of FFmpeg's option parser and virtual FS.
   const encodedName = `output.${plan.outputExtension}`;
@@ -156,6 +177,34 @@ export async function exportBrowserFile({
       session
         ? session.run(argsForInput, progressHandler, logHandler)
         : engine.run(file, argsForInput, progressHandler, logHandler);
+    const buildAnimatedImageArgs = (
+      inputName: string,
+      outputName: string,
+      encodeSettings: BrowserSettings,
+      encodePlan: ExportPlan,
+      qualityBitrateKbps: number | null,
+      paletteName?: string
+    ) =>
+      encodeSettings.gifOutputFormat === "webp"
+        ? buildWebpArgs(
+            inputName,
+            outputName,
+            metadata,
+            encodeSettings,
+            encodePlan,
+            encodePlan.targetHeight ?? 480,
+            qualityBitrateKbps
+          )
+        : buildGifArgs(
+            inputName,
+            outputName,
+            metadata,
+            encodeSettings,
+            encodePlan,
+            encodePlan.targetHeight ?? 480,
+            qualityBitrateKbps,
+            paletteName
+          );
 
     if (mode === "lossless") {
       onProgress?.(0, "Encoding lossless trim…", { start: 0, end: 1 });
@@ -206,8 +255,8 @@ export async function exportBrowserFile({
     let lastOversizedBytes: Uint8Array<ArrayBuffer> | null = null;
 
     const shouldAnalyzeAudio =
-      settings.audioNormalize && !settings.removeAudio && metadata.hasAudio && mode !== "gif";
-    const canDropAudio = mode !== "gif" && !settings.removeAudio && metadata.hasAudio;
+      settings.audioNormalize && selectedAudioTrackIndices.length > 0 && mode !== "gif";
+    const canDropAudio = mode !== "gif" && selectedAudioTrackIndices.length > 0;
     const analysisEnd = shouldAnalyzeAudio ? 0.12 : 0;
     const preflightDuration =
       mode === "gif" ? GIF_SAMPLE_DURATION_SECONDS : SIZE_SAMPLE_DURATION_SECONDS;
@@ -223,7 +272,7 @@ export async function exportBrowserFile({
       onProgress?.(0, "Analyzing audio peak…", { start: 0, end: analysisEnd });
       try {
         const analysisLog = await runFile(
-          (inputName) => buildAudioPeakAnalysisArgs(inputName, plan),
+          (inputName) => buildAudioPeakAnalysisArgs(inputName, plan, selectedAudioTrackIndices),
           operationProgressHandler(
             onProgress,
             0,
@@ -253,7 +302,7 @@ export async function exportBrowserFile({
       };
       const preflightStart = analysisEnd;
       const preflightEnd = preflightStart + preflightSpan;
-      const sampleOutputName = mode === "gif" ? "size-sample.gif" : "size-sample.mp4";
+      const sampleOutputName = `size-sample.${plan.outputExtension}`;
       const sampleProgress = operationProgressHandler(
         onProgress,
         preflightStart,
@@ -270,7 +319,7 @@ export async function exportBrowserFile({
       let sizeAdjusted = false;
       try {
         let paletteName: string | undefined;
-        if (mode === "gif" && session?.prepareFile) {
+        if (mode === "gif" && settings.gifOutputFormat === "gif" && session?.prepareFile) {
           paletteName = "size-sample-palette.png";
           const paletteEnd = preflightStart + preflightSpan * 0.35;
           await session.prepareFile(
@@ -281,7 +330,7 @@ export async function exportBrowserFile({
               onProgress,
               preflightStart,
               paletteEnd,
-              "Estimating GIF size…",
+              `Estimating ${gifOutputFormatLabel(settings.gifOutputFormat)} size…`,
               sampleDuration,
               metadata.duration
             )
@@ -291,13 +340,11 @@ export async function exportBrowserFile({
         const sampleBytes = await transcodeFile(
           (inputName) =>
             mode === "gif"
-              ? buildGifArgs(
+              ? buildAnimatedImageArgs(
                   inputName,
                   sampleOutputName,
-                  metadata,
                   settings,
                   samplePlan,
-                  plan.targetHeight ?? 480,
                   bitrate,
                   paletteName
                 )
@@ -309,7 +356,8 @@ export async function exportBrowserFile({
                   samplePlan,
                   bitrate,
                   audioGainDb,
-                  preferFastEncode
+                  preferFastEncode,
+                  selectedAudioTrackIndices
                 ),
           sampleOutputName,
           sampleProgress
@@ -347,14 +395,15 @@ export async function exportBrowserFile({
       const attemptStart = analysisEnd + preflightSpan + (encodingSpan * attempt) / maximumAttempts;
       const attemptEnd =
         analysisEnd + preflightSpan + (encodingSpan * (attempt + 1)) / maximumAttempts;
+      const imageLabel = gifOutputFormatLabel(settings.gifOutputFormat);
       const encodingStatus =
-        mode === "gif" ? `Rendering GIF${attemptLabel}` : `Encoding${attemptLabel}`;
+        mode === "gif" ? `Rendering ${imageLabel}${attemptLabel}` : `Encoding${attemptLabel}`;
       onProgress?.(attemptStart, encodingStatus, { start: attemptStart, end: attemptEnd });
       const outputName = `${attempt}-${encodedName}`;
       let paletteName: string | undefined;
       let renderStart = attemptStart;
       const preparePalette = async () => {
-        if (mode !== "gif" || !session?.prepareFile) return;
+        if (mode !== "gif" || settings.gifOutputFormat !== "gif" || !session?.prepareFile) return;
         paletteName = `palette-${attempt}.png`;
         renderStart = attemptStart + (attemptEnd - attemptStart) * 0.4;
         // A separate palette pass avoids buffering the entire decoded clip
@@ -367,7 +416,7 @@ export async function exportBrowserFile({
             onProgress,
             attemptStart,
             renderStart,
-            `Building GIF palette${attemptLabel}`,
+            `Building ${imageLabel} palette${attemptLabel}`,
             plan.selectedDuration,
             metadata.duration
           )
@@ -378,13 +427,11 @@ export async function exportBrowserFile({
         transcodeFile(
           (inputName) =>
             mode === "gif"
-              ? buildGifArgs(
+              ? buildAnimatedImageArgs(
                   inputName,
                   outputName,
-                  metadata,
                   encodeSettings,
                   plan,
-                  plan.targetHeight ?? 480,
                   bitrate,
                   paletteName
                 )
@@ -396,7 +443,8 @@ export async function exportBrowserFile({
                   plan,
                   bitrate,
                   gainDb,
-                  preferFastEncode
+                  preferFastEncode,
+                  selectedAudioTrackIndices
                 ),
           outputName,
           operationProgressHandler(

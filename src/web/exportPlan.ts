@@ -1,6 +1,7 @@
 import { getCroppedDimensions } from "../videoMetadata";
 import { GIF_PRESETS, normalizeGifTarget } from "../gifPresets";
-import type { BrowserVideoMetadata } from "./webMedia";
+import { gifOutputFormatLabel, normalizeGifOutputFormat } from "../gifOutputFormat";
+import { normalizeBrowserAudioTrackIndices, type BrowserVideoMetadata } from "./webMedia";
 import { normalizeBrowserFps, type BrowserMode, type BrowserSettings } from "./webSettings";
 
 export { GIF_PRESETS } from "../gifPresets";
@@ -26,7 +27,7 @@ const VIDEO_METADATA_COMMENT = "Compressed with vidcord - vidcord.app";
 
 export type ExportPlan = {
   mode: BrowserMode;
-  outputExtension: "mp4" | "gif" | "mov" | "mkv" | "webm";
+  outputExtension: "mp4" | "gif" | "webp" | "mov" | "mkv" | "webm";
   targetSizeMb: number | null;
   targetHeight: number | null;
   bitrateKbps: number | null;
@@ -108,7 +109,8 @@ export function createExportPlan(
   settings: BrowserSettings,
   mode: BrowserMode,
   startTime: number,
-  endTime: number
+  endTime: number,
+  audioTrackSelection: readonly number[] | null = null
 ): ExportPlan {
   const range = selectedRange(startTime, endTime, metadata.duration);
   const duration = Math.max(0.1, range.endTime - range.startTime);
@@ -143,9 +145,10 @@ export function createExportPlan(
       GIF_PRESETS.find(
         (candidate) => candidate.sizeMb === normalizeGifTarget(settings.gifTargetMb)
       ) ?? GIF_PRESETS[0];
+    const outputFormat = normalizeGifOutputFormat(settings.gifOutputFormat);
     return {
       mode,
-      outputExtension: "gif",
+      outputExtension: outputFormat,
       targetSizeMb: preset.sizeMb,
       targetHeight: preset.targetHeight,
       bitrateKbps: targetBitrateKbps(preset.sizeMb, duration, true, 0),
@@ -153,7 +156,7 @@ export function createExportPlan(
       startTime: range.startTime,
       endTime: range.endTime,
       selectedDuration: duration,
-      summary: `GIF · ${formatTargetSize(preset.sizeMb)} · ${formatCrop(settings.crop)} · ${settings.gifFps} fps`,
+      summary: `${gifOutputFormatLabel(outputFormat)} · ${formatTargetSize(preset.sizeMb)} · ${formatCrop(settings.crop)} · ${settings.gifFps} fps`,
     };
   }
 
@@ -168,10 +171,11 @@ export function createExportPlan(
     ? resolutionToHeight(settings.resolution)
     : (QUALITY_PRESETS[settings.qualityIndex] ?? QUALITY_PRESETS[0]).targetHeight;
   const exportFps = getExportFps(metadata, settings, mode);
-  // Browser exports intentionally keep only the first source audio stream.
-  // Size planning must reserve bitrate for what the output actually maps,
-  // rather than for every track a browser may report.
-  const outputAudioTrackCount = metadata.hasAudio && !settings.removeAudio ? 1 : 0;
+  const outputAudioTrackCount = normalizeBrowserAudioTrackIndices(
+    audioTrackSelection,
+    metadata,
+    settings.removeAudio
+  ).length;
   const bitrateKbps =
     targetSizeMb === null
       ? Number.isFinite(sourceBitrateKbps) && sourceBitrateKbps > 0
@@ -324,7 +328,11 @@ export function parsePeakNormalizationGain(log: string): number | null {
   return Math.abs(gainDb) < 0.000001 ? 0 : gainDb;
 }
 
-export function buildAudioPeakAnalysisArgs(inputName: string, plan: ExportPlan): string[] {
+export function buildAudioPeakAnalysisArgs(
+  inputName: string,
+  plan: ExportPlan,
+  audioTrackIndices: readonly number[] = [0]
+): string[] {
   // Re-encoded browser passes open the source before applying the selected range.
   // Input-side seeking can hand the AV1 decoder a packet without its sequence header.
   return [
@@ -337,8 +345,7 @@ export function buildAudioPeakAnalysisArgs(inputName: string, plan: ExportPlan):
     "-vn",
     "-sn",
     "-dn",
-    "-map",
-    "0:a:0?",
+    ...audioTrackIndices.flatMap((index) => ["-map", `0:a:${index}?`]),
     "-af",
     "volumedetect",
     "-f",
@@ -355,7 +362,8 @@ export function buildCompressionArgs(
   plan: ExportPlan,
   bitrateKbps: number | null,
   audioGainDb: number | null = null,
-  isMobile = false
+  isMobile = false,
+  audioTrackSelection: readonly number[] | null = null
 ): string[] {
   const args = [
     "-i",
@@ -374,7 +382,14 @@ export function buildCompressionArgs(
   // veryfast needs several minutes per minute of video on a phone CPU.
   // superfast roughly halves that at a modest efficiency cost, which the
   // target-size bitrate controller absorbs. Desktops keep veryfast quality.
-  args.push("-c:v", "libx264", "-preset", isMobile ? "superfast" : "veryfast", "-pix_fmt", "yuv420p");
+  args.push(
+    "-c:v",
+    "libx264",
+    "-preset",
+    isMobile ? "superfast" : "veryfast",
+    "-pix_fmt",
+    "yuv420p"
+  );
   if (bitrateKbps !== null) {
     args.push("-b:v", `${bitrateKbps}k`);
     if (plan.targetSizeMb !== null) {
@@ -383,10 +398,18 @@ export function buildCompressionArgs(
   } else {
     args.push("-crf", "23");
   }
-  if (settings.removeAudio || !metadata.hasAudio) {
+  const selectedAudioTrackIndices = normalizeBrowserAudioTrackIndices(
+    audioTrackSelection,
+    metadata,
+    settings.removeAudio
+  );
+  if (selectedAudioTrackIndices.length === 0) {
     args.push("-an");
   } else {
-    args.push("-map", "0:a:0?", "-c:a", "aac", "-b:a", "128k");
+    for (const index of selectedAudioTrackIndices) {
+      args.push("-map", `0:a:${index}?`);
+    }
+    args.push("-c:a", "aac", "-b:a", "128k");
     if (settings.audioNormalize) {
       args.push(
         "-af",
@@ -410,7 +433,7 @@ function gifFilters(
   plan: ExportPlan,
   targetHeight: number,
   qualityBitrateKbps: number | null = plan.bitrateKbps
-): { visual: string; colors: number } {
+): { visual: string; colors: number; webpQuality: number } {
   const initialBitrate = Math.max(plan.bitrateKbps ?? 100, 1);
   const retryQuality = Math.sqrt(
     Math.max(0.04, Math.min(1, (qualityBitrateKbps ?? initialBitrate) / initialBitrate))
@@ -424,7 +447,11 @@ function gifFilters(
     `fps=${fps}`,
     gifScaleFilter(metadata, settings.crop, targetHeight, dimensionScale),
   ].filter((value): value is string => Boolean(value));
-  return { visual: visualFilters.join(","), colors };
+  return {
+    visual: visualFilters.join(","),
+    colors,
+    webpQuality: Math.max(20, Math.round(78 * retryQuality)),
+  };
 }
 
 export function buildGifPaletteArgs(
@@ -454,6 +481,46 @@ export function buildGifPaletteArgs(
     "-frames:v",
     "1",
     paletteName,
+  ];
+}
+
+export function buildWebpArgs(
+  inputName: string,
+  outputName: string,
+  metadata: BrowserVideoMetadata,
+  settings: BrowserSettings,
+  plan: ExportPlan,
+  targetHeight: number,
+  qualityBitrateKbps: number | null = plan.bitrateKbps
+): string[] {
+  const { visual, webpQuality } = gifFilters(
+    metadata,
+    settings,
+    plan,
+    targetHeight,
+    qualityBitrateKbps
+  );
+  return [
+    "-i",
+    inputName,
+    "-ss",
+    plan.startTime.toFixed(3),
+    "-t",
+    plan.selectedDuration.toFixed(3),
+    "-vf",
+    visual,
+    "-map",
+    "0:v:0",
+    "-an",
+    "-c:v",
+    "libwebp_anim",
+    "-quality",
+    String(webpQuality),
+    "-loop",
+    "0",
+    "-metadata",
+    `comment=${VIDEO_METADATA_COMMENT}`,
+    outputName,
   ];
 }
 

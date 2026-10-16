@@ -1,4 +1,5 @@
 import { migrateLegacyGifQualityIndex, normalizeGifTarget, type GifTargetMb } from "../gifPresets";
+import { normalizeGifOutputFormat, type GifOutputFormat } from "../gifOutputFormat";
 
 export type BrowserMode = "compress" | "advanced" | "lossless" | "gif";
 
@@ -6,6 +7,7 @@ export type BrowserSettings = {
   mode: BrowserMode;
   qualityIndex: number;
   gifTargetMb: GifTargetMb;
+  gifOutputFormat: GifOutputFormat;
   gifFps: number;
   advancedTargetSize: string;
   resolution: string;
@@ -28,6 +30,7 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   mode: "compress",
   qualityIndex: 0,
   gifTargetMb: 5,
+  gifOutputFormat: "gif",
   gifFps: 15,
   advancedTargetSize: "",
   resolution: "Native",
@@ -100,6 +103,7 @@ export function normalizeBrowserSettings(value: unknown): BrowserSettings {
     mode: normalizeMode(record.mode),
     qualityIndex,
     gifTargetMb,
+    gifOutputFormat: normalizeGifOutputFormat(record.gifOutputFormat),
     gifFps,
     advancedTargetSize:
       typeof record.advancedTargetSize === "string" ? record.advancedTargetSize.slice(0, 12) : "",

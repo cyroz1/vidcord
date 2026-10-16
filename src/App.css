@@ -1375,11 +1375,18 @@ select optgroup {
 }
 
 .audio-track-popup-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   margin-top: 7px;
   padding-top: 7px;
   border-top: 1px solid var(--border-subtle);
   font-variant-numeric: tabular-nums;
   line-height: 1.35;
+}
+
+.audio-track-preview-note {
+  color: var(--text-secondary);
 }
 
 .encoder-ghost {
@@ -2298,6 +2305,7 @@ select optgroup {
 }
 
 .gif-settings-row .target-label,
+.gif-settings-row .gif-format-label,
 .gif-settings-row .gif-fps-label,
 .gif-settings-row .gif-crop-label {
   flex: 1 1 0;

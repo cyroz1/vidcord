@@ -447,7 +447,7 @@
 }
 
 .web-gif-grid {
-  grid-template-columns: minmax(0, 1.15fr) 68px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) 68px minmax(0, 1fr);
   align-items: end;
   gap: 6px;
 }
@@ -457,6 +457,51 @@
   align-items: flex-end;
   gap: 6px;
   min-height: 32px;
+}
+
+.web-audio-track-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  min-width: 0;
+  margin: 7px 0 0;
+  padding: 5px 8px 6px;
+  border: 1px solid var(--web-border);
+  border-radius: 7px;
+  color: var(--web-muted);
+  font-size: 11px;
+}
+
+.web-audio-track-picker legend {
+  padding: 0 4px;
+  color: var(--web-muted);
+  font-weight: 600;
+}
+
+.web-audio-track-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+}
+
+.web-audio-track-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  color: var(--web-text);
+  cursor: pointer;
+}
+
+.web-audio-track-option input {
+  margin: 0;
+  accent-color: var(--web-accent);
+}
+
+.web-audio-track-picker small {
+  color: var(--web-muted);
+  font-size: 10px;
 }
 
 .web-audio-button {
@@ -2699,12 +2744,18 @@
 }
 
 .web-editor-column .web-gif-grid {
-  grid-template-columns: minmax(0, 1fr) 76px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) 76px minmax(0, 1fr);
 }
 
-.web-editor-column .web-gif-grid .web-field:nth-child(2) select {
+.web-editor-column .web-gif-grid .web-field:nth-child(3) select {
   padding-right: 16px;
   padding-left: 8px;
+}
+
+.web-editor-column .web-audio-track-picker {
+  border-color: var(--web-border);
+  background: var(--web-surface);
+  font-size: 11px;
 }
 
 .web-editor-column .web-field {

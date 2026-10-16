@@ -18,6 +18,8 @@ import {
   formatVideoDuration,
 } from "../videoMetadata";
 import { normalizeLosslessKeyframes, snapLosslessTrimRange } from "../losslessTrim";
+import { applyPreviewAudioTrackSelection } from "../audioTracks";
+import { GIF_OUTPUT_FORMATS, gifOutputFormatLabel } from "../gifOutputFormat";
 import { moveQueueItem, reorderQueueItem } from "../queueReordering";
 import WebTrimTimeline from "./WebTrimTimeline";
 import {
@@ -48,6 +50,7 @@ import {
   isBrowserFileSizeSupported,
   isVideoFile,
   MAX_BROWSER_INPUT_LABEL,
+  normalizeBrowserAudioTrackIndices,
   readVideoMetadata,
   tryCopyBlobToClipboard,
   VIDEO_FILE_ACCEPT,
@@ -300,6 +303,7 @@ export default function WebEditor({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewFrameReady, setPreviewFrameReady] = useState(false);
   const [metadata, setMetadata] = useState<BrowserVideoMetadata | null>(null);
+  const [audioTrackSelection, setAudioTrackSelection] = useState<number[] | null>(null);
   const [metadataLoading, setMetadataLoading] = useState(false);
   const [startTime, setStartTime] = useState(0);
   const [endTime, setEndTime] = useState(0);
@@ -346,7 +350,16 @@ export default function WebEditor({
   const batchMode = files.length > 1;
   const activeMode: BrowserMode | "batch" = batchMode ? "batch" : settings.mode;
   const exportMode = effectiveBrowserExportMode(activeMode);
+  const selectedAudioTrackIndices = useMemo(
+    () => (metadata ? normalizeBrowserAudioTrackIndices(audioTrackSelection, metadata) : []),
+    [audioTrackSelection, metadata]
+  );
+  const previewAudioTrackIndices = useMemo(
+    () => (settings.removeAudio ? [] : selectedAudioTrackIndices),
+    [selectedAudioTrackIndices, settings.removeAudio]
+  );
   const duration = metadata?.duration ?? 0;
+  const browserAudioTracks = metadata?.audioTracks ?? [];
   const cropOptions = useMemo(
     () =>
       getAvailableCropOptions(
@@ -362,9 +375,16 @@ export default function WebEditor({
   const plan = useMemo<ExportPlan | null>(
     () =>
       metadata
-        ? createExportPlan(metadata, settings, exportMode, startTime, endTime || metadata.duration)
+        ? createExportPlan(
+            metadata,
+            settings,
+            exportMode,
+            startTime,
+            endTime || metadata.duration,
+            selectedAudioTrackIndices
+          )
         : null,
-    [endTime, exportMode, metadata, settings, startTime]
+    [endTime, exportMode, metadata, selectedAudioTrackIndices, settings, startTime]
   );
   const selectedQuality = QUALITY_PRESETS[settings.qualityIndex] ?? QUALITY_PRESETS[0];
   const estimatedBrowserOutputBytes = batchMode
@@ -373,7 +393,7 @@ export default function WebEditor({
       ? 0
       : activeMode === "lossless" || plan.bitrateKbps === null
         ? metadata.sizeBytes * (plan.selectedDuration / Math.max(metadata.duration, 0.1))
-        : (plan.bitrateKbps + (metadata.hasAudio && !settings.removeAudio ? 128 : 0)) *
+        : (plan.bitrateKbps + (settings.removeAudio ? 0 : 128 * selectedAudioTrackIndices.length)) *
           125 *
           plan.selectedDuration *
           SIZE_SAMPLE_SAFETY_MARGIN;
@@ -443,6 +463,14 @@ export default function WebEditor({
     const timeout = window.setTimeout(() => saveBrowserSettings(settings), 250);
     return () => window.clearTimeout(timeout);
   }, [settings]);
+
+  useEffect(() => {
+    setAudioTrackSelection(null);
+  }, [activeFile]);
+
+  useEffect(() => {
+    applyPreviewAudioTrackSelection(videoRef.current, previewAudioTrackIndices);
+  }, [previewAudioTrackIndices]);
 
   useEffect(() => {
     if (!notice) return;
@@ -1172,6 +1200,7 @@ export default function WebEditor({
               file,
               metadata: fileMetadata,
               settings: exportSettings,
+              audioTrackSelection: batchMode ? null : selectedAudioTrackIndices,
               mode: exportMode,
               startTime: fileStart,
               endTime: fileEnd,
@@ -1318,6 +1347,7 @@ export default function WebEditor({
       losslessKeyframesLoading,
       estimatedBrowserOutputBytes,
       metadata,
+      selectedAudioTrackIndices,
       queueItems,
       queueStatuses,
       readCachedMetadata,
@@ -1387,7 +1417,7 @@ export default function WebEditor({
   const actionLabel = batchMode
     ? `Export ${files.length} videos`
     : activeMode === "gif"
-      ? "Create GIF"
+      ? `Create ${gifOutputFormatLabel(settings.gifOutputFormat)}`
       : activeMode === "lossless"
         ? "Trim without re-encoding"
         : plan?.targetSizeMb
@@ -1668,8 +1698,55 @@ export default function WebEditor({
                 </div>
               )}
 
+              {activeMode === "advanced" && browserAudioTracks.length > 1 && (
+                <fieldset className="web-audio-track-picker" disabled={isExporting}>
+                  <legend>Audio tracks</legend>
+                  <div className="web-audio-track-options">
+                    {browserAudioTracks.map((track) => (
+                      <label className="web-audio-track-option" key={track.index}>
+                        <input
+                          type="checkbox"
+                          checked={selectedAudioTrackIndices.includes(track.index)}
+                          onChange={(event) => {
+                            const selected = new Set(selectedAudioTrackIndices);
+                            if (event.target.checked) selected.add(track.index);
+                            else selected.delete(track.index);
+                            setAudioTrackSelection(
+                              browserAudioTracks
+                                .map((availableTrack) => availableTrack.index)
+                                .filter((index) => selected.has(index))
+                            );
+                            resetExportFeedback();
+                          }}
+                        />
+                        <span>{track.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <small>Preview plays the first selected track.</small>
+                </fieldset>
+              )}
+
               {activeMode === "gif" && (
                 <div className="web-settings-grid web-gif-grid">
+                  <label className="web-field">
+                    <span>Output format</span>
+                    <select
+                      value={settings.gifOutputFormat}
+                      disabled={isExporting}
+                      onChange={(event) =>
+                        patchSettings({
+                          gifOutputFormat: event.target.value === "webp" ? "webp" : "gif",
+                        })
+                      }
+                    >
+                      {GIF_OUTPUT_FORMATS.map((format) => (
+                        <option value={format.value} key={format.value}>
+                          {format.label} (.{format.extension})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <label className="web-field">
                     <span>Target size</span>
                     <select
@@ -1906,7 +1983,7 @@ export default function WebEditor({
                           <video
                             ref={videoRef}
                             src={previewUrl}
-                            muted={settings.removeAudio}
+                            muted={settings.removeAudio || previewAudioTrackIndices.length === 0}
                             playsInline
                             preload="metadata"
                             onTimeUpdate={handleVideoTimeUpdate}
@@ -1918,11 +1995,19 @@ export default function WebEditor({
                             }}
                             onLoadedData={(event) => {
                               applyPendingPreviewSeek(event.currentTarget);
+                              applyPreviewAudioTrackSelection(
+                                event.currentTarget,
+                                previewAudioTrackIndices
+                              );
                               syncPreviewFrameReady(event.currentTarget);
                               if (!previewPlaying) capturePausedPreviewFrame();
                             }}
                             onCanPlay={(event) => {
                               applyPendingPreviewSeek(event.currentTarget);
+                              applyPreviewAudioTrackSelection(
+                                event.currentTarget,
+                                previewAudioTrackIndices
+                              );
                               syncPreviewFrameReady(event.currentTarget);
                             }}
                             onEmptied={() => setPreviewFrameReady(false)}
@@ -1941,6 +2026,10 @@ export default function WebEditor({
                             }}
                             onLoadedMetadata={(event) => {
                               applyPendingPreviewSeek(event.currentTarget);
+                              applyPreviewAudioTrackSelection(
+                                event.currentTarget,
+                                previewAudioTrackIndices
+                              );
                               if (!metadata && Number.isFinite(event.currentTarget.duration)) {
                                 setEndTime(event.currentTarget.duration);
                               }
