@@ -178,10 +178,10 @@ and retry oversized results with safer bitrates and CPU fallback.
   in Advanced mode; each selected track is encoded at 128 kbps and included in
   the video bitrate budget. Browser input track selection is limited by browser
   media APIs and uses the first audio stream for re-encoded exports.
-- **Frame snapshots** — save the current frame as a PNG with the preview overlay. Desktop
-  snapshots are capped at 1920 pixels on the longest side and follow the configured output
-  destination, completion action, and separate close-app setting; browser snapshots download
-  through the browser.
+- **Frame snapshots** — save the current frame as a full-resolution PNG with the preview overlay.
+  Desktop snapshots preserve the pixel dimensions of the selected frame or crop and follow the
+  configured output destination, completion action, and separate close-app setting; browser
+  snapshots download through the browser.
 - **Output FPS controls** — standard mode can leave FPS unchanged or cap it
   at 24, 30, or 60 FPS. The desktop app hides choices at or above the FFprobe
   frame rate when they would be redundant. The browser applies the same

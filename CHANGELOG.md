@@ -13,8 +13,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   videos retain the correct orientation and output dimensions.
 - Dragging the trim handles during playback no longer stops the preview or drops the current
   frame.
-- PNG snapshots are capped at 1920 pixels on the longest side, keeping snapshot files and memory
-  use bounded on high-resolution sources.
+- PNG snapshots preserve the full pixel resolution of the selected frame or crop while capturing
+  directly from the native preview.
 - Preview playback now works for videos selected through file symlinks.
 - Fixed Linux previews failing after many videos had been opened in one session.
 - Fixed the preview pane getting stuck when an initial playback source fails and a fallback
