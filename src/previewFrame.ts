@@ -1,5 +1,7 @@
 import { getCenteredCropRect } from "./videoMetadata";
 
+const MAX_SNAPSHOT_SIDE_PX = 1920;
+
 /** Capture the currently decoded video frame at preview size for a pause overlay. */
 export function capturePreviewFrameDataUrl(video: HTMLVideoElement): string | null {
   const { videoWidth: width, videoHeight: height } = video;
@@ -29,9 +31,12 @@ export async function capturePreviewFramePng(
   await waitForPreviewFrame(video);
 
   const crop = getCenteredCropRect(video.videoWidth, video.videoHeight, cropAspectRatio);
+  const scale = Math.min(1, MAX_SNAPSHOT_SIDE_PX / Math.max(crop.width, crop.height));
+  const outputWidth = Math.max(1, Math.round(crop.width * scale));
+  const outputHeight = Math.max(1, Math.round(crop.height * scale));
   const canvas = document.createElement("canvas");
-  canvas.width = crop.width;
-  canvas.height = crop.height;
+  canvas.width = outputWidth;
+  canvas.height = outputHeight;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("The app could not create a snapshot canvas.");
 
@@ -45,8 +50,8 @@ export async function capturePreviewFramePng(
       crop.height,
       0,
       0,
-      crop.width,
-      crop.height
+      outputWidth,
+      outputHeight
     );
     blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
   } catch {
