@@ -1,0 +1,50 @@
+name: Swift App
+
+# Builds the native Swift port (swift/) into Vidcord.app and uploads
+# it as the run's single artifact. Scoped to the swift-port branch and
+# to the swift/ tree so it never interacts with the Tauri app's
+# build.yml pipeline. The app is ad hoc signed and not notarized,
+# matching an experimental build. (A DMG can still be made locally
+# with swift/Scripts/make-dmg.sh; CI deliberately does not make one.)
+
+on:
+  push:
+    branches: [swift-port]
+    paths:
+      - "swift/**"
+      - ".github/workflows/swift-app.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: swift-app-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-app:
+    name: Build Vidcord (Swift)
+    runs-on: macos-15
+    steps:
+      - name: Check out the branch
+        uses: actions/checkout@v4
+
+      - name: Show the toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Run the Swift package tests
+        run: swift test --package-path swift
+
+      - name: Build the app bundle
+        run: swift/Scripts/make-dmg.sh --app-only
+
+      - name: Upload the app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vidcord-app
+          path: swift/.build/Vidcord.app
+          if-no-files-found: error
+          retention-days: 7

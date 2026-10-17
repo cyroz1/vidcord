@@ -68,19 +68,22 @@ swift run Vidcord      # launch the app
 
 Or open `Package.swift` in Xcode and run the Vidcord scheme.
 
-## The DMG
+## The app bundle, and the DMG
 
 ```sh
-swift/Scripts/make-dmg.sh
+swift/Scripts/make-dmg.sh              # app + DMG
+swift/Scripts/make-dmg.sh --app-only   # just the app
 ```
 
-builds the release executable, assembles `.build/Vidcord.app`
-(ad hoc signed, no Developer ID, no notarization) and packages
-`.build/Vidcord-Swift.dmg` with an Applications shortcut and the
-image's SHA-256 printed. The `Swift DMG` GitHub Actions workflow
-(`.github/workflows/swift-dmg.yml`) runs the tests and this script
-on macos-15 for pushes to `swift-port` that touch `swift/**`, and
-uploads the DMG as a build artifact kept for 7 days.
+builds the release executable and assembles `.build/Vidcord.app`
+(ad hoc signed, no Developer ID, no notarization). Without
+`--app-only` it also packages `.build/Vidcord-Swift.dmg` with an
+Applications shortcut and the image's SHA-256 printed. The
+`Swift App` GitHub Actions workflow
+(`.github/workflows/swift-app.yml`) runs the tests and the
+`--app-only` build on macos-15 for pushes to `swift-port` that touch
+`swift/**`, and uploads exactly one artifact, the `Vidcord.app`
+bundle, kept for 7 days.
 
 ## Scope of this first cut
 

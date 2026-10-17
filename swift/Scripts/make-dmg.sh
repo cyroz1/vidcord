@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Build the Swift port into a Vidcord.app and a drag-to-install DMG.
 #
-#   Scripts/make-dmg.sh [--skip-build]
+#   Scripts/make-dmg.sh [--skip-build] [--app-only]
+#
+# --app-only stops after the signed app bundle: no DMG is made. That is
+# the mode CI uses, so the workflow's one artifact is the .app itself.
 #
 # Products land in .build/ next to the package:
 #   .build/Vidcord.app        the app bundle (ad hoc signed)
@@ -17,9 +20,11 @@ cd "$(dirname "$0")/.."
 
 CONFIG=release
 SKIP_BUILD=0
+APP_ONLY=0
 for arg in "$@"; do
   case "$arg" in
     --skip-build) SKIP_BUILD=1 ;;
+    --app-only) APP_ONLY=1 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -72,6 +77,11 @@ PLIST
 # Ad hoc sign the bundle so macOS will run it locally and in CI.
 codesign --force --sign - "$APP"
 codesign --verify --strict "$APP"
+
+if [ "$APP_ONLY" -eq 1 ]; then
+  echo "app: $APP"
+  exit 0
+fi
 
 DMG=".build/Vidcord-Swift.dmg"
 STAGE="$(mktemp -d)"
