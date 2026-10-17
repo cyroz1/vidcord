@@ -114,7 +114,7 @@ public enum LosslessTrim {
         try? FileManager.default.removeItem(at: outputURL)
         let ticker = Task {
             while !Task.isCancelled {
-                progress(session.progress)
+                progress(Double(session.progress))
                 if token.isCancelled { session.cancelExport() }
                 try? await Task.sleep(for: .milliseconds(120))
             }
