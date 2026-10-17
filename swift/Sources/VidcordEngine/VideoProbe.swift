@@ -38,9 +38,23 @@ public enum VideoProbe {
 
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
         var audioKbps: Int?
-        if let audio = audioTracks.first {
+        var trackInfos: [AudioTrackInfo] = []
+        for (index, audio) in audioTracks.enumerated() {
             let rate = try await audio.load(.estimatedDataRate)
-            if rate > 0 { audioKbps = Int(rate / 1000) }
+            let kbps = rate > 0 ? Int(rate / 1000) : nil
+            if index == 0 { audioKbps = kbps }
+            var label = "Track \(index + 1)"
+            var parts: [String] = []
+            let language = (try? await audio.load(.languageCode)) ?? nil
+            if let language { parts.append(language) }
+            if let description = try await audio.load(.formatDescriptions).first {
+                let subtype = CMFormatDescriptionGetMediaSubType(description)
+                let fourCC = Self.fourCC(subtype)
+                if !fourCC.isEmpty { parts.append(fourCC) }
+            }
+            if !parts.isEmpty { label += " (" + parts.joined(separator: ", ") + ")" }
+            if let kbps { label += " · \(kbps) kbps" }
+            trackInfos.append(AudioTrackInfo(index: index, label: label, bitrateKbps: kbps))
         }
 
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
@@ -56,7 +70,20 @@ public enum VideoProbe {
             frameRate: frameRate,
             sourceBitrateKbps: averageKbps,
             hasAudio: !audioTracks.isEmpty,
-            audioBitrateKbps: audioKbps
+            audioBitrateKbps: audioKbps,
+            audioTracks: trackInfos
         )
+    }
+
+    /// A FourCC media subtype as text ("aac ", "mp4a" and friends are
+    /// not all printable, so non-printable bytes are dropped).
+    private static func fourCC(_ subtype: FourCharCode) -> String {
+        let bytes: [UInt8] = [
+            UInt8((subtype >> 24) & 0xFF), UInt8((subtype >> 16) & 0xFF),
+            UInt8((subtype >> 8) & 0xFF), UInt8(subtype & 0xFF),
+        ]
+        let printable = bytes.filter { $0 >= 0x20 && $0 < 0x7F }
+        return String(bytes: printable, encoding: .ascii)?.trimmingCharacters(
+            in: .whitespaces) ?? ""
     }
 }

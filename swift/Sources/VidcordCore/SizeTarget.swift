@@ -199,4 +199,39 @@ public enum SizeTarget {
         let evenHeight = maxHeight - maxHeight % 2
         return (max(evenWidth, 2), max(evenHeight, 2))
     }
+
+    /// The centered crop rectangle (in source pixels, even dimensions)
+    /// that gives a source the requested aspect. The full frame when the
+    /// aspect is the source's own or already matches.
+    public static func cropRect(
+        sourceWidth: Int, sourceHeight: Int, aspect: CropAspect
+    ) -> (x: Int, y: Int, width: Int, height: Int) {
+        guard let ratio = aspect.ratio, sourceWidth > 0, sourceHeight > 0 else {
+            return (0, 0, sourceWidth, sourceHeight)
+        }
+        let sourceRatio = Double(sourceWidth) / Double(sourceHeight)
+        var width = sourceWidth
+        var height = sourceHeight
+        if sourceRatio > ratio {
+            width = Int((Double(sourceHeight) * ratio).rounded())
+        } else {
+            height = Int((Double(sourceWidth) / ratio).rounded())
+        }
+        width -= width % 2
+        height -= height % 2
+        width = max(width, 2)
+        height = max(height, 2)
+        return ((sourceWidth - width) / 2, (sourceHeight - height) / 2, width, height)
+    }
+
+    /// Output dimensions after crop, then the max-height cap: crop
+    /// first, scale second, exactly the desktop app's filter order.
+    public static func outputSize(
+        sourceWidth: Int, sourceHeight: Int, cropAspect: CropAspect, maxHeight: Int
+    ) -> (width: Int, height: Int) {
+        let crop = cropRect(
+            sourceWidth: sourceWidth, sourceHeight: sourceHeight, aspect: cropAspect)
+        return scaledSize(
+            sourceWidth: crop.width, sourceHeight: crop.height, maxHeight: maxHeight)
+    }
 }

@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import CoreMedia
 import CoreVideo
 import Foundation
@@ -43,16 +44,17 @@ public final class CancellationToken: @unchecked Sendable {
 }
 
 /// The compression engine: an imperative shell around the pure
-/// `SizeTarget` policy, the same layering Sill uses. AVAssetReader feeds
-/// decoded frames straight into an AVAssetWriter (VideoToolbox does the
-/// encode in hardware); nothing is held in memory beyond the frame in
-/// flight, and no FFmpeg or other third-party code is involved.
+/// `SizeTarget` policy, the same layering Sill uses. AVAssetReader
+/// feeds decoded frames into an AVAssetWriter (VideoToolbox encodes in
+/// hardware); frames are cropped and scaled on the GPU through
+/// CoreImage into the writer's own buffers, so nothing is held in
+/// memory beyond the frame in flight. No FFmpeg, no third-party code.
 ///
 /// The job loop mirrors the 7.7 Rust pipeline: an optional mid-clip
-/// preflight sample turns into the first bitrate, each encode is judged
-/// against the target, oversize retries step the bitrate down and
-/// underfill retries step it up (bounded per codec), and when a codec
-/// phase cannot land the size the other codec gets its own phase.
+/// preflight sample turns into the first bitrate, each encode is
+/// judged against the target, oversize retries step the bitrate down
+/// and underfill retries step it up (bounded per codec), and when a
+/// codec phase cannot land the size the other codec gets its phase.
 public struct Compressor {
     public init() {}
 
@@ -71,44 +73,77 @@ public struct Compressor {
             0.1, min(request.rangeDurationSeconds ?? (info.durationSeconds - clipStart),
                      info.durationSeconds - clipStart))
 
-        // Audio allocation: the source's own rate when known, capped at
-        // 160 kbps, stepping down (and finally off) when the budget is so
-        // tight the video would fall to the bitrate floor.
-        var audioKbps: Int? =
-            (request.keepAudio && info.hasAudio)
-            ? min(max(info.audioBitrateKbps ?? 128, 32), 160) : nil
+        // Which audio tracks ride along: the request's selection, or
+        // the first track by default, or none.
+        let selectedTracks: [AudioTrackInfo]
+        if !request.keepAudio {
+            selectedTracks = []
+        } else if let indices = request.audioTrackIndices {
+            selectedTracks = info.audioTracks.filter { indices.contains($0.index) }
+        } else {
+            selectedTracks = Array(info.audioTracks.prefix(1))
+        }
+
+        // Audio allocation: each track at its own rate when known,
+        // capped at 160 kbps. On a tight budget the per-track rate steps
+        // down (128, 96, 64, 48), and audio is dropped entirely before
+        // the video is allowed to hit the bitrate floor.
+        var perTrackKbps = selectedTracks.map { min(max($0.bitrateKbps ?? 128, 32), 160) }
+        func totalAudioKbps() -> Int { perTrackKbps.reduce(0, +) }
         var firstBitrate: Int
         if let target = request.targetBytes {
             firstBitrate = SizeTarget.initialVideoBitrateKbps(
                 targetBytes: target, durationSeconds: clipDuration,
-                audioBitrateKbps: audioKbps ?? 0)
-            for fallbackAudio in [96, 64, 48] where firstBitrate <= SizeTarget.minimumBitrateKbps
-                && (audioKbps ?? 0) > fallbackAudio {
-                audioKbps = fallbackAudio
+                audioBitrateKbps: totalAudioKbps())
+            for fallback in [128, 96, 64, 48]
+            where firstBitrate <= SizeTarget.minimumBitrateKbps && !perTrackKbps.isEmpty {
+                perTrackKbps = perTrackKbps.map { min($0, fallback) }
                 firstBitrate = SizeTarget.initialVideoBitrateKbps(
                     targetBytes: target, durationSeconds: clipDuration,
-                    audioBitrateKbps: fallbackAudio)
+                    audioBitrateKbps: totalAudioKbps())
             }
-            if firstBitrate <= SizeTarget.minimumBitrateKbps, audioKbps != nil {
-                audioKbps = nil
+            if firstBitrate <= SizeTarget.minimumBitrateKbps, !perTrackKbps.isEmpty {
+                perTrackKbps = []
                 firstBitrate = SizeTarget.initialVideoBitrateKbps(
                     targetBytes: target, durationSeconds: clipDuration, audioBitrateKbps: 0)
             }
         } else {
-            // Quality-only encode: hold roughly the source's video rate.
             let sourceVideo = (info.sourceBitrateKbps ?? 8000) - (info.audioBitrateKbps ?? 0)
             firstBitrate = min(max(sourceVideo, 500), 12000)
         }
+        let audioPlan: [(trackIndex: Int, kbps: Int)] =
+            zip(selectedTracks, perTrackKbps).map { (trackIndex: $0.index, kbps: $1) }
 
-        let outputSize = SizeTarget.scaledSize(
+        // Audio gain: the user's gain, and when normalizing, a measured
+        // peak scale on top (peak to full scale, capped at +12 dB).
+        var gain = request.audioGain
+        if request.normalizeAudio, let first = audioPlan.first {
+            progress(ProgressEvent(
+                phase: .probing, fraction: 0, statusLine: "Measuring audio peak..."))
+            if let peak = try? await AudioLevels.peak(
+                asset: asset, trackIndex: first.trackIndex,
+                rangeStart: clipStart, rangeDuration: clipDuration),
+               peak > 0.0001 {
+                gain *= min(1.0 / peak, 4.0)
+            }
+        }
+
+        let crop = SizeTarget.cropRect(
             sourceWidth: info.videoWidth, sourceHeight: info.videoHeight,
-            maxHeight: request.maxHeight)
+            aspect: request.cropAspect)
+        let outputSize = SizeTarget.outputSize(
+            sourceWidth: info.videoWidth, sourceHeight: info.videoHeight,
+            cropAspect: request.cropAspect, maxHeight: request.maxHeight)
 
-        // Preflight: encode a short mid-clip sample at the trial bitrate
-        // and let its margin-free projection set the first real bitrate.
+        // Preflight: encode a short mid-clip sample at the trial
+        // bitrate and let its margin-free projection set the first
+        // real bitrate. Video only; the audio share is added back
+        // arithmetically, as bytes.
         if let target = request.targetBytes,
            SizeTarget.shouldPreflight(hasTarget: true, clipDuration: clipDuration) {
-            progress(ProgressEvent(phase: .preflight, fraction: 0, statusLine: "Sampling the middle of the clip..."))
+            progress(ProgressEvent(
+                phase: .preflight, fraction: 0,
+                statusLine: "Sampling the middle of the clip..."))
             let sampleSeconds = SizeTarget.preflightSampleSeconds(clipDuration: clipDuration)
             let sampleStart = SizeTarget.preflightSampleStart(
                 clipStart: clipStart, clipDuration: clipDuration, sampleDuration: sampleSeconds)
@@ -116,15 +151,16 @@ public struct Compressor {
                 .appendingPathComponent("vidcord-preflight-\(UUID().uuidString).mp4")
             if let sampleBytes = try? await encodeOnce(
                 asset: asset, info: info, rangeStart: sampleStart, rangeDuration: sampleSeconds,
-                videoKbps: firstBitrate, codec: request.codec, audioKbps: nil,
-                outputSize: outputSize, outputURL: sampleURL, token: token,
+                videoKbps: firstBitrate, codec: request.codec, audioPlan: [],
+                gain: 1, crop: crop, outputSize: outputSize,
+                outputFPS: request.outputFPS, outputURL: sampleURL, token: token,
                 progress: { _ in })
             {
                 let projectedVideo = SizeTarget.projectedSize(
                     sampleBytes: sampleBytes, sampleDuration: sampleSeconds,
                     clipDuration: clipDuration)
                 let audioBytes =
-                    UInt64(Double(audioKbps ?? 0) * 1000.0 / 8.0 * clipDuration)
+                    UInt64(Double(totalAudioKbps()) * 1000.0 / 8.0 * clipDuration)
                 let projectedTotal = projectedVideo + audioBytes
                 if projectedTotal > target {
                     firstBitrate = SizeTarget.bitrateForOversizeProjection(
@@ -143,8 +179,11 @@ public struct Compressor {
 
         // Reserve the output path up front (the Rust pipeline's
         // create-new reservation): collision-free `<stem>-vidcord[-N].mp4`
-        // next to the source.
-        let outputURL = Self.reserveOutputURL(for: request.sourceURL)
+        // in the destination directory.
+        let outputDirectory = request.outputDirectory
+            ?? request.sourceURL.deletingLastPathComponent()
+        let outputURL = Self.reserveOutputURL(
+            for: request.sourceURL, in: outputDirectory, extension: "mp4")
         let workDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("vidcord-swift-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
@@ -158,8 +197,8 @@ public struct Compressor {
 
         for (phaseIndex, codec) in [request.codec, request.codec.fallback].enumerated() {
             if phaseIndex > 0 {
-                // A second codec phase only runs when the first could not
-                // land the size at all. It inherits the last bitrate.
+                // A second codec phase only runs when the first could
+                // not land the size at all. It inherits the last bitrate.
                 guard let current = best, !current.fits, request.targetBytes != nil else { break }
                 _ = current
             }
@@ -176,12 +215,14 @@ public struct Compressor {
                 let bytes = try await encodeOnce(
                     asset: asset, info: info, rangeStart: clipStart,
                     rangeDuration: clipDuration, videoKbps: bitrate, codec: codec,
-                    audioKbps: audioKbps, outputSize: outputSize, outputURL: attemptURL,
+                    audioPlan: audioPlan, gain: gain, crop: crop, outputSize: outputSize,
+                    outputFPS: request.outputFPS, outputURL: attemptURL,
                     token: token,
                     progress: { fraction in
                         progress(ProgressEvent(
                             phase: .encoding(attempt: labelAttempt), fraction: fraction,
-                            statusLine: "Compressing at \(labelBitrate) kbps (\(codec.displayName))..."))
+                            statusLine:
+                                "Compressing at \(labelBitrate) kbps (\(codec.displayName))..."))
                     })
 
                 guard let target = request.targetBytes else {
@@ -202,8 +243,8 @@ public struct Compressor {
                 attempts.append(AttemptRecord(
                     codec: codec, videoBitrateKbps: bitrate, outputBytes: bytes, note: note))
 
-                // Best so far: the fullest fit wins; while nothing fits,
-                // the smallest oversize wins.
+                // Best so far: the fullest fit wins; while nothing
+                // fits, the smallest oversize wins.
                 if let current = best {
                     if fits, !current.fits || bytes > current.bytes {
                         try? FileManager.default.removeItem(at: current.url)
@@ -258,16 +299,17 @@ public struct Compressor {
             attempts: attempts, elapsedSeconds: Date().timeIntervalSince(started))
     }
 
-    /// First free `<stem>-vidcord.mp4`, `<stem>-vidcord-2.mp4`, ... next
-    /// to the source, created empty so the name is held for the job.
-    private static func reserveOutputURL(for source: URL) -> URL {
-        let directory = source.deletingLastPathComponent()
+    /// First free `<stem>-vidcord.<ext>`, `<stem>-vidcord-2.<ext>`, ...
+    /// in the directory, created empty so the name is held for the job.
+    static func reserveOutputURL(
+        for source: URL, in directory: URL, extension ext: String
+    ) -> URL {
         let stem = source.deletingPathExtension().lastPathComponent
-        var candidate = directory.appendingPathComponent("\(stem)-vidcord.mp4")
+        var candidate = directory.appendingPathComponent("\(stem)-vidcord.\(ext)")
         var suffix = 2
         while !FileManager.default.createFile(atPath: candidate.path, contents: nil),
               suffix <= 999 {
-            candidate = directory.appendingPathComponent("\(stem)-vidcord-\(suffix).mp4")
+            candidate = directory.appendingPathComponent("\(stem)-vidcord-\(suffix).\(ext)")
             suffix += 1
         }
         return candidate
@@ -277,17 +319,20 @@ public struct Compressor {
 
     /// A single reader-to-writer transcode of one range of the source.
     /// Returns the output's byte count. Frames stream through: the
-    /// reader decodes, the writer's VideoToolbox session encodes, and
-    /// progress follows the video timestamps.
+    /// reader decodes, CoreImage crops/scales into the writer's pool
+    /// buffers when the geometry changes (the source buffers pass
+    /// straight through when it does not), and VideoToolbox encodes.
     private func encodeOnce(
         asset: AVURLAsset, info: SourceInfo, rangeStart: Double, rangeDuration: Double,
-        videoKbps: Int, codec: CodecChoice, audioKbps: Int?,
-        outputSize: (width: Int, height: Int), outputURL: URL,
-        token: CancellationToken, progress: @escaping @Sendable (Double) -> Void
+        videoKbps: Int, codec: CodecChoice,
+        audioPlan: [(trackIndex: Int, kbps: Int)], gain: Double,
+        crop: (x: Int, y: Int, width: Int, height: Int),
+        outputSize: (width: Int, height: Int), outputFPS: Double?,
+        outputURL: URL, token: CancellationToken,
+        progress: @escaping @Sendable (Double) -> Void
     ) async throws -> UInt64 {
-        guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
-            throw CompressError.noVideoTrack
-        }
+        let allTracks = try await asset.loadTracks(withMediaType: .video)
+        guard let videoTrack = allTracks.first else { throw CompressError.noVideoTrack }
         let transform = try await videoTrack.load(.preferredTransform)
 
         let reader = try AVAssetReader(asset: asset)
@@ -307,18 +352,22 @@ public struct Compressor {
         }
         reader.add(videoOutput)
 
-        var audioOutput: AVAssetReaderTrackOutput?
-        var audioSampleRate = 48000.0
-        var audioChannels = 2
-        if audioKbps != nil,
-           let audioTrack = try await asset.loadTracks(withMediaType: .audio).first {
-            if let description = try await audioTrack.load(.formatDescriptions).first,
+        // One reader output per selected audio track.
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        var audioPairs: [(output: AVAssetReaderTrackOutput, kbps: Int,
+                          sampleRate: Double, channels: Int)] = []
+        for plan in audioPlan {
+            guard audioTracks.indices.contains(plan.trackIndex) else { continue }
+            let track = audioTracks[plan.trackIndex]
+            var sampleRate = 48000.0
+            var channels = 2
+            if let description = try await track.load(.formatDescriptions).first,
                let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(description) {
-                audioSampleRate = asbd.pointee.mSampleRate
-                audioChannels = Int(asbd.pointee.mChannelsPerFrame)
+                sampleRate = asbd.pointee.mSampleRate
+                channels = Int(asbd.pointee.mChannelsPerFrame)
             }
             let output = AVAssetReaderTrackOutput(
-                track: audioTrack,
+                track: track,
                 outputSettings: [
                     AVFormatIDKey: kAudioFormatLinearPCM,
                     AVLinearPCMBitDepthKey: 16,
@@ -326,10 +375,10 @@ public struct Compressor {
                     AVLinearPCMIsBigEndianKey: false,
                     AVLinearPCMIsNonInterleaved: false,
                 ])
-            output.alwaysCopiesSampleData = false
+            output.alwaysCopiesSampleData = gain != 1.0
             if reader.canAdd(output) {
                 reader.add(output)
-                audioOutput = output
+                audioPairs.append((output, plan.kbps, sampleRate, channels))
             }
         }
 
@@ -370,31 +419,43 @@ public struct Compressor {
                     kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
                 kCVPixelBufferWidthKey as String: outputSize.width,
                 kCVPixelBufferHeightKey as String: outputSize.height,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any],
             ])
         guard writer.canAdd(videoInput) else {
             throw CompressError.writerFailed("could not add the video input")
         }
         writer.add(videoInput)
 
-        var audioInput: AVAssetWriterInput?
-        if let audioKbps, audioOutput != nil {
+        var audioInputs: [AVAssetWriterInput] = []
+        for pair in audioPairs {
             let input = AVAssetWriterInput(
                 mediaType: .audio,
                 outputSettings: [
                     AVFormatIDKey: kAudioFormatMPEG4AAC,
-                    AVSampleRateKey: audioSampleRate,
-                    AVNumberOfChannelsKey: max(1, audioChannels),
-                    AVEncoderBitRateKey: audioKbps * 1000,
+                    AVSampleRateKey: pair.sampleRate,
+                    AVNumberOfChannelsKey: max(1, pair.channels),
+                    AVEncoderBitRateKey: pair.kbps * 1000,
                 ])
             input.expectsMediaDataInRealTime = false
             if writer.canAdd(input) {
                 writer.add(input)
-                audioInput = input
+                audioInputs.append(input)
             }
         }
+        // A pair whose input was refused is not pumped; drop it so the
+        // finish condition only waits on inputs that exist.
+        if audioInputs.count != audioPairs.count {
+            audioPairs = Array(audioPairs.prefix(audioInputs.count))
+        }
+
+        let needsGeometryPass =
+            crop.width != info.videoWidth || crop.height != info.videoHeight
+            || crop.x != 0 || crop.y != 0
+            || outputSize.width != crop.width || outputSize.height != crop.height
+        let ciContext = needsGeometryPass ? CIContext() : nil
 
         return try await withCheckedThrowingContinuation { continuation in
-            let pump = PumpState()
+            let pump = PumpState(audioCount: audioInputs.count)
             guard reader.startReading() else {
                 continuation.resume(
                     throwing: CompressError.readerFailed(
@@ -404,10 +465,12 @@ public struct Compressor {
             writer.startWriting()
             writer.startSession(atSourceTime: .zero)
             let offset = CMTimeSubtract(.zero, start)
+            let frameGate = FrameGate(
+                outputFPS: outputFPS, sourceFPS: info.frameRate)
 
             func finishIfReady() {
                 pump.lock.lock()
-                let ready = pump.videoFinished && (audioInput == nil || pump.audioFinished)
+                let ready = pump.videoFinished && pump.audioFinished >= pump.audioCount
                 let already = pump.completed
                 if ready && !already { pump.completed = true }
                 pump.lock.unlock()
@@ -456,17 +519,25 @@ public struct Compressor {
                         finishIfReady()
                         return
                     }
+                    let rawPTS = CMSampleBufferGetPresentationTimeStamp(sample)
+                    if !frameGate.shouldWrite(sourcePTS: rawPTS) { continue }
                     guard let buffer = CMSampleBufferGetImageBuffer(sample) else { continue }
-                    let pts = CMTimeAdd(
-                        CMSampleBufferGetPresentationTimeStamp(sample), offset)
-                    if !adaptor.append(buffer, withPresentationTime: pts) {
-                        if writer.status == .failed {
-                            reader.cancelReading()
-                            videoInput.markAsFinished()
-                            pump.lock.lock(); pump.videoFinished = true; pump.lock.unlock()
-                            finishIfReady()
-                            return
-                        }
+                    let pts = CMTimeAdd(rawPTS, offset)
+                    let appended: Bool
+                    if let ciContext, let pool = adaptor.pixelBufferPool {
+                        appended = Self.renderFrame(
+                            buffer, context: ciContext, pool: pool,
+                            crop: crop, sourceHeight: info.videoHeight,
+                            outputSize: outputSize, adaptor: adaptor, pts: pts)
+                    } else {
+                        appended = adaptor.append(buffer, withPresentationTime: pts)
+                    }
+                    if !appended, writer.status == .failed {
+                        reader.cancelReading()
+                        videoInput.markAsFinished()
+                        pump.lock.lock(); pump.videoFinished = true; pump.lock.unlock()
+                        finishIfReady()
+                        return
                     }
                     let seconds = CMTimeGetSeconds(pts)
                     if seconds.isFinite, rangeDuration > 0 {
@@ -475,35 +546,82 @@ public struct Compressor {
                 }
             }
 
-            if let audioInput, let audioOutput {
-                audioInput.requestMediaDataWhenReady(
-                    on: DispatchQueue(label: "vidcord.swift.audio"))
+            for (pairIndex, pair) in audioPairs.enumerated() {
+                let input = audioInputs[pairIndex]
+                let output = pair.output
+                input.requestMediaDataWhenReady(
+                    on: DispatchQueue(label: "vidcord.swift.audio.\(pairIndex)"))
                 {
-                    while audioInput.isReadyForMoreMediaData {
+                    while input.isReadyForMoreMediaData {
                         if token.isCancelled {
                             reader.cancelReading()
-                            audioInput.markAsFinished()
-                            pump.lock.lock(); pump.audioFinished = true; pump.lock.unlock()
+                            input.markAsFinished()
+                            pump.lock.lock(); pump.audioFinished += 1; pump.lock.unlock()
                             finishIfReady()
                             return
                         }
-                        guard let sample = audioOutput.copyNextSampleBuffer() else {
-                            audioInput.markAsFinished()
-                            pump.lock.lock(); pump.audioFinished = true; pump.lock.unlock()
+                        guard let sample = output.copyNextSampleBuffer() else {
+                            input.markAsFinished()
+                            pump.lock.lock(); pump.audioFinished += 1; pump.lock.unlock()
                             finishIfReady()
                             return
                         }
-                        let shifted =
-                            Self.shiftedSample(sample, by: offset) ?? sample
-                        if !audioInput.append(shifted), writer.status == .failed {
+                        if gain != 1.0 { Self.applyGain(to: sample, gain: gain) }
+                        let shifted = Self.shiftedSample(sample, by: offset) ?? sample
+                        if !input.append(shifted), writer.status == .failed {
                             reader.cancelReading()
-                            audioInput.markAsFinished()
-                            pump.lock.lock(); pump.audioFinished = true; pump.lock.unlock()
+                            input.markAsFinished()
+                            pump.lock.lock(); pump.audioFinished += 1; pump.lock.unlock()
                             finishIfReady()
                             return
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// Crop and scale one frame into a writer pool buffer and append
+    /// it. CoreImage coordinates are bottom-up, so the crop's y is
+    /// flipped against the source height.
+    private static func renderFrame(
+        _ source: CVPixelBuffer, context: CIContext, pool: CVPixelBufferPool,
+        crop: (x: Int, y: Int, width: Int, height: Int), sourceHeight: Int,
+        outputSize: (width: Int, height: Int),
+        adaptor: AVAssetWriterInputPixelBufferAdaptor, pts: CMTime
+    ) -> Bool {
+        var pooled: CVPixelBuffer?
+        guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pooled) == kCVReturnSuccess,
+              let target = pooled else { return false }
+        var image = CIImage(cvPixelBuffer: source)
+        let cropRect = CGRect(
+            x: crop.x, y: sourceHeight - crop.y - crop.height,
+            width: crop.width, height: crop.height)
+        image = image.cropped(to: cropRect)
+        let scaleX = Double(outputSize.width) / Double(crop.width)
+        let scaleY = Double(outputSize.height) / Double(crop.height)
+        image = image.transformed(
+            by: CGAffineTransform(translationX: -cropRect.origin.x, y: -cropRect.origin.y)
+                .concatenating(CGAffineTransform(scaleX: scaleX, y: scaleY)))
+        context.render(image, to: target)
+        return adaptor.append(target, withPresentationTime: pts)
+    }
+
+    /// Scale 16-bit interleaved PCM samples in place, clamped to full
+    /// scale. Non-contiguous buffers are passed through untouched.
+    private static func applyGain(to sample: CMSampleBuffer, gain: Double) {
+        guard let block = CMSampleBufferGetDataBuffer(sample) else { return }
+        var length = 0
+        var pointer: UnsafeMutablePointer<Int8>?
+        guard CMBlockBufferGetDataPointer(
+            block, atOffset: 0, lengthAtOffsetOut: &length,
+            totalLengthOut: nil, dataPointerOut: &pointer) == kCMBlockBufferNoErr,
+              let pointer, length >= 2 else { return }
+        let count = length / 2
+        pointer.withMemoryRebound(to: Int16.self, capacity: count) { samples in
+            for index in 0..<count {
+                let scaled = Double(samples[index]) * gain
+                samples[index] = Int16(max(-32768.0, min(32767.0, scaled)))
             }
         }
     }
@@ -541,10 +659,85 @@ public struct Compressor {
     }
 }
 
-/// Mutable state shared by one encode's two pump closures.
+/// Frame thinning for an output fps cap: a frame is written only when
+/// its timestamp crosses the next slot boundary, so the delivered rate
+/// hugs the cap without resampling timestamps.
+private final class FrameGate: @unchecked Sendable {
+    private let interval: Double
+    private var nextSlot = -Double.infinity
+
+    init(outputFPS: Double?, sourceFPS: Double) {
+        if let outputFPS, outputFPS > 0, sourceFPS <= 0 || outputFPS < sourceFPS {
+            interval = 1.0 / outputFPS
+        } else {
+            interval = 0
+        }
+    }
+
+    func shouldWrite(sourcePTS: CMTime) -> Bool {
+        if interval == 0 { return true }
+        let seconds = CMTimeGetSeconds(sourcePTS)
+        guard seconds.isFinite else { return true }
+        if seconds + 0.0001 >= nextSlot {
+            nextSlot = max(nextSlot + interval, seconds + interval)
+            return true
+        }
+        return false
+    }
+}
+
+/// Mutable state shared by one encode's pump closures.
 private final class PumpState: @unchecked Sendable {
     let lock = NSLock()
+    let audioCount: Int
     var videoFinished = false
-    var audioFinished = false
+    var audioFinished = 0
     var completed = false
+
+    init(audioCount: Int) { self.audioCount = audioCount }
+}
+
+/// Peak measurement for normalize: decode the range's audio once and
+/// remember the loudest sample, as a 0...1 fraction of full scale.
+public enum AudioLevels {
+    public static func peak(
+        asset: AVURLAsset, trackIndex: Int, rangeStart: Double, rangeDuration: Double
+    ) async throws -> Double? {
+        let tracks = try await asset.loadTracks(withMediaType: .audio)
+        guard tracks.indices.contains(trackIndex) else { return nil }
+        let reader = try AVAssetReader(asset: asset)
+        reader.timeRange = CMTimeRange(
+            start: CMTime(seconds: rangeStart, preferredTimescale: 600),
+            duration: CMTime(seconds: rangeDuration, preferredTimescale: 600))
+        let output = AVAssetReaderTrackOutput(
+            track: tracks[trackIndex],
+            outputSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsBigEndianKey: false,
+                AVLinearPCMIsNonInterleaved: false,
+            ])
+        guard reader.canAdd(output) else { return nil }
+        reader.add(output)
+        guard reader.startReading() else { return nil }
+        var peak: Int32 = 0
+        while let sample = output.copyNextSampleBuffer() {
+            guard let block = CMSampleBufferGetDataBuffer(sample) else { continue }
+            var length = 0
+            var pointer: UnsafeMutablePointer<Int8>?
+            guard CMBlockBufferGetDataPointer(
+                block, atOffset: 0, lengthAtOffsetOut: &length,
+                totalLengthOut: nil, dataPointerOut: &pointer) == kCMBlockBufferNoErr,
+                  let pointer else { continue }
+            let count = length / 2
+            pointer.withMemoryRebound(to: Int16.self, capacity: count) { samples in
+                for index in 0..<count {
+                    let value = abs(Int32(samples[index]))
+                    if value > peak { peak = value }
+                }
+            }
+        }
+        return Double(peak) / 32768.0
+    }
 }

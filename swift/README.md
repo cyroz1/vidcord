@@ -48,16 +48,24 @@ And from Vidcord's own 7.7 pipeline, ported rather than reinvented:
 ```
 Package.swift
 Sources/
-  VidcordCore/    SizeTarget.swift (the ported size policy), Models.swift
-  VidcordEngine/  VideoProbe.swift (AVFoundation probe), Compressor.swift
-  VidcordApp/     VidcordApp.swift, ContentView.swift (SwiftUI, AVKit preview)
+  VidcordCore/    SizeTarget.swift (the ported size policy), Models.swift,
+                  Settings.swift (settings + preset models, Codable)
+  VidcordEngine/  VideoProbe.swift (probe), Compressor.swift (transcode),
+                  GifExporter.swift (GIF/WebP), LosslessTrim.swift
+                  (stream-copy trim, keyframes, snapshots)
+  VidcordApp/     VidcordApp.swift (entry, Open With routing),
+                  AppModel.swift (queue, runs, completion),
+                  SettingsStore.swift (persistence + preset rules),
+                  ContentView.swift (the Liquid Glass window),
+                  TrimTimelineView.swift (filmstrip trim editor)
 Tests/
   VidcordCoreTests/  the policy checks, with the Rust pipeline's numbers
 ```
 
 ## Build and run
 
-Needs a Mac with Xcode (developed against the macOS 14 floor):
+Needs a Mac with Xcode 26 (the macOS 26 floor is the Liquid Glass
+design language; there is no legacy shell):
 
 ```sh
 cd swift
@@ -85,18 +93,39 @@ Applications shortcut and the image's SHA-256 printed. The
 `swift/**`, and uploads exactly one artifact, the `Vidcord.app`
 bundle, kept for 7 days.
 
-## Scope of this first cut
+## Feature parity with the desktop app
 
-In: size-target MP4 (HEVC or H.264, the other codec as fallback phase),
-quality-only encode when the target is off, audio kept as AAC at the
-source rate capped to 160 kbps (stepped down, then dropped, on very
-tight budgets), max-height downscale, drag-and-drop or picker import,
-AVKit preview, progress with cancel, attempt history on the result.
+The interface is the current Apple design language (Liquid Glass,
+macOS 26 floor) over the desktop app's feature set:
 
-Not yet (the Tauri app has them, a later cut can): trim UI (the engine
-already accepts a range; the preflight uses it), GIF/WebP output,
-batch, presets, snapshots, completion actions (copy to clipboard,
-close after export), and the lossless stream-copy trim path.
+| Desktop app | Swift port |
+| --- | --- |
+| Size-target compression with the adaptive pipeline | yes, the ported policy (see above) |
+| HEVC / H.264 encoders with a fallback phase | yes (VideoToolbox; the other codec is the fallback phase) |
+| Trim timeline with zoom | yes (filmstrip, drag handles, zoom + window sliders) |
+| Preview with transport and scrubbing | yes (AVKit player, custom transport row) |
+| Frame snapshots (1920 px cap) | yes |
+| Lossless Trim, keyframe scan + outward snap | yes (AVAssetExportSession passthrough) |
+| Lossless fallback to compression on refusal | yes, same flow and target |
+| GIF mode, GIF + animated WebP | yes (ImageIO; no palette pass, ImageIO quantizes) |
+| Batch queue, per-file failure isolation | yes (one job at a time, the editor's settings for the batch) |
+| Output destinations (Downloads / source / ask / custom) | yes, ask stages then publishes like the original |
+| Completion actions (copy / reveal / none) | yes (copy falls back to reveal, like the original) |
+| System notifications, suppressed while focused | yes, click activates the app |
+| Close app after export | yes |
+| Named presets (20 max, capture rules, autosave state) | yes, same rules |
+| Settings persistence with atomic replace | yes (JSON in Application Support/vidcord-swift) |
+| Audio track selection (multi-track) | yes, checkbox list per file |
+| Audio normalization | peak normalize (the original measures loudness; peak is the honest AVFoundation equivalent) |
+| Crop aspect ratios, fps cap, resolution cap | yes, crop then scale on the GPU |
+| Open With / folder import | yes (document types in the bundle; folders scanned recursively) |
+| Encoder list dialog (FFmpeg encoders) | n/a: no FFmpeg; the codec picker is the VideoToolbox pair |
+| In-app updater (signed installer download) | no: the port ships as CI artifacts, there is no release channel to update from yet |
+| Browser edition | no: that is a separate product surface, not part of the desktop parity target |
+
+Deliberate deviations are listed, never hidden: peak instead of
+loudness normalization, ImageIO's quantization instead of a palette
+pass, and per-batch settings taken from the editor as it stands.
 
 ## Status
 
@@ -104,8 +133,8 @@ Uncommitted working tree on the `swift-port` worktree, by design: the
 repository's rule is quality gates before every commit, and the full
 gates for this package (`swift build`, `swift test` with the Apple
 SDKs) can only run on a Mac. What has been verified so far, off a
-Linux Swift 6.1.2 toolchain: `VidcordCore` compiles clean and all 16
-policy tests pass, and every source file in the package parses. The
-engine and app still need their first real build in Xcode.
+Linux Swift 6.1.2 toolchain: `VidcordCore` compiles clean and all 22
+policy tests pass, and every source file in the package parses. CI
+(the Swift App workflow) is the full gate for the engine and app.
 Nothing here touches `src/`, `src-tauri/` or `site/`, so the Tauri
 app, its CI and its bundle budgets are unaffected.

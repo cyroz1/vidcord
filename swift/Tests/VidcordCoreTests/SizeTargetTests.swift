@@ -140,4 +140,64 @@ final class SizeTargetTests: XCTestCase {
             SizeTarget.fill(targetBytes: target, outputBytes: 21_250_000), 0.85,
             accuracy: 1e-9)
     }
+
+    // MARK: Crop and output geometry
+
+    func testCropToSquareCentersTheFrame() {
+        let rect = SizeTarget.cropRect(
+            sourceWidth: 1920, sourceHeight: 1080, aspect: .square)
+        XCTAssertEqual(rect.width, 1080)
+        XCTAssertEqual(rect.height, 1080)
+        XCTAssertEqual(rect.x, 420)
+        XCTAssertEqual(rect.y, 0)
+    }
+
+    func testCropToVerticalFromLandscape() {
+        let rect = SizeTarget.cropRect(
+            sourceWidth: 1920, sourceHeight: 1080, aspect: .vertical)
+        XCTAssertEqual(rect.height, 1080)
+        XCTAssertEqual(rect.width, 608) // 1080 * 9/16 = 607.5, evened
+        XCTAssertEqual(rect.x, (1920 - 608) / 2)
+    }
+
+    func testOutputSizeCropsThenScales() {
+        let size = SizeTarget.outputSize(
+            sourceWidth: 1920, sourceHeight: 1080, cropAspect: .square,
+            maxHeight: 720)
+        XCTAssertEqual(size.width, 720)
+        XCTAssertEqual(size.height, 720)
+    }
+
+    func testOriginalAspectMeansNoCrop() {
+        let rect = SizeTarget.cropRect(
+            sourceWidth: 1280, sourceHeight: 720, aspect: .original)
+        XCTAssertEqual(rect.width, 1280)
+        XCTAssertEqual(rect.height, 720)
+    }
+
+    // MARK: Settings
+
+    func testSettingsDecodeFillsDefaultsForMissingFields() throws {
+        let data = Data(#"{"targetMB": 50}"#.utf8)
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+        XCTAssertEqual(decoded.targetMB, 50)
+        XCTAssertEqual(decoded.codec, .hevc)
+        XCTAssertEqual(decoded.outputDestination, .downloads)
+        XCTAssertEqual(decoded.completionAction, .copy)
+    }
+
+    func testPresetCaptureStripsMachineFields() {
+        var settings = AppSettings()
+        settings.targetMB = 42
+        settings.outputDestination = .custom
+        settings.customOutputDirectory = "/tmp/somewhere"
+        settings.completionAction = .reveal
+        settings.closeAppAfterExport = true
+        let captured = SettingsPreset.captured(settings)
+        XCTAssertEqual(captured.targetMB, 42)
+        XCTAssertEqual(captured.outputDestination, .downloads)
+        XCTAssertEqual(captured.customOutputDirectory, "")
+        XCTAssertEqual(captured.completionAction, .copy)
+        XCTAssertFalse(captured.closeAppAfterExport)
+    }
 }
