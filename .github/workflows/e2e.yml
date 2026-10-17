@@ -73,17 +73,10 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
 
-      # The browser download is the slow part and is fully determined by the
-      # locked Playwright version, so only fetch it (and its apt deps) on a
-      # cache miss. The plain install below is a fast no-op on a hit and
-      # covers a partially restored cache.
+      # Browser files can be cached, but Linux system dependencies belong to
+      # the fresh runner and need to be installed on every run.
       - name: Install Playwright Chromium and browser deps
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
-
-      - name: Install Playwright Chromium (cached)
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: npx playwright install chromium
 
       - name: Run browser demo end-to-end tests
         run: npm run e2e:web

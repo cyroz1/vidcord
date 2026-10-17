@@ -157,6 +157,18 @@ pub fn get_or_discover_encoder_listing() -> Result<String, String> {
     result
 }
 
+pub fn supports_video_encoder(encoder: &str) -> Result<bool, String> {
+    let listing = get_or_discover_encoder_listing()?;
+    let re = ENCODER_RE.get_or_init(|| {
+        regex_lite::Regex::new(r"^\s*V[A-Z.]*\s+([a-zA-Z0-9_]+)\s+")
+            .expect("invalid regex literal")
+    });
+    Ok(listing
+        .lines()
+        .filter_map(|line| re.captures(line))
+        .any(|capture| &capture[1] == encoder))
+}
+
 fn fallback_encoder_list() -> EncoderList {
     vec![("libx264".to_string(), "CPU (libx264)".to_string())]
 }

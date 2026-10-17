@@ -1,7 +1,7 @@
 use crate::ffmpeg::{
     cancel_lossless_trim_probe as cancel_lossless_trim_probe_job, cancel_superseded_probe_jobs,
     configure_ffmpeg_command, ffmpeg_missing_error, probe_lossless_trim_info, probe_video,
-    start_probe_generation,
+    start_probe_generation, supports_video_encoder,
 };
 use crate::log::vidcord_log;
 use std::collections::{HashMap, HashSet};
@@ -3659,6 +3659,17 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     }
     if !valid_gif_output_format(opts.gif_mode, opts.gif_output_format.as_deref()) {
         return Err("GIF output format must be gif or webp".to_string());
+    }
+    if opts.gif_mode && gif_output_format(&opts) == "webp" {
+        let available = tokio::task::spawn_blocking(|| supports_video_encoder("libwebp_anim"))
+            .await
+            .map_err(|error| format!("Failed to check FFmpeg encoders: {error}"))??;
+        if !available {
+            return Err(
+                "WebP output requires FFmpeg's libwebp_anim encoder. Install an FFmpeg build with libwebp support or choose GIF output."
+                    .to_string(),
+            );
+        }
     }
     if !valid_gif_fps(opts.gif_mode, opts.output_fps) {
         return Err("GIF FPS must be 15, 30, or 50".to_string());

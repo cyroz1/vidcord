@@ -183,9 +183,9 @@ and retry oversized results with safer bitrates and CPU fallback.
   APIs expose them, otherwise it keeps the first stream. Preview plays only the
   first selected track.
 - **Frame snapshots** — save the current frame as a full-resolution PNG with the preview overlay.
-  Desktop snapshots preserve the pixel dimensions of the selected frame or crop and follow the
-  configured output destination, completion action, and separate close-app setting; browser
-  snapshots download through the browser.
+  Desktop snapshots preserve the pixel dimensions of the selected frame or crop for PNGs up to
+  128 MiB, and follow the configured output destination, completion action, and separate close-app
+  setting; browser snapshots download through the browser.
 - **Output FPS controls** — standard mode can leave FPS unchanged or cap it
   at 24, 30, or 60 FPS. The desktop app hides choices at or above the FFprobe
   frame rate when they would be redundant. The browser applies the same

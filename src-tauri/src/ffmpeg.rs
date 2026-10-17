@@ -12,6 +12,7 @@ mod encoders;
 
 pub use encoders::{
     get_available_encoders, get_or_discover_encoder_listing, invalidate_encoder_cache,
+    supports_video_encoder,
 };
 
 static VAAPI_CACHE: OnceLock<Mutex<Option<Option<String>>>> = OnceLock::new();

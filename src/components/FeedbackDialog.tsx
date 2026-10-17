@@ -227,7 +227,7 @@ export default function FeedbackDialog({ onClose }: Props) {
                   ? "Report sent — thanks for helping improve Vidcord."
                   : "Your mail app should now have the report ready — review it and hit send there."}
               </p>
-              {report !== null && (
+              {report !== null && !sent && (
                 <p style={noteStyle}>
                   A full copy was saved to:
                   <br />

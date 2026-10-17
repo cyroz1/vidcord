@@ -1219,7 +1219,9 @@ fn send_system_notification_blocking(
     })
 }
 
-const MAX_SNAPSHOT_PNG_BYTES: usize = 16 * 1024 * 1024;
+const MAX_SNAPSHOT_PNG_BYTES: usize = 128 * 1024 * 1024;
+const SNAPSHOT_PNG_TOO_LARGE_ERROR: &str =
+    "The snapshot PNG exceeds the 128 MiB limit. Choose a smaller crop or a lower-resolution source.";
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 
 fn save_snapshot_image_blocking(
@@ -1229,7 +1231,10 @@ fn save_snapshot_image_blocking(
 ) -> Result<String, String> {
     use std::io::Write;
 
-    if png_bytes.len() < PNG_SIGNATURE.len() || png_bytes.len() > MAX_SNAPSHOT_PNG_BYTES {
+    if png_bytes.len() > MAX_SNAPSHOT_PNG_BYTES {
+        return Err(SNAPSHOT_PNG_TOO_LARGE_ERROR.into());
+    }
+    if png_bytes.len() < PNG_SIGNATURE.len() {
         return Err("The snapshot image has an invalid size.".into());
     }
     if !png_bytes.starts_with(PNG_SIGNATURE) {
@@ -1385,7 +1390,7 @@ pub async fn save_snapshot_image(request: tauri::ipc::Request<'_>) -> Result<Str
             // Reject oversized bodies before cloning them and paying a
             // spawn_blocking hop; the blocking save re-checks the size.
             if bytes.len() > MAX_SNAPSHOT_PNG_BYTES {
-                return Err("The snapshot image has an invalid size.".to_string());
+                return Err(SNAPSHOT_PNG_TOO_LARGE_ERROR.to_string());
             }
             bytes.clone()
         }

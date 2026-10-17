@@ -82,7 +82,7 @@ it("sends the typed description to the endpoint", async () => {
   expect(new Headers(init.headers).get("X-Vidcord-Feedback")).toBeTruthy();
   expect(JSON.parse(init.body as string)).toEqual({ subject: REPORT.subject, body: REPORT.body });
   expect(container!.textContent).toContain("Report sent");
-  expect(container!.textContent).toContain(REPORT.reportPath);
+  expect(container!.textContent).not.toContain(REPORT.reportPath);
 });
 
 it("passes null when the description is left empty", async () => {
