@@ -2,6 +2,7 @@ import AVFoundation
 import CoreMedia
 import CoreVideo
 import Foundation
+import VideoToolbox
 import VidcordCore
 
 public enum CompressError: Error, CustomStringConvertible {
@@ -170,6 +171,8 @@ public struct Compressor {
                     phase: .encoding(attempt: attemptNumber), fraction: 0,
                     statusLine: "Compressing at \(bitrate) kbps (\(codec.displayName))..."))
                 let attemptURL = workDir.appendingPathComponent("attempt-\(attemptNumber).mp4")
+                let labelBitrate = bitrate
+                let labelAttempt = attemptNumber
                 let bytes = try await encodeOnce(
                     asset: asset, info: info, rangeStart: clipStart,
                     rangeDuration: clipDuration, videoKbps: bitrate, codec: codec,
@@ -177,8 +180,8 @@ public struct Compressor {
                     token: token,
                     progress: { fraction in
                         progress(ProgressEvent(
-                            phase: .encoding(attempt: attemptNumber), fraction: fraction,
-                            statusLine: "Compressing at \(bitrate) kbps (\(codec.displayName))..."))
+                            phase: .encoding(attempt: labelAttempt), fraction: fraction,
+                            statusLine: "Compressing at \(labelBitrate) kbps (\(codec.displayName))..."))
                     })
 
                 guard let target = request.targetBytes else {
@@ -335,11 +338,12 @@ public struct Compressor {
         writer.shouldOptimizeForNetworkUse = true
 
         // Rate control mirrors the Rust VBV pairing: an average rate at
-        // the planned bitrate, with a data-rate limit of twice that over
-        // a one-second window standing in for -maxrate/-bufsize 2x.
+        // the planned bitrate, with VideoToolbox's data-rate limit set
+        // to twice that (bits per second, averaged over a one-second
+        // window) standing in for -maxrate/-bufsize 2x.
         var compressionProperties: [String: Any] = [
             AVVideoAverageBitRateKey: videoKbps * 1000,
-            AVVideoDataRateLimitsKey: [
+            kVTCompressionPropertyKey_DataRateLimits as String: [
                 NSNumber(value: videoKbps * 2000), NSNumber(value: 1.0),
             ],
         ]
