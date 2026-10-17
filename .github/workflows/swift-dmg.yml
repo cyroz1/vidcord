@@ -1,0 +1,52 @@
+name: Swift DMG
+
+# Builds the native Swift port (swift/) into a drag-to-install DMG.
+# Scoped to the swift-port branch and to the swift/ tree so it never
+# interacts with the Tauri app's build.yml pipeline: pushes that only
+# touch the Swift port run this, and nothing here runs for the desktop
+# app's branches or releases. The DMG is ad hoc signed and not
+# notarized, matching an experimental build.
+
+on:
+  push:
+    branches: [swift-port]
+    paths:
+      - "swift/**"
+      - ".github/workflows/swift-dmg.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: swift-dmg-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-dmg:
+    name: Build Vidcord (Swift) DMG
+    runs-on: macos-15
+    steps:
+      - name: Check out the branch
+        uses: actions/checkout@v4
+
+      - name: Show the toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Run the Swift package tests
+        run: swift test --package-path swift
+
+      - name: Build the app and DMG
+        run: swift/Scripts/make-dmg.sh
+
+      - name: Upload the DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vidcord-Swift-dmg
+          path: |
+            swift/.build/Vidcord-Swift.dmg
+            swift/.build/Vidcord.app
+          if-no-files-found: error
+          retention-days: 7
