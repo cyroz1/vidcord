@@ -301,7 +301,7 @@ public struct Compressor {
 
     /// First free `<stem>-vidcord.<ext>`, `<stem>-vidcord-2.<ext>`, ...
     /// in the directory, created empty so the name is held for the job.
-    static func reserveOutputURL(
+    public static func reserveOutputURL(
         for source: URL, in directory: URL, extension ext: String
     ) -> URL {
         let stem = source.deletingPathExtension().lastPathComponent

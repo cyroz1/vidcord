@@ -143,7 +143,7 @@ struct TrimTimelineView: View {
     }
 
     private func handle(isStart: Bool, width: CGFloat) -> some View {
-        let time = isStart ? item.trimStart : item.effectiveEnd
+        let edgeTime = isStart ? item.trimStart : item.effectiveEnd
         return RoundedRectangle(cornerRadius: 3)
             .fill(.tint)
             .frame(width: 12, height: 54)
@@ -152,7 +152,7 @@ struct TrimTimelineView: View {
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(.white)
             }
-            .offset(x: x(for: time, width: width) - (isStart ? 0 : 12))
+            .offset(x: x(for: edgeTime, width: width) - (isStart ? 0 : 12))
             .gesture(
                 DragGesture()
                     .onChanged { value in
