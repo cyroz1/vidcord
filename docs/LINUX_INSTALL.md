@@ -52,10 +52,11 @@ Future releases arrive with `sudo dnf upgrade`. Remove vidcord with
 and GStreamer runtime dependencies. Other RPM distributions may use different
 dependency names; use the AppImage if the package manager cannot resolve them.
 
-## Arch Linux (x86_64)
+## Arch Linux
 
-This repository targets standard x86_64 Arch Linux. Arch Linux ARM users can
-use the aarch64 AppImage instead.
+The repository serves both x86_64 (Arch Linux) and aarch64 (Arch Linux ARM)
+through the `$arch` variable in the server URL, so the same setup works on
+both.
 
 Import and locally trust the repository key, then add the repository to
 `/etc/pacman.conf` before the standard repositories:
@@ -99,7 +100,7 @@ updated and removed by their package managers.
 ## Maintainer setup
 
 The release workflow builds `.deb` and `.rpm` packages for x86_64 and ARM64,
-builds an Arch package for x86_64, signs repository metadata, and pushes the
+builds Arch packages for x86_64 and aarch64, signs repository metadata, and pushes the
 repository indexes to the `linux-packages` branch. APT, RPM-MD, and
 pacman repositories install runtime dependencies and provide package-manager
 updates and removal. To activate repository publishing:

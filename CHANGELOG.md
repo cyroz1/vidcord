@@ -77,6 +77,10 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 - Desktop installers are smaller: the browser encoder (about 31 MB) is no longer bundled into
   the desktop app.
+- Linux releases now include native packages for x86_64 and aarch64: `.deb` and `.rpm`
+  files, a pacman package for Arch Linux and Arch Linux ARM, and the portable AppImage.
+  Signed APT, RPM, and pacman repositories let native installs update through the system
+  package manager.
 
 ### Compatibility
 

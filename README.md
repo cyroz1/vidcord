@@ -279,8 +279,8 @@ and retry oversized results with safer bitrates and CPU fallback.
   on the website (with a matching top-nav link) point at
   [GitHub Sponsors](https://github.com/sponsors/cyroz1).
 - **Cross-platform installers:** Windows NSIS (x86_64 + aarch64), macOS
-  universal `.dmg`, Linux `.deb` and `.rpm` packages (x86_64 + aarch64), an
-  x86_64 pacman package, and `.AppImage` downloads for both Linux architectures.
+  universal `.dmg`, Linux `.deb`, `.rpm`, and pacman packages (x86_64 + aarch64), and
+  `.AppImage` downloads for both Linux architectures.
 
 ### Desktop input formats
 
@@ -411,6 +411,7 @@ installer from GitHub:
 | Fedora / DNF      | x86_64       | RPM repository and `vidcord_<version>_x86_64.rpm`  |
 | Fedora / DNF      | aarch64      | RPM repository and `vidcord_<version>_aarch64.rpm` |
 | Arch Linux        | x86_64       | pacman repository (`vidcord-bin`)                  |
+| Arch Linux ARM    | aarch64      | pacman repository (`vidcord-bin`)                  |
 | Portable AppImage | x86_64       | `vidcord_<version>_amd64.AppImage`                 |
 | Portable AppImage | aarch64      | `vidcord_<version>_aarch64.AppImage`               |
 
@@ -931,8 +932,8 @@ export, and incompatible stream-copy inputs fall back to normal compression.
 
 ### Does vidcord work on Linux and Wayland?
 
-Yes. vidcord ships APT and RPM packages for x86_64 and aarch64, a pacman package
-for x86_64 Arch Linux, and an `.AppImage` for both Linux architectures. It is
+Yes. vidcord ships APT, RPM, and pacman packages for x86_64 and aarch64, and an
+`.AppImage` for both Linux architectures. It is
 tested on GNOME, KDE Plasma, LXQt, Sway, and Hyprland on both X11 and Wayland.
 Hardware-accelerated encoding uses VAAPI via
 `/dev/dri/renderD*`. Native packages install WebKitGTK and GStreamer runtime

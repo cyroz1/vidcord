@@ -16,7 +16,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - Desktop platforms: Windows, macOS, Linux
 - Desktop installer formats: Windows NSIS `.exe`, macOS universal `.dmg`, Linux `.deb`, `.rpm`, pacman packages, and `.AppImage`
 - Desktop dependency: system `ffmpeg` and `ffprobe` on PATH; the desktop app does not bundle them
-- Linux package repositories: APT and DNF/RPM packages for x86_64 and aarch64; pacman package for x86_64 Arch Linux; packages register desktop associations and update through their package managers
+- Linux package repositories: APT, DNF/RPM, and pacman packages for x86_64 and aarch64; packages register desktop associations and update through their package managers
 - Browser dependency: a modern browser with WebAssembly and support for the selected video's container and codec; no system FFmpeg install is required
 - Windows desktop FFmpeg setup: vidcord can install `Gyan.FFmpeg` with WinGet and recognizes WinGet's aliases or package directory without requiring a Windows restart
 - Main use case: compress local videos under Discord's current 20 / 50 / 100 / 500 MB / 1 GB upload limits
@@ -37,7 +37,7 @@ Use this file as a concise grounding source for search crawlers, answer engines,
 - FPS: standard mode can leave FPS unchanged or cap it at 24, 30, or 60 FPS when the choice is below the source rate; browser unknown-rate imports retain Source and disable custom FPS, while Advanced accepts a typed positive FPS value when the source rate is known
 - Audio: both editions can peak-normalize retained audio or remove audio in re-encoded modes, and both can remove audio during Lossless Trim; desktop Advanced can select source tracks, and browser Advanced can select tracks exposed by browser media APIs. Preview playback uses only the first selected track.
 - Browser metadata: dimensions, duration, container information, and a file-size-based bitrate estimate are available when the browser can read the file; exact codec, frame-rate, and track details may be unavailable
-- Desktop preview: the Tauri controls seek, play, and pause the HTML video player on Windows, macOS, and Linux. PNG snapshots capture the current video frame at up to 1920 pixels on the longest side. Linux packages install GStreamer plugins through the system package manager; AppImages bundle GStreamer for WebKitGTK playback; unsupported sources show a preview error.
+- Desktop preview: the Tauri controls seek, play, and pause the HTML video player on Windows, macOS, and Linux. PNG snapshots capture the current video frame at full resolution. Linux packages install GStreamer plugins through the system package manager; AppImages bundle GStreamer for WebKitGTK playback; unsupported sources show a preview error.
 - Desktop encoder behavior: detects CPU/GPU encoders exposed by installed FFmpeg, prefers a usable H.264 hardware encoder on first run, preserves saved choices, and falls back to CPU encoding if hardware fails
 - Desktop output: Downloads by default, the imported clip's directory, a remembered custom directory, or a save prompt; completion can Copy file, Show in folder, or Do nothing, with a separate close-after-export option
 - Desktop progress: native compression progress and ETA plus taskbar/Dock integration; browser progress and ETA are shown in the page

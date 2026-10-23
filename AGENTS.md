@@ -99,6 +99,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 ├── tsconfig.json              # Strict TS, ES2021 target, react-jsx
 ├── docs/                      # End-user and contributor guides
 │   ├── FFMPEG_SETUP.md        # End-user FFmpeg install guide (per platform)
+│   ├── LINUX_INSTALL.md       # Linux package and repository install guide
 │   ├── RELEASE_SIGNING.md     # Release signing-key contract
 │   └── THIRD_PARTY_NOTICES.md # Third-party license notices
 ├── CHANGELOG.md               # User-facing release notes
@@ -604,13 +605,15 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 
 ## CI reference
 
-`.github/workflows/build.yml` has five jobs:
+`.github/workflows/build.yml` has seven jobs:
 
 1. **frontend** (ubuntu-latest) — `npm ci`, audit (high), version and asset checks, lint, typecheck, test, build, and bundle-size budget; uploads `dist/` as an artifact for every platform matrix job to download.
 2. **rust-compile-checks** (ubuntu-22.04) — `cargo fmt --check`, `cargo audit`, `cargo clippy -D warnings`, and `cargo test`; a report-only step also prints `cargo tree --duplicates` (same as `npm run duplicates:report`) so dependency duplication stays visible without gating on it. Clippy and tests use the `ci` profile and explicit Linux x86_64 target, sharing the `rust-linux-ubuntu-22.04-v1` `Swatinem/rust-cache` key and compatible artifacts with the Linux x86_64 build job.
-3. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. App-source pushes and pull requests build, stage, and upload CI-profile installers for inspection; tagged `v*` refs build release-profile installers; explicit manual runs build CI-profile installers for testing. Build artifacts are retained for seven days. Only tags run signing and release publication.
-4. **sign-release-artifacts** (ubuntu-latest, only on tags) — verifies build provenance attestations and Ed25519-signs the installers; uploads the signed bundle.
-5. **publish-release** (ubuntu-latest, only on tags) — downloads the signed artifacts, extracts the matching CHANGELOG section, and publishes the signed GitHub release.
+3. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. Builds NSIS installers for both Windows architectures, a universal macOS DMG, and AppImage, `.deb`, and `.rpm` bundles for both Linux architectures. App-source pushes and pull requests build, stage, and upload CI-profile installers for inspection; tagged `v*` refs build release-profile installers; explicit manual runs build CI-profile installers for testing. Build artifacts are retained for seven days. Only tags run signing and release publication.
+4. **arch-package-build** (only on tags) — repacks the matching `.deb` into the `vidcord-bin` pacman package for x86_64 (Arch Linux) and aarch64 (Arch Linux ARM), each on a native runner in the matching Arch container image; attests and uploads both packages.
+5. **sign-release-artifacts** (ubuntu-latest, only on tags) — verifies build provenance attestations and Ed25519-signs the release artifacts; uploads the signed bundle.
+6. **publish-release** (ubuntu-latest, only on tags) — downloads the signed artifacts, extracts the matching CHANGELOG section, and publishes the signed GitHub release.
+7. **publish-linux-package-repositories** (ubuntu-latest, only on tags, after publish-release) — generates signed APT, RPM, and pacman repositories (both Linux architectures) from the signed packages and pushes them to the `linux-packages` branch served by GitHub Pages. Skips with a step-summary note when the repository GPG key secret is not configured.
 
 `.github/workflows/e2e.yml` runs the browser end-to-end suite and the native desktop suite on Linux,
 macOS, and Windows for app-source changes; the suites upload screenshots, logs, traces, and reports

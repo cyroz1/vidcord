@@ -78,11 +78,11 @@ Lossless Trim stream-copies source streams at outward-snapped source keyframes w
 
 GIF Mode removes audio and creates animated GIF or WebP files for the 5 MB, 10 MB, or 20 MB target at 15, 30, or Discord-safe maximum 50 FPS. GIF uses an FFmpeg color palette; WebP uses animated WebP encoding. Higher selected frame rates begin with lower spatial detail, and oversized results retry with reduced dimensions and palette or quality complexity while preserving the selected FPS.
 
-PNG snapshots are available from the preview. Desktop snapshots capture the current frame at up to 1920 pixels on the longest side, follow the configured native output destination and completion action, and honor the independent close-after-export preference. The browser snapshot downloads through the browser.
+PNG snapshots are available from the preview. Desktop snapshots capture the current frame at full resolution, follow the configured native output destination and completion action, and honor the independent close-after-export preference. The browser snapshot downloads through the browser.
 
 ## Desktop integrations and reliability
 
-- Desktop preview: the Tauri controls seek, play, and pause the HTML video player on Windows, macOS, and Linux. PNG snapshots capture the current video frame at up to 1920 pixels on the longest side. Linux packages install GStreamer plugins through the system package manager; AppImages bundle GStreamer for WebKitGTK playback. Unsupported sources show a preview error.
+- Desktop preview: the Tauri controls seek, play, and pause the HTML video player on Windows, macOS, and Linux. PNG snapshots capture the current video frame at full resolution. Linux packages install GStreamer plugins through the system package manager; AppImages bundle GStreamer for WebKitGTK playback. Unsupported sources show a preview error.
 - Desktop encoder behavior: vidcord detects CPU and GPU encoders exposed by FFmpeg, prefers a validated H.264 hardware encoder on first run, preserves saved choices including CPU, and falls back to CPU when hardware encoding fails. Supported families include NVENC, AMF, QSV, VAAPI, and VideoToolbox.
 - Desktop output: Downloads by default, the imported clip's folder, a remembered custom folder, or an Ask when done save prompt. Auto-named outputs are collision-safe and never replace an unrelated existing file.
 - Desktop progress: native compression progress and ETA include attempt, encoder, and bitrate details; the taskbar or Dock can mirror progress while the app is unfocused. The browser displays in-page progress and ETA.
@@ -105,19 +105,19 @@ PNG snapshots are available from the preview. Desktop snapshots capture the curr
 vidcord's native installers support Windows, macOS, and Linux. The Linux
 packages declare WebKitGTK and GStreamer runtime dependencies; APT packages
 cover x86_64 and aarch64, RPM packages cover x86_64 and aarch64, and the pacman
-repository targets x86_64 Arch Linux. APT and pacman also install FFmpeg.
+repository covers x86_64 and aarch64 (Arch Linux and Arch Linux ARM). APT and pacman also install FFmpeg.
 Fedora's FFmpeg is separately installed from RPM Fusion.
 
 - Windows: NSIS `.exe` installers for x86_64 and ARM64
 - macOS: a universal `.dmg` for Intel and Apple Silicon
-- Linux: `.deb` and `.rpm` packages for x86_64 and aarch64, an x86_64 pacman repository package, and `.AppImage` builds for both architectures as portable downloads
+- Linux: `.deb`, `.rpm`, and pacman packages for x86_64 and aarch64, and `.AppImage` builds for both architectures as portable downloads
 
 The repository indexes are published from the `linux-packages` GitHub Pages
 branch after the repository signing key and Pages source are configured. See
 https://github.com/cyroz1/vidcord/blob/main/docs/LINUX_INSTALL.md for setup and
 package-manager update/removal commands.
 
-The desktop download section detects the operating system. Linux's main action opens the install guide for APT, DNF/RPM, and pacman repositories. The Linux card links directly to available `.deb` and `.rpm` files for both architectures, the x86_64 pacman package, and AppImages for both architectures; if a matching asset is missing it links to the latest release page. Windows and macOS buttons link directly to the matching latest GitHub release asset when metadata is available; macOS uses the universal DMG and Windows offers architecture-specific installers. If release metadata cannot be fetched or an asset is missing, the page falls back to https://github.com/cyroz1/vidcord/releases/latest. Mobile devices show the desktop platform choices without recommending an installer for the device. The section also displays the aggregate release download count when Shields.io is available.
+The desktop download section detects the operating system. Linux's main action opens the install guide for APT, DNF/RPM, and pacman repositories. The Linux card links directly to available `.deb`, `.rpm`, and pacman files for both architectures, and AppImages for both architectures; if a matching asset is missing it links to the latest release page. Windows and macOS buttons link directly to the matching latest GitHub release asset when metadata is available; macOS uses the universal DMG and Windows offers architecture-specific installers. If release metadata cannot be fetched or an asset is missing, the page falls back to https://github.com/cyroz1/vidcord/releases/latest. Mobile devices show the desktop platform choices without recommending an installer for the device. The section also displays the aggregate release download count when Shields.io is available.
 
 ## Common questions and grounded answers
 
