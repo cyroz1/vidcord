@@ -2,7 +2,7 @@ pkgname=vidcord-bin
 pkgver=__VERSION__
 pkgrel=1
 pkgdesc="Local video compression app for Discord"
-arch=('x86_64')
+arch=('x86_64' 'aarch64')
 url="https://vidcord.app/"
 license=('MIT')
 options=('!strip' '!emptydirs')
@@ -10,11 +10,21 @@ depends=('cairo' 'desktop-file-utils' 'ffmpeg' 'gdk-pixbuf2' 'glib2' 'gtk3' 'hic
 install="${pkgname}.install"
 source=('LICENSE')
 source_x86_64=("vidcord_${pkgver}_amd64.deb::https://github.com/cyroz1/vidcord/releases/download/v__TAG__/vidcord_${pkgver}_amd64.deb")
+source_aarch64=("vidcord_${pkgver}_arm64.deb::https://github.com/cyroz1/vidcord/releases/download/v__TAG__/vidcord_${pkgver}_arm64.deb")
 sha256sums=('__LICENSE_SHA256__')
 sha256sums_x86_64=('__AMD64_SHA256__')
+sha256sums_aarch64=('__ARM64_SHA256__')
 
 package() {
-  local deb="${srcdir}/vidcord_${pkgver}_amd64.deb"
+  local deb
+  case "$CARCH" in
+    x86_64) deb="${srcdir}/vidcord_${pkgver}_amd64.deb" ;;
+    aarch64) deb="${srcdir}/vidcord_${pkgver}_arm64.deb" ;;
+    *)
+      echo "Unsupported architecture: $CARCH" >&2
+      return 1
+      ;;
+  esac
   local data_archive
   data_archive="$(ar t "${deb}" | sed -n '/^data\.tar\./{p;q;}')"
   [[ -n ${data_archive} ]] || { echo "Could not find the data archive in ${deb}" >&2; return 1; }

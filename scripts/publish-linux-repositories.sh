@@ -38,13 +38,14 @@ mkdir -p "$repository_root/apt/pool/main" \
   "$repository_root/apt/dists/stable/main/binary-amd64" \
   "$repository_root/apt/dists/stable/main/binary-arm64" \
   "$repository_root/rpm" \
-  "$repository_root/pacman/x86_64"
+  "$repository_root/pacman/x86_64" \
+  "$repository_root/pacman/aarch64"
 
 mapfile -t debs < <(find "$asset_dir" -maxdepth 1 -type f -name 'vidcord_*.deb' | sort)
 mapfile -t rpms < <(find "$asset_dir" -maxdepth 1 -type f -name 'vidcord_*.rpm' | sort)
-mapfile -t packages < <(find "$asset_dir" -maxdepth 1 -type f -name 'vidcord-bin-*-x86_64.pkg.tar.zst' | sort)
-if [[ "${#debs[@]}" -ne 2 || "${#rpms[@]}" -ne 2 || "${#packages[@]}" -ne 1 ]]; then
-  echo "Expected two architectures for deb/rpm and one x86_64 pacman package (deb=${#debs[@]}, rpm=${#rpms[@]}, pacman=${#packages[@]})." >&2
+mapfile -t packages < <(find "$asset_dir" -maxdepth 1 -type f -name 'vidcord-bin-*.pkg.tar.zst' | sort)
+if [[ "${#debs[@]}" -ne 2 || "${#rpms[@]}" -ne 2 || "${#packages[@]}" -ne 2 ]]; then
+  echo "Expected two architectures each for deb, rpm, and pacman packages (deb=${#debs[@]}, rpm=${#rpms[@]}, pacman=${#packages[@]})." >&2
   exit 1
 fi
 
@@ -55,7 +56,10 @@ for asset in "${rpms[@]}"; do
   cp "$asset" "$repository_root/rpm/"
 done
 
-cp "${packages[0]}" "$repository_root/pacman/x86_64/"
+for package in "${packages[@]}"; do
+  package_arch="$(basename "$package" | sed -E 's/^.*-(x86_64|aarch64)\.pkg\.tar\.zst$/\1/')"
+  cp "$package" "$repository_root/pacman/${package_arch}/"
+done
 
 for architecture in amd64 arm64; do
   index_directory="$repository_root/apt/dists/stable/main/binary-${architecture}"
@@ -101,9 +105,9 @@ EOF
 docker run --rm \
   --volume "$repository_root/pacman:/repo/pacman" \
   archlinux:base-devel \
-  bash -lc 'pacman -Syu --noconfirm pacman-contrib && cd /repo/pacman/x86_64 && repo-add vidcord.db.tar.zst ./*.pkg.tar.zst'
+  bash -lc 'pacman -Syu --noconfirm pacman-contrib && cd /repo/pacman/x86_64 && repo-add vidcord.db.tar.zst ./*.pkg.tar.zst && cd /repo/pacman/aarch64 && repo-add vidcord.db.tar.zst ./*.pkg.tar.zst'
 
-for architecture in x86_64; do
+for architecture in x86_64 aarch64; do
   package_directory="$repository_root/pacman/$architecture"
   database="$package_directory/vidcord.db"
   if [[ -L "$database" ]]; then

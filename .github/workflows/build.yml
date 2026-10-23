@@ -466,6 +466,14 @@ jobs:
         include:
           - platform: ubuntu-22.04
             arch: x86_64
+            deb_arch: amd64
+            image: archlinux:base-devel
+            container_packages: pacman-contrib
+          - platform: ubuntu-22.04-arm
+            arch: aarch64
+            deb_arch: arm64
+            image: archlinuxarm/archlinuxarm
+            container_packages: base-devel pacman-contrib
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -486,15 +494,15 @@ jobs:
           arch_build="$RUNNER_TEMP/vidcord-arch-package"
           mkdir -p "$arch_build"
           node scripts/render-arch-package.mjs "$version" "$release_tag" release-assets "$arch_build"
-          cp "release-assets/vidcord_${version}_amd64.deb" "$arch_build/"
+          cp "release-assets/vidcord_${version}_${{ matrix.deb_arch }}.deb" "$arch_build/"
           sed -i \
-            -e "s@::https://github.com/cyroz1/vidcord/releases/download/v${release_tag}/vidcord_\${pkgver}_amd64.deb@@" \
+            -e "s@::https://github.com/cyroz1/vidcord/releases/download/v${release_tag}/vidcord_\${pkgver}_${{ matrix.deb_arch }}.deb@@" \
             "$arch_build/PKGBUILD"
           docker run --rm \
             --volume "$arch_build:/work" \
             --workdir /work \
-            archlinux:base-devel \
-            bash -lc 'pacman -Syu --noconfirm pacman-contrib && useradd --create-home build && chown -R build:build /work && su build -c "makepkg --noconfirm --clean --nodeps"'
+            ${{ matrix.image }} \
+            bash -lc 'pacman -Syu --noconfirm ${{ matrix.container_packages }} && useradd --create-home build && chown -R build:build /work && su build -c "makepkg --noconfirm --clean --nodeps"'
           mkdir -p artifacts
           find "$arch_build" -maxdepth 1 -type f -name 'vidcord-bin-*.pkg.tar.zst' -exec cp {} artifacts/ \;
           test -n "$(find artifacts -maxdepth 1 -type f -name 'vidcord-bin-*.pkg.tar.zst' -print -quit)"

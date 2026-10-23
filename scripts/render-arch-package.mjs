@@ -33,13 +33,15 @@ const readAsset = async (name) => {
 };
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const x64Hash = sha256(await readAsset(`vidcord_${version}_amd64.deb`));
+const arm64Hash = sha256(await readAsset(`vidcord_${version}_arm64.deb`));
 const license = await readFile("LICENSE");
 const template = await readFile("packaging/arch/PKGBUILD.template", "utf8");
 const pkgbuild = template
   .replaceAll("__VERSION__", version)
   .replaceAll("__TAG__", releaseTag)
   .replace("__LICENSE_SHA256__", sha256(license))
-  .replace("__AMD64_SHA256__", x64Hash);
+  .replace("__AMD64_SHA256__", x64Hash)
+  .replace("__ARM64_SHA256__", arm64Hash);
 
 if (/__[A-Z0-9_]+__/.test(pkgbuild)) {
   fail("Arch PKGBUILD template contains an unexpanded placeholder");
@@ -77,14 +79,17 @@ const srcinfo = [
   "\turl = https://vidcord.app/",
   "\tinstall = vidcord-bin.install",
   "\tarch = x86_64",
+  "\tarch = aarch64",
   "\tlicense = MIT",
   "\toptions = !strip",
   "\toptions = !emptydirs",
   ...dependencies.map((dependency) => `\tdepends = ${dependency}`),
   "\tsource = LICENSE",
   `\tsource_x86_64 = vidcord_${version}_amd64.deb::${sourceRoot}/vidcord_${version}_amd64.deb`,
+  `\tsource_aarch64 = vidcord_${version}_arm64.deb::${sourceRoot}/vidcord_${version}_arm64.deb`,
   `\tsha256sums = ${sha256(license)}`,
   `\tsha256sums_x86_64 = ${x64Hash}`,
+  `\tsha256sums_aarch64 = ${arm64Hash}`,
   "pkgname = vidcord-bin",
   "",
 ].join("\n");
