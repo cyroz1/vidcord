@@ -328,11 +328,15 @@ jobs:
           workspaces: src-tauri
           shared-key: rust-windows-${{ matrix.rust-target }}
 
+      # The ARM Linux package runner is Ubuntu 22.04 while ARM E2E uses Ubuntu
+      # 24.04. Include the runner and target so glibc-bound artifacts stay
+      # isolated across distributions.
       - name: Cache Rust dependencies
         if: matrix.rust-target != 'x86_64-unknown-linux-gnu' && !startsWith(matrix.platform, 'windows-latest')
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
           workspaces: src-tauri
+          shared-key: rust-${{ matrix.platform }}-${{ matrix.rust-target }}-v1
 
       - name: Set AppImage update information (Linux)
         if: startsWith(matrix.platform, 'ubuntu')
