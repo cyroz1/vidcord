@@ -130,7 +130,7 @@ jobs:
     # Match the Linux x86_64 bundle runner so both apt and Rust caches are
     # distro-compatible and reusable by the gated build job.
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
