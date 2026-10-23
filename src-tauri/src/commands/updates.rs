@@ -135,7 +135,7 @@ fn platform_asset_suffixes() -> Result<&'static [&'static str], String> {
 }
 
 fn package_manager_owns_linux_install() -> bool {
-    cfg!(target_os = "linux") && std::env::var_os("APPIMAGE").is_none()
+    cfg!(target_os = "linux") && !cfg!(feature = "e2e") && std::env::var_os("APPIMAGE").is_none()
 }
 
 fn validate_release_tag(tag: &str) -> Result<&str, String> {
