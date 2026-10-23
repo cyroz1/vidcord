@@ -7,6 +7,7 @@ import {
   normalizeDownloadPlatform,
   parseLatestRelease,
   selectBestDownloadAsset,
+  selectLinuxPackageAsset,
   type ReleaseAsset,
 } from "../web/desktopDownloads";
 
@@ -97,6 +98,38 @@ describe("desktop download detection", () => {
       "vidcord_macos_universal.dmg"
     );
     expect(selectBestDownloadAsset("windows", "unknown", assets)).toBeNull();
+  });
+
+  it("selects Linux package files for both architectures", () => {
+    const packageAssets: ReleaseAsset[] = [
+      "vidcord_7.7.0_amd64.deb",
+      "vidcord_7.7.0_arm64.deb",
+      "vidcord_7.7.0_x86_64.rpm",
+      "vidcord_7.7.0_aarch64.rpm",
+      "vidcord-bin-7.7.0-1-x86_64.pkg.tar.zst",
+      "vidcord-bin-7.7.0-1-aarch64.pkg.tar.zst",
+    ].map((name) => ({
+      name,
+      browser_download_url: `https://github.com/cyroz1/vidcord/releases/download/v7.7/${name}`,
+    }));
+    expect(selectLinuxPackageAsset("deb", "x64", packageAssets)?.name).toBe(
+      "vidcord_7.7.0_amd64.deb"
+    );
+    expect(selectLinuxPackageAsset("deb", "arm64", packageAssets)?.name).toBe(
+      "vidcord_7.7.0_arm64.deb"
+    );
+    expect(selectLinuxPackageAsset("rpm", "x64", packageAssets)?.name).toBe(
+      "vidcord_7.7.0_x86_64.rpm"
+    );
+    expect(selectLinuxPackageAsset("rpm", "arm64", packageAssets)?.name).toBe(
+      "vidcord_7.7.0_aarch64.rpm"
+    );
+    expect(selectLinuxPackageAsset("pacman", "x64", packageAssets)?.name).toBe(
+      "vidcord-bin-7.7.0-1-x86_64.pkg.tar.zst"
+    );
+    expect(selectLinuxPackageAsset("pacman", "arm64", packageAssets)?.name).toBe(
+      "vidcord-bin-7.7.0-1-aarch64.pkg.tar.zst"
+    );
   });
 
   it("requires a choice only for unknown Windows and Linux architectures", () => {

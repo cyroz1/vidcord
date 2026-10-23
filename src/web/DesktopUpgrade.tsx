@@ -26,6 +26,7 @@ const LINUX_PACKAGE_DOWNLOADS = [
   { id: "rpm-x64", label: "Fedora x86_64 (.rpm)", format: "rpm", arch: "x64" },
   { id: "rpm-arm64", label: "Fedora ARM64 (.rpm)", format: "rpm", arch: "arm64" },
   { id: "pacman-x64", label: "Arch Linux x86_64 (pacman)", format: "pacman", arch: "x64" },
+  { id: "pacman-arm64", label: "Arch Linux ARM64 (pacman)", format: "pacman", arch: "arm64" },
 ] as const satisfies ReadonlyArray<{
   id: string;
   label: string;

@@ -251,7 +251,7 @@ export function selectLinuxPackageAsset(
   arch: Exclude<DownloadArch, "unknown">,
   assets: readonly ReleaseAsset[]
 ): ReleaseAsset | null {
-  if (!Array.isArray(assets) || (format === "pacman" && arch !== "x64")) {
+  if (!Array.isArray(assets)) {
     return null;
   }
 
@@ -264,7 +264,9 @@ export function selectLinuxPackageAsset(
         ? arch === "x64"
           ? /^vidcord_\d+\.\d+\.\d+_x86_64\.rpm$/
           : /^vidcord_\d+\.\d+\.\d+_aarch64\.rpm$/
-        : /^vidcord-bin-\d+\.\d+\.\d+-\d+-x86_64\.pkg\.tar\.zst$/;
+        : arch === "x64"
+          ? /^vidcord-bin-\d+\.\d+\.\d+-\d+-x86_64\.pkg\.tar\.zst$/
+          : /^vidcord-bin-\d+\.\d+\.\d+-\d+-aarch64\.pkg\.tar\.zst$/;
 
   return assets.find((asset) => isTrustedReleaseAsset(asset) && pattern.test(asset.name)) ?? null;
 }
