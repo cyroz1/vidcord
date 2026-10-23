@@ -145,7 +145,12 @@ describe("browser UI", () => {
       gifButton?.click();
     });
 
-    const targetSelect = container.querySelector<HTMLSelectElement>(".web-gif-grid select");
+    const targetSelect = Array.from(
+      container.querySelectorAll<HTMLSelectElement>(".web-gif-grid select")
+    ).find(
+      (select) =>
+        select.closest("label")?.querySelector("span")?.textContent?.trim() === "Target size"
+    );
     expect(Array.from(targetSelect?.options ?? [], (option) => option.textContent)).toEqual([
       "5 MB",
       "10 MB",
