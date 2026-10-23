@@ -720,8 +720,9 @@ pub async fn download_and_open_update_installer(
     approved_release_tag: String,
 ) -> Result<serde_json::Value, String> {
     if package_manager_owns_linux_install() {
-        return Err("Updates for this Linux installation are managed by its package manager."
-            .to_string());
+        return Err(
+            "Updates for this Linux installation are managed by its package manager.".to_string(),
+        );
     }
 
     let release = fetch_release_by_tag(&approved_release_tag).await?;

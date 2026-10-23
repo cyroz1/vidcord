@@ -160,8 +160,7 @@ pub fn get_or_discover_encoder_listing() -> Result<String, String> {
 pub fn supports_video_encoder(encoder: &str) -> Result<bool, String> {
     let listing = get_or_discover_encoder_listing()?;
     let re = ENCODER_RE.get_or_init(|| {
-        regex_lite::Regex::new(r"^\s*V[A-Z.]*\s+([a-zA-Z0-9_]+)\s+")
-            .expect("invalid regex literal")
+        regex_lite::Regex::new(r"^\s*V[A-Z.]*\s+([a-zA-Z0-9_]+)\s+").expect("invalid regex literal")
     });
     Ok(listing
         .lines()
