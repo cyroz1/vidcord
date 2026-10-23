@@ -98,9 +98,10 @@ another native destination, copy the finished file to the system clipboard,
 and retry oversized results with safer bitrates and CPU fallback.
 
 - **Platform-native packaging.** Tauri uses the system WebView (Edge on Windows,
-  WebKit on macOS/Linux) instead of bundling Chromium. Package size varies by
-  platform: Windows installers are the smallest, macOS ships a universal DMG,
-  and the self-contained Linux AppImages are substantially larger.
+  WebKit on macOS/Linux) instead of bundling Chromium. Linux offers APT, RPM,
+  and pacman packages with system dependencies and desktop/file associations,
+  plus portable AppImages. Package size varies by platform: Windows installers
+  are the smallest and macOS ships a universal DMG.
 - **Desktop-speed encoding.** The native app auto-detects hardware encoders:
   NVENC, AMF, QSV, VAAPI, and VideoToolbox.
 - **Local video processing.** Selected videos stay on your device. No account is required, and
@@ -146,8 +147,9 @@ and retry oversized results with safer bitrates and CPU fallback.
   progress and ETA cover the whole remaining batch rather than only the currently active item.
 - **Desktop folder imports** — drop a folder, choose one or more folders with **Add Folder**, or
   choose **Import folder in vidcord** from a Windows folder menu, **Open With → vidcord** in Finder,
-  or **Open With → vidcord** in a Linux file manager. Linux AppImages register the folder action the
-  first time vidcord launches. vidcord scans subfolders up to a safety limit, shows scan progress,
+  or **Open With → vidcord** in a Linux file manager. Linux packages register
+  their desktop entry and associations at install; AppImages register the folder
+  action for the current user on first launch. vidcord scans subfolders up to a safety limit, shows scan progress,
   queues supported videos, reports skipped or unreadable items, and warns if results may be
   incomplete.
 - **Five Discord target profiles** covering current Discord tiers:
@@ -212,7 +214,8 @@ and retry oversized results with safer bitrates and CPU fallback.
   neither is compatible.
 - **Desktop HTML video preview** — the Tauri controls seek, play, and pause the current video
   on Windows, macOS, and Linux. Snapshots capture the displayed video frame. Format support depends
-  on the platform media engine; Linux AppImages bundle GStreamer for WebKitGTK playback.
+  on the platform media engine; Linux packages install GStreamer plugins through the system package
+  manager, while AppImages bundle GStreamer for WebKitGTK playback.
 - **Desktop hardware acceleration**, auto-detected at startup:
   - NVIDIA NVENC (`h264_nvenc`, `hevc_nvenc`)
   - AMD AMF (`h264_amf`, `hevc_amf`)
@@ -222,8 +225,9 @@ and retry oversized results with safer bitrates and CPU fallback.
 - **Desktop ways to open videos:** drag-and-drop videos or folders onto the
   window, use **Browse File** or **Add Folder**, choose vidcord from the folder
   context menu, pass command-line file arguments, or launch a second instance.
-  macOS uses Finder's **Open With** menu; Linux AppImages register their folder
-  action on first launch. Selecting one video preserves the normal workflow;
+  macOS uses Finder's **Open With** menu; Linux packages register file-manager
+  associations at install and AppImages register the folder action on first
+  launch. Selecting one video preserves the normal workflow;
   multiple videos activate Batch mode.
 - **Source details at import** — the desktop app shows resolution, frame rate,
   codec, average bitrate, and duration from FFprobe. The browser shows the
@@ -262,12 +266,12 @@ and retry oversized results with safer bitrates and CPU fallback.
   to a remembered custom folder, or choose a filename after compression finishes.
   For a batch using Ask when done, successful outputs are staged until one
   destination folder is chosen and then published together.
-- **Verified in-app updates** — update checks run after startup settles and no
-  more than once every six hours. After approval, vidcord streams the matching
-  installer to Downloads, validates its size and completeness, compares the
-  downloaded bytes with GitHub's published SHA-256 digest, verifies the
+- **Verified desktop updates** — Windows, macOS, and AppImage update checks run
+  after startup settles and no more than once every six hours. After approval,
+  vidcord streams the matching installer to Downloads, validates its size and
+  completeness, compares the bytes with GitHub's SHA-256 digest, verifies the
   independent Ed25519 release signature, chooses an unused filename, and opens
-  it.
+  it. Native Linux packages update through APT, DNF, or pacman.
 - **Desktop automated FFmpeg setup assistance** — Windows installers offer `winget`,
   and first launch prompts to install through the platform package manager.
   No FFmpeg binaries are bundled with vidcord.
@@ -275,7 +279,8 @@ and retry oversized results with safer bitrates and CPU fallback.
   on the website (with a matching top-nav link) point at
   [GitHub Sponsors](https://github.com/sponsors/cyroz1).
 - **Cross-platform installers:** Windows NSIS (x86_64 + aarch64), macOS
-  universal `.dmg`, Linux `.AppImage` (x86_64 + aarch64).
+  universal `.dmg`, Linux `.deb` and `.rpm` packages (x86_64 + aarch64), an
+  x86_64 pacman package, and `.AppImage` downloads for both Linux architectures.
 
 ### Desktop input formats
 
@@ -333,24 +338,26 @@ the browser, device, available memory, and source format.
 The browser edition does not provide the desktop app's system FFmpeg, GPU
 encoder discovery, native output folders, Open With routing, saved settings
 presets, native completion actions, OS notifications, taskbar/Dock progress, or
-in-app installer updates. Browser exports always use the browser download flow;
+in-app installer updates. Native Linux packages update through their package
+manager; other desktop installs use the verified in-app installer flow.
+Browser exports always use the browser download flow;
 the browser controls its download location and any download prompts. For large,
 long, unsupported, or memory-intensive sources—or when you need those desktop
 integrations—use the native app.
 
 ### Browser and desktop capability matrix
 
-| Capability             | Browser demo at `/#web-editor`                                            | Native desktop app                                       |
-| ---------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------- |
-| Processing engine      | Local FFmpeg WebAssembly                                                  | Local system `ffmpeg` and `ffprobe`                      |
-| Video encoder          | Fixed `libx264`                                                           | CPU and detected GPU encoders, selectable on desktop     |
-| Inputs                 | Formats the browser can decode                                            | Formats the installed FFmpeg can demux                   |
-| Modes                  | Compress, Advanced, Lossless Trim, GIF (GIF or WebP)                      | Compress, Advanced, Lossless Trim, GIF (GIF or WebP)     |
+| Capability             | Browser demo at `/#web-editor`                                                      | Native desktop app                                                              |
+| ---------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Processing engine      | Local FFmpeg WebAssembly                                                            | Local system `ffmpeg` and `ffprobe`                                             |
+| Video encoder          | Fixed `libx264`                                                                     | CPU and detected GPU encoders, selectable on desktop                            |
+| Inputs                 | Formats the browser can decode                                                      | Formats the installed FFmpeg can demux                                          |
+| Modes                  | Compress, Advanced, Lossless Trim, GIF (GIF or WebP)                                | Compress, Advanced, Lossless Trim, GIF (GIF or WebP)                            |
 | Audio                  | Normalize/remove; Advanced track choices when exposed; preview plays first selected | Track selection/mixing, normalization, or removal; preview plays first selected |
-| Batch                  | Up to 12 files; shared Compress profile, full duration, browser downloads | Shared controls plus per-file trims and native workers   |
-| Output                 | Browser downloads                                                         | Downloads, source folder, custom folder, or save prompt  |
-| Saved settings presets | Not available                                                             | Available in the desktop footer                          |
-| Native integrations    | None                                                                      | Open With, clipboard/reveal, notifications, taskbar/Dock |
+| Batch                  | Up to 12 files; shared Compress profile, full duration, browser downloads           | Shared controls plus per-file trims and native workers                          |
+| Output                 | Browser downloads                                                                   | Downloads, source folder, custom folder, or save prompt                         |
+| Saved settings presets | Not available                                                                       | Available in the desktop footer                                                 |
+| Native integrations    | None                                                                                | Open With, clipboard/reveal, notifications, taskbar/Dock                        |
 
 To build the static browser bundle locally:
 
@@ -394,30 +401,41 @@ installer from GitHub:
 
 **→ [Download latest release](https://github.com/cyroz1/vidcord/releases/latest)**
 
-| Platform                            | Architecture | File                                 |
-| ----------------------------------- | ------------ | ------------------------------------ |
-| Windows 10/11                       | x86_64       | `vidcord_<version>_x64-setup.exe`    |
-| Windows 10/11                       | aarch64      | `vidcord_<version>_arm64-setup.exe`  |
-| macOS 11+                           | universal    | `vidcord_<version>_universal.dmg`    |
-| Linux (modern glibc desktop distro) | x86_64       | `vidcord_<version>_amd64.AppImage`   |
-| Linux (newer glibc desktop distro)  | aarch64      | `vidcord_<version>_aarch64.AppImage` |
+| Platform          | Architecture | File                                               |
+| ----------------- | ------------ | -------------------------------------------------- |
+| Windows 10/11     | x86_64       | `vidcord_<version>_x64-setup.exe`                  |
+| Windows 10/11     | aarch64      | `vidcord_<version>_arm64-setup.exe`                |
+| macOS 11+         | universal    | `vidcord_<version>_universal.dmg`                  |
+| Debian / Ubuntu   | x86_64       | APT repository and `vidcord_<version>_amd64.deb`   |
+| Debian / Ubuntu   | aarch64      | APT repository and `vidcord_<version>_arm64.deb`   |
+| Fedora / DNF      | x86_64       | RPM repository and `vidcord_<version>_x86_64.rpm`  |
+| Fedora / DNF      | aarch64      | RPM repository and `vidcord_<version>_aarch64.rpm` |
+| Arch Linux        | x86_64       | pacman repository (`vidcord-bin`)                  |
+| Portable AppImage | x86_64       | `vidcord_<version>_amd64.AppImage`                 |
+| Portable AppImage | aarch64      | `vidcord_<version>_aarch64.AppImage`               |
 
-> **Running the Linux AppImage:** make it executable with
+See the [Linux install guide](docs/LINUX_INSTALL.md) for repository setup,
+dependency handling, package-manager updates, and removal. Native packages
+register desktop and file associations. **Running the portable Linux AppImage:** make it executable with
+
 > `chmod +x vidcord_*.AppImage` first. AppImages need FUSE on the host:
 > `sudo apt install libfuse2` (Debian/Ubuntu), `sudo dnf install fuse-libs`
 > (Fedora), or `sudo pacman -S fuse2` (Arch).
 
-> **You still need FFmpeg for the desktop app.** vidcord does not bundle it;
-> see the next section. The desktop installer or first launch can offer to
-> install system FFmpeg. The browser edition loads FFmpeg WebAssembly and does
-> not require a system FFmpeg install.
+> **The desktop app needs FFmpeg.** Debian/Ubuntu and Arch packages install it
+> as a dependency; Fedora users can install it through RPM Fusion. Other
+> installation methods can offer setup on first launch. vidcord does not bundle
+> FFmpeg. The browser edition loads FFmpeg WebAssembly and does not require a
+> system FFmpeg install.
 
-The website detects the operating system and, when it can identify the
-architecture, links directly to the matching asset from the latest GitHub
-release. If x86_64 versus ARM64 is uncertain, it asks you to choose an
-architecture. If release metadata cannot be fetched or the matching installer
-is missing, it falls back to the GitHub release page. Mobile devices show the
-desktop platform choices without recommending an installer for the device.
+The website detects the operating system. Linux opens the APT, RPM, and pacman
+install guide and links to available `.deb`, `.rpm`, pacman, and AppImage files
+directly. Windows links to the matching architecture-specific installer, and
+macOS links to the universal DMG.
+If Windows architecture is uncertain, the site asks you to choose x86_64 or
+ARM64. If release metadata cannot be fetched or an installer is missing, it
+falls back to the GitHub release page. Mobile devices show the desktop platform
+choices without recommending an installer for the device.
 
 ## FFmpeg setup for the desktop app
 
@@ -494,7 +512,8 @@ preserve the full selection.
 1. **Open videos** — drop videos or a folder onto the window, choose **Import
    folder in vidcord** from a Windows folder menu, **Open With → vidcord** in
    Finder or a Linux file manager, or click **Browse File** or **Add Folder**.
-   Linux AppImages register the folder action on first launch. Folder imports scan
+   Linux packages register their desktop entry and file associations at install;
+   AppImages register the folder action on first launch. Folder imports scan
    subfolders up to a safety limit, show progress, and report skipped files,
    linked folders, or unreadable items. If a large scan reaches the limit,
    vidcord warns that its results may be incomplete.
@@ -733,9 +752,10 @@ resolution in Advanced mode, or on desktop pick `hevc_*` (H.265) if your
 recipient can decode it.
 
 **Desktop video preview on Linux.**
-The Linux AppImage bundles GStreamer and uses WebKitGTK for HTML video scrubbing and trim
-playback. Sources that the HTML player cannot decode show a preview error; compression remains
-available through system FFmpeg.
+Linux packages install GStreamer plugins through the package manager; the
+AppImage bundles GStreamer. Both use WebKitGTK for HTML video scrubbing and trim
+playback. Sources that the HTML player cannot decode show a preview error;
+compression remains available through system FFmpeg.
 
 **Windows console flashes during a compress.**
 Shouldn't happen — every FFmpeg invocation sets `CREATE_NO_WINDOW`
@@ -784,9 +804,11 @@ videos for compression. No account is required, and vidcord collects no automati
 usage telemetry. If you submit feedback, your report goes to the developer;
 desktop reports include the app version, OS, and last 100 lines of the app log;
 browser reports include the page URL, browser user agent, and language. The app
-automatically checks the GitHub Releases API for updates at most once every six
-hours, deferred for eight seconds after startup.
-It only downloads an installer after you choose to install an available update.
+automatically checks the GitHub Releases API for Windows, macOS, and AppImage
+updates at most once every six hours, deferred for eight seconds after startup.
+Native Linux package installs update through APT, DNF, or pacman with normal
+system upgrades. The app only downloads an installer after you choose to
+install an available update.
 The website also requests public release metadata from GitHub and an aggregate
 download count from Shields.io; no video data is included in either request.
 Desktop compression works without an internet connection once its dependencies
@@ -817,17 +839,18 @@ download location. Use the desktop app for large or difficult inputs, GPU
 encoding, per-file Batch trims, saved presets, native folders, Open With, and
 the other desktop integrations.
 
-### How do in-app updates work?
+### How do desktop updates work?
 
-When an update is available, the desktop app offers the matching Windows, macOS, or
-Linux installer and keeps the GitHub release page as a fallback. After you
-approve the download, the app fetches that exact release tag even if a newer
-release appears before installation begins. It streams the installer to
-Downloads, enforces size and completeness limits, compares the bytes with the
-SHA-256 digest published in GitHub release metadata, verifies the pinned
-independent Ed25519 release signature, and only then gives the installer an
-unused filename and opens it. This independent release signature does not
-replace platform code signing.
+Linux package installs update through APT, DNF, or pacman with normal
+package-manager upgrades. For Windows, macOS, and AppImage installs, when an
+update is available the desktop app offers the matching installer and keeps the
+GitHub release page as a fallback. After you approve the download, it fetches
+that exact release tag even if a newer release appears before installation
+begins. It streams the installer to Downloads, enforces size and completeness
+limits, compares the bytes with the SHA-256 digest published in GitHub release
+metadata, verifies the pinned independent Ed25519 release signature, and only
+then gives the installer an unused filename and opens it. This independent
+release signature does not replace platform code signing.
 
 ### What are Discord's video upload size limits?
 
@@ -908,11 +931,14 @@ export, and incompatible stream-copy inputs fall back to normal compression.
 
 ### Does vidcord work on Linux and Wayland?
 
-Yes. vidcord ships as an `.AppImage` for x86_64 and aarch64 and is
-tested on GNOME, KDE Plasma, LXQt, Sway, and Hyprland on both X11 and
-Wayland. Hardware-accelerated encoding uses VAAPI via `/dev/dri/renderD*`.
-Linux AppImages bundle GStreamer for HTML video scrubbing and trim playback. Preview format
-support depends on WebKitGTK and GStreamer; unsupported sources show a preview error.
+Yes. vidcord ships APT and RPM packages for x86_64 and aarch64, a pacman package
+for x86_64 Arch Linux, and an `.AppImage` for both Linux architectures. It is
+tested on GNOME, KDE Plasma, LXQt, Sway, and Hyprland on both X11 and Wayland.
+Hardware-accelerated encoding uses VAAPI via
+`/dev/dri/renderD*`. Native packages install WebKitGTK and GStreamer runtime
+dependencies through the system package manager; AppImages bundle GStreamer
+for HTML video scrubbing and trim playback. Preview format support depends on
+WebKitGTK and GStreamer; unsupported sources show a preview error.
 
 ### Is there a CLI version?
 

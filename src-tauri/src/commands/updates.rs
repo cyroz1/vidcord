@@ -134,6 +134,10 @@ fn platform_asset_suffixes() -> Result<&'static [&'static str], String> {
     }
 }
 
+fn package_manager_owns_linux_install() -> bool {
+    cfg!(target_os = "linux") && std::env::var_os("APPIMAGE").is_none()
+}
+
 fn validate_release_tag(tag: &str) -> Result<&str, String> {
     let version = tag.strip_prefix('v').unwrap_or(tag);
     if tag.is_empty()
@@ -658,6 +662,16 @@ fn open_installer(path: &Path) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn check_for_updates(current_version: String) -> Result<serde_json::Value, String> {
+    // Native Linux packages are upgraded by APT, DNF, or pacman. Offering the
+    // AppImage replacement flow for those installations would switch users to
+    // a different install type and bypass the configured package repository.
+    if package_manager_owns_linux_install() {
+        return Ok(serde_json::json!({
+            "update_available": false,
+            "updates_managed_by_package_manager": true
+        }));
+    }
+
     let release = fetch_latest_release().await?;
     let tag = release
         .tag_name
@@ -705,6 +719,11 @@ pub async fn check_for_updates(current_version: String) -> Result<serde_json::Va
 pub async fn download_and_open_update_installer(
     approved_release_tag: String,
 ) -> Result<serde_json::Value, String> {
+    if package_manager_owns_linux_install() {
+        return Err("Updates for this Linux installation are managed by its package manager."
+            .to_string());
+    }
+
     let release = fetch_release_by_tag(&approved_release_tag).await?;
     let actual_release_tag = release_tag(&release)?;
     if actual_release_tag != approved_release_tag {

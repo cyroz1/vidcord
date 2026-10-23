@@ -1,5 +1,6 @@
 export type DownloadPlatform = "windows" | "macos" | "linux" | "unknown";
 export type DownloadArch = "x64" | "arm64" | "unknown";
+export type LinuxPackageFormat = "deb" | "rpm" | "pacman";
 
 export type DownloadEnvironment = {
   platform: DownloadPlatform;
@@ -21,7 +22,7 @@ export const LATEST_RELEASE_URL = "https://github.com/cyroz1/vidcord/releases/la
 const RELEASE_API_URL = "https://api.github.com/repos/cyroz1/vidcord/releases/latest";
 const RELEASE_DOWNLOAD_ORIGIN = "https://github.com";
 const RELEASE_DOWNLOAD_PATH = "/cyroz1/vidcord/releases/download/";
-const RELEASE_ASSET_NAME = /^vidcord_[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const RELEASE_ASSET_NAME = /^vidcord(?:_|-)[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 const PLATFORM_NAMES: Record<DownloadPlatform, string> = {
   windows: "Windows",
@@ -243,6 +244,29 @@ export function selectBestDownloadAsset(
       .filter((asset) => assetMatchesArch(asset, arch))
       .sort((a, b) => a.name.localeCompare(b.name))[0] ?? null
   );
+}
+
+export function selectLinuxPackageAsset(
+  format: LinuxPackageFormat,
+  arch: Exclude<DownloadArch, "unknown">,
+  assets: readonly ReleaseAsset[]
+): ReleaseAsset | null {
+  if (!Array.isArray(assets) || (format === "pacman" && arch !== "x64")) {
+    return null;
+  }
+
+  const pattern =
+    format === "deb"
+      ? arch === "x64"
+        ? /^vidcord_\d+\.\d+\.\d+_amd64\.deb$/
+        : /^vidcord_\d+\.\d+\.\d+_arm64\.deb$/
+      : format === "rpm"
+        ? arch === "x64"
+          ? /^vidcord_\d+\.\d+\.\d+_x86_64\.rpm$/
+          : /^vidcord_\d+\.\d+\.\d+_aarch64\.rpm$/
+        : /^vidcord-bin-\d+\.\d+\.\d+-\d+-x86_64\.pkg\.tar\.zst$/;
+
+  return assets.find((asset) => isTrustedReleaseAsset(asset) && pattern.test(asset.name)) ?? null;
 }
 
 export function needsArchitectureChoice(platform: DownloadPlatform, arch: DownloadArch): boolean {

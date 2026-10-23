@@ -9,14 +9,29 @@ import {
   needsArchitectureChoice,
   platformDisplayName,
   selectBestDownloadAsset,
+  selectLinuxPackageAsset,
   type DownloadArch,
   type DownloadEnvironment,
   type DownloadPlatform,
+  type LinuxPackageFormat,
   type LatestRelease,
 } from "./desktopDownloads";
 
 const ASSET_BASE = import.meta.env.DEV ? "/site/marketing-assets" : "/marketing-assets";
 const MARKETING_STYLESHEET = import.meta.env.DEV ? "/site/marketing.css?direct" : "/marketing.css";
+const LINUX_INSTALL_GUIDE = "https://github.com/cyroz1/vidcord/blob/main/docs/LINUX_INSTALL.md";
+const LINUX_PACKAGE_DOWNLOADS = [
+  { id: "deb-x64", label: "Debian / Ubuntu x86_64 (.deb)", format: "deb", arch: "x64" },
+  { id: "deb-arm64", label: "Debian / Ubuntu ARM64 (.deb)", format: "deb", arch: "arm64" },
+  { id: "rpm-x64", label: "Fedora x86_64 (.rpm)", format: "rpm", arch: "x64" },
+  { id: "rpm-arm64", label: "Fedora ARM64 (.rpm)", format: "rpm", arch: "arm64" },
+  { id: "pacman-x64", label: "Arch Linux x86_64 (pacman)", format: "pacman", arch: "x64" },
+] as const satisfies ReadonlyArray<{
+  id: string;
+  label: string;
+  format: LinuxPackageFormat;
+  arch: Exclude<DownloadArch, "unknown">;
+}>;
 
 const DOWNLOAD_PLATFORMS = [
   {
@@ -32,7 +47,8 @@ const DOWNLOAD_PLATFORMS = [
   {
     id: "linux",
     name: "Linux",
-    description: "AppImage builds for modern glibc distros on x86_64 and aarch64.",
+    description:
+      "APT, RPM, and pacman packages with system integration; direct package files and portable AppImages are available.",
   },
 ] as const satisfies ReadonlyArray<{
   id: Exclude<DownloadPlatform, "unknown">;
@@ -120,6 +136,36 @@ function createDownloadAction(
     direct: false,
     pending: !release && !releaseError,
     needsArchChoice: false,
+  };
+}
+
+function createLinuxPackageAction(
+  label: string,
+  format: LinuxPackageFormat,
+  arch: Exclude<DownloadArch, "unknown">,
+  release: LatestRelease | null,
+  releaseError: boolean
+): DownloadAction {
+  const selectedAsset = release ? selectLinuxPackageAsset(format, arch, release.assets) : null;
+
+  if (selectedAsset) {
+    return {
+      href: selectedAsset.browser_download_url,
+      label,
+      direct: true,
+      pending: false,
+      needsArchChoice: false,
+      assetName: selectedAsset.name,
+    };
+  }
+
+  return {
+    href: release || releaseError ? LATEST_RELEASE_URL : "#download",
+    label,
+    direct: false,
+    pending: !release && !releaseError,
+    needsArchChoice: false,
+    assetName: undefined,
   };
 }
 
@@ -351,6 +397,10 @@ function downloadStatusText(
     return "Choose Windows, macOS, or Linux below to get the right latest-release asset.";
   }
 
+  if (platform === "linux") {
+    return "Linux detected. Open the package-manager setup guide or choose a direct package or AppImage download below.";
+  }
+
   const platformLabel = platformDisplayName(platform);
   const arch = platformArch(platform, environment);
   const shouldChooseArch = needsArchitectureChoice(platform, arch);
@@ -543,7 +593,16 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           pending: false,
           needsArchChoice: false,
         }
-      : createDownloadAction(selectedPlatform, environment, release, releaseError);
+      : selectedPlatform === "linux"
+        ? {
+            href: LINUX_INSTALL_GUIDE,
+            label: "Linux package installation instructions",
+            direct: false,
+            pending: false,
+            needsArchChoice: false,
+          }
+        : createDownloadAction(selectedPlatform, environment, release, releaseError);
+  const portableLinuxAction = createDownloadAction("linux", environment, release, releaseError);
 
   const handleDownloadClick = (
     event: MouseEvent<HTMLAnchorElement>,
@@ -583,6 +642,8 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
                 href={desktopAction.href}
                 aria-label={desktopAction.label}
                 aria-disabled={desktopAction.pending ? "true" : undefined}
+                target={selectedPlatform === "linux" ? "_blank" : undefined}
+                rel={selectedPlatform === "linux" ? "noreferrer" : undefined}
                 onClick={(event) => {
                   if (selectedPlatform !== "unknown") {
                     handleDownloadClick(event, selectedPlatform, desktopAction);
@@ -593,11 +654,25 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
                 <span>
                   {desktopAction.needsArchChoice
                     ? desktopAction.label
-                    : "Download for your platform"}
+                    : selectedPlatform === "linux"
+                      ? "Install on Linux"
+                      : "Download for your platform"}
                 </span>
               </a>
               <p className="web-demo-callout">
                 Need a quick export on a phone or tablet? <a href="#web-editor">Try the web demo</a>
+                {selectedPlatform === "linux" ? (
+                  <>
+                    {" "}
+                    · Prefer a portable copy?{" "}
+                    <a
+                      href={portableLinuxAction.href}
+                      onClick={(event) => handleDownloadClick(event, "linux", portableLinuxAction)}
+                    >
+                      Download AppImage
+                    </a>
+                  </>
+                ) : null}
               </p>
             </div>
             <a
@@ -896,8 +971,9 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
             <h2 id="integrations-title">Open videos and folders from desktop file managers</h2>
             <p>
               Open video files from Explorer or Finder, or use the folder picker and drag-and-drop.
-              macOS and Linux support folder Open With; Linux AppImages register a per-user entry on
-              first launch. Folder imports scan subfolders and report skipped items.
+              macOS and Linux support folder Open With. Linux packages register associations at
+              install; AppImages register a per-user entry on first launch. Folder imports scan
+              subfolders and report skipped items.
             </p>
           </div>
         </div>
@@ -1039,6 +1115,17 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
             </p>
           </article>
           <article>
+            <h3>How do I install vidcord on Linux?</h3>
+            <p>
+              Install through APT, DNF/RPM, or pacman for package-manager updates and removal. The
+              <a href={LINUX_INSTALL_GUIDE} target="_blank" rel="noreferrer">
+                {" "}
+                Linux install guide
+              </a>
+              has setup steps; a portable AppImage remains available too.
+            </p>
+          </article>
+          <article>
             <h3>How do I run the Linux AppImage?</h3>
             <p>
               Run <code>chmod +x vidcord_*.AppImage</code>, then launch it. Install FUSE:
@@ -1056,10 +1143,10 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <article>
             <h3>How do desktop updates work?</h3>
             <p>
-              After your approval, vidcord fetches that exact release tag, then verifies the
-              installer against GitHub&apos;s published SHA-256 digest and an independent Ed25519
-              release signature before saving and opening it. This is separate from platform code
-              signing.
+              Linux packages update through APT, DNF, or pacman along with normal system updates.
+              Windows, macOS, and AppImage updates are offered in the app after approval; vidcord
+              verifies the release installer against GitHub&apos;s SHA-256 digest and its
+              independent Ed25519 signature before opening it.
             </p>
           </article>
         </div>
@@ -1184,6 +1271,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
         <div className="download-grid" aria-label="Platform downloads">
           {DOWNLOAD_PLATFORMS.map(({ id, name, description }) => {
             const action = createDownloadAction(id, environment, release, releaseError);
+            const isLinux = id === "linux";
             const isActive = selectedPlatform === id;
 
             return (
@@ -1197,20 +1285,86 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
                 <p>{description}</p>
                 <a
                   className="button button-platform"
-                  href={action.href}
-                  aria-label={
-                    action.assetName ? `${action.label}: ${action.assetName}` : action.label
-                  }
-                  aria-disabled={action.pending ? "true" : undefined}
+                  href={isLinux ? LINUX_INSTALL_GUIDE : action.href}
+                  aria-label={isLinux ? "Linux package installation instructions" : action.label}
+                  aria-disabled={!isLinux && action.pending ? "true" : undefined}
                   data-download-for={id}
-                  data-direct-download={String(action.direct)}
-                  data-asset-name={action.assetName}
-                  data-needs-arch-choice={action.needsArchChoice ? id : undefined}
-                  onClick={(event) => handleDownloadClick(event, id, action)}
+                  data-direct-download={String(!isLinux && action.direct)}
+                  data-asset-name={!isLinux ? action.assetName : undefined}
+                  data-needs-arch-choice={!isLinux && action.needsArchChoice ? id : undefined}
+                  target={isLinux ? "_blank" : undefined}
+                  rel={isLinux ? "noreferrer" : undefined}
+                  onClick={isLinux ? undefined : (event) => handleDownloadClick(event, id, action)}
                 >
                   <DownloadIcon />
-                  <span>{action.label}</span>
+                  <span>{isLinux ? "Package install guide" : action.label}</span>
                 </a>
+                {isLinux ? (
+                  <>
+                    <div className="linux-package-downloads" aria-label="Linux package files">
+                      <strong>Direct package downloads</strong>
+                      <ul className="linux-package-link-list">
+                        {LINUX_PACKAGE_DOWNLOADS.map((packageOption) => {
+                          const packageAction = createLinuxPackageAction(
+                            packageOption.label,
+                            packageOption.format,
+                            packageOption.arch,
+                            release,
+                            releaseError
+                          );
+
+                          return (
+                            <li key={packageOption.id}>
+                              <a
+                                className="linux-package-download"
+                                href={packageAction.href}
+                                aria-label={
+                                  packageAction.assetName
+                                    ? `${packageOption.label}: ${packageAction.assetName}`
+                                    : packageOption.label
+                                }
+                                aria-disabled={packageAction.pending ? "true" : undefined}
+                                data-download-for={`linux-package-${packageOption.id}`}
+                                data-direct-download={String(packageAction.direct)}
+                                data-asset-name={packageAction.assetName}
+                                onClick={(event) => {
+                                  if (packageAction.pending) {
+                                    event.preventDefault();
+                                  }
+                                }}
+                              >
+                                <span>{packageOption.label}</span>
+                                <small>
+                                  {packageAction.assetName ??
+                                    (packageAction.pending
+                                      ? "Loading release…"
+                                      : "View release assets")}
+                                </small>
+                              </a>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                    <a
+                      className="download-portable-link"
+                      href={action.href}
+                      aria-label={
+                        action.assetName
+                          ? `Portable AppImage: ${action.assetName}`
+                          : "Portable Linux AppImage"
+                      }
+                      aria-disabled={action.pending ? "true" : undefined}
+                      data-download-for="linux-appimage"
+                      data-direct-download={String(action.direct)}
+                      data-asset-name={action.assetName}
+                      data-needs-arch-choice={action.needsArchChoice ? id : undefined}
+                      onClick={(event) => handleDownloadClick(event, id, action)}
+                    >
+                      Portable AppImage
+                    </a>
+                  </>
+                ) : null}
               </article>
             );
           })}

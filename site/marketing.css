@@ -1113,6 +1113,52 @@ main {
   font-size: 14px;
 }
 
+.download-portable-link {
+  display: inline-block;
+  margin-top: 14px;
+}
+
+.linux-package-downloads {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.linux-package-downloads > strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.linux-package-link-list {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.linux-package-download {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.linux-package-download small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+
+.linux-package-download:hover {
+  color: var(--accent-strong);
+}
+
 .arch-dialog {
   width: min(92vw, 500px);
   padding: 0;

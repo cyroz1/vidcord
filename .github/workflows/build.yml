@@ -9,8 +9,8 @@ on:
     tags:
       - "v*"
     paths:
-      # App source only: the platform builds run when (and only when) these
-      # change. Docs, site, and repo-metadata pushes skip the build.
+      # App and packaging source: platform builds run when these files change.
+      # Docs and site-only pushes skip the build.
       - "src/**"
       - "src-tauri/**"
       - "index.html"
@@ -27,14 +27,17 @@ on:
       - "scripts/check-build-tools.mjs"
       - "scripts/check-video-extensions.mjs"
       - "scripts/prune-desktop-dist.mjs"
+      - "scripts/publish-linux-repositories.sh"
+      - "scripts/render-arch-package.mjs"
+      - "packaging/**"
       - "tools/tauri-cli/**"
       - ".github/workflows/**"
   pull_request:
     # Same "+" quantifier semantics as the push filter above.
     branches: [main, "[0-9]+.[0-9]+"]
     paths:
-      # Same app-source filter as push: PRs that only touch docs, the site,
-      # or repo metadata do not need a full platform build.
+      # Same app and packaging source filter as push. Docs and site-only PRs
+      # do not need a full platform build.
       - "src/**"
       - "src-tauri/**"
       - "index.html"
@@ -51,6 +54,9 @@ on:
       - "scripts/check-build-tools.mjs"
       - "scripts/check-video-extensions.mjs"
       - "scripts/prune-desktop-dist.mjs"
+      - "scripts/publish-linux-repositories.sh"
+      - "scripts/render-arch-package.mjs"
+      - "packaging/**"
       - "tools/tauri-cli/**"
       - ".github/workflows/**"
   workflow_dispatch:
@@ -222,14 +228,14 @@ jobs:
             arch: x86_64
             rust-target: x86_64-unknown-linux-gnu
             tauri-target: x86_64-unknown-linux-gnu
-            bundle: appimage
+            bundle: appimage,deb,rpm
             artifact-name: vidcord-linux-x86_64
 
-          - platform: ubuntu-24.04-arm
+          - platform: ubuntu-22.04-arm
             arch: aarch64
             rust-target: aarch64-unknown-linux-gnu
             tauri-target: aarch64-unknown-linux-gnu
-            bundle: appimage
+            bundle: appimage,deb,rpm
             artifact-name: vidcord-linux-aarch64
 
           - platform: macos-latest
@@ -266,6 +272,7 @@ jobs:
             libappindicator3-dev
             librsvg2-dev
             patchelf
+            rpm
             xdg-utils
             gstreamer1.0-plugins-base
             gstreamer1.0-plugins-good
@@ -341,8 +348,23 @@ jobs:
       - name: Stage artifacts (Unix)
         if: ${{ matrix.platform != 'windows-latest' }}
         run: |
+          set -euo pipefail
           mkdir -p artifacts
           find src-tauri/target \( -name "*.AppImage" -o -name "*.AppImage.zsync" -o -name "*.dmg" \) -exec cp {} artifacts/ \;
+
+          if [[ "${{ matrix.platform }}" == ubuntu-* ]]; then
+            version="$(node -p 'require("./src-tauri/tauri.conf.json").version')"
+            arch="${{ matrix.arch }}"
+            deb_arch="${{ matrix.arch == 'x86_64' && 'amd64' || 'arm64' }}"
+            mapfile -t debs < <(find src-tauri/target -path '*/bundle/deb/*.deb' -type f)
+            mapfile -t rpms < <(find src-tauri/target -path '*/bundle/rpm/*.rpm' -type f)
+            if [[ "${#debs[@]}" -ne 1 || "${#rpms[@]}" -ne 1 ]]; then
+              echo "expected one deb and one rpm, found ${#debs[@]} deb and ${#rpms[@]} rpm packages" >&2
+              exit 1
+            fi
+            cp "${debs[0]}" "artifacts/vidcord_${version}_${deb_arch}.deb"
+            cp "${rpms[0]}" "artifacts/vidcord_${version}_${arch}.rpm"
+          fi
 
       - name: Stage artifacts (Windows)
         if: ${{ matrix.platform == 'windows-latest' }}
@@ -424,8 +446,71 @@ jobs:
           compression-level: 0
           retention-days: 7
 
-  sign-release-artifacts:
+  arch-package-build:
     needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            arch: x86_64
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 1
+
+      - name: Download Linux package artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          pattern: vidcord-linux-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Build pacman package
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./src-tauri/tauri.conf.json").version')"
+          release_tag="${GITHUB_REF_NAME#v}"
+          arch_build="$RUNNER_TEMP/vidcord-arch-package"
+          mkdir -p "$arch_build"
+          node scripts/render-arch-package.mjs "$version" "$release_tag" release-assets "$arch_build"
+          cp "release-assets/vidcord_${version}_amd64.deb" "$arch_build/"
+          sed -i \
+            -e "s@::https://github.com/cyroz1/vidcord/releases/download/v${release_tag}/vidcord_\${pkgver}_amd64.deb@@" \
+            "$arch_build/PKGBUILD"
+          docker run --rm \
+            --volume "$arch_build:/work" \
+            --workdir /work \
+            archlinux:base-devel \
+            bash -lc 'pacman -Syu --noconfirm pacman-contrib && useradd --create-home build && chown -R build:build /work && su build -c "makepkg --noconfirm --clean --nodeps"'
+          mkdir -p artifacts
+          find "$arch_build" -maxdepth 1 -type f -name 'vidcord-bin-*.pkg.tar.zst' -exec cp {} artifacts/ \;
+          test -n "$(find artifacts -maxdepth 1 -type f -name 'vidcord-bin-*.pkg.tar.zst' -print -quit)"
+
+      - name: Attest pacman package
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: artifacts/*.pkg.tar.zst
+
+      - name: Upload pacman package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: vidcord-pacman-${{ matrix.arch }}
+          path: artifacts/*.pkg.tar.zst
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  sign-release-artifacts:
+    needs: [build, arch-package-build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: startsWith(github.ref, 'refs/tags/')
@@ -456,7 +541,7 @@ jobs:
               --source-ref "$GITHUB_REF"
           done < <(
             find release-artifacts -type f \( \
-              -name '*.AppImage' -o -name '*.dmg' -o -name '*.exe' \
+              -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.pkg.tar.zst' -o -name '*.dmg' -o -name '*.exe' \
             \) -print0
           )
 
@@ -476,7 +561,7 @@ jobs:
           test "$actual_public_key" = "$expected_public_key"
 
           test -n "$(find release-artifacts -type f \( \
-            -name '*.AppImage' -o -name '*.dmg' -o -name '*.exe' \
+            -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' -o -name '*.exe' \
           \) -print -quit)"
           while IFS= read -r -d '' artifact; do
             asset_name="$(basename "$artifact")"
@@ -489,7 +574,7 @@ jobs:
             rm -f "$artifact.message"
           done < <(
             find release-artifacts -type f \( \
-              -name '*.AppImage' -o -name '*.dmg' -o -name '*.exe' \
+              -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' -o -name '*.exe' \
             \) -print0
           )
 
@@ -539,3 +624,77 @@ jobs:
           body_path: release_notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-linux-package-repositories:
+    needs: publish-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 1
+
+      - name: Check repository signing key
+        id: repository-key
+        env:
+          REPOSITORY_GPG_KEY: ${{ secrets.VIDCORD_REPOSITORY_GPG_PRIVATE_KEY }}
+        run: |
+          if [[ -n "$REPOSITORY_GPG_KEY" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "Package artifacts were published, but Linux repositories were not updated." >> "$GITHUB_STEP_SUMMARY"
+            echo "Add VIDCORD_REPOSITORY_GPG_PRIVATE_KEY and enable GitHub Pages for the linux-packages branch." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Download signed release packages
+        if: steps.repository-key.outputs.configured == 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: signed-release-artifacts
+          path: release-artifacts
+
+      - name: Install repository tools
+        if: steps.repository-key.outputs.configured == 'true'
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
+            apt-utils createrepo-c dpkg-dev gnupg
+
+      - name: Generate signed Linux repositories
+        if: steps.repository-key.outputs.configured == 'true'
+        env:
+          VIDCORD_REPOSITORY_GPG_PRIVATE_KEY: ${{ secrets.VIDCORD_REPOSITORY_GPG_PRIVATE_KEY }}
+          VIDCORD_REPOSITORY_GPG_PASSPHRASE: ${{ secrets.VIDCORD_REPOSITORY_GPG_PASSPHRASE }}
+          VIDCORD_REPOSITORY_BASE_URL: https://cyroz1.github.io/vidcord
+        run: bash scripts/publish-linux-repositories.sh release-artifacts "$RUNNER_TEMP/linux-repositories"
+
+      - name: Publish repositories to the linux-packages branch
+        if: steps.repository-key.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          pages_branch="$RUNNER_TEMP/linux-packages"
+          git init --initial-branch=linux-packages "$pages_branch"
+          cd "$pages_branch"
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code origin refs/heads/linux-packages >/dev/null 2>&1; then
+            git fetch --depth=1 origin linux-packages
+            git reset --hard FETCH_HEAD
+          fi
+          rm -rf apt rpm pacman vidcord-repo-key.asc vidcord-repo-key.fingerprint vidcord-repo-key.gpg
+          cp -a "$RUNNER_TEMP/linux-repositories/." .
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Package repository is already current."
+            exit 0
+          fi
+          git commit -m "Publish Linux package repositories for ${GITHUB_REF_NAME}"
+          authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c "http.extraheader=AUTHORIZATION: basic ${authorization}" push origin linux-packages

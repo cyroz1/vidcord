@@ -94,10 +94,10 @@
               "Desktop GPU encoder detection for NVENC, AMF, QSV, VAAPI, and VideoToolbox",
               "Desktop Open With integration, native output locations, notifications, and taskbar or Dock progress",
               "Desktop recursive video folder imports through drag-and-drop, folder selection, and file-manager context menus",
-              "Linux AppImages register a per-user folder Open With entry on first launch",
+              "Linux packages register desktop and file associations at install; AppImages can register a per-user folder Open With entry",
               "Desktop close-after-export option for successful exports, snapshots, and completed batches",
               "Desktop HTML video scrubbing and trim playback on Windows, macOS, and Linux, with PNG snapshots from the current frame",
-              "Desktop in-app updates verify GitHub's published SHA-256 digest and an independent Ed25519 release signature",
+              "Linux package repositories use signed metadata for package-manager updates; Windows, macOS, and AppImage in-app updates verify GitHub's published SHA-256 digest and an independent Ed25519 release signature",
               "Browser trim, crop, audio normalization, snapshots, and reorderable/retryable same-profile batches for up to 12 browser-readable files",
               "Browser encoder-load and export-stage progress, memory warnings, and a faster x264 preset on phones",
               "Selected videos stay on the device and are not uploaded for compression",
@@ -167,6 +167,14 @@
               },
               {
                 "@type": "Question",
+                "name": "How do I install vidcord on Linux?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Install from the APT, RPM, or pacman repository for system dependency installation and package-manager updates; the Linux install guide explains setup. The download section links directly to available .deb and .rpm packages, the x86_64 pacman package, and portable AppImages."
+                }
+              },
+              {
+                "@type": "Question",
                 "name": "How do I run the Linux AppImage?",
                 "acceptedAnswer": {
                   "@type": "Answer",
@@ -186,7 +194,7 @@
                 "name": "How do desktop updates work?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "After your approval, vidcord fetches that exact release tag, then verifies the installer against GitHub's published SHA-256 digest and an independent Ed25519 release signature before saving and opening it. This is separate from platform code signing."
+                  "text": "Linux native packages update through APT, DNF, or pacman. Windows, macOS, and AppImage updates are offered in the app after approval and verified against GitHub's published SHA-256 digest and an independent Ed25519 release signature before opening. This is separate from platform code signing."
                 }
               }
             ]
@@ -194,12 +202,12 @@
         ]
       }
     </script>
-    <script type="module" crossorigin src="/assets/index-BRsxoLvU.js"></script>
+    <script type="module" crossorigin src="/assets/index-DHWXhU3e.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-b3L32Ng1.js" />
     <link rel="modulepreload" crossorigin href="/assets/react-DVZbHsjx.js" />
     <link rel="stylesheet" crossorigin href="/assets/index-D4kHkHgZ.css" />
     <link rel="stylesheet" href="/marketing.css" data-vidcord-marketing-styles="true" />
-    <link rel="modulepreload" href="/assets/WebApp-x_ZcqAck.js" crossorigin />
+    <link rel="modulepreload" href="/assets/WebApp-D4Dh0t8o.js" crossorigin />
     <link rel="stylesheet" href="/assets/WebApp-eecmL6Tg.css" crossorigin />
     <link rel="modulepreload" href="/assets/donate-BDX2c1I4.js" crossorigin />
     <link rel="modulepreload" href="/assets/feedback-D8lDUwz7.js" crossorigin />
