@@ -404,20 +404,39 @@ fn expand_import_paths_blocking(
 
 /// Lexically resolves `.` and `..` components without touching the
 /// filesystem, so path spellings of the same file compare equal. `..` at
-/// the root (or with nothing to pop) is dropped, matching how the OS
-/// resolves it there.
+/// the root is dropped, matching how the OS resolves it there; a leading
+/// `..` on a relative path is preserved, since it climbs above the base.
 fn normalize_lexical_path(path: &std::path::Path) -> std::path::PathBuf {
     use std::path::Component;
 
+    let mut rooted = false;
     let mut normalized = std::path::PathBuf::new();
     for component in path.components() {
         match component {
             Component::CurDir => {}
             Component::ParentDir => {
-                normalized.pop();
+                // Only a normal component can be cancelled out. A leading
+                // `..` on a relative path climbs above the base, so it
+                // must be preserved: dropping it would make different
+                // files (a/../x and ../x) compare equal.
+                let can_pop = normalized
+                    .components()
+                    .next_back()
+                    .is_some_and(|last| matches!(last, Component::Normal(_)));
+                if can_pop {
+                    normalized.pop();
+                } else if !rooted {
+                    normalized.push("..");
+                }
             }
-            Component::RootDir => normalized.push(std::path::MAIN_SEPARATOR.to_string()),
-            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => {
+                rooted = true;
+                normalized.push(std::path::MAIN_SEPARATOR.to_string());
+            }
+            Component::Prefix(prefix) => {
+                rooted = true;
+                normalized.push(prefix.as_os_str());
+            }
             Component::Normal(part) => normalized.push(part),
         }
     }
@@ -627,7 +646,10 @@ pub(crate) fn show_files_in_file_explorer_linux(
         .iter()
         .map(|file| {
             url::Url::from_file_path(file)
-                .map(|url| url.to_string())
+                // A comma in a file name is legal in a URI, but the
+                // array:string argument below is comma-separated, so an
+                // unencoded comma splits one file into two bogus URIs.
+                .map(|url| url.to_string().replace(',', "%2C"))
                 .map_err(|_| format!("Could not create a file URL for {}.", file.display()))
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -1272,13 +1294,14 @@ fn save_snapshot_image_blocking(
             .ok_or_else(|| "Snapshot output path has no filename.".to_string())?
             .to_string_lossy();
         let mut temporary = None;
+        let embedded_name = temp_embedded_name(&file_name);
         for attempt in 0..100u32 {
             let stamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_nanos();
             let candidate = parent.join(format!(
-                ".{file_name}.vidcord-snapshot-{}-{stamp}-{attempt}.tmp",
+                ".{embedded_name}.vidcord-snapshot-{}-{stamp}-{attempt}.tmp",
                 std::process::id()
             ));
             match std::fs::OpenOptions::new()
@@ -1616,6 +1639,50 @@ fn staging_directory() -> std::path::PathBuf {
     std::env::temp_dir().join("vidcord").join("staged-output")
 }
 
+/// Create the staging directory and prove it is private before any
+/// finished encode is written there. Without this, the directory sits in
+/// the shared temp root with default permissions: another local user
+/// could pre-create or watch the path and read or swap a staged file
+/// before it is published. Mirrors the compression candidates' bar: the
+/// directory itself is 0700, and every ancestor must be owned by the
+/// user or root and not group/world-writable unless sticky (like /tmp).
+#[cfg(unix)]
+fn ensure_staging_directory() -> Result<std::path::PathBuf, String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let staging = staging_directory();
+    std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
+    std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o700))
+        .map_err(|e| e.to_string())?;
+    let resolved = std::fs::canonicalize(&staging).map_err(|e| e.to_string())?;
+
+    let effective_uid = unsafe { libc::geteuid() };
+    let mut current = std::path::PathBuf::new();
+    for component in resolved.components() {
+        if let std::path::Component::CurDir = component {
+            continue;
+        }
+        current.push(component.as_os_str());
+        let metadata = std::fs::metadata(&current).map_err(|e| e.to_string())?;
+        if metadata.uid() != effective_uid && metadata.uid() != 0 {
+            return Err("The temporary output folder is not private.".to_string());
+        }
+        let mode = metadata.permissions().mode();
+        if mode & 0o022 != 0 && mode & 0o1000 == 0 {
+            return Err("The temporary output folder is not private.".to_string());
+        }
+    }
+    Ok(resolved)
+}
+
+#[cfg(not(unix))]
+fn ensure_staging_directory() -> Result<std::path::PathBuf, String> {
+    // %TEMP% is per-user ACL'd on Windows; nothing extra to prove.
+    let staging = staging_directory();
+    std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
+    Ok(staging)
+}
+
 fn validated_staged_output(path: &str) -> Result<std::path::PathBuf, String> {
     let staging = std::fs::canonicalize(staging_directory())
         .map_err(|_| "The temporary output folder is unavailable.".to_string())?;
@@ -1637,8 +1704,7 @@ pub async fn resolve_staging_output_path(
         if !valid_output_extension(&output_extension) || output_extension == "png" {
             return Err("Invalid output format".into());
         }
-        let staging = staging_directory();
-        std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
+        let staging = ensure_staging_directory()?;
         Ok(unique_output_path(
             std::path::Path::new(&input_path),
             &staging,
@@ -1649,6 +1715,37 @@ pub async fn resolve_staging_output_path(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Reject a publish destination inside the staging directory.
+/// Publishing onto the staged file itself would replace it and then
+/// delete it as cleanup, destroying the only copy; publishing beside it
+/// leaves a file in staging that its lifecycle does not own.
+fn reject_staging_destination(
+    staged: &std::path::Path,
+    parent: &std::path::Path,
+    file_name: &str,
+) -> Result<(), String> {
+    let staging = std::fs::canonicalize(staging_directory())
+        .map_err(|_| "The temporary output folder is unavailable.".to_string())?;
+    let canonical_parent = std::fs::canonicalize(parent)
+        .map_err(|_| "The selected output folder is unavailable.".to_string())?;
+    if canonical_parent == staging || canonical_parent.join(file_name) == staged {
+        return Err("Choose a destination outside the temporary staging folder.".to_string());
+    }
+    Ok(())
+}
+
+/// Best-effort sync of the directory containing a freshly published
+/// file, so the new directory entry is durable, not just the file's
+/// bytes (which the publish flow already syncs).
+#[cfg(unix)]
+fn sync_parent_directory(path: &std::path::Path) {
+    if let Some(parent) = path.parent() {
+        if let Ok(directory) = std::fs::File::open(parent) {
+            let _ = directory.sync_all();
+        }
+    }
 }
 
 fn publish_staged_output_blocking(
@@ -1666,11 +1763,14 @@ fn publish_staged_output_blocking(
         .and_then(|name| name.to_str())
         .filter(|name| !name.is_empty())
         .ok_or_else(|| "Choose a valid output filename.".to_string())?;
+    reject_staging_destination(&staged, parent, file_name)?;
 
     let temp_path = publish_to_temporary(&staged, parent, file_name, false)?;
 
     let publish_result = (|| -> Result<(), String> {
         crate::settings::replace_file(&temp_path, &destination).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        sync_parent_directory(&destination);
         // The destination is now published. A staged copy that cannot be
         // removed (e.g. a transient Windows lock) must not turn that success
         // into a reported failure, so cleanup is log-only from here.
@@ -1741,6 +1841,7 @@ fn publish_staged_output_without_replacing_blocking(
         .and_then(|name| name.to_str())
         .filter(|name| !name.is_empty())
         .ok_or_else(|| "Choose a valid output filename.".to_string())?;
+    reject_staging_destination(&staged, parent, file_name)?;
 
     let temp_path = publish_to_temporary(&staged, parent, file_name, true)?;
 
@@ -1752,6 +1853,8 @@ fn publish_staged_output_without_replacing_blocking(
             }
             Err(_) => copy_file_to_new_destination(&temp_path, &destination)?,
         }
+        #[cfg(unix)]
+        sync_parent_directory(&destination);
         // The destination is now published; temp/staged cleanup failures are
         // log-only so a successful publish is never reported as a failure.
         if let Err(error) = std::fs::remove_file(&temp_path) {
@@ -1812,6 +1915,22 @@ pub async fn publish_batch_staged_outputs(
     .map_err(|e| e.to_string())?
 }
 
+/// Temporary publish names embed the destination file name plus a tag,
+/// ids, and a timestamp. Truncate the embedded part to a byte budget so
+/// the whole temporary name stays within common filesystem limits (255
+/// bytes) even when the destination name is near the limit itself.
+fn temp_embedded_name(file_name: &str) -> &str {
+    const MAX_EMBEDDED_NAME_BYTES: usize = 120;
+    if file_name.len() <= MAX_EMBEDDED_NAME_BYTES {
+        return file_name;
+    }
+    let mut end = MAX_EMBEDDED_NAME_BYTES;
+    while !file_name.is_char_boundary(end) {
+        end -= 1;
+    }
+    &file_name[..end]
+}
+
 fn publish_to_temporary(
     staged: &std::path::Path,
     parent: &std::path::Path,
@@ -1829,6 +1948,7 @@ fn publish_to_temporary(
     // destination retries with a fresh name instead of falling through to
     // a copy that clashes, and error cleanup only ever removes a temp file
     // this call actually created.
+    let embedded_name = temp_embedded_name(file_name);
     for _ in 0..100 {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1836,7 +1956,7 @@ fn publish_to_temporary(
             .as_nanos();
         let counter = PUBLISH_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
         let candidate = parent.join(format!(
-            ".{file_name}.{tag}-{}-{counter}-{nanos}.tmp",
+            ".{embedded_name}.{tag}-{}-{counter}-{nanos}.tmp",
             std::process::id()
         ));
 
@@ -1959,6 +2079,20 @@ mod tests {
         assert_eq!(
             normalize_lexical_path(std::path::Path::new("/../clip.mp4")),
             std::path::PathBuf::from("/clip.mp4")
+        );
+        // A leading `..` on a relative path climbs above the base and is
+        // preserved: dropping it would merge different files into one key.
+        assert_eq!(
+            normalize_lexical_path(std::path::Path::new("a/../../clip.mp4")),
+            std::path::PathBuf::from("../clip.mp4")
+        );
+        assert_eq!(
+            normalize_lexical_path(std::path::Path::new("../../clip.mp4")),
+            std::path::PathBuf::from("../../clip.mp4")
+        );
+        assert_ne!(
+            normalize_lexical_path(std::path::Path::new("a/../clip.mp4")),
+            normalize_lexical_path(std::path::Path::new("../clip.mp4"))
         );
     }
 

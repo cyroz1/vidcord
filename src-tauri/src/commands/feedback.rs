@@ -6,9 +6,16 @@
 
 use std::io::{Read, Seek, SeekFrom, Write};
 
-pub const FEEDBACK_EMAIL: &str = "owner@vidcord.app";
 /// Log lines embedded in the email body (kept small so mailto: URLs stay usable).
 const EMAIL_LOG_LINES: usize = 100;
+/// Byte budget for the log tail embedded in the submitted body. The line
+/// count alone is not a budget: verbose FFmpeg diagnostics make 100 lines
+/// far larger than the feedback endpoint accepts, which fails the send
+/// (or truncates away the newest lines, the ones that matter).
+const EMAIL_BODY_BUDGET_BYTES: usize = 90 * 1024;
+/// Newest saved report copies kept on disk; the age sweep below is the
+/// outer bound, this keeps the count bounded within the window too.
+const MAX_SAVED_REPORTS: usize = 3;
 /// Log lines written to the full report file saved on disk.
 const FILE_LOG_LINES: usize = 500;
 /// Cap on the user's free-text description, so a pasted multi-MB log cannot
@@ -35,25 +42,81 @@ fn truncate_description(description: Option<String>) -> Option<String> {
     })
 }
 
-/// Best-effort removal of saved report copies past their retention window.
+/// True when `file_name` has exactly the shape the report writer
+/// produces: the prefix, three ASCII-digit fields (process id, nanosecond
+/// timestamp, counter), and the `.txt` suffix.
+fn report_filename_is_well_formed(file_name: &str) -> bool {
+    let Some(rest) = file_name
+        .strip_prefix(REPORT_FILE_PREFIX)
+        .and_then(|name| name.strip_suffix(".txt"))
+    else {
+        return false;
+    };
+    let fields: Vec<&str> = rest.split('-').collect();
+    fields.len() == 3
+        && fields
+            .iter()
+            .all(|field| !field.is_empty() && field.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+/// Best-effort removal of saved report copies past their retention
+/// window, plus pruning to the newest few within the window so copies
+/// cannot accumulate one per submission for a whole week.
 fn sweep_stale_report_files(temp_dir: &std::path::Path) {
     let Ok(entries) = std::fs::read_dir(temp_dir) else {
         return;
     };
+    let mut fresh: Vec<(std::path::PathBuf, std::time::SystemTime)> = Vec::new();
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
-        if !name.starts_with(REPORT_FILE_PREFIX) || !name.ends_with(".txt") {
+        if !report_filename_is_well_formed(name) {
             continue;
         }
-        let stale = entry
-            .metadata()
-            .and_then(|metadata| metadata.modified())
-            .is_ok_and(|modified| modified.elapsed().is_ok_and(|age| age > REPORT_RETENTION));
-        if stale {
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
+        if modified.elapsed().is_ok_and(|age| age > REPORT_RETENTION) {
             let _ = std::fs::remove_file(entry.path());
+            continue;
         }
+        fresh.push((entry.path(), modified));
     }
+    fresh.sort_by_key(|(_, modified)| *modified);
+    let excess = fresh.len().saturating_sub(MAX_SAVED_REPORTS);
+    for (path, _) in fresh.into_iter().take(excess) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// Keep the newest whole lines that fit a byte budget, dropping the
+/// oldest first. A single line larger than the whole budget is clamped
+/// on a character boundary and marked, rather than dropped (it may be
+/// the key error) or allowed to blow the budget alone.
+fn tail_within_byte_budget(lines: &[String], budget: usize) -> Vec<String> {
+    let mut kept: Vec<String> = Vec::new();
+    let mut total = 0usize;
+    for line in lines.iter().rev() {
+        if line.len() > budget {
+            let mut end = budget;
+            while !line.is_char_boundary(end) {
+                end -= 1;
+            }
+            kept.push(format!("{} [truncated]", &line[..end]));
+            break;
+        }
+        let cost = line.len() + 1;
+        if total + cost > budget {
+            break;
+        }
+        total += cost;
+        kept.push(line.clone());
+    }
+    kept.reverse();
+    kept
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
@@ -194,7 +257,7 @@ fn validated_report_path(path: &str) -> Result<std::path::PathBuf, String> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| "Invalid bug report path.".to_string())?;
-    if !file_name.starts_with(REPORT_FILE_PREFIX) || !file_name.ends_with(".txt") {
+    if !report_filename_is_well_formed(file_name) {
         return Err("Invalid bug report path.".to_string());
     }
     let directory = report_directory();
@@ -311,21 +374,32 @@ fn collect_bug_report_blocking(description: Option<String>) -> Result<BugReport,
     let log_path = crate::log::log_file_path();
     let description = truncate_description(description);
 
-    // One pass over the log: the email body embeds the last EMAIL_LOG_LINES
-    // of the same tail the full report file is written from.
+    // One pass over the log: the email body embeds the tail of the same
+    // lines the full report file is written from, bounded by both the
+    // line count and the byte budget the endpoint accepts.
     let file_tail = tail_lines(&log_path, FILE_LOG_LINES);
-    let email_tail = &file_tail[file_tail.len().saturating_sub(EMAIL_LOG_LINES)..];
-    let body = format_report(description.as_deref(), version, os, arch, email_tail);
+    let email_lines = &file_tail[file_tail.len().saturating_sub(EMAIL_LOG_LINES)..];
+    let email_tail = tail_within_byte_budget(email_lines, EMAIL_BODY_BUDGET_BYTES);
+    let body = format_report(description.as_deref(), version, os, arch, &email_tail);
 
-    // Full report on disk in case the mail client truncates the mailto: body.
+    // Full report on disk in case the mail client truncates the mailto:
+    // body. The local copy is best-effort: a read-only or full temp
+    // directory must not abort the report itself, so the path is empty
+    // when no copy could be saved and the frontend skips it.
     let full = format_report(description.as_deref(), version, os, arch, &file_tail);
     sweep_stale_report_files(&report_directory());
-    let report_path = write_report_file(&full)?;
+    let report_path = match write_report_file(&full) {
+        Ok(path) => path.to_string_lossy().into_owned(),
+        Err(error) => {
+            crate::log::vidcord_log(&format!("Could not save a local bug report copy: {error}"));
+            String::new()
+        }
+    };
 
     Ok(BugReport {
         subject: format!("Vidcord {version} bug report"),
         body,
-        report_path: report_path.to_string_lossy().into_owned(),
+        report_path,
     })
 }
 
@@ -484,7 +558,38 @@ mod tests {
 
         assert!(fresh_report.exists());
         assert!(other_file.exists());
+
+        // A report backdated past the retention window is swept.
+        let stale_report = directory.join("vidcord-bug-report-4-5-6.txt");
+        std::fs::write(&stale_report, "stale").unwrap();
+        let file = std::fs::File::open(&stale_report).unwrap();
+        file.set_modified(
+            std::time::SystemTime::now() - REPORT_RETENTION - std::time::Duration::from_secs(60),
+        )
+        .unwrap();
+        drop(file);
+
+        sweep_stale_report_files(&directory);
+
+        assert!(!stale_report.exists());
+        assert!(fresh_report.exists());
+        assert!(other_file.exists());
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn byte_budget_keeps_the_newest_lines_that_fit() {
+        let lines: Vec<String> = (0..10).map(|index| format!("line-{index}-xxxx")).collect();
+        // Each line costs 11 bytes + newline; a 36-byte budget fits three.
+        let kept = tail_within_byte_budget(&lines, 36);
+        assert_eq!(kept, lines[7..].to_vec());
+
+        // A single oversized line is clamped and marked, not dropped.
+        let huge = vec!["x".repeat(500)];
+        let kept = tail_within_byte_budget(&huge, 100);
+        assert_eq!(kept.len(), 1);
+        assert!(kept[0].ends_with("[truncated]"));
+        assert!(kept[0].len() <= 100 + " [truncated]".len());
     }
 
     #[test]

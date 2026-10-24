@@ -2,7 +2,7 @@ use crate::log::vidcord_log;
 use ring::signature::{UnparsedPublicKey, ED25519};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
 use tokio::io::AsyncWriteExt;
 
@@ -194,26 +194,39 @@ fn pacman_package_installed(package: &str) -> bool {
 /// commented-out lines never count, and a stanza with `Enabled: no` does
 /// not deliver updates even though it names the host.
 fn apt_text_has_vidcord_repository(text: &str) -> bool {
-    for stanza in text.split("\n\n") {
-        let mut enabled = true;
-        let mut mentions_host = false;
-        for line in stanza.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with('#') {
+    // Line-based stanza walk: `str::lines` absorbs CRLF endings and a
+    // whitespace-only line still ends a stanza, both of which a literal
+    // "\n\n" split misses (leaking one stanza's Enabled state and host
+    // mention into the next).
+    let mut enabled = true;
+    let mut mentions_host = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            if enabled && mentions_host {
+                return true;
+            }
+            enabled = true;
+            mentions_host = false;
+            continue;
+        }
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        if let Some((key, value)) = trimmed.split_once(':') {
+            if key.trim().eq_ignore_ascii_case("Enabled") {
+                enabled = !matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "no" | "false" | "0" | "off"
+                );
                 continue;
             }
-            if let Some(value) = trimmed.strip_prefix("Enabled:") {
-                enabled = !matches!(value.trim(), "no" | "false" | "0");
-            }
-            if trimmed.contains(VIDCORD_REPOSITORY_HOST) {
-                mentions_host = true;
-            }
         }
-        if enabled && mentions_host {
-            return true;
+        if trimmed.contains(VIDCORD_REPOSITORY_HOST) {
+            mentions_host = true;
         }
     }
-    false
+    enabled && mentions_host
 }
 
 /// True when an enabled DNF repository section references the vidcord
@@ -238,8 +251,11 @@ fn dnf_text_has_vidcord_repository(text: &str) -> bool {
             continue;
         }
         if let Some((key, value)) = trimmed.split_once('=') {
-            if key.trim() == "enabled" {
-                section_enabled = !matches!(value.trim(), "0" | "no" | "false");
+            if key.trim().eq_ignore_ascii_case("enabled") {
+                section_enabled = !matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "0" | "no" | "false" | "off"
+                );
                 continue;
             }
         }
@@ -369,17 +385,43 @@ fn canonical_release_asset_url(tag: &str, name: &str) -> Result<String, String> 
 fn select_platform_asset(release: &GitHubRelease) -> Result<SelectedAsset, String> {
     let suffixes = platform_asset_suffixes()?;
     let release_tag = release_tag(release)?.to_string();
-    let asset = release
+    let mut candidates: Vec<&ReleaseAsset> = release
         .assets
         .iter()
-        .find(|asset| {
+        .filter(|asset| {
             let name = asset.name.to_ascii_lowercase();
             name.starts_with("vidcord_")
                 && suffixes
                     .iter()
                     .any(|suffix| name.ends_with(&suffix.to_ascii_lowercase()))
         })
-        .ok_or_else(|| "No update installer was found for this platform.".to_string())?;
+        .collect();
+    if candidates.is_empty() {
+        return Err("No update installer was found for this platform.".to_string());
+    }
+    // Prefer the canonical installer name for this exact tag; any other
+    // suffix match is a fallback, so one stale or malformed asset cannot
+    // poison the whole update.
+    candidates.sort_by_key(|asset| {
+        !suffixes
+            .iter()
+            .any(|suffix| asset.name == format!("vidcord_{release_tag}{suffix}"))
+    });
+    let mut last_error = String::new();
+    for asset in candidates {
+        match validate_selected_asset(release, asset, &release_tag) {
+            Ok(selected) => return Ok(selected),
+            Err(error) => last_error = error,
+        }
+    }
+    Err(last_error)
+}
+
+fn validate_selected_asset(
+    release: &GitHubRelease,
+    asset: &ReleaseAsset,
+    release_tag: &str,
+) -> Result<SelectedAsset, String> {
     let name = safe_asset_filename(&asset.name)?.to_string();
     let signature_name = format!("{name}.sig");
     if !release
@@ -391,17 +433,21 @@ fn select_platform_asset(release: &GitHubRelease) -> Result<SelectedAsset, Strin
     }
 
     Ok(SelectedAsset {
-        download_url: canonical_release_asset_url(&release_tag, &name)?,
-        signature_url: canonical_release_asset_url(&release_tag, &signature_name)?,
+        download_url: canonical_release_asset_url(release_tag, &name)?,
+        signature_url: canonical_release_asset_url(release_tag, &signature_name)?,
         name,
-        release_tag,
+        release_tag: release_tag.to_string(),
         size: asset.size,
         sha256: parse_sha256_digest(asset.digest.as_deref())?,
     })
 }
 
 async fn fetch_release(url: &str) -> Result<GitHubRelease, String> {
-    let resp = http_client()?
+    fetch_release_with(url, http_client()?).await
+}
+
+async fn fetch_release_with(url: &str, client: &reqwest::Client) -> Result<GitHubRelease, String> {
+    let resp = client
         .get(url)
         .header("Accept", "application/vnd.github+json")
         .send()
@@ -443,7 +489,10 @@ async fn fetch_latest_release() -> Result<GitHubRelease, String> {
 async fn fetch_release_by_tag(tag: &str) -> Result<GitHubRelease, String> {
     let tag = validate_release_tag(tag)?;
     let url = format!("https://api.github.com/repos/cyroz1/vidcord/releases/tags/{tag}");
-    fetch_release(&url).await
+    // The install flow re-fetches the approved release; using the check
+    // client's six-second total timeout here would fail slow connections
+    // before the download even starts, so use the download client.
+    fetch_release_with(&url, download_client()?).await
 }
 
 fn safe_asset_filename(name: &str) -> Result<&str, String> {
@@ -912,6 +961,15 @@ pub async fn check_for_updates(current_version: String) -> Result<serde_json::Va
     })?;
 
     if latest > cur {
+        // Only offer an update the install path could actually accept:
+        // lenient semver parsing here admits tags (for example build
+        // metadata) that validate_release_tag rejects at install time.
+        if validate_release_tag(tag).is_err() {
+            vidcord_log(&format!(
+                "update check: latest tag {tag:?} is not installable; not offering it"
+            ));
+            return Ok(serde_json::json!({"update_available": false}));
+        }
         let installer_asset = select_platform_asset(&release).ok();
         Ok(serde_json::json!({
             "update_available": true,
@@ -925,10 +983,33 @@ pub async fn check_for_updates(current_version: String) -> Result<serde_json::Va
     }
 }
 
+/// Backend single-flight for the installer command: the frontend rejects
+/// duplicate submissions, but a second window or a stale caller must not
+/// start a competing download either.
+static UPDATE_INSTALL_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+struct UpdateInstallGuard;
+
+impl UpdateInstallGuard {
+    fn acquire() -> Result<Self, String> {
+        UPDATE_INSTALL_IN_FLIGHT
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .map(|_| Self)
+            .map_err(|_| "An update install is already in progress.".to_string())
+    }
+}
+
+impl Drop for UpdateInstallGuard {
+    fn drop(&mut self) {
+        UPDATE_INSTALL_IN_FLIGHT.store(false, Ordering::SeqCst);
+    }
+}
+
 #[tauri::command]
 pub async fn download_and_open_update_installer(
     approved_release_tag: String,
 ) -> Result<serde_json::Value, String> {
+    let _install_guard = UpdateInstallGuard::acquire()?;
     if running_in_flatpak() || package_manager_update_channel().await.is_some() {
         return Err(
             "Updates for this Linux installation are managed by its package manager.".to_string(),
@@ -945,6 +1026,15 @@ pub async fn download_and_open_update_installer(
     }
     let asset = select_platform_asset(&release)?;
     let signature = download_release_signature(&asset.signature_url).await?;
+    // The signature verdict depends only on the tag, the filename, and
+    // the digest GitHub published, all known now: verify before
+    // transferring up to 512 MB that a bad signature would throw away.
+    // The post-download verification in the stream finisher stays, as
+    // the binding to the bytes actually received.
+    verify_release_signature(
+        &release_signature_message(&asset.release_tag, &asset.name, &asset.sha256),
+        &signature,
+    )?;
     if let Some(size) = asset.size {
         validate_download_size(size)?;
     }
@@ -1057,6 +1147,24 @@ mod tests {
         assert!(!apt_text_has_vidcord_repository(
             "Types: deb\nURIs: https://cyroz1.github.io/vidcord/apt\nSuites: stable\nEnabled: no"
         ));
+        // A disabled stanza must not leak its state into a following
+        // enabled stanza, under CRLF endings or whitespace separators.
+        assert!(apt_text_has_vidcord_repository(
+            "Types: deb\r\nURIs: https://cyroz1.github.io/vidcord/apt\r\nEnabled: no\r\n\r\nTypes: deb\r\nURIs: https://cyroz1.github.io/vidcord/apt\r\nEnabled: yes"
+        ));
+        assert!(apt_text_has_vidcord_repository(
+            "Types: deb\nURIs: https://cyroz1.github.io/vidcord/apt\nEnabled: no\n   \nTypes: deb\nURIs: https://cyroz1.github.io/vidcord/apt"
+        ));
+        // Case and spelling variants of the Enabled value.
+        assert!(!apt_text_has_vidcord_repository(
+            "Types: deb\nURIs: https://cyroz1.github.io/vidcord/apt\nenabled: No"
+        ));
+        assert!(!apt_text_has_vidcord_repository(
+            "Types: deb\nURIs: https://cyroz1.github.io/vidcord/apt\nEnabled: off"
+        ));
+        assert!(!apt_text_has_vidcord_repository(
+            "Types: deb\nURIs: https://cyroz1.github.io/vidcord/apt\nEnabled: FALSE"
+        ));
     }
 
     #[test]
@@ -1081,6 +1189,15 @@ mod tests {
         ));
         assert!(!dnf_text_has_vidcord_repository(
             "[fedora]\nbaseurl=https://download.example/pub/fedora/\nenabled=1"
+        ));
+        assert!(!dnf_text_has_vidcord_repository(
+            "[vidcord]\nbaseurl=https://cyroz1.github.io/vidcord/rpm/\nEnabled=No"
+        ));
+        assert!(!dnf_text_has_vidcord_repository(
+            "[vidcord]\nbaseurl=https://cyroz1.github.io/vidcord/rpm/\nenabled=off"
+        ));
+        assert!(!dnf_text_has_vidcord_repository(
+            "[vidcord]\nbaseurl=https://cyroz1.github.io/vidcord/rpm/\nENABLED=FALSE"
         ));
     }
 
@@ -1170,6 +1287,58 @@ mod tests {
             )
         );
         assert_eq!(asset.sha256, [0x11; 32]);
+    }
+
+    #[test]
+    fn invalid_first_candidate_does_not_poison_a_valid_one() {
+        let suffix = platform_asset_suffixes().unwrap()[0];
+        let canonical_name = format!("vidcord_v9.0{suffix}");
+        let fallback_name = format!("vidcord_9.0.0{suffix}");
+        let release = GitHubRelease {
+            tag_name: Some("v9.0".to_string()),
+            name: None,
+            html_url: None,
+            assets: vec![
+                // The canonical name is preferred, but its digest is
+                // malformed, so selection must fall through to the valid
+                // fallback instead of failing the whole update.
+                ReleaseAsset {
+                    name: canonical_name.clone(),
+                    size: Some(1024),
+                    digest: None,
+                },
+                ReleaseAsset {
+                    name: format!("{canonical_name}.sig"),
+                    size: Some(MAX_UPDATE_SIGNATURE_BYTES as u64),
+                    digest: None,
+                },
+                ReleaseAsset {
+                    name: fallback_name.clone(),
+                    size: Some(2048),
+                    digest: Some(format!("sha256:{}", "22".repeat(32))),
+                },
+                ReleaseAsset {
+                    name: format!("{fallback_name}.sig"),
+                    size: Some(MAX_UPDATE_SIGNATURE_BYTES as u64),
+                    digest: None,
+                },
+            ],
+        };
+
+        let asset = select_platform_asset(&release).unwrap();
+        assert_eq!(asset.name, fallback_name);
+        assert_eq!(asset.sha256, [0x22; 32]);
+    }
+
+    #[test]
+    fn release_tag_validation_matches_the_install_contract() {
+        assert!(validate_release_tag("v7.7").is_ok());
+        assert!(validate_release_tag("v7.7.1").is_ok());
+        // Build metadata parses as semver but is not an installable tag.
+        assert!(validate_release_tag("v7.7+build").is_err());
+        assert!(validate_release_tag("").is_err());
+        assert!(validate_release_tag("v").is_err());
+        assert!(validate_release_tag("v7.7/evil").is_err());
     }
 
     #[test]

@@ -34,22 +34,43 @@ pub struct FfmpegInstallOptions {
     pub allow_privileged: Option<bool>,
 }
 
+/// Spawn a probe whose output is discarded entirely, under the same
+/// deadline and kill/reap discipline as the captured probes. Routing
+/// these through temp capture files would make a full or locked temp
+/// directory report existing tools as missing; with both streams nulled
+/// there is no output to cap, so the capture machinery buys nothing here.
+fn probe_exit_status(
+    command: &mut std::process::Command,
+    timeout: Duration,
+) -> std::io::Result<Option<std::process::ExitStatus>> {
+    command.stdout(Stdio::null()).stderr(Stdio::null());
+    let mut child = command.spawn()?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(status));
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(None);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 fn command_exists(cmd: &str) -> bool {
     #[allow(unused_mut)]
     let mut command = std::process::Command::new(cmd);
-    command
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    command.arg("--version");
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
     }
     matches!(
-        spawn_captured_command(&mut command)
-            .and_then(|child| child.wait_for_output(COMMAND_PROBE_TIMEOUT)),
-        Ok(Some(output)) if output.status.success()
+        probe_exit_status(&mut command, COMMAND_PROBE_TIMEOUT),
+        Ok(Some(status)) if status.success()
     )
 }
 
@@ -57,19 +78,15 @@ fn ffmpeg_tool_probe(tool: impl AsRef<std::ffi::OsStr>) -> bool {
     let tool = tool.as_ref();
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new(tool);
-    cmd.arg("-version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    cmd.arg("-version");
     configure_ffmpeg_command(&mut cmd);
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000);
     }
-    match spawn_captured_command(&mut cmd)
-        .and_then(|child| child.wait_for_output(COMMAND_PROBE_TIMEOUT))
-    {
-        Ok(Some(output)) => output.status.success(),
+    match probe_exit_status(&mut cmd, COMMAND_PROBE_TIMEOUT) {
+        Ok(Some(status)) => status.success(),
         Ok(None) => {
             vidcord_log(&format!(
                 "FFmpeg tool probe timed out: {}",
@@ -94,35 +111,121 @@ fn ffmpeg_tools_exist(directory: &Path) -> bool {
     directory.join("ffmpeg.exe").is_file() && directory.join("ffprobe.exe").is_file()
 }
 
+/// Upper bound on directories the recovery walk may visit, so a huge or
+/// junction-laced tree inside a search root cannot stall the probe.
 #[cfg(target_os = "windows")]
-fn find_ffmpeg_bin_within(directory: &Path, remaining_depth: usize) -> Option<PathBuf> {
-    if ffmpeg_tools_exist(directory) {
-        return Some(directory.to_path_buf());
-    }
-    if remaining_depth == 0 {
-        return None;
-    }
+const MAX_RECOVERY_DIRECTORIES: usize = 512;
 
-    let mut child_directories = std::fs::read_dir(directory)
-        .ok()?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir())
-        .collect::<Vec<_>>();
-    // Prefer the newest version-named directory while remaining deterministic.
-    child_directories.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
-
-    child_directories
-        .into_iter()
-        .find_map(|path| find_ffmpeg_bin_within(&path, remaining_depth - 1))
+/// Compare directory names so embedded version numbers order numerically:
+/// "ffmpeg-10" is newer than "ffmpeg-9", which a plain lexical comparison
+/// gets backwards ("9" > "10").
+#[cfg(target_os = "windows")]
+fn compare_names_natural(left: &std::ffi::OsStr, right: &std::ffi::OsStr) -> std::cmp::Ordering {
+    let left = left.to_string_lossy();
+    let right = right.to_string_lossy();
+    let mut left_chars = left.chars().peekable();
+    let mut right_chars = right.chars().peekable();
+    loop {
+        match (left_chars.peek(), right_chars.peek()) {
+            (None, None) => return std::cmp::Ordering::Equal,
+            (None, Some(_)) => return std::cmp::Ordering::Less,
+            (Some(_), None) => return std::cmp::Ordering::Greater,
+            (Some(&lc), Some(&rc)) => {
+                if lc.is_ascii_digit() && rc.is_ascii_digit() {
+                    let take_run = |chars: &mut std::iter::Peekable<std::str::Chars<'_>>| {
+                        let mut run = String::new();
+                        while let Some(&c) = chars.peek() {
+                            if !c.is_ascii_digit() {
+                                break;
+                            }
+                            run.push(c);
+                            chars.next();
+                        }
+                        run
+                    };
+                    let left_num = take_run(&mut left_chars);
+                    let right_num = take_run(&mut right_chars);
+                    let left_key = left_num.trim_start_matches('0');
+                    let right_key = right_num.trim_start_matches('0');
+                    let ordering = left_key
+                        .len()
+                        .cmp(&right_key.len())
+                        .then_with(|| left_key.cmp(right_key));
+                    if ordering != std::cmp::Ordering::Equal {
+                        return ordering;
+                    }
+                } else if lc != rc {
+                    return lc.cmp(&rc);
+                } else {
+                    left_chars.next();
+                    right_chars.next();
+                }
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
-fn find_winget_ffmpeg_bin(winget_roots: &[PathBuf]) -> Option<PathBuf> {
+fn collect_ffmpeg_bins_within(
+    directory: &Path,
+    remaining_depth: usize,
+    visited: &mut usize,
+    candidates: &mut Vec<PathBuf>,
+) {
+    if *visited >= MAX_RECOVERY_DIRECTORIES {
+        return;
+    }
+    *visited += 1;
+    if ffmpeg_tools_exist(directory) {
+        candidates.push(directory.to_path_buf());
+        return;
+    }
+    if remaining_depth == 0 {
+        return;
+    }
+
+    let mut child_directories = std::fs::read_dir(directory)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        // Never follow junctions or symlinks: one inside a search root
+        // could point at a whole drive and walk far outside the
+        // documented scope. file_type() does not follow the link.
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    // Prefer the newest version-named directory while remaining deterministic.
+    child_directories.sort_by(|left, right| {
+        compare_names_natural(
+            right.file_name().unwrap_or_default(),
+            left.file_name().unwrap_or_default(),
+        )
+    });
+
+    for path in child_directories {
+        collect_ffmpeg_bins_within(&path, remaining_depth - 1, visited, candidates);
+    }
+}
+
+/// Every directory under `directory` holding both FFmpeg tools, in
+/// preference order, so a broken first candidate cannot shadow a working
+/// one deeper in the same root.
+#[cfg(target_os = "windows")]
+fn find_ffmpeg_bins_within(directory: &Path, remaining_depth: usize) -> Vec<PathBuf> {
+    let mut visited = 0;
+    let mut candidates = Vec::new();
+    collect_ffmpeg_bins_within(directory, remaining_depth, &mut visited, &mut candidates);
+    candidates
+}
+
+#[cfg(target_os = "windows")]
+fn find_winget_ffmpeg_bins(winget_roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
     for root in winget_roots {
         let links = root.join("Links");
         if ffmpeg_tools_exist(&links) {
-            return Some(links);
+            candidates.push(links);
         }
 
         let packages = root.join("Packages");
@@ -140,16 +243,18 @@ fn find_winget_ffmpeg_bin(winget_roots: &[PathBuf]) -> Option<PathBuf> {
             .map(|entry| entry.path())
             .filter(|path| path.is_dir())
             .collect::<Vec<_>>();
-        package_directories.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
+        package_directories.sort_by(|left, right| {
+            compare_names_natural(
+                right.file_name().unwrap_or_default(),
+                left.file_name().unwrap_or_default(),
+            )
+        });
 
-        if let Some(bin) = package_directories
-            .into_iter()
-            .find_map(|path| find_ffmpeg_bin_within(&path, 3))
-        {
-            return Some(bin);
+        for package in package_directories {
+            candidates.extend(find_ffmpeg_bins_within(&package, 3));
         }
     }
-    None
+    candidates
 }
 
 #[cfg(target_os = "windows")]
@@ -176,14 +281,14 @@ fn find_windows_ffmpeg_bin() -> Option<PathBuf> {
     }
 
     let find_manual = || {
-        manual_roots.iter().find_map(|root| {
-            find_ffmpeg_bin_within(root, 3).filter(|bin| ffmpeg_tool_pair_available(bin))
-        })
+        manual_roots
+            .iter()
+            .flat_map(|root| find_ffmpeg_bins_within(root, 3))
+            .find(|bin| ffmpeg_tool_pair_available(bin))
     };
     let find_winget = || {
-        winget_roots
-            .iter()
-            .filter_map(|root| find_winget_ffmpeg_bin(std::slice::from_ref(root)))
+        find_winget_ffmpeg_bins(&winget_roots)
+            .into_iter()
             .find(|bin| ffmpeg_tool_pair_available(bin))
     };
 
@@ -258,6 +363,25 @@ fn recover_windows_ffmpeg_path() -> bool {
     true
 }
 
+/// Store a probe result without letting a slower, older probe overwrite a
+/// newer one racing beside it (for example a startup probe still running
+/// when a post-install fresh probe completes). The stored timestamp is
+/// when the probe STARTED, so freshness checks and this ordering describe
+/// the same moment.
+fn store_avail_result(
+    cache: &Mutex<Option<(bool, Instant)>>,
+    result: bool,
+    probe_started: Instant,
+) {
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, existing_started)) = *guard {
+        if existing_started > probe_started {
+            return;
+        }
+    }
+    *guard = Some((result, probe_started));
+}
+
 fn ffmpeg_probe() -> bool {
     if ffmpeg_tool_probe("ffmpeg") && ffmpeg_tool_probe("ffprobe") {
         return true;
@@ -283,10 +407,11 @@ fn ffmpeg_available() -> bool {
     }
     // Probe without the lock held: the probe spawns ffmpeg/ffprobe and can
     // take seconds, and every availability caller would queue behind it.
-    // Two callers racing past an expired TTL may both probe; that is benign.
+    // Two callers racing past an expired TTL may both probe; the store
+    // keeps the later probe's verdict.
+    let probe_started = Instant::now();
     let result = ffmpeg_probe();
-    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
-    *guard = Some((result, Instant::now()));
+    store_avail_result(cache, result, probe_started);
     result
 }
 
@@ -305,6 +430,7 @@ fn ffprobe_available_after_ffmpeg_success() -> bool {
         }
     }
 
+    let probe_started = Instant::now();
     let result = ffmpeg_tool_probe("ffprobe");
     #[cfg(target_os = "windows")]
     let result = if !result && recover_windows_ffmpeg_path() {
@@ -312,8 +438,7 @@ fn ffprobe_available_after_ffmpeg_success() -> bool {
     } else {
         result
     };
-    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
-    *guard = Some((result, Instant::now()));
+    store_avail_result(cache, result, probe_started);
     result
 }
 
@@ -322,10 +447,9 @@ fn ffprobe_available_after_ffmpeg_success() -> bool {
 #[allow(dead_code)]
 fn ffmpeg_available_fresh() -> bool {
     let cache = FFMPEG_AVAIL_CACHE.get_or_init(|| Mutex::new(None));
+    let probe_started = Instant::now();
     let result = ffmpeg_probe();
-    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
-    *guard = Some((result, Instant::now()));
-    drop(guard);
+    store_avail_result(cache, result, probe_started);
     // A fresh ffmpeg install may expose new hardware encoders; drop the
     // encoder-list cache so `detect_encoders` re-probes on next call.
     if result {
@@ -409,7 +533,12 @@ fn passwordless_sudo_available() -> bool {
 fn find_terminal_emulator() -> Option<(&'static str, &'static [&'static str])> {
     const TERMINALS: &[(&str, &[&str])] = &[
         ("konsole", &["-e"]),
-        ("xfce4-terminal", &["-e"]),
+        // xfce4-terminal's `-e` takes ONE string argument (the whole
+        // command line); passing argv after it fails with
+        // `Unknown option "-lc"`. `-x` is its execute-rest-of-argv form,
+        // and `--disable-server` keeps the process in the foreground so
+        // the caller can wait on it like the other terminals.
+        ("xfce4-terminal", &["--disable-server", "-x"]),
         ("xterm", &["-e"]),
         ("alacritty", &["-e"]),
         ("gnome-terminal", &["--wait", "--"]),
@@ -737,7 +866,7 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
             } else if command_exists("dnf") {
                 ("dnf", "dnf install -y ffmpeg")
             } else if command_exists("pacman") {
-                ("pacman", "pacman -S --noconfirm ffmpeg")
+                ("pacman", "pacman -Sy --noconfirm ffmpeg")
             } else {
                 return FfmpegInstallResult {
                     status: "unsupported".to_string(),
@@ -783,13 +912,17 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
                             guide_url: None,
                         }
                     } else {
+                        // The exit status is not proof: a terminal
+                        // emulator exits 0 when its window closes, even if
+                        // the sudo prompt inside was abandoned. Let the
+                        // fresh probe decide, like the Windows flow does.
                         FfmpegInstallResult {
-                            status: "installed".to_string(),
+                            status: "failed".to_string(),
                             message:
-                                "Install completed. If FFmpeg is still not detected, restart vidcord."
+                                "The install command finished, but FFmpeg is still not detected. If a terminal opened for your sudo password, complete the install there, or run the command manually."
                                     .to_string(),
-                            hint_command: None,
-                            guide_url: None,
+                            hint_command: Some(format!("sudo {install_cmd}")),
+                            guide_url: Some("https://github.com/cyroz1/vidcord/blob/main/FFMPEG_SETUP.md".to_string()),
                         }
                     }
                 }
@@ -875,7 +1008,7 @@ pub async fn get_vaapi_device() -> Option<String> {
 
 #[cfg(all(test, target_os = "windows"))]
 mod tests {
-    use super::find_winget_ffmpeg_bin;
+    use super::find_winget_ffmpeg_bins;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -921,8 +1054,8 @@ mod tests {
         create_tool_pair(&links);
 
         assert_eq!(
-            find_winget_ffmpeg_bin(&[root.path().to_path_buf()]),
-            Some(links)
+            find_winget_ffmpeg_bins(&[root.path().to_path_buf()]),
+            vec![links]
         );
     }
 
@@ -938,8 +1071,8 @@ mod tests {
         create_tool_pair(&bin);
 
         assert_eq!(
-            find_winget_ffmpeg_bin(&[root.path().to_path_buf()]),
-            Some(bin)
+            find_winget_ffmpeg_bins(&[root.path().to_path_buf()]),
+            vec![bin]
         );
     }
 
@@ -963,6 +1096,32 @@ mod tests {
                 .join("bin"),
         );
 
-        assert_eq!(find_winget_ffmpeg_bin(&[root.path().to_path_buf()]), None);
+        assert!(find_winget_ffmpeg_bins(&[root.path().to_path_buf()]).is_empty());
+    }
+
+    #[test]
+    fn collects_every_candidate_so_a_broken_one_cannot_shadow_a_working_one() {
+        let root = TestDirectory::new("candidates");
+        let older = root
+            .path()
+            .join("Packages")
+            .join("Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe")
+            .join("ffmpeg-7.0-full_build")
+            .join("bin");
+        let newer = root
+            .path()
+            .join("Packages")
+            .join("Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe")
+            .join("ffmpeg-10.0-full_build")
+            .join("bin");
+        create_tool_pair(&older);
+        create_tool_pair(&newer);
+
+        // Newest version-named directory first, then the older one; the
+        // caller probes in this order and uses the first working pair.
+        assert_eq!(
+            find_winget_ffmpeg_bins(&[root.path().to_path_buf()]),
+            vec![newer, older]
+        );
     }
 }
