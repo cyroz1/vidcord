@@ -237,9 +237,11 @@ fn dnf_text_has_vidcord_repository(text: &str) -> bool {
             section_mentions_host = false;
             continue;
         }
-        if let Some(value) = trimmed.strip_prefix("enabled=") {
-            section_enabled = !matches!(value.trim(), "0" | "no" | "false");
-            continue;
+        if let Some((key, value)) = trimmed.split_once('=') {
+            if key.trim() == "enabled" {
+                section_enabled = !matches!(value.trim(), "0" | "no" | "false");
+                continue;
+            }
         }
         if trimmed.contains(VIDCORD_REPOSITORY_HOST) {
             section_mentions_host = true;
@@ -1067,6 +1069,9 @@ mod tests {
         ));
         assert!(!dnf_text_has_vidcord_repository(
             "[vidcord]\nenabled=0\nbaseurl=https://cyroz1.github.io/vidcord/rpm/"
+        ));
+        assert!(!dnf_text_has_vidcord_repository(
+            "[vidcord]\nbaseurl=https://cyroz1.github.io/vidcord/rpm/\nenabled = 0"
         ));
         assert!(dnf_text_has_vidcord_repository(
             "[vidcord]\nbaseurl=https://cyroz1.github.io/vidcord/rpm/\nenabled=0\n[vidcord-mirror]\nbaseurl=https://cyroz1.github.io/vidcord/rpm/\nenabled=1"

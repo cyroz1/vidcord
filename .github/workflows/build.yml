@@ -497,7 +497,12 @@ jobs:
           cp "release-assets/vidcord_${version}_${{ matrix.deb_arch }}.deb" "$arch_build/"
           sed -i \
             -e "s@::https://github.com/cyroz1/vidcord/releases/download/v${release_tag}/vidcord_\${pkgver}_${{ matrix.deb_arch }}.deb@@" \
-            "$arch_build/PKGBUILD" "$arch_build/.SRCINFO"
+            "$arch_build/PKGBUILD"
+          # The rendered .SRCINFO carries the expanded version instead of
+          # the ${pkgver} template form, so it needs its own pattern.
+          sed -i \
+            -e "s@::https://github.com/cyroz1/vidcord/releases/download/v${release_tag}/vidcord_${version}_${{ matrix.deb_arch }}.deb@@" \
+            "$arch_build/.SRCINFO"
           docker run --rm \
             --volume "$arch_build:/work" \
             --workdir /work \

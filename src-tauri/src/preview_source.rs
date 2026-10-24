@@ -316,6 +316,14 @@ fn serve(
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
     let mut reader = BufReader::new((&stream).take(8193));
     let mut request = String::new();
+    // The request line gets the same total-deadline treatment as the
+    // header lines below; read_line alone would only see per-read timeouts.
+    match header_deadline.checked_sub(started.elapsed()) {
+        Some(remaining) if !remaining.is_zero() => {
+            stream.set_read_timeout(Some(remaining.min(Duration::from_secs(2))))?;
+        }
+        _ => return Ok(()),
+    }
     reader.read_line(&mut request)?;
     let mut parts = request.split_whitespace();
     let method = parts.next().unwrap_or("");
