@@ -66,6 +66,7 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   manager has the vidcord repository configured. Other native installs, such as a one-off
   package install without the repository, receive update prompts from the app again instead
   of being silently treated as package-manager managed.
+- Flatpak installs no longer check GitHub for updates; the platform delivers them.
 
 ### Feedback
 

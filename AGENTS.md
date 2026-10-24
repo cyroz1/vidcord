@@ -454,6 +454,8 @@ configuration (`cyroz1.github.io/vidcord` in the APT sources or DNF repo definit
 refuses to run, so upgrades arrive through the package manager. Detection uses the bounded
 `spawn_captured_command` probe pattern plus config-file reads, and runs inside `spawn_blocking`.
 AppImages and native installs without the repository configured keep the GitHub Releases flow.
+Flatpak installs (detected via `FLATPAK_ID` or `/.flatpak-info`) likewise report as
+platform-managed with `package_manager: "flatpak"`, since the platform delivers their updates.
 
 ### FFmpeg invocations
 
