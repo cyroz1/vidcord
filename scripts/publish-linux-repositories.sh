@@ -110,7 +110,7 @@ EOF
 
 docker run --rm \
   --volume "$repository_root/pacman:/repo/pacman" \
-  archlinux:base-devel \
+  archlinux:base-devel@sha256:3cbf69d2d5958d6a294f3722c5668e6187c4df8e00fa27f72352f0bf83e495e1 \
   bash -lc 'pacman -Syu --noconfirm pacman-contrib && cd /repo/pacman/x86_64 && repo-add vidcord.db.tar.zst ./*.pkg.tar.zst && cd /repo/pacman/aarch64 && repo-add vidcord.db.tar.zst ./*.pkg.tar.zst'
 
 for architecture in x86_64 aarch64; do
@@ -120,6 +120,14 @@ for architecture in x86_64 aarch64; do
     cp -L "$database" "$database.tmp"
     rm "$database"
     mv "$database.tmp" "$database"
+  fi
+  # repo-add leaves vidcord.files as a symlink next to the database;
+  # dereference it the same way so the published tree holds real files.
+  files_database="$package_directory/vidcord.files"
+  if [[ -L "$files_database" ]]; then
+    cp -L "$files_database" "$files_database.tmp"
+    rm "$files_database"
+    mv "$files_database.tmp" "$files_database"
   fi
   for package in "$package_directory"/*.pkg.tar.zst; do
     gpg_sign --detach-sign --output "${package}.sig" "$package"

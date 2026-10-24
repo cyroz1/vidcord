@@ -1,5 +1,9 @@
 name: End-to-End UI Tests
 
+# Default to read-only; jobs declare any additional grants.
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main, "[0-9]+.[0-9]+"]

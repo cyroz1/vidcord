@@ -2,7 +2,7 @@ name: Site Checks
 
 on:
   push:
-    branches: [main]
+    branches: [main, "[0-9]+.[0-9]+"]
     paths:
       - "site/**"
       - "index.html"
@@ -16,7 +16,7 @@ on:
       - "scripts/check-version.mjs"
       - ".github/workflows/**"
   pull_request:
-    branches: [main]
+    branches: [main, "[0-9]+.[0-9]+"]
     paths:
       - "site/**"
       - "index.html"
