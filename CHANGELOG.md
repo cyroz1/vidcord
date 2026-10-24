@@ -29,6 +29,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   instead of showing 100% and “Continuing…” between encoding passes.
 - GIF exports recover their palette after a browser encoder restart. Desktop GIF exports generate
   the palette separately to keep memory use from growing with the decoded clip length.
+- Browser exports now recover when the encoder stalls during audio analysis, size estimation, or
+  GIF palette generation instead of ending as a false cancellation.
 
 ### Export reliability
 
@@ -39,6 +41,12 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   app reload instead of returning to the same crashing state.
 - FFmpeg package-manager installs now stop after ten minutes and report a timeout instead of
   leaving setup stuck indefinitely.
+- An encode that produces an empty output file now fails instead of being reported as a
+  successful export.
+- Files that carry cover art as a separate video stream now probe and export the real video
+  stream instead of the artwork.
+- A settings change made while the app is still starting can no longer reset every other
+  setting back to its default.
 
 ### Performance
 
@@ -74,6 +82,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 - Successful direct bug-report submissions delete the saved full report. Failed submissions keep
   the local copy for the email fallback, and copies older than seven days are cleaned up.
+- Bug reports still send when the local report copy cannot be written, and very long reports
+  are trimmed to fit the submission limit instead of failing.
 
 ### Security
 
