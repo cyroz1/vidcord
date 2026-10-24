@@ -31,6 +31,7 @@ export function useSettings() {
   // silently overwriting a change the user made in the load window.
   const patchesDuringLoadRef = useRef<Settings>({});
   const loadCompletedRef = useRef(false);
+  const loadPromiseRef = useRef<Promise<void> | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [presets, setPresets] = useState<SettingsPreset[]>([]);
   // Encoder identity persisted in settings, exposed as state so consumers
@@ -65,7 +66,7 @@ export function useSettings() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const loadPromise = (async () => {
       const loaded = await loadSettings().catch((): Settings => ({}));
       if (cancelled) return;
       // Re-apply any patches saved during the load window: they win over
@@ -195,6 +196,7 @@ export function useSettings() {
         setSettingsLoaded(true);
       });
     })();
+    loadPromiseRef.current = loadPromise;
     return () => {
       cancelled = true;
     };
@@ -224,6 +226,13 @@ export function useSettings() {
       clearTimeout(saveTimerRef.current);
     }
     saveTimerRef.current = setTimeout(() => {
+      // Never persist before the initial load completes: settingsRef
+      // still holds only the patches made during the load window, and
+      // the persist payload is the whole settings object, so writing it
+      // would reset every other setting to its default on next launch.
+      // The load completion persists the full merged object itself when
+      // patches were recorded.
+      if (!loadCompletedRef.current) return;
       persistSettings(settingsRef.current).catch(() => {});
     }, 250);
   }, []);
@@ -231,6 +240,12 @@ export function useSettings() {
   const flushSettings = useCallback(async () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = null;
+    if (!loadCompletedRef.current) {
+      // Wait for the load instead of writing the partial object; the
+      // completion persists the merged settings, patches included.
+      await loadPromiseRef.current?.catch(() => {});
+      return;
+    }
     await persistSettings(settingsRef.current);
   }, []);
 
@@ -347,9 +362,13 @@ export function useSettings() {
         // Flush any pending write so a change made within the 250 ms debounce
         // window isn't lost if the component unmounts (or the window closes)
         // before the timer fires. Settings payload is tiny — no perf concern.
+        // Before the initial load completes the flush is skipped for the
+        // same reason as the debounce timer: the object is still partial.
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
-        persistSettings(settingsRef.current).catch(() => {});
+        if (loadCompletedRef.current) {
+          persistSettings(settingsRef.current).catch(() => {});
+        }
       }
     };
   }, []);

@@ -177,7 +177,10 @@ export function groupOutputPathsByFolder(paths: readonly string[]): string[][] {
   return [...folders.values()];
 }
 
-export function sourceFrameRateForBatch(probe: ProbeData): number | null {
+/// The probed frame rate when it is a usable positive number, else null.
+/// Shared by the single-file FPS options, the batch FPS clamp, and batch
+/// planning so they never disagree about what counts as a valid rate.
+export function validSourceFrameRate(probe: ProbeData): number | null {
   return typeof probe.frame_rate === "number" &&
     Number.isFinite(probe.frame_rate) &&
     probe.frame_rate > 0

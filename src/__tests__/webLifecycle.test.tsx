@@ -205,11 +205,28 @@ describe("browser export lifecycle", () => {
     expect(queueNames()).toEqual(["second.mp4", "first.mp4", "third.mp4"]);
     expect(queueStatuses()).toEqual(["Downloaded", "Failed", "Downloaded"]);
 
+    // A real internal drag carries the private queue drag type; the stub
+    // mirrors what the browser's DataTransfer does with it.
+    const store = new Map<string, string>();
+    const dataTransfer = {
+      effectAllowed: "",
+      dropEffect: "",
+      types: [] as string[],
+      files: [] as File[],
+      setData: (type: string, value: string) => {
+        store.set(type, value);
+        dataTransfer.types = [...store.keys()];
+      },
+      getData: (type: string) => store.get(type) ?? "",
+    };
+    const dragStart = new Event("dragstart", { bubbles: true });
+    Object.defineProperty(dragStart, "dataTransfer", { value: dataTransfer });
+    const queueDrop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(queueDrop, "dataTransfer", { value: dataTransfer });
+
     const rows = container.querySelectorAll(".web-queue-list li");
-    await act(async () => rows[2]?.dispatchEvent(new Event("dragstart", { bubbles: true })));
-    await act(async () =>
-      rows[1]?.dispatchEvent(new Event("drop", { bubbles: true, cancelable: true }))
-    );
+    await act(async () => rows[2]?.dispatchEvent(dragStart));
+    await act(async () => rows[1]?.dispatchEvent(queueDrop));
     expect(queueNames()).toEqual(["second.mp4", "third.mp4", "first.mp4"]);
     expect(queueStatuses()).toEqual(["Downloaded", "Downloaded", "Failed"]);
 

@@ -254,6 +254,18 @@ export async function exportBrowserFile({
     let stallRetries = 0;
     let lastOversizedBytes: Uint8Array<ArrayBuffer> | null = null;
 
+    // One shared stall-recovery budget for every phase (analysis,
+    // preflight, palette, render): a wedged worker is replaced with a
+    // fresh session and the caller retries its phase once. Returns false
+    // when recovery is unavailable or the budget is spent.
+    const recoverFromStall = async (): Promise<boolean> => {
+      if (stallRetries >= 1 || typeof createSession !== "function") return false;
+      stallRetries += 1;
+      await session?.dispose().catch(() => undefined);
+      session = await createSession.call(engine, file);
+      return true;
+    };
+
     const shouldAnalyzeAudio =
       settings.audioNormalize && selectedAudioTrackIndices.length > 0 && mode !== "gif";
     const canDropAudio = mode !== "gif" && selectedAudioTrackIndices.length > 0;
@@ -270,7 +282,7 @@ export async function exportBrowserFile({
 
     if (shouldAnalyzeAudio) {
       onProgress?.(0, "Analyzing audio peak…", { start: 0, end: analysisEnd });
-      try {
+      const attemptAnalysis = async (): Promise<number | null> => {
         const analysisLog = await runFile(
           (inputName) => buildAudioPeakAnalysisArgs(inputName, plan, selectedAudioTrackIndices),
           operationProgressHandler(
@@ -282,18 +294,35 @@ export async function exportBrowserFile({
             metadata.duration
           )
         );
-        audioGainDb = parsePeakNormalizationGain(analysisLog);
+        return parsePeakNormalizationGain(analysisLog);
+      };
+      try {
+        audioGainDb = await attemptAnalysis();
       } catch (error: unknown) {
         if (String(error).toLowerCase().includes("cancel")) throw error;
-        // Keep the export usable when a browser FFmpeg build cannot expose an
-        // audio stream for analysis. The encode below will try loudnorm first,
-        // then retry without an audio filter if that fallback is unavailable.
-        audioGainDb = null;
+        if (isEncoderStallError(error)) {
+          // A stall kills the session: swallowing it here would continue
+          // on a dead worker and surface a fake cancellation from the
+          // next phase. Recover and retry the analysis once instead.
+          if (await recoverFromStall()) {
+            audioGainDb = await attemptAnalysis();
+          } else {
+            throw error;
+          }
+        } else {
+          // Keep the export usable when a browser FFmpeg build cannot expose an
+          // audio stream for analysis. The encode below will try loudnorm first,
+          // then retry without an audio filter if that fallback is unavailable.
+          audioGainDb = null;
+        }
       }
       onProgress?.(analysisEnd, "Preparing encoder…", { start: analysisEnd, end: 1 });
     }
 
     if (shouldRunSizePreflight && bitrate !== null && plan.targetSizeMb !== null) {
+      // Narrowed locals: the attempt closure below outlives this block's
+      // property narrowing.
+      const targetSizeMb = plan.targetSizeMb;
       const sampleDuration = Math.min(preflightDuration, plan.selectedDuration);
       const samplePlan: ExportPlan = {
         ...plan,
@@ -317,7 +346,11 @@ export async function exportBrowserFile({
         end: preflightEnd,
       });
       let sizeAdjusted = false;
-      try {
+      const attemptPreflight = async (): Promise<void> => {
+        // The outer guard established a non-null bitrate, but the closure
+        // cannot keep that narrowing on the mutable binding.
+        const currentBitrate = bitrate;
+        if (currentBitrate === null) return;
         let paletteName: string | undefined;
         if (mode === "gif" && settings.gifOutputFormat === "gif" && session?.prepareFile) {
           paletteName = "size-sample-palette.png";
@@ -345,7 +378,7 @@ export async function exportBrowserFile({
                   sampleOutputName,
                   settings,
                   samplePlan,
-                  bitrate,
+                  currentBitrate,
                   paletteName
                 )
               : buildCompressionArgs(
@@ -354,7 +387,7 @@ export async function exportBrowserFile({
                   metadata,
                   settings,
                   samplePlan,
-                  bitrate,
+                  currentBitrate,
                   audioGainDb,
                   preferFastEncode,
                   selectedAudioTrackIndices
@@ -366,17 +399,31 @@ export async function exportBrowserFile({
           (sampleBytes.byteLength * plan.selectedDuration * SIZE_SAMPLE_SAFETY_MARGIN) /
             sampleDuration
         );
-        const targetBytes = plan.targetSizeMb * 1024 * 1024;
+        const targetBytes = targetSizeMb * 1024 * 1024;
         const adjustedBitrate =
           projectedBytes > targetBytes
-            ? getRetryBitrate(bitrate, projectedBytes, plan.targetSizeMb)
-            : getFillBitrate(bitrate, projectedBytes, plan.targetSizeMb, plan.sourceBitrateKbps);
-        if (adjustedBitrate !== bitrate) {
+            ? getRetryBitrate(currentBitrate, projectedBytes, targetSizeMb)
+            : getFillBitrate(currentBitrate, projectedBytes, targetSizeMb, plan.sourceBitrateKbps);
+        if (adjustedBitrate !== currentBitrate) {
           bitrate = adjustedBitrate;
           sizeAdjusted = true;
         }
+      };
+      try {
+        await attemptPreflight();
       } catch (error: unknown) {
         if (String(error).toLowerCase().includes("cancel")) throw error;
+        if (isEncoderStallError(error)) {
+          // Same dead-session trap as the analysis phase: recover and
+          // retry the preflight once, or surface the stall itself.
+          if (await recoverFromStall()) {
+            await attemptPreflight();
+          } else {
+            throw error;
+          }
+        }
+        // Other preflight failures stay best-effort: the full encode
+        // proceeds with the unadjusted bitrate.
       }
       onProgress?.(
         preflightEnd,
@@ -422,7 +469,18 @@ export async function exportBrowserFile({
           )
         );
       };
-      await preparePalette();
+      try {
+        await preparePalette();
+      } catch (error: unknown) {
+        // The palette pass sits outside the transcode retry loop, so a
+        // stall here needs the same recovery instead of failing the
+        // export on a wedged worker.
+        if (isEncoderStallError(error) && (await recoverFromStall())) {
+          await preparePalette();
+        } else {
+          throw error;
+        }
+      }
       const transcode = (encodeSettings: BrowserSettings, gainDb: number | null) =>
         transcodeFile(
           (inputName) =>
@@ -477,18 +535,11 @@ export async function exportBrowserFile({
           // pressure) fails the attempt loudly instead of parking the UI on
           // "Continuing…". Give it one fresh worker and retry the same
           // attempt before surfacing the error.
-          if (
-            isEncoderStallError(error) &&
-            stallRetries < 1 &&
-            typeof createSession === "function"
-          ) {
-            stallRetries += 1;
+          if (isEncoderStallError(error) && (await recoverFromStall())) {
             onProgress?.(attemptStart, "Encoder stalled; retrying…", {
               start: attemptStart,
               end: attemptEnd,
             });
-            await session?.dispose().catch(() => undefined);
-            session = await createSession.call(engine, file);
             await preparePalette();
             continue;
           }

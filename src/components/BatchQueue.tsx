@@ -5,6 +5,7 @@ import {
   type BatchQueueItem,
   type BatchQueueMoveDirection,
 } from "../batchProcessing";
+import { isQueueItemDrag, QUEUE_ITEM_DRAG_TYPE, queueItemDragId } from "../queueReordering";
 
 type Props = {
   items: readonly BatchQueueItem[];
@@ -122,23 +123,24 @@ function BatchQueue({
                 setDraggedItemId(item.id);
                 if (event.dataTransfer) {
                   event.dataTransfer.effectAllowed = "move";
-                  event.dataTransfer.setData("text/plain", String(item.id));
+                  event.dataTransfer.setData(QUEUE_ITEM_DRAG_TYPE, String(item.id));
                 }
               }}
               onDragOver={(event) => {
                 if (actionsDisabled) return;
+                // Only internal queue drags are reorder targets; foreign
+                // drags keep their default handling.
+                if (!isQueueItemDrag(event.dataTransfer?.types)) return;
                 event.preventDefault();
                 if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
                 if (dragOverItemId !== item.id) setDragOverItemId(item.id);
               }}
               onDrop={(event) => {
                 if (actionsDisabled) return;
+                const sourceId = queueItemDragId(event.dataTransfer, draggedItemId);
+                if (sourceId === null) return;
                 event.preventDefault();
-                const transferValue = event.dataTransfer?.getData("text/plain") ?? "";
-                const dataTransferId = Number(transferValue);
-                const sourceId =
-                  draggedItemId ?? (Number.isInteger(dataTransferId) ? dataTransferId : null);
-                if (sourceId !== null && sourceId !== item.id) onReorderItem(sourceId, item.id);
+                if (sourceId !== item.id) onReorderItem(sourceId, item.id);
                 clearDragState();
               }}
               onDragEnd={clearDragState}

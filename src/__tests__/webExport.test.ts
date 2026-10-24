@@ -759,6 +759,72 @@ describe("browser export planning", () => {
     expect(result.bytes).toBe(16_000);
   });
 
+  it("recovers when the worker stalls during audio analysis instead of reporting a cancellation", async () => {
+    let sessionCount = 0;
+    const engine = {
+      createSession: async () => {
+        sessionCount += 1;
+        const mine = sessionCount;
+        return {
+          run: async () => {
+            if (mine === 1) throw new EncoderStallError("analyzing audio");
+            return "[volumedetect] max_volume: -6.0 dB";
+          },
+          transcode: async () => new Uint8Array(16_000),
+          prepareFile: async () => undefined,
+          dispose: async () => undefined,
+        };
+      },
+    } as unknown as BrowserFfmpegEngine;
+
+    const result = await exportBrowserFile({
+      engine,
+      file: { name: "capture.mp4" } as File,
+      metadata,
+      settings: normalizeBrowserSettings({
+        mode: "advanced",
+        advancedTargetSize: "",
+        audioNormalize: true,
+      }),
+      mode: "advanced",
+      startTime: 2,
+      endTime: 20,
+    });
+
+    expect(sessionCount).toBe(2);
+    expect(result.bytes).toBe(16_000);
+  });
+
+  it("recovers when the worker stalls during GIF palette preparation", async () => {
+    let sessionCount = 0;
+    const engine = {
+      createSession: async () => {
+        sessionCount += 1;
+        const mine = sessionCount;
+        return {
+          prepareFile: async () => {
+            if (mine === 1) throw new EncoderStallError("building the palette");
+          },
+          transcode: async () => new Uint8Array(5 * 1024 * 1024 * 0.95),
+          dispose: async () => undefined,
+        };
+      },
+    } as unknown as BrowserFfmpegEngine;
+
+    const result = await exportBrowserFile({
+      engine,
+      file: { name: "clip.mp4" } as File,
+      metadata,
+      settings: normalizeBrowserSettings({ crop: "1:1", gifTargetMb: 5 }),
+      mode: "gif",
+      startTime: 0,
+      endTime: 10,
+    });
+
+    expect(sessionCount).toBe(2);
+    expect(result.bytes).toBeGreaterThan(0);
+  });
+
   it("rebuilds the GIF palette in the replacement worker after a render stalls", async () => {
     let sessionCount = 0;
     const palettes: string[][] = [];

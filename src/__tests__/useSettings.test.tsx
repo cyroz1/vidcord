@@ -84,3 +84,43 @@ it("falls back to gif when the persisted output format is unknown", async () => 
   const persisted = vi.mocked(saveSettings).mock.calls[0][0];
   expect(persisted.gif_output_format).toBe("gif");
 });
+
+it("never persists a partial settings object before the initial load completes", async () => {
+  vi.useFakeTimers();
+  try {
+    let resolveLoad: (value: Settings) => void = () => {};
+    vi.mocked(loadSettings).mockReturnValue(
+      new Promise<Settings>((resolve) => {
+        resolveLoad = resolve;
+      })
+    );
+    let hook: ReturnType<typeof useSettings> | null = null;
+    function Harness() {
+      hook = useSettings();
+      return null;
+    }
+    root = createRoot(document.createElement("div"));
+    await act(async () => root!.render(<Harness />));
+
+    // A change during the load window, then the debounce timer fires:
+    // persisting now would write only the patch as the whole settings
+    // object and reset everything else on the next launch.
+    act(() => hook!.saveSettings({ gif_mode: true }));
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(saveSettings).not.toHaveBeenCalled();
+
+    // When the load resolves, the single persist carries the full
+    // merged object: loaded values plus the patch from the window.
+    await act(async () => {
+      resolveLoad({ quality_index: 2 } as Settings);
+    });
+    expect(saveSettings).toHaveBeenCalledOnce();
+    const persisted = vi.mocked(saveSettings).mock.calls[0][0];
+    expect(persisted.quality_index).toBe(2);
+    expect(persisted.gif_mode).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});

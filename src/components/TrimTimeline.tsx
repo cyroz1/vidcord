@@ -358,6 +358,13 @@ function TrimTimeline({
       if (event.key === "Escape" && trimOptionsOpen) {
         event.preventDefault();
         setTrimOptionsOpen(false);
+        // Return focus to the trigger when it was inside the closing
+        // panel; otherwise it drops to <body> and keyboard users lose
+        // their place.
+        const popover = optionsButtonRef.current?.parentElement;
+        if (popover?.contains(document.activeElement)) {
+          optionsButtonRef.current?.focus();
+        }
       }
     };
 

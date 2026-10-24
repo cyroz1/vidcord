@@ -181,11 +181,28 @@ it("forwards drag-and-drop reordering by stable item ids", async () => {
     )
   );
 
+  // A real internal drag carries the private queue drag type; the stub
+  // mirrors what the browser's DataTransfer does with it.
+  const store = new Map<string, string>();
+  const dataTransfer = {
+    effectAllowed: "",
+    dropEffect: "",
+    types: [] as string[],
+    files: [] as File[],
+    setData: (type: string, value: string) => {
+      store.set(type, value);
+      dataTransfer.types = [...store.keys()];
+    },
+    getData: (type: string) => store.get(type) ?? "",
+  };
+  const dragStart = new Event("dragstart", { bubbles: true });
+  Object.defineProperty(dragStart, "dataTransfer", { value: dataTransfer });
+  const drop = new Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(drop, "dataTransfer", { value: dataTransfer });
+
   const rows = container.querySelectorAll("li");
-  await act(async () => rows[0]?.dispatchEvent(new Event("dragstart", { bubbles: true })));
-  await act(async () =>
-    rows[2]?.dispatchEvent(new Event("drop", { bubbles: true, cancelable: true }))
-  );
+  await act(async () => rows[0]?.dispatchEvent(dragStart));
+  await act(async () => rows[2]?.dispatchEvent(drop));
 
   expect(onReorderItem).toHaveBeenCalledWith(1, 3);
 });

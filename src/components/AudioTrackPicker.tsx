@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, memo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import {
   AUDIO_TRACK_BITRATE_KBPS,
   formatAudioTrackSize,
@@ -50,7 +50,22 @@ export default memo(function AudioTrackPicker({
 }: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const selectAllRef = useRef<HTMLInputElement>(null);
+
+  // Keyboard and programmatic closes return focus to the trigger when
+  // focus was inside the popup; without this it drops to <body> and
+  // keyboard users lose their place. Pointer closes leave focus alone:
+  // it follows the pointer target.
+  const close = useCallback(
+    (returnFocus: boolean) => {
+      if (returnFocus && rootRef.current?.contains(document.activeElement)) {
+        triggerRef.current?.focus();
+      }
+      setOpen(false);
+    },
+    []
+  );
   const selectedIndices = useMemo(
     () => normalizeAudioTrackIndices(selection, tracks),
     [selection, tracks]
@@ -66,18 +81,18 @@ export default memo(function AudioTrackPicker({
   // The trigger disables while an export runs; an already-open popup must
   // close too, or its checkboxes stay interactive during the export.
   useEffect(() => {
-    if (disabled) setOpen(false);
-  }, [disabled]);
+    if (disabled) close(true);
+  }, [disabled, close]);
 
   useEffect(() => {
     if (!open) return;
     const handlePointerDown = (event: PointerEvent) => {
       if (event.target instanceof Node && !rootRef.current?.contains(event.target)) {
-        setOpen(false);
+        close(false);
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") close(true);
     };
     document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
@@ -85,7 +100,7 @@ export default memo(function AudioTrackPicker({
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [open]);
+  }, [open, close]);
 
   const selectionLabel =
     tracks.length === 0 ? "No audio tracks" : `${selectedIndices.length} selected`;
@@ -94,6 +109,7 @@ export default memo(function AudioTrackPicker({
   return (
     <div className="audio-track-control" ref={rootRef}>
       <button
+        ref={triggerRef}
         type="button"
         className={`audio-settings-btn${
           removeAudio || audioNormalize || selection !== null ? " active" : ""
@@ -118,7 +134,7 @@ export default memo(function AudioTrackPicker({
               type="button"
               className="audio-track-close"
               aria-label="Close audio settings"
-              onClick={() => setOpen(false)}
+              onClick={() => close(true)}
             >
               ×
             </button>

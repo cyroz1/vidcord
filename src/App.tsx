@@ -85,6 +85,7 @@ import {
   normalizeBatchTrimRange,
   normalizeVideoPaths,
   reorderBatchQueueItem,
+  validSourceFrameRate,
   type BatchItemStatus,
   type BatchQueueItem,
   type BatchQueueMoveDirection,
@@ -568,6 +569,16 @@ export default function App() {
   const skipLosslessOfferRef = useRef(false);
   const startCompressRef = useRef<() => Promise<void>>(async () => {});
   const startBatchRef = useRef<(retryItemIds?: readonly number[]) => Promise<void>>(async () => {});
+  // Synchronous guard against a second export start while one is
+  // running (a stale persistent toast action, a double click): the
+  // backend rejects the second start, and its rejection handler would
+  // reset the progress state of the job that is still running.
+  const exportInFlightRef = useRef(false);
+  const losslessOfferToastIdsRef = useRef<Set<number>>(new Set());
+  const dismissLosslessOfferToasts = useCallback(() => {
+    for (const id of losslessOfferToastIdsRef.current) removeToast(id);
+    losslessOfferToastIdsRef.current.clear();
+  }, [removeToast]);
   const batchCancelledRef = useRef(false);
   const singleModeBeforeBatchRef = useRef<{
     gifMode: boolean;
@@ -729,12 +740,7 @@ export default function App() {
       audioTrackOrdinals(advancedMode ? activeAudioTrackIndices : defaultAudioTracks, audioTracks),
     [activeAudioTrackIndices, advancedMode, audioTracks, defaultAudioTracks]
   );
-  const sourceFrameRate =
-    typeof probeData?.frame_rate === "number" &&
-    Number.isFinite(probeData.frame_rate) &&
-    probeData.frame_rate > 0
-      ? probeData.frame_rate
-      : null;
+  const sourceFrameRate = probeData ? validSourceFrameRate(probeData) : null;
   const standardFpsOptions = useMemo(
     () =>
       FPS_OPTIONS.filter(
@@ -2283,7 +2289,7 @@ export default function App() {
   }, [saveSettings, settingsLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Compression ---
-  const startBatch = useCallback(
+  const startBatchImpl = useCallback(
     async (retryItemIds?: readonly number[]) => {
       const retryIds = retryItemIds ? new Set(retryItemIds) : null;
       const selectedItems = retryIds
@@ -2396,12 +2402,7 @@ export default function App() {
             continue;
           }
 
-          const sourceRate =
-            typeof data.frame_rate === "number" &&
-            Number.isFinite(data.frame_rate) &&
-            data.frame_rate > 0
-              ? data.frame_rate
-              : null;
+          const sourceRate = validSourceFrameRate(data);
           const outputFps =
             requestedFps !== null && (sourceRate === null || requestedFps <= sourceRate)
               ? requestedFps
@@ -2765,11 +2766,25 @@ export default function App() {
     if (retryableIds.length > 0) void startBatchRef.current(retryableIds);
   }, [batchQueue, cancelling, compressing, finalizingOutput, loadingVideo]);
 
+  const startBatch = useCallback(
+    async (retryItemIds?: readonly number[]) => {
+      if (exportInFlightRef.current) return;
+      exportInFlightRef.current = true;
+      dismissLosslessOfferToasts();
+      try {
+        await startBatchImpl(retryItemIds);
+      } finally {
+        exportInFlightRef.current = false;
+      }
+    },
+    [startBatchImpl, dismissLosslessOfferToasts]
+  );
+
   useEffect(() => {
     startBatchRef.current = startBatch;
   }, [startBatch]);
 
-  const startCompress = useCallback(async () => {
+  const startCompressImpl = useCallback(async () => {
     if (selectionScanning) {
       addToast(
         "info",
@@ -2779,7 +2794,7 @@ export default function App() {
       return;
     }
     if (isBatchMode) {
-      await startBatchRef.current();
+      await startBatchImpl();
       return;
     }
     resetProgress();
@@ -2887,7 +2902,7 @@ export default function App() {
       losslessTrimFitsTarget(offerTargetSize, clipDuration, probeData.bitrate)
     ) {
       setCompressing(false);
-      addToast(
+      const offerToastId = addToast(
         "info",
         "This clip may not need compression",
         `It should already fit under ${offerTargetSize} MB. You can keep the original picture and sound quality, but the cut points may move slightly.`,
@@ -2898,6 +2913,7 @@ export default function App() {
             {
               label: "Keep original quality",
               onClick: () => {
+                dismissLosslessOfferToasts();
                 setLosslessOfferMode(true);
                 setLosslessOfferTargetSize(offerTargetSize);
                 setAdvancedMode(false);
@@ -2912,6 +2928,7 @@ export default function App() {
             {
               label: "Compress anyway",
               onClick: () => {
+                dismissLosslessOfferToasts();
                 skipLosslessOfferRef.current = true;
                 void startCompressRef.current();
               },
@@ -2919,6 +2936,7 @@ export default function App() {
           ],
         }
       );
+      losslessOfferToastIdsRef.current.add(offerToastId);
       return;
     }
 
@@ -3131,7 +3149,21 @@ export default function App() {
     finishPreparation,
     resetProgress,
     selectionScanning,
+    startBatchImpl,
+    dismissLosslessOfferToasts,
   ]);
+
+  const startCompress = useCallback(async () => {
+    if (exportInFlightRef.current) return;
+    exportInFlightRef.current = true;
+    dismissLosslessOfferToasts();
+    try {
+      await startCompressImpl();
+    } finally {
+      exportInFlightRef.current = false;
+    }
+  }, [startCompressImpl, dismissLosslessOfferToasts]);
+
   useEffect(() => {
     startCompressRef.current = startCompress;
   }, [startCompress]);
