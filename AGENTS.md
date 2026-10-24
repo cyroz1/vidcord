@@ -41,6 +41,7 @@ the authority for behavior; historical changelog entries describe their release,
 │   ├── e2eDialog.ts           # Test-only native dialog bridge
 │   ├── previewScrub.ts        # Pure preview-seek and native-context-menu helpers
 │   ├── timelineZoom.ts        # Pure trim-timeline zoom/view calculations
+│   ├── updateChannel.ts       # Package-manager update-channel resolution for the footer
 │   ├── videoMetadata.ts       # Pure source-metadata formatting helpers
 │   ├── losslessTrim.ts         # Pure lossless-fit, keyframe-snap, and keyframe-normalization helpers
 │   ├── settingsPresets.ts      # Preset schema, normalization, equality, and parsing helpers

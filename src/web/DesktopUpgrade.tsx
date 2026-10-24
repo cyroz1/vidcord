@@ -1131,7 +1131,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
             <p>
               Run <code>chmod +x vidcord_*.AppImage</code>, then launch it. Install FUSE:
               <code>libfuse2</code> (Debian/Ubuntu), <code>fuse-libs</code> (Fedora), or
-              <code>fuse2</code> (Arch). x86_64 supports older distros; ARM64 targets newer ones.
+              <code>fuse2</code> (Arch). Both builds target Ubuntu 22.04 or later.
             </p>
           </article>
           <article>
