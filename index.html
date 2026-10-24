@@ -194,7 +194,7 @@
                 "name": "How do desktop updates work?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Linux native packages update through APT, DNF, or pacman. Windows, macOS, and AppImage updates are offered in the app after approval and verified against GitHub's published SHA-256 digest and an independent Ed25519 release signature before opening. This is separate from platform code signing."
+                  "text": "Linux packages use APT, DNF, or pacman updates when both the package and vidcord repository are configured. Flatpak environments manage their own updates. Other desktop installs use GitHub checks; after approval, downloads are verified against GitHub's SHA-256 digest and an independent Ed25519 release signature. Windows/macOS open the verified installer; Linux reveals an executable AppImage for manual replacement. This is separate from platform code signing."
                 }
               }
             ]

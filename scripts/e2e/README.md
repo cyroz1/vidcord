@@ -36,3 +36,31 @@ Screenshots, the desktop app log, Playwright traces, and reports are saved under
 or `VIDCORD_E2E_KEEP=1` to keep the generated input and output fixture directory after the run.
 GitHub Actions runs the browser suite and runs the desktop suite on Linux, macOS, and Windows; it
 uploads the evidence as workflow artifacts.
+
+## Runner behavior and limits
+
+The browser runner builds the committed site with `web:build`, serves `site/`
+locally, and runs Playwright Chromium using `e2e/web/playwright.config.mjs`.
+This can rewrite generated site files; inspect the resulting diff. It does not
+exercise Firefox or Safari.
+
+The desktop runner builds a debug binary with `--no-bundle`, the `e2e` feature,
+and `tauri.e2e.conf.json`, then connects Selenium to its embedded WebDriver.
+It uses a small adapter in `selenium-browser.mjs` to run the desktop scenarios;
+a separate `tauri-driver`, ChromeDriver, or WDIO runner is not required. Normal
+installer builds and their setup dialogs are outside this suite. Package-manager
+update routing is disabled for E2E to avoid dependence on the test host's installs.
+
+The workflow's desktop matrix covers Ubuntu 22.04 x86_64, Ubuntu 24.04 ARM64,
+macOS, and Windows. This is four desktop jobs plus one browser job, each with
+a 60-minute deadline and seven-day evidence retention. These native host tests
+do not cover every packaged architecture, desktop environment, GPU, or codec.
+Windows ARM64 and the macOS universal bundle still rely on packaging/build checks
+in the release matrix rather than dedicated E2E runners.
+
+Default evidence directories use the platform temp directory followed by
+`vidcord-e2e-artifacts/web` or `vidcord-e2e-artifacts/desktop` (on Linux,
+usually `/tmp/vidcord-e2e-artifacts/`). Native failures include DOM/source and
+screenshot diagnostics when the WebDriver session remains usable. The runner
+bounds session operations and shutdown; on Linux, file-manager helper processes
+must not keep inherited app log pipes open after the app exits.

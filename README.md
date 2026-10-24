@@ -33,8 +33,8 @@ handling, and native parallel workers. Folder imports scan subfolders up to a
 safety limit, queue supported videos, report skipped files, and warn when a
 large scan stops before it reaches every item.
 
-The native desktop app supports **MP4, MOV, MKV, AVI, WebM, FLV, WMV**, and
-other formats handled by your system [FFmpeg](https://ffmpeg.org) install. It
+The native desktop app imports **MP4, MOV, MKV, AVI, WebM, FLV, and WMV**;
+codec support within those containers depends on your system [FFmpeg](https://ffmpeg.org) install. It
 adds hardware-accelerated encoding (NVIDIA NVENC, AMD AMF, Intel Quick Sync,
 Linux VAAPI, Apple VideoToolbox), automatic bitrate calculation, strict output
 size checks, output FPS controls, and platform-native installers. Both editions
@@ -169,7 +169,7 @@ and retry oversized results with safer bitrates and CPU fallback.
 - **Advanced mode** — custom target size (MB), output resolution, FPS, and audio
   normalization in both editions. The desktop app additionally accepts any
   FFmpeg video encoder string, offers autocomplete from installed encoders, and
-  provides a per-video audio-track mixer; the browser shows track choices when
+  provides a per-video audio-track selector; the browser shows track choices when
   its media APIs expose multiple tracks. Preview plays only the first selected
   track when several are selected. Leave target size empty to encode at
   the source bitrate without a file-size limit.
@@ -179,7 +179,7 @@ and retry oversized results with safer bitrates and CPU fallback.
 - **Smart audio output** — both editions can peak-normalize retained audio so its
   highest sample peak reaches `0 dB` with a fixed gain, or remove audio. The
   desktop app starts with the first source track, switches to a later track only
-  when it is at least 20% larger by estimated data, and can mix selected tracks
+  when it is at least 20% larger by estimated data, and can retain multiple separate tracks
   in Advanced mode; each selected track is encoded at 128 kbps and included in
   the video bitrate budget. Browser Advanced shows track choices when its media
   APIs expose them, otherwise it keeps the first stream. Preview plays only the
@@ -266,12 +266,14 @@ and retry oversized results with safer bitrates and CPU fallback.
   to a remembered custom folder, or choose a filename after compression finishes.
   For a batch using Ask when done, successful outputs are staged until one
   destination folder is chosen and then published together.
-- **Verified desktop updates** — Windows, macOS, and AppImage update checks run
+- **Verified desktop updates** — Windows, macOS, AppImages, and Linux installs without a
+  configured vidcord package repository use GitHub update checks, which run
   after startup settles and no more than once every six hours. After approval,
   vidcord streams the matching installer to Downloads, validates its size and
   completeness, compares the bytes with GitHub's SHA-256 digest, verifies the
-  independent Ed25519 release signature, chooses an unused filename, and opens
-  it. Native Linux packages update through APT, DNF, or pacman.
+  independent Ed25519 release signature, and chooses an unused filename. Windows/macOS
+  open the installer; Linux reveals the executable AppImage for manual replacement.
+  Installed Linux packages use APT, DNF, or pacman when the vidcord repository is configured.
 - **Desktop automated FFmpeg setup assistance** — Windows installers offer `winget`,
   and first launch prompts to install through the platform package manager.
   No FFmpeg binaries are bundled with vidcord.
@@ -284,8 +286,8 @@ and retry oversized results with safer bitrates and CPU fallback.
 
 ### Desktop input formats
 
-MP4, MOV, MKV, AVI, WebM, FLV, WMV, and any other container / codec
-combination your system FFmpeg can demux. Standard and Advanced mode output is
+The desktop import allowlist is MP4, MOV, MKV, AVI, WebM, FLV, and WMV.
+Codec support within those containers depends on the installed FFmpeg build. Standard and Advanced mode output is
 `.mp4` — H.264 (AVC) by default or H.265 (HEVC) if you pick an `hevc_*`
 encoder. Lossless Trim prefers `.mp4` and can use the validated source video
 extension when the source container is the compatible stream-copy choice. GIF
@@ -303,15 +305,17 @@ in a pinch and need a quick local export without installing the desktop app.
 It is suitable for a phone, tablet, or desktop browser when the input is
 browser-readable. The site leads with the desktop app and links this demo
 directly under the primary download button. The editor renders before
-requesting FFmpeg compiled to WebAssembly on demand when export work starts;
-Lossless Trim may load it earlier for local keyframe discovery. Selected files
+requesting FFmpeg compiled to WebAssembly. After import metadata is ready, it
+warms the encoder; export and Lossless Trim discovery also load it when needed. Selected files
 stay in the browser, and videos and PNG frame snapshots use normal browser
-downloads.
+downloads. Single Advanced, Lossless Trim, and GIF/WebP exports also attempt a
+browser clipboard write for outputs up to 8 MiB when supported, with a two-second
+deadline. This is automatic best-effort copying; there is no native completion-action
+setting. Compress and Batch use downloads only.
 
 The browser editor includes Compress, Advanced, Lossless Trim, GIF, single-file
 trim and preview, crop, audio normalization, audio removal for re-encoded
-exports, lossless audio removal, standard FPS controls, typed Advanced FPS when
-the source rate is known, snapshots, and same-profile multi-file batches. In
+exports, lossless audio removal, standard FPS controls, typed Advanced FPS up to 240, snapshots, and same-profile multi-file batches. In
 Advanced mode it can select source audio tracks when browser media APIs expose
 them, with preview playback using only the first selected track. Each
 selected browser input is capped at 512 MB because FFmpeg WebAssembly processes
@@ -324,6 +328,10 @@ metadata reads. It does not expose per-file batch trim fields or a batch preview
 timeline. After metadata is ready, the editor warms the local encoder and shows
 encoder-load and export-stage progress. It warns before exports estimated to
 need substantial memory; phones use a faster x264 preset to reduce encode time.
+
+If a browser audio decoder or filter is incompatible, the exporter can retry
+without normalization or audio and reports that change. A worker that stops
+emitting progress for four minutes is stopped, with one automatic export retry.
 
 The browser encoder is intentionally fixed to `libx264` in WebAssembly. Advanced
 mode can set a custom target size, resolution, and FPS, and can select source
@@ -338,8 +346,10 @@ the browser, device, available memory, and source format.
 The browser edition does not provide the desktop app's system FFmpeg, GPU
 encoder discovery, native output folders, Open With routing, saved settings
 presets, native completion actions, OS notifications, taskbar/Dock progress, or
-in-app installer updates. Native Linux packages update through their package
-manager; other desktop installs use the verified in-app installer flow.
+in-app installer updates. Linux packages use package-manager updates when both the package and vidcord repository
+are configured. One-off package installs without the repository keep GitHub update checks.
+On Linux, the verified download is an AppImage revealed for manual replacement; it does
+not upgrade an installed `.deb`, `.rpm`, or pacman package.
 Browser exports always use the browser download flow;
 the browser controls its download location and any download prompts. For large,
 long, unsupported, or memory-intensive sources—or when you need those desktop
@@ -347,17 +357,17 @@ integrations—use the native app.
 
 ### Browser and desktop capability matrix
 
-| Capability             | Browser demo at `/#web-editor`                                                      | Native desktop app                                                              |
-| ---------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Processing engine      | Local FFmpeg WebAssembly                                                            | Local system `ffmpeg` and `ffprobe`                                             |
-| Video encoder          | Fixed `libx264`                                                                     | CPU and detected GPU encoders, selectable on desktop                            |
-| Inputs                 | Formats the browser can decode                                                      | Formats the installed FFmpeg can demux                                          |
-| Modes                  | Compress, Advanced, Lossless Trim, GIF (GIF or WebP)                                | Compress, Advanced, Lossless Trim, GIF (GIF or WebP)                            |
-| Audio                  | Normalize/remove; Advanced track choices when exposed; preview plays first selected | Track selection/mixing, normalization, or removal; preview plays first selected |
-| Batch                  | Up to 12 files; shared Compress profile, full duration, browser downloads           | Shared controls plus per-file trims and native workers                          |
-| Output                 | Browser downloads                                                                   | Downloads, source folder, custom folder, or save prompt                         |
-| Saved settings presets | Not available                                                                       | Available in the desktop footer                                                 |
-| Native integrations    | None                                                                                | Open With, clipboard/reveal, notifications, taskbar/Dock                        |
+| Capability             | Browser demo at `/#web-editor`                                                      | Native desktop app                                                                |
+| ---------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Processing engine      | Local FFmpeg WebAssembly                                                            | Local system `ffmpeg` and `ffprobe`                                               |
+| Video encoder          | Fixed `libx264`                                                                     | CPU and detected GPU encoders, selectable on desktop                              |
+| Inputs                 | Formats the browser can decode                                                      | MP4/MOV/MKV/AVI/WebM/FLV/WMV; installed FFmpeg codecs                             |
+| Modes                  | Compress, Advanced, Lossless Trim, GIF (GIF or WebP)                                | Compress, Advanced, Lossless Trim, GIF (GIF or WebP)                              |
+| Audio                  | Normalize/remove; Advanced track choices when exposed; preview plays first selected | Separate track selection, normalization, or removal; preview plays first selected |
+| Batch                  | Up to 12 files; shared Compress profile, full duration, browser downloads           | Shared controls plus per-file trims and native workers                            |
+| Output                 | Browser downloads                                                                   | Downloads, source folder, custom folder, or save prompt                           |
+| Saved settings presets | Not available                                                                       | Available in the desktop footer                                                   |
+| Native integrations    | None                                                                                | Open With, clipboard/reveal, notifications, taskbar/Dock                          |
 
 To build the static browser bundle locally:
 
@@ -366,8 +376,9 @@ npm run web:build
 ```
 
 This writes the deployable browser bundle to the root of `site/` alongside the
-crawler files. The first export loads the deferred local
-WebAssembly encoder in the browser; no selected video is sent to a server. The build stores
+crawler files. The editor renders before the encoder is requested, then warms the deferred local
+WebAssembly encoder after an imported video has readable metadata. Export and keyframe
+discovery also load it when needed; no selected video is sent to a server. The build stores
 the WebAssembly binary as a gzip-compressed asset so the static deployment stays
 within Cloudflare's per-file size limit, then decompresses it in the browser
 before starting FFmpeg. The root page combines the desktop download story with the quick
@@ -489,10 +500,10 @@ For more distros, manual installs, or troubleshooting, read
    because processing happens in WebAssembly memory.
 2. Choose **Compress**, **Advanced**, **Lossless Trim**, or **GIF**. Use the
    Discord target, crop, FPS, audio, and trim controls that apply to the mode.
-   Advanced mode accepts a typed FPS value when the browser can determine the
-   source frame rate. The trim options panel also provides snap intervals and
+   Advanced mode accepts a positive typed FPS value up to 240; source-rate
+   metadata is used to hide redundant standard FPS choices. The trim options panel also provides snap intervals and
    timeline zoom/pan controls.
-3. Click the export button. FFmpeg WebAssembly loads locally, progress and ETA
+3. Click the export button. FFmpeg WebAssembly finishes loading locally if needed, progress and ETA
    update in the page, and the finished video downloads through the browser.
 
 Selecting multiple files enters browser Batch mode. The same standard Compress
@@ -535,7 +546,7 @@ preserve the full selection.
    is inside the trim.
 5. **Choose audio handling** — keep the prioritized track, peak-normalize it to 0 dB, or
    remove audio to reserve more bitrate for video. In Advanced mode, open the
-   mixer beside the mute and normalize buttons to inspect every source track,
+   track picker beside the mute and normalize buttons to inspect every source track,
    select individual tracks or all tracks, and keep that choice for this video
    only; each selected track reserves 128 kbps.
 6. **Export.** Compress and Advanced re-encode to the selected target, Lossless
@@ -571,8 +582,8 @@ Batch compression always produces MP4 outputs. Direct destinations reserve a
 unique path for every successful item. With **Ask when done**, all successful
 outputs are staged until one destination folder is chosen, then published
 together without overwriting existing files. The default completion action
-copies successful outputs as one clipboard group; the reveal action opens each
-distinct output folder once and selects every successful output in it. Do
+copies successful outputs as one clipboard group; the reveal action selects successful outputs through the platform file manager. Linux
+falls back to opening the containing folder if its file-selection service is unavailable. Do
 nothing leaves the outputs saved without copying, opening a folder, or sending
 a system notification. The independent close-app setting exits after a fully
 successful batch.
@@ -614,7 +625,7 @@ overhead. Failed hardware encoder paths retain the CPU fallback.
 | Intel             | `h264_qsv`, `hevc_qsv`                   | HD Graphics 500-series and newer                           |
 | Linux (any GPU)   | `h264_vaapi`, `hevc_vaapi`               | Requires a working `/dev/dri/renderD*`                     |
 | macOS             | `h264_videotoolbox`, `hevc_videotoolbox` | Available on Intel or Apple Silicon when exposed by FFmpeg |
-| Fallback (CPU)    | `libx264`, `libx265`                     | Always available                                           |
+| Fallback (CPU)    | `libx264`, `libx265`                     | Requires support in your FFmpeg build                      |
 
 On Linux, vidcord probes `/dev/dri/renderD*` once per session to pick the
 right VAAPI device, and sets `LIBVA_DRIVER_NAME=radeonsi` for AMD systems.
@@ -661,9 +672,17 @@ Installers / bundles land in `src-tauri/target/release/bundle/`.
 npm run lint                                            # eslint src
 npm run typecheck                                       # tsc --noEmit
 npm test                                                # vitest
+npm run build                                           # desktop frontend; prunes browser-only assets
+npm run bundle:check                                    # desktop bundle budgets
+npm run version:check                                   # package, locks, Tauri, site versions
+npm run assets:check                                    # canonical assets + video extension parity
+npm ci --prefix tools/tauri-cli --prefer-offline --no-audit --fund=false
+npm run build-tools:check                               # minimal Tauri CLI lock integrity
 npm run web:build                                       # build the static browser edition into site/
 npm run site:check                                      # validate generated root site files
-npm run format                                          # prettier --write src
+node scripts/check-site-generated.mjs                   # rebuilt WASM vs committed HEAD
+node --test workers/feedback/test/index.test.js           # standalone feedback service
+npm run format                                          # modifies src formatting; not a read-only gate
 cargo fmt   --check --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings
 cargo test  --manifest-path src-tauri/Cargo.toml
@@ -672,9 +691,12 @@ cargo test  --manifest-path src-tauri/Cargo.toml
 
 CI treats any clippy warning as an error and also runs npm/Rust audit, version,
 asset, lint, typecheck, test, build-tool integrity, artifact provenance, and
-build checks. The separate Site Checks workflow rebuilds the browser bundle,
-verifies that generated root assets are committed, and validates the root
-HTML, JSON-LD, sitemap, asset layout, and Cloudflare size limits. Keep new Rust
+build checks. Site Checks validates root HTML formatting, JSON-LD, sitemap,
+asset layout, versions, and Cloudflare size limits. Site Browser Build separately
+rebuilds the browser bundle and verifies committed output (decompressed bytes
+for WASM). Both site workflows run on matching changes to `main` or PRs targeting
+`main`; app and E2E checks also cover version branches. Marketing-only changes
+under `site/` also run the browser build. Keep new Rust
 code warning-clean. The End-to-End UI Tests workflow exercises the browser demo
 and the native app on Linux, macOS, and Windows. See
 [`scripts/e2e/README.md`](scripts/e2e/README.md) for local setup and commands.
@@ -696,7 +718,7 @@ frontend build, consolidated Rust formatting/audit/clippy/test checks, and a
 5-way platform matrix (Windows x86_64/aarch64, macOS universal, Linux
 x86_64/aarch64). Release builds attest their installer provenance, and the
 release job verifies those attestations and creates detached Ed25519 signatures
-before drafting a GitHub release from the matching `CHANGELOG.md` section. See
+before publishing a GitHub release immediately from the matching `CHANGELOG.md` section. See
 [`RELEASE_SIGNING.md`](docs/RELEASE_SIGNING.md) for the signing-key contract.
 
 ## Project layout
@@ -708,7 +730,7 @@ src/                       React + TypeScript frontend
   ipc.ts                   Typed wrappers around Tauri invoke() commands
   losslessTrim.ts          Pure fit and keyframe-snap helpers for Lossless Trim
   settingsPresets.ts       Preset schema, normalization, equality, and parsing helpers
-  components/              PreviewPane, TrimTimeline, ProgressSection, Toast, SettingsPresets, EncodersDialog
+  components/              Preview, trim, crop, queue, audio, export, presets, dialogs, toasts
   hooks/                   useCompression, useEncoders, useSettings, useToasts
   __tests__/               Vitest tests (node env, Tauri APIs mocked)
 
@@ -717,17 +739,24 @@ src-tauri/                 Rust backend
   src/ffmpeg.rs            Video probing / VAAPI discovery
   src/ffmpeg/encoders.rs   FFmpeg encoder detection + encoder cache invalidation
   src/gpu.rs               Vendor detection (lspci / system_profiler / CIM)
-  src/settings.rs          Typed settings persisted via atomic rename
-  src/commands/            #[tauri::command] handlers (compression, encoders, files, updates)
+  src/preview_source.rs    Scoped original-file loopback delivery for Linux HTML preview
+  src/settings.rs          Typed settings persisted via durable atomic replacement
+  src/commands/            #[tauri::command] handlers (app, compression, encoders, feedback, files, updates)
   tauri.conf.json          Product config, CSP, file associations, bundle targets
 
-.github/workflows/         App build/release workflow plus site validation workflow
+.github/workflows/         App build/release, E2E, site validation, generated-site parity
+e2e/                       Browser Playwright and native Selenium UI scenarios
+workers/feedback/          Separate Cloudflare Worker forwarding explicit reports via Resend
+packaging/arch/            Native x86_64/aarch64 vidcord-bin package templates
+docs/                      Architecture, setup, Linux installs, signing, third-party notices
 scripts/                   Version, asset, and site structured-data checks
 site/                      Generated browser bundle, desktop marketing assets, metadata, and crawler files
 ```
 
 A deeper architectural tour — IPC boundary, file-open race conditions,
-cache layout, settings migration — lives in [AGENTS.md](AGENTS.md).
+cache layout, settings migration — lives in [AGENTS.md](AGENTS.md). The
+[source map and verification guide](docs/ARCHITECTURE.md) links the runtime, service,
+packaging, and workflow implementations.
 
 The deployed site is a Cloudflare Worker static-assets project configured by
 [`wrangler.jsonc`](wrangler.jsonc). Push committed site changes to `main` for
@@ -807,7 +836,7 @@ desktop reports include the app version, OS, and last 100 lines of the app log;
 browser reports include the page URL, browser user agent, and language. The app
 automatically checks the GitHub Releases API for Windows, macOS, and AppImage
 updates at most once every six hours, deferred for eight seconds after startup.
-Native Linux package installs update through APT, DNF, or pacman with normal
+Linux installs with both the package and vidcord repository configured update through APT, DNF, or pacman with normal
 system upgrades. The app only downloads an installer after you choose to
 install an available update.
 The website also requests public release metadata from GitHub and an aggregate
@@ -842,15 +871,21 @@ the other desktop integrations.
 
 ### How do desktop updates work?
 
-Linux package installs update through APT, DNF, or pacman with normal
-package-manager upgrades. For Windows, macOS, and AppImage installs, when an
+When running inside Flatpak, vidcord leaves updates to Flatpak and disables its
+in-app installer flow. This detection does not imply an official Flatpak package
+is built by this repository.
+
+Linux packages update through APT, DNF, or pacman when both the package and
+vidcord repository are configured. One-off package installs without that
+repository keep GitHub checks; their Linux download is an AppImage, which does
+not upgrade the installed native package. For Windows, macOS, and AppImage installs, when an
 update is available the desktop app offers the matching installer and keeps the
 GitHub release page as a fallback. After you approve the download, it fetches
 that exact release tag even if a newer release appears before installation
 begins. It streams the installer to Downloads, enforces size and completeness
 limits, compares the bytes with the SHA-256 digest published in GitHub release
 metadata, verifies the pinned independent Ed25519 release signature, and only
-then gives the installer an unused filename and opens it. This independent
+then gives the installer an unused filename and opens it on Windows/macOS. Linux reveals the executable AppImage for manual replacement. This independent
 release signature does not replace platform code signing.
 
 ### What are Discord's video upload size limits?
@@ -868,8 +903,8 @@ named settings presets; the browser editor does not.
 
 ### Which video formats does vidcord support?
 
-The desktop app accepts any container its system FFmpeg can demux: **MP4, MOV,
-MKV, AVI, WebM, FLV, WMV**, and more. Compress and Advanced output `.mp4`
+Desktop import accepts **MP4, MOV, MKV, AVI, WebM, FLV, and WMV** extensions.
+Their codecs must be supported by the installed system FFmpeg build. Compress and Advanced output `.mp4`
 (H.264 by default, H.265 if you pick an `hevc_*` encoder in Advanced mode);
 Lossless Trim prefers `.mp4` and can use the validated source extension when
 needed. The browser editor accepts video formats its browser can decode and
@@ -979,12 +1014,15 @@ while offline.
 Issues and PRs are welcome. Before opening a PR:
 
 1. Run all quality gates above — CI is strict about clippy and formatting.
-2. Add entries under the `## WIP` section at the top of [CHANGELOG.md](CHANGELOG.md) for
-   user-visible changes (it becomes `## vX.Y` at release/tag time).
+2. Work on the active `X.Y` version branch for application changes. Add meaningful
+   user-visible changes to its leading `## WIP` or matching `## vX.Y` section in
+   [CHANGELOG.md](CHANGELOG.md); exclude documentation-only maintenance. Finalize
+   that section as `## vX.Y` before tagging.
    The release workflow uses it as the GitHub release body.
-3. **Don't bump version numbers casually.** `package.json`,
-   `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` must stay in
-   sync, and any bump triggers a release the next time a tag is pushed.
+3. **Don't bump version numbers casually.** Package manifests, lockfiles, Tauri
+   configuration, source and generated site JSON-LD, and the crawler version
+   declaration must stay aligned. A `vX.Y` tag push triggers the public release
+   pipeline; changing version fields alone does not publish a release.
 
 Read [AGENTS.md](AGENTS.md) for the architectural invariants you're
 expected not to break (Tauri command registration, blocking work and

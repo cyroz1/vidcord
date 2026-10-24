@@ -1,6 +1,9 @@
 # AGENTS.md
 
 Guidance for AI assistants working in this repository. Read this before making changes.
+For a source-linked tour of the app, browser editor, services, packaging, and verification, see
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Treat executable source and workflow definitions as
+the authority for behavior; historical changelog entries describe their release, not current policy.
 
 ## Project overview
 
@@ -27,12 +30,27 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   ├── ffmpegErrors.ts        # Shared FFmpeg-missing error detection/copy
 │   ├── importScanId.ts        # Page-session-unique IDs for folder import progress events
 │   ├── importSummary.ts       # Import result and incomplete-scan messaging
+│   ├── audioTracks.ts         # Track selection and per-track audio bitrate budgeting
+│   ├── batchProcessing.ts     # Batch queue state, retry selection, and trim normalization
+│   ├── queueReordering.ts     # Shared queue move helpers
+│   ├── gifPresets.ts          # GIF/WebP targets and legacy settings migration
+│   ├── gifOutputFormat.ts     # Animated output format normalization
+│   ├── previewFrame.ts        # HTML-frame pause overlays and full-resolution PNG capture
+│   ├── feedback.ts            # Shared explicit feedback submission and email fallback URL
+│   ├── donate.ts              # Shared donation destinations
+│   ├── e2eDialog.ts           # Test-only native dialog bridge
 │   ├── previewScrub.ts        # Pure preview-seek and native-context-menu helpers
 │   ├── timelineZoom.ts        # Pure trim-timeline zoom/view calculations
 │   ├── videoMetadata.ts       # Pure source-metadata formatting helpers
 │   ├── losslessTrim.ts         # Pure lossless-fit, keyframe-snap, and keyframe-normalization helpers
 │   ├── settingsPresets.ts      # Preset schema, normalization, equality, and parsing helpers
 │   ├── components/
+│   │   ├── BatchQueue.tsx     # Queue details, trims, reorder/remove/retry controls
+│   │   ├── ExportSection.tsx  # Shared export settings surface
+│   │   ├── AudioTrackPicker.tsx # Advanced source-track selection
+│   │   ├── PreviewCrop.tsx    # Shared preview crop geometry
+│   │   ├── FeedbackDialog.tsx # Explicit desktop report submission and fallback
+│   │   ├── useDialogFocusTrap.tsx # Shared dialog focus/escape handling
 │   │   ├── PreviewPane.tsx    # HTML video preview + Tauri-controlled playback and seeking
 │   │   ├── ProgressSection.tsx# Compression progress bar + ETA
 │   │   ├── TrimTimeline.tsx   # Memoized trim controls, shortcuts, zoom, playhead UI
@@ -50,6 +68,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   ├── src/
 │   │   ├── main.rs            # Thin entry — calls lib::run()
 │   │   ├── lib.rs             # Tauri builder, platform shims/theme, file-open routing
+│   │   ├── preview_source.rs  # Scoped original-file loopback delivery for Linux preview
 │   │   ├── desktop_integration.rs # Linux AppImage folder Open With registration
 │   │   ├── ffmpeg.rs          # probe / VAAPI discovery + caches
 │   │   ├── ffmpeg/
@@ -62,6 +81,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 │   │       ├── compression.rs # compression jobs/retries/reservations + preview/probe commands
 │   │       ├── encoders.rs    # detect/install/list FFmpeg; platform install flows
 │   │       ├── files.rs       # output locations/staging, file reveal/clipboard, get_os, PendingFile
+│   │       ├── feedback.rs    # Private report collection, retention, and validated deletion
 │   │       └── updates.rs     # Semver checks + verified installer download/publication
 │   ├── capabilities/default.json  # Tauri permissions (dialog, opener, core)
 │   ├── windows/
@@ -89,6 +109,10 @@ Guidance for AI assistants working in this repository. Read this before making c
 ├── .github/workflows/build.yml# Multi-platform CI + release workflow
 ├── .github/workflows/site.yml # Static site validation workflow
 ├── .github/workflows/site-build.yml # Browser bundle regeneration and parity workflow
+├── .github/workflows/e2e.yml # Browser + Linux x64/ARM64, macOS, Windows desktop UI checks
+├── e2e/                       # Browser Playwright and desktop Selenium scenarios
+├── workers/feedback/          # Separate Cloudflare feedback-to-Resend service and tests
+├── packaging/arch/            # vidcord-bin PKGBUILD template and install hooks
 ├── tools/tauri-cli/           # Minimal locked CLI install for platform CI builds
 ├── scripts/                   # Bundle, version, asset, sitemap, and structured-data checks
 ├── index.html                 # Vite entry
@@ -98,6 +122,7 @@ Guidance for AI assistants working in this repository. Read this before making c
 ├── .prettierrc                # 100-col, 2-space, double-quote, ES5 trailing commas
 ├── tsconfig.json              # Strict TS, ES2021 target, react-jsx
 ├── docs/                      # End-user and contributor guides
+│   ├── ARCHITECTURE.md        # Source map, runtime boundaries, and verification matrix
 │   ├── FFMPEG_SETUP.md        # End-user FFmpeg install guide (per platform)
 │   ├── LINUX_INSTALL.md       # Linux package and repository install guide
 │   ├── RELEASE_SIGNING.md     # Release signing-key contract
@@ -128,7 +153,13 @@ npm run build              # production frontend bundle
 npm run web:build          # build the hosted browser bundle into the site/ root
 npm run bundle:check       # enforce JS/CSS bundle-size budgets after build
 npm run version:check      # align package/locks/Tauri config/site version references
-npm run assets:check       # enforce canonical app/site asset organization
+npm run assets:check       # canonical assets + matching video extension allowlists
+npm ci --prefix tools/tauri-cli --prefer-offline --no-audit --fund=false
+npm run build-tools:check  # locked Tauri CLI integrity against root lockfile
+npm run site:check         # formatting, structured data, sitemap, assets, size, versions
+# After web:build, also inspect generated site diffs; CI compares non-WASM files exactly.
+node scripts/check-site-generated.mjs # compares decompressed WASM with HEAD
+node --test workers/feedback/test/index.test.js # standalone feedback Worker tests
 npm run format             # prettier --write src
 cargo fmt --check --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings
@@ -160,13 +191,16 @@ do not describe FFmpeg as bundled with vidcord.
 
 ### Website (`/site`) deployment
 
-The public website lives in `site/` and deploys from GitHub when changes are pushed to `main`.
+The public website lives in `site/` and uses the existing GitHub-connected Cloudflare deployment
+when changes are pushed to `main`. The site Actions workflows validate output; they do not deploy it.
 Do not run Wrangler for normal site deploys.
 
 The hosted browser edition is built with `npm run web:build` and published at `/` from the generated
 site root. The home page is desktop-first: the native desktop app is the headline experience with
 its feature tour, setup notes, and download links, followed by the integrated browser demo for
-quick no-install exports. The build stages the browser output separately so it preserves the root
+quick no-install exports. After import metadata is ready, `WebEditor` warms the deferred
+encoder; export and Lossless Trim discovery also load it when needed. Do not describe the encoder
+as loading exclusively on the first export. The build stages the browser output separately so it preserves the root
 crawler files and shared desktop marketing assets. The browser edition uses FFmpeg WebAssembly, keeps selected videos local,
 and downloads exports through the browser. It is intentionally a lighter alternative to the desktop
 app: browser input support and performance depend on the user's browser, encoding is fixed to
@@ -185,7 +219,12 @@ the browser edition into the `site/.browser-build` staging directory and serves 
 pruned desktop `dist/`. `npm run site:check` enforces the same per-file limit for future
 generated output.
 
-Browser encoder loads are abortable and bounded to two minutes. Each session mounts its input
+Browser encoder loads are abortable and bounded to two minutes. Encoding also has a four-minute
+progress-silence watchdog that tears down a stalled worker, with one automatic export retry.
+Inputs are capped at 512 MiB (shown as 512 MB), browser queues at 12 files, and exports estimated
+over 256 MiB require a memory-use confirmation. Single Advanced, Lossless Trim, and GIF/WebP
+exports attempt a best-effort browser clipboard write only up to 8 MiB with a two-second deadline;
+Compress and Batch skip it. Browser downloads remain the delivery path in every mode. Each session mounts its input
 read-only with WORKERFS, keeps generated filenames independent of user filenames, and unmounts
 inputs and removes intermediate palettes on disposal. GIF palette generation and rendering use
 separate passes to avoid retaining a whole decoded clip. Keep session ownership across cancellation
@@ -208,7 +247,7 @@ unversioned marketing files must stay revalidatable.
 - **Cloudflare Worker name**: `vidcord-site`
 - **Deployment config**: `wrangler.jsonc` → `assets.directory = "./site"`,
   `workers_dev = true`
-- **Custom domain route**: `vidcord.app`
+- **Custom domain**: `vidcord.app` (configured externally; not declared in root `wrangler.jsonc`)
 - **Deployment trigger**: push the committed site changes to `origin/main`; the
   GitHub-connected deployment handles publishing.
 
@@ -217,9 +256,9 @@ Site behavior and content:
 - The generated `site/index.html` carries the static title, canonical URL, social metadata, and
   JSON-LD for `WebSite`, `SoftwareApplication`, and `FAQPage`. Keep important product claims
   visible in HTML metadata/structured data as well as in the React-rendered page.
-- `src/web/DesktopUpgrade.tsx` detects Windows/macOS/Linux, calls GitHub's latest-release API, and
-  links download buttons directly to matching binary assets when the platform and architecture are
-  known. If x64 vs ARM64 cannot be determined with high confidence, prompt the user to choose an
+- `src/web/DesktopUpgrade.tsx` and `desktopDownloads.ts` detect Windows/macOS/Linux and call
+  GitHub's latest-release API. Windows/macOS link to matching binary assets; the main Linux CTA
+  opens the repository install guide, with architecture-specific DEB/RPM/pacman/AppImage links. If x64 vs ARM64 cannot be determined with high confidence, prompt the user to choose an
   architecture; each architecture option should link directly to the matching latest-release
   binary. It falls back to `https://github.com/cyroz1/vidcord/releases/latest` when release
   metadata cannot be fetched or the expected asset is missing. Mobile devices must not receive a
@@ -259,7 +298,11 @@ Website validation:
 npm run site:check
 ```
 
-The site check runs Prettier, `node --check`, JSON-LD / manifest parsing, semantic sitemap validation, asset organization checks, and version alignment. If you need to run the structured-data or sitemap parsers directly:
+The site check runs Prettier, JSON-LD / manifest parsing, semantic sitemap validation,
+asset organization and video-extension parity checks, the 25 MiB asset limit, and version alignment.
+It does not rebuild the browser bundle or syntax-check every script. The separate Site Browser
+Build workflow rebuilds the bundle, compares non-WASM output with Git, and compares decompressed
+WASM bytes (gzip bytes can differ across Node/zlib versions). If you need to run the structured-data or sitemap parsers directly:
 
 ```sh
 node scripts/check-site-structured-data.mjs
@@ -296,7 +339,7 @@ For browser QA, use the in-app browser when available and check:
 - screenshot aspect ratios remain uncropped
 
 For browser-edition QA, also open `/`, select a local video, switch through each mode, and
-confirm the first export loads the local WebAssembly encoder, reports progress/ETA, and triggers a
+confirm import metadata starts encoder warmup, export reports progress/ETA, and completion triggers a
 browser download. Confirm that the browser UI does not expose desktop-only encoder, native output,
 completion-action, or saved-preset controls. Do not describe the browser route as hosted/cloud
 compression: selected video files must not be uploaded.
@@ -315,7 +358,7 @@ CI picks the profile based on whether the ref is a `v*` tag (see `build.yml`).
 
 ### IPC boundary (Tauri commands)
 
-All Rust→Frontend IO flows through `#[tauri::command]` functions registered in `src-tauri/src/lib.rs`'s `invoke_handler!` macro. When you add a new command:
+Frontend requests use `#[tauri::command]` functions registered in `src-tauri/src/lib.rs`'s `invoke_handler!` macro. When you add a new command:
 
 1. Define it in the appropriate file under `src-tauri/src/commands/` (or a new module).
 2. Re-export it from `commands/mod.rs` if needed and import it in `lib.rs`.
@@ -326,6 +369,8 @@ Events flow the other direction via `AppHandle::emit` → `listen()` in the fron
 
 - `compress-progress` — percent, eta, status, attempt number, encoder, bitrate (emitted per FFmpeg stderr `time=` line and at retry boundaries)
 - `compress-done` — success/cancelled/message/output_path plus input/output/target size metadata when available
+- `batch-progress` / `batch-done` — per-item and aggregate native batch progress/results
+- `import-scan-progress` — scan ID and discovered item/video/folder counts
 - `open-file` — path from single-instance forwarding, macOS Apple Events, or CLI args
 - `tauri://drag-drop` — built-in Tauri event for drops on the window
 
@@ -395,7 +440,7 @@ Output handling has two paths:
   backend validation and partial-file cleanup.
 
 The persisted completion action is `copy` (default), `reveal`, or `none`. Clipboard copy
-validates that the output is still a file, then uses CF_HDROP on Windows, AppleScript on macOS, and
+validates that the output is still a file, then uses CF_HDROP on Windows, native NSPasteboard file URLs on macOS, and
 `wl-copy`/`xclip` on Linux. A copy failure falls back to revealing the saved file. `none` leaves
 the output saved without copying, revealing, or sending a system notification; in-app completion
 feedback may remain visible. The separate `close_app_after_export` setting defaults to false; when
@@ -407,6 +452,23 @@ completion-action failure must not be reported as a compression failure.
 directory, `completion_action` (`copy`, `reveal`, or `none`), and
 `close_app_after_export` (boolean). Keep the frontend's allowlist validation when loading action
 values; invalid or older persisted values must fall back to safe defaults.
+
+### Audio, color, and adaptive encoding
+
+Audio-track selection retains separate AAC streams at 128 kbps each; it does not mix them into one
+stream. `audioTracks.ts` chooses the first track unless a later track has at least 20% more estimated
+data, and budgets every selected stream. Preview plays only the first selected track when the
+platform exposes track switching. GIF has no audio; Lossless Trim can remove all audio with `-an`.
+
+Normal desktop encoding converts deep-color sources to `yuv420p`. PQ/HLG HDR is tone-mapped to SDR
+BT.709 only when FFmpeg exposes both `tonemap` and `zscale`; plain format conversion keeps source
+color tags. Preserve cached, bounded filter discovery and invalidate it after FFmpeg installation.
+Do not advertise browser HDR parity or general HDR preservation.
+
+Target-size sampling and bounded underfill/oversize correction retain the best fitting output.
+Encoding candidates and GIF palettes use private temporary directories, including Unix ancestor
+permission/ownership checks and macOS ACL validation; Windows uses the per-user cache. Preserve
+cleanup and fail-closed publication rather than weakening checks for cross-volume destinations.
 
 ### File-open routing (tricky)
 
@@ -438,8 +500,15 @@ Preserve all of these controls when changing the updater:
    file; never buffer a full installer in memory.
 5. Publish under a collision-safe Downloads filename without replacing an existing file. Keep the
    hard-link path and create-new copy fallback for FAT, exFAT, and network filesystems.
-6. Open the installer only after verification and publication, using `spawn_blocking` for the
-   platform opener. Remove temporary or partial files on every failure path.
+6. Hand off only after verification and publication, using `spawn_blocking` for the platform
+   action. Windows/macOS open the installer; Linux makes the AppImage executable and reveals it
+   so the user can quit the old copy, replace it, and relaunch. Remove temporary or partial files
+   on every failure path. Installer transfer has 60-second response-header and per-chunk idle
+   deadlines, without a whole-download timeout that would reject a slow but progressing transfer.
+
+AppImage downloads are revealed rather than launched because the single-instance handler would
+otherwise send the new copy back to the old running instance. Native Linux installs without a
+repository also download AppImages; this does not upgrade their installed native package.
 
 The Ed25519 update signature is separate from platform code signing or notarization. Documentation
 may describe GitHub digest verification, independent release-signature verification, and release
@@ -480,6 +549,8 @@ Every `std::process::Command::new("ffmpeg"|"ffprobe")` in Rust must:
 
 - `ENCODER_CACHE` (`src-tauri/src/ffmpeg/encoders.rs`) — memoised encoder list plus the H.264 hardware encoders that passed a bounded one-frame initialization test. Only validated hardware is eligible for first-run auto-selection; listed-but-unusable encoders remain available for an explicit choice. Call `invalidate_encoder_cache()` after a successful FFmpeg install. The frontend also persists the last validated capability list in `encoder_capabilities` so startup can restore it immediately, then refreshes discovery after a quiet idle window that resets while a video probe is active.
 - `VAAPI_CACHE` (`src-tauri/src/ffmpeg.rs`) — probes `/dev/dri/renderD*` once per session.
+- The compression filter cache in `commands/compression.rs` memoizes bounded FFmpeg filter probes;
+  a successful fresh FFmpeg availability check invalidates it alongside encoder discovery.
 - `FFMPEG_AVAIL_CACHE` (`src-tauri/src/commands/encoders.rs`) — 30 s TTL on `ffmpeg`/`ffprobe -version` probes, with `ffmpeg_available_fresh()` for post-install bypass.
 
 On Windows, encoder detection and fresh availability probes also recover a standard WinGet
@@ -518,11 +589,28 @@ frontend parses and normalizes them through `settingsPresets.ts`, accepts at mos
 names to 40 characters, replaces an existing preset case-insensitively when the name matches, and
 ignores malformed or duplicate records on load. Presets capture compression and mode settings,
 including the selected encoder identity, but intentionally do not capture output destination,
-custom output folder, or completion action. The footer shows Autosave whenever the current captured
+custom output folder, completion action, or the close-after-export preference. The footer shows Autosave whenever the current captured
 settings no longer equal the selected preset; keep that comparison behavior when adding a new
 preset-backed setting. This is desktop-only: `src/web/webSettings.ts` persists the browser editor's
 current lightweight compression settings in browser storage but intentionally has no named preset
 controls or preset records.
+
+### Feedback and support
+
+`feedback.ts` is shared by the desktop `FeedbackDialog` and website `FeedbackSection`. Explicit
+submissions POST to `https://vidcord.app/api/feedback`; the separate `workers/feedback` Worker
+forwards text through Resend to the developer. The public shared token is not a private credential.
+Worker deployment is separate from the static site; see [its README](workers/feedback/README.md).
+
+`commands/feedback.rs` caps descriptions at 8 KiB, includes app/system details and 100 log lines
+in the submitted body, and saves a private local copy with up to 500 log lines. Confirmed endpoint
+success triggers best-effort deletion; failure retains the copy for the user-selected mail fallback.
+Seven-day cleanup runs when another report is collected, not on an automatic timer. Website reports
+cap descriptions at 5,000 characters and include URL, user agent, and language; failures show an
+error with no automatic mail-app launch. Never describe explicit feedback as automatic telemetry.
+
+`donate.ts` supplies donation links to both frontends. The optional secondary link is hidden while
+its URL is empty. Keep shared destinations here rather than duplicating URLs in UI components.
 
 ### Native window theme
 
@@ -549,7 +637,7 @@ The app re-renders on every trim-slider move. Established patterns:
 - Prettier: double quotes, 2-space indent, semicolons, 100-column print width, ES5 trailing commas.
 - Text source files are normalized to LF by `.gitattributes` so Prettier checks behave consistently on Windows and CI.
 - Strict TS — no `any` without a `// eslint-disable-next-line @typescript-eslint/no-explicit-any` and a reason.
-- Unused args must be prefixed with `_` (see `useCompression.ts`'s `_onToast`).
+- Unused args must be prefixed with `_` (when the interface requires an intentionally unused argument).
 - No comment churn for removed code — delete it. Don't add "// removed" breadcrumbs.
 
 ### Rust
@@ -583,7 +671,7 @@ The app re-renders on every trim-slider move. Established patterns:
 
 ### Bumping the version
 
-When the user asks to change the version, update **every** reference in one commit so semver and `vX.Y` references stay aligned. There is no single source of truth — these all need to match:
+When the user asks to change the version, update **every current-version** reference in one commit so semver and `vX.Y` references stay aligned. There is no single source of truth — these all need to match:
 
 1. **Packaging / source**:
    - `package.json` (`version`, full semver)
@@ -592,7 +680,12 @@ When the user asks to change the version, update **every** reference in one comm
    - `src-tauri/Cargo.lock` (run `cargo check --manifest-path src-tauri/Cargo.toml` so the lockfile updates)
    - `src-tauri/tauri.conf.json` (`version`, full semver)
 2. **Source code**: grep for the **previous** full semver and `vX.Y` short form across the repo (`README.md`, `src/**`, `src-tauri/src/**`, docs). Update inline copy and any hard-coded version strings that declare or display the current app version. The frontend's `DISPLAY_VERSION` is derived from `package.json` and does not need a manual edit. **Skip** test fixtures that use semver strings as arbitrary inputs (e.g. `src-tauri/src/commands/updates.rs` semver-comparison tests) — those exercise comparison invariants, not the current version.
-3. **Verify**: run `npm run version:check`, then `git grep -E "<old-semver>|v<old-major>\.<old-minor>"` should return zero hits before committing (excluding `Cargo.lock`/`package-lock.json` entries for unrelated dependencies that share the version string — read each match before assuming).
+3. **Website and verification**: update source `index.html` JSON-LD `softwareVersion` and
+   `site/llms-full.txt` current-version declaration, then run `npm run web:build` to regenerate
+   `site/index.html` and assets. Run `npm run version:check`, and search for the previous full
+   semver and short version. Review each match: historical CHANGELOG entries, migration notes,
+   dependency versions, and arbitrary semver test fixtures must retain their historical values.
+   Only references declaring the current app version should change.
 4. Run the relevant quality gates (above) before committing.
 
 ### Tagging and pushing a release
@@ -606,7 +699,8 @@ When the user asks to tag and push `vX.Y`:
 4. **Tag with the `vX.Y` short form** (matching existing tags — see `git tag --list`): `git tag vX.Y`. Do **not** use `vX.Y.Z` — the existing tag history is short-form and the release workflow's CHANGELOG extraction matches `## vX.Y`.
 5. **Merge and push** the release commit to `main`, then push the tag: `git push origin main` followed
    by `git push origin vX.Y`. Pushing the tag triggers the release workflow (`build.yml` →
-   `release` job), which builds the `release` profile and publishes the signed GitHub release immediately so the in-app updater can see it.
+   build/attest → Arch package → verify/sign → `publish-release` → Linux repository jobs),
+   using the `release` profile and publishing the signed GitHub release immediately so the in-app updater can see it.
 6. **Start the next changelog on the next version branch**: create or switch to the next planned
    `X.Y` branch/worktree, add a fresh `## WIP` section at the top of `CHANGELOG.md`, commit it as
    the first post-release commit, and push that version branch. Do not put the new WIP commit
@@ -628,7 +722,8 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 
 `.github/workflows/e2e.yml` runs the browser end-to-end suite and the native desktop suite on Linux,
 macOS, and Windows for app-source changes; the suites upload screenshots, logs, traces, and reports
-as workflow artifacts. Linux test runners need the GStreamer base, good, bad, and libav plugins for
+as workflow artifacts. The desktop matrix includes Ubuntu 22.04 x86_64, Ubuntu 24.04 ARM64, macOS, and Windows;
+each job and the browser job has a 60-minute deadline. Linux test runners need the GStreamer base, good, bad, and libav plugins for
 HTML video decoding, matching the packaged app's media dependencies. See `scripts/e2e/README.md`
 for local prerequisites and commands.
 
@@ -638,17 +733,20 @@ are never cancelled.
 
 The app workflow runs only when app source changes — `src/**`, `src-tauri/**`, `index.html`,
 `public/**`, packaging and config files, `tools/tauri-cli/**`, the validator scripts the build runs,
-and the workflow itself. Pushes that only touch docs, the site, or repo metadata do not trigger a
+and all `.github/workflows/**` definitions. Pushes that only touch docs, the site, or repo metadata do not trigger a
 platform build.
 Each platform build installs the locked Tauri CLI from `tools/tauri-cli/package-lock.json` instead
 of installing the full frontend toolchain again; `scripts/check-build-tools.mjs` verifies that its
 package integrity matches the root lockfile. Site changes run Site Checks. Browser source and
 generated browser-asset changes also run Site Browser Build, which rebuilds and checks the committed
-browser output. Content and marketing-asset changes therefore avoid rebuilding FFmpeg WebAssembly.
+browser output. Both site workflows filter on `main` pushes and PRs targeting `main` (plus manual runs);
+the app and E2E workflows also cover `X.Y` version branches. Site Browser Build watches all
+`site/**`, so marketing-only and crawler-file changes also rebuild the browser bundle. It reuses
+the installed prebuilt FFmpeg core; it does not compile FFmpeg from source.
 
 ## Known pitfalls
 
-- `npm audit` is run in CI; new high-severity advisories fail non-PR builds. Add a frontend advisory to an ignore-list only when upstream is the blocker.
+- `npm audit` is run in CI; high-severity advisories fail the frontend job on PRs as well as pushes. Add a frontend advisory to an ignore-list only when upstream is the blocker.
 - Rust audit ignores live in `src-tauri/.cargo/audit.toml` and are almost all Tauri/GTK transitives. If a new advisory appears for code we actually control, fix it.
 - The Tauri window is opaque (`transparent: false`), while inner app surfaces still use glass-style translucency. Keep `--bg` fully opaque so WebView/Desktop compositor quirks cannot bleed through.
 - `convertFileSrc` is required for local file URLs in the video preview; paths fed directly to `<video src>` will fail under the asset-protocol CSP. The CSP lives in `src-tauri/tauri.conf.json` → `app.security.csp`.

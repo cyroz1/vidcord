@@ -95,8 +95,21 @@ chmod +x vidcord_*.AppImage
 ./vidcord_*.AppImage
 ```
 
-The AppImage checks for updates itself. APT, RPM, and pacman installations are
-updated and removed by their package managers.
+The AppImage checks GitHub for updates itself. After approval, vidcord verifies
+and saves the replacement AppImage in Downloads, makes it executable, and reveals
+it in the file manager. Quit the running copy, replace your old AppImage, and
+launch the new file. The app does not start a second AppImage automatically.
+
+APT, RPM, and pacman installations suppress the GitHub installer flow only when
+both the package and vidcord repository are configured. One-off package installs
+without the repository retain GitHub checks, whose Linux download is an AppImage;
+it does not upgrade the installed native package. Add the repository for normal
+package-manager upgrades, or install a newer native package manually. Remove
+native packages with the manager that installed them.
+
+Flatpak environments manage updates through Flatpak; vidcord suppresses its
+in-app update checks and installer downloads inside that environment. The
+release workflow does not build a Flatpak package.
 
 ## Maintainer setup
 

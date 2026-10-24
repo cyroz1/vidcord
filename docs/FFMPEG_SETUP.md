@@ -2,16 +2,16 @@
 
 This guide is for the native desktop app. The browser editor at
 [vidcord.app](https://vidcord.app/) does not require a system FFmpeg install: the
-editor renders first and loads its fixed FFmpeg WebAssembly encoder on demand
-when export work starts. Lossless Trim may load it during local keyframe
-discovery. Selected files stay in the browser, and finished exports download
+editor renders first and warms its fixed FFmpeg WebAssembly encoder after
+video metadata is ready. Export work and Lossless Trim keyframe discovery also
+load the encoder when needed. Selected files stay in the browser, and finished exports download
 through the browser. It is the quick no-install fallback for a phone, tablet, or
 desktop browser when you need an export in a pinch. Browser inputs must be
 readable by the browser and are limited to 512 MB per file; performance depends
 on the browser, device, available memory, and source format. The browser encoder
 is fixed to `libx264`, Browser Batch uses one full-duration Compress profile for
 up to 12 files, and the browser controls the download location. See the
-[README browser capability matrix](README.md#browser-and-desktop-capability-matrix)
+[README browser capability matrix](../README.md#browser-and-desktop-capability-matrix)
 for the complete browser/desktop boundary.
 
 The desktop app requires FFmpeg to be installed and available on your system
@@ -84,7 +84,7 @@ brew install ffmpeg
 sudo apt install ffmpeg
 ```
 
-**Fedora:** (Fedora's official repos do not ship ffmpeg, so enable RPM Fusion first)
+**Fedora:** (the app's Fedora setup uses RPM Fusion for the full FFmpeg package)
 
 ```sh
 sudo dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
