@@ -193,6 +193,31 @@ fn existing_open_paths(arguments: impl IntoIterator<Item = String>) -> Vec<Strin
         .collect()
 }
 
+/// Like `existing_open_paths`, but relative plain paths resolve against
+/// `cwd` instead of this process's working directory. The single-instance
+/// route needs it: a second instance launched from another directory
+/// passes paths relative to its own cwd, and checking them against the
+/// running process's cwd would drop the open or hit a same-named file.
+fn existing_open_paths_with_cwd(
+    arguments: impl IntoIterator<Item = String>,
+    cwd: &std::path::Path,
+) -> Vec<String> {
+    arguments
+        .into_iter()
+        .filter_map(|argument| {
+            let path = std::path::PathBuf::from(&argument);
+            let is_file_url = argument
+                .get(..5)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("file:"));
+            if !path.is_absolute() && !is_file_url && !argument.starts_with('-') {
+                existing_open_path(&cwd.join(path).to_string_lossy())
+            } else {
+                existing_open_path(&argument)
+            }
+        })
+        .collect()
+}
+
 /// Whether a filename matches the update installer's temporary-download
 /// pattern from `commands::updates::temp_download_path`:
 /// `.{asset}.{pid}.{counter}.download`, where the asset is a `vidcord_*`
@@ -540,7 +565,7 @@ pub fn run() {
                 .with_state_flags(StateFlags::POSITION)
                 .build(),
         )
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             // A second instance was launched — focus the existing window.
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.show();
@@ -548,7 +573,8 @@ pub fn run() {
             }
             // If the second instance was opened with a file (e.g. right-click → Open With),
             // forward that file path to the already-running frontend.
-            let paths = existing_open_paths(argv.into_iter().skip(1));
+            let paths =
+                existing_open_paths_with_cwd(argv.into_iter().skip(1), std::path::Path::new(&cwd));
             if !paths.is_empty() {
                 vidcord_log(&format!(
                     "Single-instance: forwarding {} file(s) from second instance",

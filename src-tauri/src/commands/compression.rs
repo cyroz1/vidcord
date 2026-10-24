@@ -221,6 +221,19 @@ impl Drop for OutputReservation {
 }
 
 #[cfg(unix)]
+/// A path argument beginning with `-` would be parsed by ffmpeg as an
+/// option flag (ffmpeg has no `--` end-of-options marker for these
+/// positions). Real input and output paths are absolute, so this only
+/// fires for a relative path whose first component starts with a dash;
+/// prefix `./` to make it unambiguous.
+fn ffmpeg_path_arg(path: &str) -> String {
+    if path.starts_with('-') {
+        format!("./{path}")
+    } else {
+        path.to_string()
+    }
+}
+
 fn is_cross_device_error(error: &std::io::Error) -> bool {
     error.raw_os_error() == Some(libc::EXDEV)
 }
@@ -2128,7 +2141,7 @@ fn measure_audio_peak_gain_db(opts: &CompressOptions, job_id: u64) -> Result<Opt
         "-t".to_string(),
         duration,
         "-i".to_string(),
-        opts.input_path.clone(),
+        ffmpeg_path_arg(&opts.input_path),
         "-vn".to_string(),
         "-sn".to_string(),
         "-dn".to_string(),
@@ -2305,7 +2318,7 @@ async fn run_ffmpeg_pass(
             "-ss".into(),
             start_time,
             "-i".into(),
-            opts.input_path.clone(),
+            ffmpeg_path_arg(&opts.input_path),
             "-t".into(),
             duration,
             // Map everything except data streams: camera files (e.g. Sony
@@ -2339,7 +2352,7 @@ async fn run_ffmpeg_pass(
             "-t".into(),
             duration,
             "-i".into(),
-            opts.input_path.clone(),
+            ffmpeg_path_arg(&opts.input_path),
             "-sn".into(),
         ]);
     }
@@ -2480,7 +2493,7 @@ async fn run_ffmpeg_pass(
     }
     cmd_args.push(match gif_pass {
         Some(GifPass::Palette(path)) => path.to_string(),
-        _ => opts.output_path.clone(),
+        _ => ffmpeg_path_arg(&opts.output_path),
     });
 
     if was_cancelled(context.job_id) {
@@ -2835,12 +2848,26 @@ async fn try_lossless_trim(
     for (attempt_index, output_path) in candidates.into_iter().enumerate() {
         let mut attempt_opts = opts.clone();
         attempt_opts.output_path = output_path.clone();
-        let mut reservation = tokio::task::spawn_blocking({
+        let reservation_result = tokio::task::spawn_blocking({
             let reservation_path = output_path.clone();
             move || OutputReservation::create(reservation_path)
         })
         .await
-        .map_err(|error| error.to_string())??;
+        .map_err(|error| error.to_string())?;
+        let mut reservation = match reservation_result {
+            Ok(reservation) => reservation,
+            Err(error) => {
+                // A candidate that cannot be reserved (e.g. its folder
+                // vanished) must not veto the fallback output path.
+                if attempt_index + 1 < total_attempts {
+                    vidcord_log(&format!(
+                        "Lossless Trim: could not reserve {output_path}: {error}; trying the next candidate"
+                    ));
+                    continue;
+                }
+                return Err(error);
+            }
+        };
 
         let run = run_ffmpeg_attempt(
             app,

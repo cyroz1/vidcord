@@ -6,7 +6,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ring::rand::{SecureRandom, SystemRandom};
 use tauri::Manager;
@@ -307,6 +307,11 @@ fn serve(
     expected_host: &str,
     sources: &Arc<Mutex<SourceTable>>,
 ) -> std::io::Result<()> {
+    // The per-syscall timeouts alone let a slow-loris client dribble bytes
+    // just under each deadline and pin a request slot indefinitely, so the
+    // header phase and the whole request also have total deadlines.
+    let started = Instant::now();
+    let header_deadline = Duration::from_secs(10);
     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
     let mut reader = BufReader::new((&stream).take(8193));
@@ -319,6 +324,12 @@ fn serve(
     let mut range: Option<String> = None;
     let mut consumed = request.len();
     loop {
+        match header_deadline.checked_sub(started.elapsed()) {
+            Some(remaining) if !remaining.is_zero() => {
+                stream.set_read_timeout(Some(remaining.min(Duration::from_secs(2))))?;
+            }
+            _ => return Ok(()),
+        }
         let mut line = String::new();
         let count = reader.read_line(&mut line)?;
         consumed += count;
@@ -437,7 +448,22 @@ fn serve(
     stream.write_all(header.as_bytes())?;
     if method == "GET" && count > 0 {
         file.seek(SeekFrom::Start(start))?;
-        std::io::copy(&mut file.take(count), &mut stream)?;
+        // Chunked copy under a total transfer deadline (loopback moves a
+        // full file in seconds; the cap only stops a client that reads
+        // just fast enough to dodge the per-write timeout forever).
+        let transfer_deadline = Duration::from_secs(120);
+        let mut limited = file.take(count);
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            if started.elapsed() > transfer_deadline {
+                return Ok(());
+            }
+            let read = limited.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            stream.write_all(&buffer[..read])?;
+        }
     }
     Ok(())
 }

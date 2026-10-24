@@ -273,13 +273,19 @@ fn ffmpeg_probe() -> bool {
 
 fn ffmpeg_available() -> bool {
     let cache = FFMPEG_AVAIL_CACHE.get_or_init(|| Mutex::new(None));
-    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((result, checked_at)) = *guard {
-        if checked_at.elapsed() < FFMPEG_CACHE_TTL {
-            return result;
+    {
+        let guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((result, checked_at)) = *guard {
+            if checked_at.elapsed() < FFMPEG_CACHE_TTL {
+                return result;
+            }
         }
     }
+    // Probe without the lock held: the probe spawns ffmpeg/ffprobe and can
+    // take seconds, and every availability caller would queue behind it.
+    // Two callers racing past an expired TTL may both probe; that is benign.
     let result = ffmpeg_probe();
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     *guard = Some((result, Instant::now()));
     result
 }

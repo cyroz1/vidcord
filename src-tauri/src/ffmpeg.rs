@@ -203,7 +203,13 @@ fn acquire_probe_flight(
                 key: key.clone(),
             }));
         }
-        store = ready.wait(store).unwrap_or_else(|e| e.into_inner());
+        // Bounded slices so waiters re-check the generation token even if
+        // a notification is ever missed; the owner's drop guard is what
+        // normally frees the flight.
+        store = ready
+            .wait_timeout(store, Duration::from_secs(15))
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
     }
 }
 

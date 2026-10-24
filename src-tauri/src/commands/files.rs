@@ -213,7 +213,13 @@ pub async fn expand_import_paths(
     // and supersede the user's latest scan.
     let generation = claim_import_scan_generation();
     tokio::task::spawn_blocking(move || {
-        grant_import_paths_to_asset_scope(&app, &paths);
+        // The scan walk stops at MAX_IMPORT_SCAN_ENTRIES, so roots past the
+        // cap can never be reached; granting them anyway would do unbounded
+        // metadata and scope work for a superseded or oversized selection.
+        if !import_scan_superseded(generation) {
+            let grant_count = paths.len().min(MAX_IMPORT_SCAN_ENTRIES);
+            grant_import_paths_to_asset_scope(&app, &paths[..grant_count]);
+        }
         expand_import_paths_blocking(app, paths, scan_id, generation)
     })
     .await
@@ -657,7 +663,11 @@ pub(crate) fn show_files_in_file_explorer_linux(
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         configure_desktop_command(&mut open_command);
-        open_command.spawn().map_err(|e| e.to_string())?;
+        // Wait with the same bounded deadline as the other desktop helpers
+        // so the child is reaped instead of dropped unwaited; the exit
+        // status of xdg-open carries no reveal verdict, so only a spawn
+        // failure is an error here.
+        run_desktop_command(&mut open_command).map_err(|e| e.to_string())?;
     }
     Ok(())
 }

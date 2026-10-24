@@ -162,14 +162,39 @@ fn write_atomically(
 
     let tmp = dir.join(temp_name);
     let write_result = (|| -> Result<(), Box<dyn std::error::Error>> {
-        let mut file = std::fs::File::create(&tmp)?;
+        // Create-new so a pre-planted symlink at the temp path is refused
+        // instead of followed; a stale leftover from a crashed run of this
+        // same process is cleared and the create retried once.
+        let mut file = match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                std::fs::remove_file(&tmp)?;
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&tmp)?
+            }
+            Err(error) => return Err(error.into()),
+        };
         serde_json::to_writer(&mut file, data)?;
         file.flush()?;
         file.sync_all()?;
+        drop(file);
         replace_file(&tmp, path)?;
 
+        // The replacement is already live at this point, so a directory
+        // sync failure must not report the save as failed; it only weakens
+        // the durability guarantee, which is worth a log line, not an error.
         #[cfg(unix)]
-        std::fs::File::open(dir)?.sync_all()?;
+        if let Err(error) = std::fs::File::open(dir).and_then(|dir_file| dir_file.sync_all()) {
+            crate::log::vidcord_log(&format!(
+                "Settings: directory sync after save failed: {error}"
+            ));
+        }
 
         Ok(())
     })();

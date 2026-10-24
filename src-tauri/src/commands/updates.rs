@@ -189,8 +189,56 @@ fn pacman_package_installed(package: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn text_has_vidcord_repository(text: &str) -> bool {
-    text.contains(VIDCORD_REPOSITORY_HOST)
+/// True when an APT source entry references the vidcord repository host.
+/// Handles both one-line `.list` entries and deb822 `.sources` stanzas:
+/// commented-out lines never count, and a stanza with `Enabled: no` does
+/// not deliver updates even though it names the host.
+fn apt_text_has_vidcord_repository(text: &str) -> bool {
+    for stanza in text.split("\n\n") {
+        let mut enabled = true;
+        let mut mentions_host = false;
+        for line in stanza.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('#') {
+                continue;
+            }
+            if let Some(value) = trimmed.strip_prefix("Enabled:") {
+                enabled = !matches!(value.trim(), "no" | "false" | "0");
+            }
+            if trimmed.contains(VIDCORD_REPOSITORY_HOST) {
+                mentions_host = true;
+            }
+        }
+        if enabled && mentions_host {
+            return true;
+        }
+    }
+    false
+}
+
+/// True when an enabled DNF repository section references the vidcord
+/// repository host. Comment lines (`#` or `;`) never count, and a section
+/// with `enabled=0` never delivers updates.
+fn dnf_text_has_vidcord_repository(text: &str) -> bool {
+    let mut section_enabled = true;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') || trimmed.starts_with(';') {
+            continue;
+        }
+        if trimmed.starts_with('[') {
+            section_enabled = true;
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("enabled=") {
+            section_enabled = !matches!(value.trim(), "0" | "no" | "false");
+            continue;
+        }
+        if section_enabled && trimmed.contains(VIDCORD_REPOSITORY_HOST) {
+            return true;
+        }
+    }
+    false
 }
 
 fn pacman_conf_has_vidcord_repository(text: &str) -> bool {
@@ -226,12 +274,12 @@ fn apt_repository_configured() -> bool {
         Path::new("/etc/apt/sources.list.d"),
         &["list", "sources"],
     ));
-    files_contain(&paths, text_has_vidcord_repository)
+    files_contain(&paths, apt_text_has_vidcord_repository)
 }
 
 fn dnf_repository_configured() -> bool {
     let paths = directory_files_with_extensions(Path::new("/etc/yum.repos.d"), &["repo"]);
-    files_contain(&paths, text_has_vidcord_repository)
+    files_contain(&paths, dnf_text_has_vidcord_repository)
 }
 
 fn pacman_repository_configured() -> bool {
@@ -983,15 +1031,38 @@ mod tests {
     }
 
     #[test]
-    fn repository_text_detects_vidcord_host() {
-        assert!(text_has_vidcord_repository(
+    fn apt_repository_text_detects_only_live_entries() {
+        assert!(apt_text_has_vidcord_repository(
             "deb [signed-by=/usr/share/keyrings/vidcord-repo-key.gpg] https://cyroz1.github.io/vidcord/apt stable main"
         ));
-        assert!(text_has_vidcord_repository(
-            "baseurl=https://cyroz1.github.io/vidcord/rpm/"
+        assert!(!apt_text_has_vidcord_repository(
+            "# deb https://cyroz1.github.io/vidcord/apt stable main"
         ));
-        assert!(!text_has_vidcord_repository(
+        assert!(!apt_text_has_vidcord_repository(
             "deb https://deb.debian.org/debian bookworm main"
+        ));
+        // deb822 stanza: enabled counts, disabled does not.
+        assert!(apt_text_has_vidcord_repository(
+            "Types: deb\nURIs: https://cyroz1.github.io/vidcord/apt\nSuites: stable\nEnabled: yes"
+        ));
+        assert!(!apt_text_has_vidcord_repository(
+            "Types: deb\nURIs: https://cyroz1.github.io/vidcord/apt\nSuites: stable\nEnabled: no"
+        ));
+    }
+
+    #[test]
+    fn dnf_repository_text_detects_only_enabled_sections() {
+        assert!(dnf_text_has_vidcord_repository(
+            "[vidcord]\nbaseurl=https://cyroz1.github.io/vidcord/rpm/\nenabled=1"
+        ));
+        assert!(!dnf_text_has_vidcord_repository(
+            "[vidcord]\nbaseurl=https://cyroz1.github.io/vidcord/rpm/\nenabled=0"
+        ));
+        assert!(!dnf_text_has_vidcord_repository(
+            "# baseurl=https://cyroz1.github.io/vidcord/rpm/"
+        ));
+        assert!(!dnf_text_has_vidcord_repository(
+            "[fedora]\nbaseurl=https://download.example/pub/fedora/\nenabled=1"
         ));
     }
 

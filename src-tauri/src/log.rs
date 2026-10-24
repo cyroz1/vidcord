@@ -160,10 +160,25 @@ pub fn setup_crash_log() {
     ));
     // Log only the variables vidcord actually uses — never PATH or SHELL, which can
     // contain sensitive substrings from the user's environment.
-    for key in &["LD_LIBRARY_PATH", "LIBVA_DRIVER_NAME"] {
-        if let Ok(val) = std::env::var(key) {
-            vidcord_log(&format!("  env {key}={val}"));
+    if let Ok(val) = std::env::var("LIBVA_DRIVER_NAME") {
+        vidcord_log(&format!("  env LIBVA_DRIVER_NAME={val}"));
+    }
+    // LD_LIBRARY_PATH gets the same care as PATH: it is a path list that can
+    // contain home-directory substrings. The AppImage diagnostics only need
+    // its shape: set or not, how many entries, and whether any entry points
+    // into the AppImage mount (APPDIR).
+    match std::env::var("LD_LIBRARY_PATH") {
+        Ok(val) => {
+            let entries: Vec<&str> = val.split(':').filter(|entry| !entry.is_empty()).collect();
+            let appdir = std::env::var("APPDIR").unwrap_or_default();
+            let into_appimage =
+                !appdir.is_empty() && entries.iter().any(|entry| entry.starts_with(&appdir));
+            vidcord_log(&format!(
+                "  env LD_LIBRARY_PATH: {} entries, into_appimage={into_appimage}",
+                entries.len()
+            ));
         }
+        Err(_) => vidcord_log("  env LD_LIBRARY_PATH: unset"),
     }
 }
 
