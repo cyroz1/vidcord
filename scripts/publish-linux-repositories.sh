@@ -28,9 +28,15 @@ if [[ ! "$signing_fingerprint" =~ ^[A-Fa-f0-9]{40,64}$ ]]; then
   exit 1
 fi
 
+# Keep the passphrase out of the process list: it lives in a file inside
+# the mode-700 temporary GNUPGHOME and is removed with it by the EXIT trap.
+passphrase_file="$gpg_home/passphrase"
+printf '%s' "$signing_passphrase" > "$passphrase_file"
+chmod 600 "$passphrase_file"
+
 gpg_sign() {
   gpg --batch --yes --pinentry-mode loopback \
-    --passphrase "$signing_passphrase" \
+    --passphrase-file "$passphrase_file" \
     --local-user "$signing_fingerprint" "$@"
 }
 

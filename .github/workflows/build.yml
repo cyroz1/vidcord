@@ -497,7 +497,7 @@ jobs:
           cp "release-assets/vidcord_${version}_${{ matrix.deb_arch }}.deb" "$arch_build/"
           sed -i \
             -e "s@::https://github.com/cyroz1/vidcord/releases/download/v${release_tag}/vidcord_\${pkgver}_${{ matrix.deb_arch }}.deb@@" \
-            "$arch_build/PKGBUILD"
+            "$arch_build/PKGBUILD" "$arch_build/.SRCINFO"
           docker run --rm \
             --volume "$arch_build:/work" \
             --workdir /work \
@@ -573,7 +573,7 @@ jobs:
           test "$actual_public_key" = "$expected_public_key"
 
           test -n "$(find release-artifacts -type f \( \
-            -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' -o -name '*.exe' \
+            -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.pkg.tar.zst' -o -name '*.dmg' -o -name '*.exe' \
           \) -print -quit)"
           while IFS= read -r -d '' artifact; do
             asset_name="$(basename "$artifact")"
@@ -586,7 +586,7 @@ jobs:
             rm -f "$artifact.message"
           done < <(
             find release-artifacts -type f \( \
-              -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' -o -name '*.exe' \
+              -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.pkg.tar.zst' -o -name '*.dmg' -o -name '*.exe' \
             \) -print0
           )
 
