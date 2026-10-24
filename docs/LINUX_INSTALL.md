@@ -9,7 +9,8 @@ published the `linux-packages` branch and GitHub Pages is enabled for that
 branch. For a one-off package install, use
 `sudo apt install ./vidcord_*.deb` or `sudo dnf install ./vidcord_*.rpm`; those
 commands resolve system dependencies and register vidcord without adding the
-update repository. Download packages from the
+update repository, so the app itself keeps checking GitHub for new releases
+until the repository is added. Download packages from the
 [latest GitHub release](https://github.com/cyroz1/vidcord/releases/latest), or
 use the AppImage instructions at the end of this page. For package-manager
 updates, add the repository for your distribution below.

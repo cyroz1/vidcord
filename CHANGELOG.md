@@ -62,6 +62,10 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 - Update downloads no longer fail on slow connections; a download only gives up when it stops
   making progress.
+- On Linux, the in-app updater now defers to APT, DNF, or pacman only when that package
+  manager has the vidcord repository configured. Other native installs, such as a one-off
+  package install without the repository, receive update prompts from the app again instead
+  of being silently treated as package-manager managed.
 
 ### Feedback
 

@@ -446,6 +446,15 @@ may describe GitHub digest verification, independent release-signature verificat
 artifact provenance checks. Do not claim OS code signing or notarization unless the workflow adds
 and verifies those controls.
 
+On Linux, update routing depends on how the running copy was installed. When APT, DNF, or pacman
+has the vidcord package installed AND the vidcord repository is present in that manager's
+configuration (`cyroz1.github.io/vidcord` in the APT sources or DNF repo definitions, a
+`[vidcord]` section in `pacman.conf`), `check_for_updates` reports
+`updates_managed_by_package_manager` with the manager's name and the installer download command
+refuses to run, so upgrades arrive through the package manager. Detection uses the bounded
+`spawn_captured_command` probe pattern plus config-file reads, and runs inside `spawn_blocking`.
+AppImages and native installs without the repository configured keep the GitHub Releases flow.
+
 ### FFmpeg invocations
 
 Every `std::process::Command::new("ffmpeg"|"ffprobe")` in Rust must:

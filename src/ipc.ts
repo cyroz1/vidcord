@@ -168,6 +168,8 @@ export type UpdateCheckResult = {
   release_url?: string;
   installer_available?: boolean;
   installer_name?: string;
+  updates_managed_by_package_manager?: boolean;
+  package_manager?: string;
 };
 
 export type UpdateInstallResult = {

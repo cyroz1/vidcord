@@ -134,8 +134,142 @@ fn platform_asset_suffixes() -> Result<&'static [&'static str], String> {
     }
 }
 
-fn package_manager_owns_linux_install() -> bool {
-    cfg!(target_os = "linux") && !cfg!(feature = "e2e") && std::env::var_os("APPIMAGE").is_none()
+/// Linux package managers that can own a vidcord installation and deliver
+/// its updates from the configured vidcord repository.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LinuxPackageManager {
+    Apt,
+    Dnf,
+    Pacman,
+}
+
+impl LinuxPackageManager {
+    fn as_str(self) -> &'static str {
+        match self {
+            LinuxPackageManager::Apt => "apt",
+            LinuxPackageManager::Dnf => "dnf",
+            LinuxPackageManager::Pacman => "pacman",
+        }
+    }
+}
+
+const VIDCORD_REPOSITORY_HOST: &str = "cyroz1.github.io/vidcord";
+const PACKAGE_MANAGER_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+fn package_manager_probe(program: &str, args: &[&str]) -> Option<std::process::Output> {
+    let mut command = std::process::Command::new(program);
+    command.args(args).stdin(std::process::Stdio::null());
+    crate::gpu::spawn_captured_command(&mut command)
+        .and_then(|child| child.wait_for_output(PACKAGE_MANAGER_PROBE_TIMEOUT))
+        .unwrap_or_default()
+}
+
+fn dpkg_status_text_is_installed(text: &str) -> bool {
+    text.trim() == "installed"
+}
+
+fn dpkg_package_installed(package: &str) -> bool {
+    package_manager_probe("dpkg-query", &["-W", "-f=${db:Status-Status}", package])
+        .map(|output| {
+            output.status.success()
+                && dpkg_status_text_is_installed(&String::from_utf8_lossy(&output.stdout))
+        })
+        .unwrap_or(false)
+}
+
+fn rpm_package_installed(package: &str) -> bool {
+    package_manager_probe("rpm", &["-q", package])
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn pacman_package_installed(package: &str) -> bool {
+    package_manager_probe("pacman", &["-Q", package])
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn text_has_vidcord_repository(text: &str) -> bool {
+    text.contains(VIDCORD_REPOSITORY_HOST)
+}
+
+fn pacman_conf_has_vidcord_repository(text: &str) -> bool {
+    text.lines().any(|line| line.trim() == "[vidcord]")
+}
+
+fn files_contain(paths: &[PathBuf], predicate: impl Fn(&str) -> bool) -> bool {
+    paths.iter().any(|path| {
+        std::fs::read_to_string(path)
+            .map(|text| predicate(&text))
+            .unwrap_or(false)
+    })
+}
+
+fn directory_files_with_extensions(dir: &Path, extensions: &[&str]) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| {
+            path.extension()
+                .and_then(|extension| extension.to_str())
+                .map(|extension| extensions.contains(&extension))
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+fn apt_repository_configured() -> bool {
+    let mut paths = vec![PathBuf::from("/etc/apt/sources.list")];
+    paths.extend(directory_files_with_extensions(
+        Path::new("/etc/apt/sources.list.d"),
+        &["list", "sources"],
+    ));
+    files_contain(&paths, text_has_vidcord_repository)
+}
+
+fn dnf_repository_configured() -> bool {
+    let paths = directory_files_with_extensions(Path::new("/etc/yum.repos.d"), &["repo"]);
+    files_contain(&paths, text_has_vidcord_repository)
+}
+
+fn pacman_repository_configured() -> bool {
+    files_contain(
+        &[PathBuf::from("/etc/pacman.conf")],
+        pacman_conf_has_vidcord_repository,
+    )
+}
+
+/// The package manager that delivers updates for this installation, if any.
+/// A manager owns updates only when it has the vidcord package installed
+/// AND the vidcord repository is configured as one of its sources. Native
+/// installs without the repository (a one-off .deb/.rpm install, a portable
+/// binary) keep the GitHub Releases update flow.
+fn configured_linux_package_manager() -> Option<LinuxPackageManager> {
+    if !cfg!(target_os = "linux") || cfg!(feature = "e2e") {
+        return None;
+    }
+    if std::env::var_os("APPIMAGE").is_some() {
+        return None;
+    }
+    if dpkg_package_installed("vidcord") && apt_repository_configured() {
+        return Some(LinuxPackageManager::Apt);
+    }
+    if rpm_package_installed("vidcord") && dnf_repository_configured() {
+        return Some(LinuxPackageManager::Dnf);
+    }
+    if pacman_package_installed("vidcord-bin") && pacman_repository_configured() {
+        return Some(LinuxPackageManager::Pacman);
+    }
+    None
+}
+
+async fn package_manager_update_channel() -> Option<LinuxPackageManager> {
+    tokio::task::spawn_blocking(configured_linux_package_manager)
+        .await
+        .ok()
+        .flatten()
 }
 
 fn validate_release_tag(tag: &str) -> Result<&str, String> {
@@ -662,13 +796,15 @@ fn open_installer(path: &Path) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn check_for_updates(current_version: String) -> Result<serde_json::Value, String> {
-    // Native Linux packages are upgraded by APT, DNF, or pacman. Offering the
-    // AppImage replacement flow for those installations would switch users to
-    // a different install type and bypass the configured package repository.
-    if package_manager_owns_linux_install() {
+    // A Linux installation whose package manager has the vidcord repository
+    // configured is upgraded by APT, DNF, or pacman. Offering the AppImage
+    // replacement flow for those installations would switch users to a
+    // different install type and bypass the configured package repository.
+    if let Some(package_manager) = package_manager_update_channel().await {
         return Ok(serde_json::json!({
             "update_available": false,
-            "updates_managed_by_package_manager": true
+            "updates_managed_by_package_manager": true,
+            "package_manager": package_manager.as_str()
         }));
     }
 
@@ -719,7 +855,7 @@ pub async fn check_for_updates(current_version: String) -> Result<serde_json::Va
 pub async fn download_and_open_update_installer(
     approved_release_tag: String,
 ) -> Result<serde_json::Value, String> {
-    if package_manager_owns_linux_install() {
+    if package_manager_update_channel().await.is_some() {
         return Err(
             "Updates for this Linux installation are managed by its package manager.".to_string(),
         );
@@ -818,6 +954,47 @@ mod tests {
     #[test]
     fn normalize_semver_trims_whitespace() {
         assert_eq!(normalize_semver("  v1.2.3  "), "1.2.3");
+    }
+
+    #[test]
+    fn dpkg_status_text_detects_installed_only() {
+        assert!(dpkg_status_text_is_installed("installed"));
+        assert!(dpkg_status_text_is_installed("installed\n"));
+        assert!(!dpkg_status_text_is_installed("config-files"));
+        assert!(!dpkg_status_text_is_installed("not-installed"));
+        assert!(!dpkg_status_text_is_installed(""));
+    }
+
+    #[test]
+    fn repository_text_detects_vidcord_host() {
+        assert!(text_has_vidcord_repository(
+            "deb [signed-by=/usr/share/keyrings/vidcord-repo-key.gpg] https://cyroz1.github.io/vidcord/apt stable main"
+        ));
+        assert!(text_has_vidcord_repository(
+            "baseurl=https://cyroz1.github.io/vidcord/rpm/"
+        ));
+        assert!(!text_has_vidcord_repository(
+            "deb https://deb.debian.org/debian bookworm main"
+        ));
+    }
+
+    #[test]
+    fn pacman_conf_detects_vidcord_section() {
+        assert!(pacman_conf_has_vidcord_repository(
+            "[options]\n[vidcord]\nSigLevel = Required DatabaseRequired\nServer = https://cyroz1.github.io/vidcord/pacman/$arch\n[core]"
+        ));
+        assert!(pacman_conf_has_vidcord_repository("  [vidcord]  \n"));
+        assert!(!pacman_conf_has_vidcord_repository(
+            "#[vidcord]\nServer = https://cyroz1.github.io/vidcord/pacman/$arch"
+        ));
+        assert!(!pacman_conf_has_vidcord_repository("[core]\n[extra]"));
+    }
+
+    #[test]
+    fn package_manager_names_match_repository_docs() {
+        assert_eq!(LinuxPackageManager::Apt.as_str(), "apt");
+        assert_eq!(LinuxPackageManager::Dnf.as_str(), "dnf");
+        assert_eq!(LinuxPackageManager::Pacman.as_str(), "pacman");
     }
 
     #[test]
