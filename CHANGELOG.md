@@ -67,6 +67,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   package install without the repository, receive update prompts from the app again instead
   of being silently treated as package-manager managed.
 - Flatpak installs no longer check GitHub for updates; the platform delivers them.
+- Package-manager and Flatpak installs now say so in the footer (for example, "updates via
+  apt"), since those installs update outside the app and never see an update prompt.
 
 ### Feedback
 
@@ -86,6 +88,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   files, a pacman package for Arch Linux and Arch Linux ARM, and the portable AppImage.
   Signed APT, RPM, and pacman repositories let native installs update through the system
   package manager.
+- Every release artifact, including the pacman package, carries the same detached Ed25519
+  signature as the installers.
 
 ### Compatibility
 

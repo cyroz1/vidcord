@@ -62,7 +62,9 @@ Linux repository signing uses a separate GPG key:
 are signed; pacman packages and databases are signed. RPM configuration uses
 `repo_gpgcheck=1` and `gpgcheck=0`, so this is signed repository metadata, not
 individual RPM GPG signatures. Arch packages have build attestations and GPG
-package signatures in the pacman repository, but the Ed25519 update-signing
-loop covers only `.exe`, `.dmg`, `.AppImage`, `.deb`, and `.rpm`. The desktop
+package signatures in the pacman repository, and the Ed25519 signing loop
+covers them as well: it signs `.exe`, `.dmg`, `.AppImage`, `.deb`, `.rpm`,
+and `.pkg.tar.zst`, so a pacman package downloaded from the release page
+carries the same detached signature as every other artifact. The desktop
 updater does not install `.deb`, `.rpm`, or pacman packages itself. See
 [Linux installation and publishing setup](LINUX_INSTALL.md).
