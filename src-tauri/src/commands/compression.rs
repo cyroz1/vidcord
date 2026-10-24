@@ -220,7 +220,6 @@ impl Drop for OutputReservation {
     }
 }
 
-#[cfg(unix)]
 /// A path argument beginning with `-` would be parsed by ffmpeg as an
 /// option flag (ffmpeg has no `--` end-of-options marker for these
 /// positions). Real input and output paths are absolute, so this only
@@ -234,6 +233,7 @@ fn ffmpeg_path_arg(path: &str) -> String {
     }
 }
 
+#[cfg(unix)]
 fn is_cross_device_error(error: &std::io::Error) -> bool {
     error.raw_os_error() == Some(libc::EXDEV)
 }

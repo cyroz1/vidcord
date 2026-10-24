@@ -218,27 +218,34 @@ fn apt_text_has_vidcord_repository(text: &str) -> bool {
 
 /// True when an enabled DNF repository section references the vidcord
 /// repository host. Comment lines (`#` or `;`) never count, and a section
-/// with `enabled=0` never delivers updates.
+/// with `enabled=0` never delivers updates. Keys inside a section can
+/// appear in any order, so the verdict is only reached at the section's
+/// end: a `baseurl` line before `enabled=0` must not count.
 fn dnf_text_has_vidcord_repository(text: &str) -> bool {
     let mut section_enabled = true;
+    let mut section_mentions_host = false;
     for line in text.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with('#') || trimmed.starts_with(';') {
             continue;
         }
         if trimmed.starts_with('[') {
+            if section_enabled && section_mentions_host {
+                return true;
+            }
             section_enabled = true;
+            section_mentions_host = false;
             continue;
         }
         if let Some(value) = trimmed.strip_prefix("enabled=") {
             section_enabled = !matches!(value.trim(), "0" | "no" | "false");
             continue;
         }
-        if section_enabled && trimmed.contains(VIDCORD_REPOSITORY_HOST) {
-            return true;
+        if trimmed.contains(VIDCORD_REPOSITORY_HOST) {
+            section_mentions_host = true;
         }
     }
-    false
+    section_enabled && section_mentions_host
 }
 
 fn pacman_conf_has_vidcord_repository(text: &str) -> bool {
@@ -1057,6 +1064,12 @@ mod tests {
         ));
         assert!(!dnf_text_has_vidcord_repository(
             "[vidcord]\nbaseurl=https://cyroz1.github.io/vidcord/rpm/\nenabled=0"
+        ));
+        assert!(!dnf_text_has_vidcord_repository(
+            "[vidcord]\nenabled=0\nbaseurl=https://cyroz1.github.io/vidcord/rpm/"
+        ));
+        assert!(dnf_text_has_vidcord_repository(
+            "[vidcord]\nbaseurl=https://cyroz1.github.io/vidcord/rpm/\nenabled=0\n[vidcord-mirror]\nbaseurl=https://cyroz1.github.io/vidcord/rpm/\nenabled=1"
         ));
         assert!(!dnf_text_has_vidcord_repository(
             "# baseurl=https://cyroz1.github.io/vidcord/rpm/"
