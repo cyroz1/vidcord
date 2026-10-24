@@ -227,6 +227,28 @@ fn typed_to_value(typed: Settings) -> Option<serde_json::Value> {
     }
 }
 
+/// Element-wise salvage for one collection field: keep the elements that
+/// parse as the element type and report how many were dropped, so one
+/// malformed record cannot discard the whole collection.
+fn salvage_collection<T: serde::de::DeserializeOwned>(
+    value: &serde_json::Value,
+) -> Option<(serde_json::Value, usize)> {
+    let array = value.as_array()?;
+    let mut kept = Vec::new();
+    let mut dropped = 0usize;
+    for element in array {
+        if serde_json::from_value::<T>(element.clone()).is_ok() {
+            kept.push(element.clone());
+        } else {
+            dropped += 1;
+        }
+    }
+    if kept.is_empty() && dropped > 0 {
+        return None;
+    }
+    Some((serde_json::Value::Array(kept), dropped))
+}
+
 /// Fallback for a settings file whose JSON is valid but where one or more
 /// fields have the wrong type: keep every field that parses on its own and
 /// report the names (never the contents) of the ones dropped.
@@ -239,8 +261,23 @@ fn salvage_settings(raw: &serde_json::Value) -> Option<(Settings, Vec<String>)> 
         trial.insert(key.clone(), value.clone());
         if serde_json::from_value::<Settings>(serde_json::Value::Object(trial)).is_ok() {
             kept.insert(key.clone(), value.clone());
-        } else {
-            dropped.push(key.clone());
+            continue;
+        }
+        // The whole-field trial failed; for the two collection fields,
+        // retry per element before giving up on the field entirely.
+        let salvaged = match key.as_str() {
+            "presets" => salvage_collection::<PersistedSettingsPreset>(value),
+            "encoder_capabilities" => salvage_collection::<PersistedEncoder>(value),
+            _ => None,
+        };
+        match salvaged {
+            Some((filtered, dropped_count)) => {
+                kept.insert(key.clone(), filtered);
+                if dropped_count > 0 {
+                    dropped.push(format!("{key} ({dropped_count} invalid record(s))"));
+                }
+            }
+            None => dropped.push(key.clone()),
         }
     }
     let typed = serde_json::from_value::<Settings>(serde_json::Value::Object(kept)).ok()?;
@@ -495,6 +532,48 @@ mod tests {
         assert!(loaded.get("quality_index").is_none());
         // Field-level salvage recovers the file, so no backup is needed.
         assert!(!dir.join("settings.json.bak").exists());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_settings_load_salvages_valid_collection_elements() {
+        let dir = std::env::temp_dir().join(format!(
+            "vidcord_test_salvage_collection_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        std::fs::write(
+            &path,
+            br#"{
+                "presets": [
+                    {"id": "a", "name": "Good", "settings": {"quality_index": 1}},
+                    {"id": "b", "name": 42, "settings": {}},
+                    {"id": "c", "name": "Also good", "settings": {}}
+                ],
+                "encoder_capabilities": [
+                    {"name": "libx264", "label": "CPU"},
+                    {"name": 7, "label": "broken"},
+                    {"name": "h264_nvenc", "label": "NVENC"}
+                ],
+                "gif_mode": true
+            }"#,
+        )
+        .unwrap();
+
+        let loaded = SettingsManager::load_from(&path);
+        assert_eq!(loaded["gif_mode"], true);
+        let presets = loaded["presets"].as_array().expect("presets salvaged");
+        assert_eq!(presets.len(), 2);
+        assert_eq!(presets[0]["id"], "a");
+        assert_eq!(presets[1]["id"], "c");
+        let encoders = loaded["encoder_capabilities"]
+            .as_array()
+            .expect("encoder capabilities salvaged");
+        assert_eq!(encoders.len(), 2);
+        assert_eq!(encoders[0]["name"], "libx264");
+        assert_eq!(encoders[1]["name"], "h264_nvenc");
 
         std::fs::remove_dir_all(&dir).ok();
     }

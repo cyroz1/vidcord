@@ -45,9 +45,36 @@ struct StartupTiming {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_pending_files, existing_open_path, is_update_download_temp_name,
-        sweep_stale_update_downloads_in,
+        append_pending_files, existing_open_path, existing_open_paths_with_cwd,
+        is_update_download_temp_name, sweep_stale_update_downloads_in,
     };
+
+    #[test]
+    fn open_paths_resolve_relative_to_the_supplied_cwd() {
+        let dir = std::env::temp_dir().join(format!("vidcord-open-paths-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("clip.mp4");
+        std::fs::write(&file, b"x").unwrap();
+        let absolute = file.to_string_lossy().into_owned();
+        let url = url::Url::from_file_path(&file).unwrap().to_string();
+
+        let resolved = existing_open_paths_with_cwd(
+            vec![
+                "clip.mp4".to_string(),
+                absolute.clone(),
+                url,
+                "--flag".to_string(),
+                "missing.mp4".to_string(),
+            ],
+            &dir,
+        );
+        // The relative path resolves against the supplied cwd, the
+        // absolute path passes through, the file: URL is decoded without
+        // being joined to the cwd, and flags and missing files drop out.
+        assert_eq!(resolved, vec![absolute.clone(), absolute.clone(), absolute]);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn pending_open_files_are_merged_before_frontend_ready() {

@@ -490,7 +490,7 @@ fn probe_video_once(
         // Select the stream-specific container with all its children. FFprobe
         // 4.x has no stream_side_data alias, and generic side_data also enables
         // packet/frame decoding (with malformed JSON in older versions).
-        "format=duration,bit_rate,format_name:stream=index,codec_name,codec_type,width,height,avg_frame_rate,r_frame_rate,sample_aspect_ratio,display_aspect_ratio,bit_rate,channels,duration,size,pix_fmt,color_space,color_transfer,color_primaries:stream_tags=title,name,language,handler_name:stream_side_data_list",
+        "format=duration,bit_rate,format_name:stream=index,codec_name,codec_type,width,height,avg_frame_rate,r_frame_rate,sample_aspect_ratio,display_aspect_ratio,bit_rate,channels,duration,size,pix_fmt,color_space,color_transfer,color_primaries:stream_tags=title,name,language,handler_name:stream_side_data_list:stream_disposition=attached_pic",
         "--",
         path,
     ]);
@@ -541,9 +541,21 @@ fn parse_video_probe(stdout: &[u8]) -> Result<serde_json::Value, Box<dyn std::er
         .unwrap_or(0.0);
 
     let streams = data["streams"].as_array().ok_or("No streams")?;
+    // An attached cover image is itself a video-typed stream (mjpeg/png)
+    // in MP4/FLAC/MP3 containers; probing it would report the artwork as
+    // the video. Prefer the first real video stream, fall back to the
+    // first video-typed stream when every one is an attached picture.
+    let is_attached_pic =
+        |stream: &serde_json::Value| stream["disposition"]["attached_pic"].as_i64() == Some(1);
     let video = streams
         .iter()
-        .find(|s| s["codec_type"].as_str() == Some("video"))
+        .filter(|s| s["codec_type"].as_str() == Some("video"))
+        .find(|s| !is_attached_pic(s))
+        .or_else(|| {
+            streams
+                .iter()
+                .find(|s| s["codec_type"].as_str() == Some("video"))
+        })
         .ok_or("No video stream")?;
 
     let mut width = video["width"].as_u64().unwrap_or(0);
@@ -1044,6 +1056,43 @@ mod tests {
             assert_eq!(parsed["display_width"], 1080);
             assert_eq!(parsed["display_height"], 1920);
         }
+    }
+
+    #[test]
+    fn probe_prefers_the_real_video_stream_over_attached_cover_art() {
+        let probe = serde_json::json!({
+            "format": { "duration": "60.0" },
+            "streams": [
+                {
+                    "codec_type": "video", "codec_name": "mjpeg",
+                    "width": 500, "height": 500,
+                    "disposition": { "attached_pic": 1 }
+                },
+                {
+                    "codec_type": "video", "codec_name": "h264",
+                    "width": 1920, "height": 1080,
+                    "disposition": { "attached_pic": 0 }
+                },
+                { "codec_type": "audio", "codec_name": "aac" }
+            ]
+        });
+        let parsed = parse_video_probe(&serde_json::to_vec(&probe).unwrap()).unwrap();
+        assert_eq!(parsed["width"], 1920);
+        assert_eq!(parsed["height"], 1080);
+        assert_eq!(parsed["codec"], "h264");
+
+        // A file whose only video stream is cover art still probes as
+        // that stream rather than erroring.
+        let art_only = serde_json::json!({
+            "format": { "duration": "60.0" },
+            "streams": [{
+                "codec_type": "video", "codec_name": "mjpeg",
+                "width": 500, "height": 500,
+                "disposition": { "attached_pic": 1 }
+            }]
+        });
+        let parsed = parse_video_probe(&serde_json::to_vec(&art_only).unwrap()).unwrap();
+        assert_eq!(parsed["width"], 500);
     }
 
     #[test]
