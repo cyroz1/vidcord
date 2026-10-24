@@ -162,6 +162,11 @@ export type BatchPublicationPayload = {
   error?: string | null;
 };
 
+/// The channel that delivers updates for a package-manager or platform
+/// managed install, as reported by the Rust updater (`package_manager` in
+/// the check payload). Managed installs never enter the GitHub flow.
+export type UpdatePackageManager = "apt" | "dnf" | "pacman" | "flatpak";
+
 export type UpdateCheckResult = {
   update_available: boolean;
   latest_version?: string;
@@ -169,7 +174,7 @@ export type UpdateCheckResult = {
   installer_available?: boolean;
   installer_name?: string;
   updates_managed_by_package_manager?: boolean;
-  package_manager?: string;
+  package_manager?: UpdatePackageManager;
 };
 
 export type UpdateInstallResult = {

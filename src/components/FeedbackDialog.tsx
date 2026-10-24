@@ -203,8 +203,9 @@ export default function FeedbackDialog({ onClose }: Props) {
               />
               <p style={noteStyle}>
                 Sends directly to the developer. The report includes your Vidcord version, operating
-                system, and the last 100 lines of the app log. A full copy is also saved on your
-                disk.
+                system, and the last 100 lines of the app log. A full copy is saved on your disk
+                first and deleted once the send succeeds; if sending fails, the copy stays so you
+                can mail it instead.
               </p>
               {error !== null && (
                 <>

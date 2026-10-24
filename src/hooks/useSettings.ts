@@ -80,6 +80,10 @@ export function useSettings() {
       const migratedSettings = {
         ...s,
         gif_target_mb: gifTargetMb,
+        // Persist the same normalization the state applies, so an unknown
+        // persisted format does not round-trip to disk forever whenever an
+        // unrelated migration triggers the load-time save.
+        gif_output_format: normalizeGifOutputFormat(s.gif_output_format),
         ...(legacyCloseAction ? { completion_action: "none" } : {}),
         ...(legacyCloseAction && !hasCloseAppPreference ? { close_app_after_export: true } : {}),
         // The 7.4 schema is semantic. JSON serialization omits this undefined

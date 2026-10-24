@@ -70,7 +70,9 @@ import {
   type OutputExtension,
   type FfmpegInstallResult,
   type BatchCompressItem,
+  type UpdatePackageManager,
 } from "./ipc";
+import { managedUpdateChannel, updateChannelLabel } from "./updateChannel";
 import {
   batchClipDuration,
   classifyBatchResult,
@@ -130,10 +132,21 @@ const DISPLAY_VERSION = (() => {
   return patch ? `v${major}.${minor}.${patch}` : `v${major}.${minor}`;
 })();
 
-const FooterMeta = memo(function FooterMeta({ onFeedbackClick }: { onFeedbackClick: () => void }) {
+const FooterMeta = memo(function FooterMeta({
+  onFeedbackClick,
+  updateChannel,
+}: {
+  onFeedbackClick: () => void;
+  updateChannel: UpdatePackageManager | null;
+}) {
   return (
     <div className="footer-meta">
       <span className="version">{DISPLAY_VERSION}</span>
+      {updateChannel && (
+        <span className="update-channel" title="This install is updated outside the app">
+          {updateChannelLabel(updateChannel)}
+        </span>
+      )}
       <button
         type="button"
         onClick={onFeedbackClick}
@@ -691,6 +704,7 @@ export default function App() {
     installerAvailable: boolean;
     installerName?: string;
   } | null>(null);
+  const [updateChannel, setUpdateChannel] = useState<UpdatePackageManager | null>(null);
   const [encodersDialogText, setEncodersDialogText] = useState<string | null>(null);
   const [listedEncoderNames, setListedEncoderNames] = useState<string[]>([]);
   const [installingFfmpeg, setInstallingFfmpeg] = useState(false);
@@ -2234,6 +2248,13 @@ export default function App() {
       checkForUpdates(CURRENT_VERSION)
         .then((r) => {
           if (cancelled) return;
+          const channel = managedUpdateChannel(r);
+          if (channel) {
+            // Managed installs never see the update modal (the backend
+            // reports no update for them); the footer names the channel
+            // that delivers their updates instead.
+            setUpdateChannel(channel);
+          }
           if (r.update_available && r.latest_version && r.release_url) {
             const dismissed = settingsRef.current.update_dismissed_version as string | undefined;
             if (dismissed !== r.latest_version) {
@@ -4774,7 +4795,7 @@ export default function App() {
 
         {/* Footer stays outside the scroll area so it remains anchored to the window. */}
         <div className="footer">
-          <FooterMeta onFeedbackClick={handleFeedbackOpen} />
+          <FooterMeta onFeedbackClick={handleFeedbackOpen} updateChannel={updateChannel} />
           <Suspense
             fallback={
               <span className="settings-presets" aria-hidden="true">

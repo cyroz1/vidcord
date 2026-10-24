@@ -51,3 +51,36 @@ it("persists the migrated lossless settings on load, not the pre-migration value
     advanced_mode: false,
   });
 });
+
+it("loads and persists the gif output format, normalizing invalid values", async () => {
+  vi.mocked(loadSettings).mockResolvedValue({ gif_output_format: "webp" } as Settings);
+  let hook: ReturnType<typeof useSettings> | null = null;
+  function Harness() {
+    hook = useSettings();
+    return null;
+  }
+  root = createRoot(document.createElement("div"));
+  await act(async () => root!.render(<Harness />));
+  await act(async () => {});
+
+  expect(hook!.settingsLoaded).toBe(true);
+  expect(hook!.gifOutputFormat).toBe("webp");
+  const persisted = vi.mocked(saveSettings).mock.calls[0][0];
+  expect(persisted.gif_output_format).toBe("webp");
+});
+
+it("falls back to gif when the persisted output format is unknown", async () => {
+  vi.mocked(loadSettings).mockResolvedValue({ gif_output_format: "avif" } as unknown as Settings);
+  let hook: ReturnType<typeof useSettings> | null = null;
+  function Harness() {
+    hook = useSettings();
+    return null;
+  }
+  root = createRoot(document.createElement("div"));
+  await act(async () => root!.render(<Harness />));
+  await act(async () => {});
+
+  expect(hook!.gifOutputFormat).toBe("gif");
+  const persisted = vi.mocked(saveSettings).mock.calls[0][0];
+  expect(persisted.gif_output_format).toBe("gif");
+});
