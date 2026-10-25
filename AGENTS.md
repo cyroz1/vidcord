@@ -518,8 +518,9 @@ and verifies those controls.
 
 On Linux, update routing depends on how the running copy was installed. When APT, DNF, or pacman
 has the vidcord package installed AND the vidcord repository is present in that manager's
-configuration (`cyroz1.github.io/vidcord` in the APT sources or DNF repo definitions, a
-`[vidcord]` section in `pacman.conf`), `check_for_updates` reports
+active configuration (the official HTTPS `/vidcord/apt` source for APT, an enabled `[vidcord]`
+section pointing to `/vidcord/rpm` for DNF, or an active `[vidcord]` section with an official
+`/vidcord/pacman` server in `pacman.conf`), `check_for_updates` reports
 `updates_managed_by_package_manager` with the manager's name and the installer download command
 refuses to run, so upgrades arrive through the package manager. Detection uses the bounded
 `spawn_captured_command` probe pattern plus config-file reads, and runs inside `spawn_blocking`.
@@ -701,7 +702,7 @@ When the user asks to tag and push `vX.Y`:
 4. **Tag with the `vX.Y` short form** (matching existing tags — see `git tag --list`): `git tag vX.Y`. Do **not** use `vX.Y.Z` — the existing tag history is short-form and the release workflow's CHANGELOG extraction matches `## vX.Y`.
 5. **Merge and push** the release commit to `main`, then push the tag: `git push origin main` followed
    by `git push origin vX.Y`. Pushing the tag triggers the release workflow (`build.yml` →
-   build/attest → Arch package → verify/sign → `publish-release` → Linux repository jobs),
+   build → platform/Arch attestations and Arch package → verify/sign → `publish-release` → Linux repository jobs),
    using the `release` profile and publishing the signed GitHub release immediately so the in-app updater can see it.
 6. **Start the next changelog on the next version branch**: create or switch to the next planned
    `X.Y` branch/worktree, add a fresh `## WIP` section at the top of `CHANGELOG.md`, commit it as
@@ -712,15 +713,16 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 
 ## CI reference
 
-`.github/workflows/build.yml` has seven jobs:
+`.github/workflows/build.yml` has eight jobs:
 
 1. **frontend** (ubuntu-latest) — `npm ci`, audit (high), version and asset checks, lint, typecheck, test, build, and bundle-size budget; uploads `dist/` as an artifact for every platform matrix job to download.
 2. **rust-compile-checks** (ubuntu-22.04) — `cargo fmt --check`, `cargo audit`, `cargo clippy -D warnings`, and `cargo test`; a report-only step also prints `cargo tree --duplicates` (same as `npm run duplicates:report`) so dependency duplication stays visible without gating on it. Clippy and tests use the `ci` profile and explicit Linux x86_64 target, sharing the `rust-linux-ubuntu-22.04-v1` `Swatinem/rust-cache` key and compatible artifacts with the Linux x86_64 build job.
-3. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. Builds NSIS installers for both Windows architectures, a universal macOS DMG, and AppImage, `.deb`, and `.rpm` bundles for both Linux architectures. App-source pushes and pull requests build, stage, and upload CI-profile installers for inspection; tagged `v*` refs build release-profile installers; explicit manual runs build CI-profile installers for testing. Build artifacts are retained for seven days. Only tags run signing and release publication.
-4. **arch-package-build** (only on tags) — repacks the matching `.deb` into the `vidcord-bin` pacman package for x86_64 (Arch Linux) and aarch64 (Arch Linux ARM), each on a native runner in the matching Arch container image; attests and uploads both packages.
-5. **sign-release-artifacts** (ubuntu-latest, only on tags) — verifies build provenance attestations and Ed25519-signs the release artifacts; uploads the signed bundle.
-6. **publish-release** (ubuntu-latest, only on tags) — downloads the signed artifacts, extracts the matching CHANGELOG section, and publishes the signed GitHub release.
-7. **publish-linux-package-repositories** (ubuntu-latest, only on tags, after publish-release) — generates signed APT, RPM, and pacman repositories (both Linux architectures) from the signed packages and pushes them to the `linux-packages` branch served by GitHub Pages. Skips with a step-summary note when the repository GPG key secret is not configured.
+3. **build** (5-way matrix) — Windows x86_64/aarch64, macOS universal, Linux x86_64/aarch64. Builds NSIS installers for both Windows architectures, a universal macOS DMG, and AppImage, `.deb`, and `.rpm` bundles for both Linux architectures. App-source pushes and pull requests build, stage, and upload CI-profile installers for inspection; tagged `v*` refs build release-profile installers; explicit manual runs build CI-profile installers for testing. Build jobs have read-only repository permissions and their artifacts are retained for seven days.
+4. **attest-platform-builds** — on tags and manual runs, downloads the platform artifacts and attests them in a separate job with OIDC/attestation permissions. The build matrix does not receive those permissions while it executes repository source.
+5. **arch-package-build** (only on tags) — repacks the matching `.deb` into the `vidcord-bin` pacman package for x86_64 (Arch Linux) and aarch64 (Arch Linux ARM), each on a native runner in the matching Arch container image; attests and uploads both packages.
+6. **sign-release-artifacts** (ubuntu-latest, only on tags) — verifies platform and Arch provenance attestations and Ed25519-signs the installable release artifacts; uploads the signed bundle.
+7. **publish-release** (ubuntu-latest, only on tags) — downloads the signed artifacts, extracts the matching CHANGELOG section, and publishes the signed GitHub release.
+8. **publish-linux-package-repositories** (ubuntu-latest, only on tags, after publish-release) — generates signed APT, RPM, and pacman repositories (both Linux architectures) from the signed packages and pushes them to the `linux-packages` branch served by GitHub Pages. Skips with a step-summary note when the repository GPG key secret is not configured.
 
 `.github/workflows/e2e.yml` runs the browser end-to-end suite and the native desktop suite on Linux,
 macOS, and Windows for app-source changes; the suites upload screenshots, logs, traces, and reports

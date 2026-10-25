@@ -421,8 +421,8 @@ installer from GitHub:
 | Debian / Ubuntu   | aarch64      | APT repository and `vidcord_<version>_arm64.deb`   |
 | Fedora / DNF      | x86_64       | RPM repository and `vidcord_<version>_x86_64.rpm`  |
 | Fedora / DNF      | aarch64      | RPM repository and `vidcord_<version>_aarch64.rpm` |
-| Arch Linux        | x86_64       | pacman repository (`vidcord-bin`)                  |
-| Arch Linux ARM    | aarch64      | pacman repository (`vidcord-bin`)                  |
+| Arch Linux        | x86_64       | pacman repository or `vidcord-bin-<version>-1-x86_64.pkg.tar.zst` |
+| Arch Linux ARM    | aarch64      | pacman repository or `vidcord-bin-<version>-1-aarch64.pkg.tar.zst` |
 | Portable AppImage | x86_64       | `vidcord_<version>_amd64.AppImage`                 |
 | Portable AppImage | aarch64      | `vidcord_<version>_aarch64.AppImage`               |
 
@@ -716,9 +716,11 @@ and the native app on Linux, macOS, and Windows. See
 [`.github/workflows/build.yml`](.github/workflows/build.yml) runs a shared
 frontend build, consolidated Rust formatting/audit/clippy/test checks, and a
 5-way platform matrix (Windows x86_64/aarch64, macOS universal, Linux
-x86_64/aarch64). Release builds attest their installer provenance, and the
-release job verifies those attestations and creates detached Ed25519 signatures
-before publishing a GitHub release immediately from the matching `CHANGELOG.md` section. See
+x86_64/aarch64). On tagged releases and manual runs, a separate job attests the
+completed platform artifacts so build jobs that execute pull-request source
+keep read-only permissions. The release job verifies provenance and creates
+detached Ed25519 signatures before publishing a GitHub release immediately from
+the matching `CHANGELOG.md` section. See
 [`RELEASE_SIGNING.md`](docs/RELEASE_SIGNING.md) for the signing-key contract.
 
 ## Project layout

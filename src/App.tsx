@@ -3432,7 +3432,7 @@ export default function App() {
 
       if (result.status === "requires_privileged" && os === "linux") {
         const approved = window.confirm(
-          "Installing FFmpeg on Linux needs elevated privileges. Run the installer command now?"
+          "Installing FFmpeg on Linux needs elevated privileges. Run the installer command now? On Arch Linux, this also performs a full system upgrade to avoid an unsupported partial upgrade."
         );
         if (approved) {
           result = await installFfmpegDependency(true).catch((e) => ({

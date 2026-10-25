@@ -208,9 +208,6 @@ jobs:
     needs: [frontend, rust-compile-checks]
     permissions:
       contents: read
-      id-token: write
-      attestations: write
-      artifact-metadata: write
     strategy:
       fail-fast: false
       matrix:
@@ -438,12 +435,6 @@ jobs:
           mv -f "$asset_name" "$appimage_abs"
           mv -f "${asset_name}.zsync" "$(dirname "$appimage_abs")/"
 
-      - name: Attest built installers
-        if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
-        with:
-          subject-path: artifacts/*
-
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -454,6 +445,32 @@ jobs:
           # second CPU-heavy compression pass and bound transient CI storage.
           compression-level: 0
           retention-days: 7
+
+  # Keep OIDC and attestation permissions out of jobs that execute PR-controlled
+  # source and build scripts. This job only downloads the completed artifacts
+  # and attests their digests on trusted tag/manual runs.
+  attest-platform-builds:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Download platform artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          pattern: vidcord-*
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Attest built installers
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: release-artifacts/*
 
   arch-package-build:
     needs: build
@@ -538,7 +555,7 @@ jobs:
           retention-days: 7
 
   sign-release-artifacts:
-    needs: [build, arch-package-build]
+    needs: [build, arch-package-build, attest-platform-builds]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: startsWith(github.ref, 'refs/tags/')

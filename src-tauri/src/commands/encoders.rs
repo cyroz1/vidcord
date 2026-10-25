@@ -866,7 +866,10 @@ pub async fn install_ffmpeg_dependency(opts: Option<FfmpegInstallOptions>) -> Ff
             } else if command_exists("dnf") {
                 ("dnf", "dnf install -y ffmpeg")
             } else if command_exists("pacman") {
-                ("pacman", "pacman -Sy --noconfirm ffmpeg")
+                // Arch does not support partial upgrades. Sync the system and
+                // install FFmpeg together instead of leaving packages from
+                // mismatched repository snapshots.
+                ("pacman", "pacman -Syu --needed --noconfirm ffmpeg")
             } else {
                 return FfmpegInstallResult {
                     status: "unsupported".to_string(),

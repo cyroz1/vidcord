@@ -154,7 +154,9 @@ impl LinuxPackageManager {
 }
 
 const VIDCORD_REPOSITORY_HOST: &str = "cyroz1.github.io";
-const VIDCORD_REPOSITORY_PATH: &str = "/vidcord";
+const VIDCORD_APT_REPOSITORY_PATH: &str = "/vidcord/apt";
+const VIDCORD_RPM_REPOSITORY_PATH: &str = "/vidcord/rpm";
+const VIDCORD_PACMAN_REPOSITORY_PATH: &str = "/vidcord/pacman";
 const PACKAGE_MANAGER_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 fn package_manager_probe(program: &str, args: &[&str]) -> Option<std::process::Output> {
@@ -190,19 +192,16 @@ fn pacman_package_installed(package: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn url_has_vidcord_repository(value: &str) -> bool {
+fn url_has_vidcord_repository(value: &str, repository_path: &str) -> bool {
     let candidate = value.trim_matches(|character| character == '\'' || character == '"');
     let Ok(url) = url::Url::parse(candidate) else {
         return false;
     };
-    matches!(url.scheme(), "http" | "https")
+    url.scheme() == "https"
         && url
             .host_str()
             .is_some_and(|host| host.eq_ignore_ascii_case(VIDCORD_REPOSITORY_HOST))
-        && (url.path() == VIDCORD_REPOSITORY_PATH
-            || url
-                .path()
-                .starts_with(&format!("{VIDCORD_REPOSITORY_PATH}/")))
+        && (url.path() == repository_path || url.path().starts_with(&format!("{repository_path}/")))
 }
 
 fn apt_list_line_has_vidcord_repository(line: &str) -> bool {
@@ -229,7 +228,7 @@ fn apt_list_line_has_vidcord_repository(line: &str) -> bool {
         };
         uri = next;
     }
-    url_has_vidcord_repository(uri)
+    url_has_vidcord_repository(uri, VIDCORD_APT_REPOSITORY_PATH)
 }
 
 fn apt_list_has_vidcord_repository(text: &str) -> bool {
@@ -258,8 +257,9 @@ fn apt_sources_stanza_has_vidcord_repository(stanza: &str) -> bool {
                     has_binary_type |= trimmed.split_whitespace().any(|value| value == "deb");
                 }
                 "uris" => {
-                    has_repository_uri |=
-                        trimmed.split_whitespace().any(url_has_vidcord_repository);
+                    has_repository_uri |= trimmed
+                        .split_whitespace()
+                        .any(|uri| url_has_vidcord_repository(uri, VIDCORD_APT_REPOSITORY_PATH));
                 }
                 _ => {}
             }
@@ -283,7 +283,9 @@ fn apt_sources_stanza_has_vidcord_repository(stanza: &str) -> bool {
                 has_binary_type |= value.split_whitespace().any(|entry| entry == "deb");
             }
             "uris" => {
-                has_repository_uri |= value.split_whitespace().any(url_has_vidcord_repository)
+                has_repository_uri |= value
+                    .split_whitespace()
+                    .any(|uri| url_has_vidcord_repository(uri, VIDCORD_APT_REPOSITORY_PATH))
             }
             _ => {}
         }
@@ -349,7 +351,9 @@ fn dnf_text_has_vidcord_repository(text: &str) -> bool {
                 )
             }
             "baseurl" => {
-                has_repository_url |= value.split_whitespace().any(url_has_vidcord_repository)
+                has_repository_url |= value
+                    .split_whitespace()
+                    .any(|baseurl| url_has_vidcord_repository(baseurl, VIDCORD_RPM_REPOSITORY_PATH))
             }
             _ => {}
         }
@@ -373,7 +377,41 @@ fn apt_text_has_vidcord_repository(text: &str) -> bool {
 }
 
 fn pacman_conf_has_vidcord_repository(text: &str) -> bool {
-    text.lines().any(|line| line.trim() == "[vidcord]")
+    let mut in_vidcord_section = false;
+    let mut has_official_server = false;
+
+    for line in text.lines() {
+        let active = line.split('#').next().unwrap_or_default().trim();
+        if active.is_empty() {
+            continue;
+        }
+        if active.starts_with('[') && active.ends_with(']') {
+            if in_vidcord_section && has_official_server {
+                return true;
+            }
+            in_vidcord_section = active[1..active.len() - 1]
+                .trim()
+                .eq_ignore_ascii_case("vidcord");
+            has_official_server = false;
+            continue;
+        }
+        if !in_vidcord_section {
+            continue;
+        }
+
+        let Some((key, value)) = active.split_once('=') else {
+            continue;
+        };
+        if !key.trim().eq_ignore_ascii_case("server") {
+            continue;
+        }
+
+        has_official_server |= value
+            .split_whitespace()
+            .any(|server| url_has_vidcord_repository(server, VIDCORD_PACMAN_REPOSITORY_PATH));
+    }
+
+    in_vidcord_section && has_official_server
 }
 
 fn files_contain(paths: &[PathBuf], predicate: impl Fn(&str) -> bool) -> bool {
@@ -1252,6 +1290,12 @@ mod tests {
             "deb https://cyroz1.github.io/vidcord-lookalike/apt stable main"
         ));
         assert!(!apt_text_has_vidcord_repository(
+            "deb https://cyroz1.github.io/vidcord/rpm stable main"
+        ));
+        assert!(!apt_text_has_vidcord_repository(
+            "deb http://cyroz1.github.io/vidcord/apt stable main"
+        ));
+        assert!(!apt_text_has_vidcord_repository(
             "# deb https://cyroz1.github.io/vidcord/apt stable main"
         ));
         assert!(!apt_text_has_vidcord_repository(
@@ -1299,6 +1343,12 @@ mod tests {
             "[vidcord]\nbaseurl=https://cyroz1.github.io/other/rpm/\nenabled=1"
         ));
         assert!(!dnf_text_has_vidcord_repository(
+            "[vidcord]\nbaseurl=https://cyroz1.github.io/vidcord/apt\nenabled=1"
+        ));
+        assert!(!dnf_text_has_vidcord_repository(
+            "[vidcord]\nbaseurl=http://cyroz1.github.io/vidcord/rpm/\nenabled=1"
+        ));
+        assert!(!dnf_text_has_vidcord_repository(
             "[vidcord]\nbaseurl=https://cyroz1.github.io/vidcord/rpm/\nenabled=0"
         ));
         assert!(!dnf_text_has_vidcord_repository(
@@ -1328,11 +1378,26 @@ mod tests {
     }
 
     #[test]
-    fn pacman_conf_detects_vidcord_section() {
+    fn pacman_conf_detects_only_vidcord_with_official_server() {
         assert!(pacman_conf_has_vidcord_repository(
             "[options]\n[vidcord]\nSigLevel = Required DatabaseRequired\nServer = https://cyroz1.github.io/vidcord/pacman/$arch\n[core]"
         ));
-        assert!(pacman_conf_has_vidcord_repository("  [vidcord]  \n"));
+        assert!(pacman_conf_has_vidcord_repository(
+            "[vidcord]\nServer = https://mirror.example/other/$repo/os/$arch\nServer = https://cyroz1.github.io/vidcord/pacman/$arch"
+        ));
+        assert!(!pacman_conf_has_vidcord_repository("  [vidcord]  \n"));
+        assert!(!pacman_conf_has_vidcord_repository(
+            "[vidcord]\nServer = https://mirror.example/vidcord/pacman/$arch"
+        ));
+        assert!(!pacman_conf_has_vidcord_repository(
+            "[vidcord]\nServer = http://cyroz1.github.io/vidcord/pacman/$arch"
+        ));
+        assert!(!pacman_conf_has_vidcord_repository(
+            "[vidcord]\nServer = https://cyroz1.github.io/vidcord-lookalike/pacman/$arch"
+        ));
+        assert!(!pacman_conf_has_vidcord_repository(
+            "[core]\nServer = https://cyroz1.github.io/vidcord/pacman/$arch"
+        ));
         assert!(!pacman_conf_has_vidcord_repository(
             "#[vidcord]\nServer = https://cyroz1.github.io/vidcord/pacman/$arch"
         ));

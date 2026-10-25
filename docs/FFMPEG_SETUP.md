@@ -94,8 +94,13 @@ sudo dnf install -y ffmpeg
 **Arch / Manjaro:**
 
 ```sh
-sudo pacman -S ffmpeg
+sudo pacman -Syu --needed ffmpeg
 ```
+
+Arch Linux does not support partial upgrades. vidcord's guided setup syncs the
+system repositories and installs FFmpeg in the same pacman operation; this can
+upgrade other packages already on the system. The app explains this before it
+asks for elevated privileges.
 
 When Linux setup is started from vidcord, it asks before running the package
 manager. It tries passwordless `sudo`, then a graphical `pkexec` prompt, then

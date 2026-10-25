@@ -190,9 +190,10 @@ repack the two DEBs as native Arch/Arch Linux ARM `vidcord-bin` packages with
 
 `vX.Y` tags use the optimized release profile. Branch, PR, and manual builds
 use the CI profile, upload installers for seven days, and do not publish a
-release. Provenance is generated for tag and manual platform builds and Arch
-tag builds. Tagged publication verifies provenance, checks the Ed25519 key,
-signs the installer formats, extracts `## vX.Y` notes, and publishes immediately.
+release. A separate permissioned job generates provenance for tag and manual
+platform builds; Arch tag builds attest their packages in the Arch job. Tagged
+publication verifies provenance, checks the Ed25519 key, signs the installer
+formats, extracts `## vX.Y` notes, and publishes immediately.
 Linux repository publication follows, and skips with a summary if its separate
 GPG secret is absent. See [RELEASE_SIGNING.md](RELEASE_SIGNING.md) for format and
 key contracts and [LINUX_INSTALL.md](LINUX_INSTALL.md) for repository activation.

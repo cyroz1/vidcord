@@ -71,9 +71,9 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Update downloads no longer fail on slow connections; a download only gives up when it stops
   making progress.
 - On Linux, the in-app updater now defers to APT, DNF, or pacman only when that package
-  manager has the vidcord repository configured. Other native installs, such as a one-off
-  package install without the repository, receive update prompts from the app again instead
-  of being silently treated as package-manager managed.
+  manager has the active official vidcord repository configured. Other native installs, such
+  as a one-off package install without the repository, receive update prompts from the app
+  again instead of being silently treated as package-manager managed.
 - Flatpak installs no longer check GitHub for updates; the platform delivers them.
 - Package-manager and Flatpak installs now say so in the footer (for example, "updates via
   apt"), since those installs update outside the app and never see an update prompt.
@@ -98,8 +98,14 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   files, a pacman package for Arch Linux and Arch Linux ARM, and the portable AppImage.
   Signed APT, RPM, and pacman repositories let native installs update through the system
   package manager.
-- Every release artifact, including the pacman package, carries the same detached Ed25519
-  signature as the installers.
+- Every installable release artifact, including the pacman package, carries a detached
+  Ed25519 signature. The AppImage `.zsync` sidecars carry build provenance but are not
+  Ed25519-signed.
+
+### Linux
+
+- Arch FFmpeg setup now uses a full pacman sync upgrade when installing FFmpeg, avoiding an
+  unsupported partial upgrade. The privilege prompt explains this behavior.
 
 ### Compatibility
 
