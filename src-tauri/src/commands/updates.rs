@@ -153,7 +153,8 @@ impl LinuxPackageManager {
     }
 }
 
-const VIDCORD_REPOSITORY_HOST: &str = "cyroz1.github.io/vidcord";
+const VIDCORD_REPOSITORY_HOST: &str = "cyroz1.github.io";
+const VIDCORD_REPOSITORY_PATH: &str = "/vidcord";
 const PACKAGE_MANAGER_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 fn package_manager_probe(program: &str, args: &[&str]) -> Option<std::process::Output> {
@@ -189,8 +190,190 @@ fn pacman_package_installed(package: &str) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn text_has_vidcord_repository(text: &str) -> bool {
-    text.contains(VIDCORD_REPOSITORY_HOST)
+    text.lines().any(|line| {
+        let active = line.trim();
+        if active.is_empty() || active.starts_with('#') {
+            return false;
+        }
+        active.split_whitespace().any(|token| {
+            let value = token
+                .split_once('=')
+                .map(|(_, value)| value)
+                .unwrap_or(token);
+            url_has_vidcord_repository(value)
+        })
+    })
+}
+
+fn url_has_vidcord_repository(value: &str) -> bool {
+    let candidate = value.trim_matches(|character| character == '\'' || character == '"');
+    let Ok(url) = url::Url::parse(candidate) else {
+        return false;
+    };
+    matches!(url.scheme(), "http" | "https")
+        && url
+            .host_str()
+            .is_some_and(|host| host.eq_ignore_ascii_case(VIDCORD_REPOSITORY_HOST))
+        && (url.path() == VIDCORD_REPOSITORY_PATH
+            || url
+                .path()
+                .starts_with(&format!("{VIDCORD_REPOSITORY_PATH}/")))
+}
+
+fn apt_list_line_has_vidcord_repository(line: &str) -> bool {
+    let mut tokens = line.split_whitespace();
+    let Some(kind) = tokens.next() else {
+        return false;
+    };
+    if kind != "deb" {
+        return false;
+    }
+
+    let Some(mut uri) = tokens.next() else {
+        return false;
+    };
+    if uri.starts_with('[') {
+        while !uri.ends_with(']') {
+            let Some(next) = tokens.next() else {
+                return false;
+            };
+            uri = next;
+        }
+        let Some(next) = tokens.next() else {
+            return false;
+        };
+        uri = next;
+    }
+    url_has_vidcord_repository(uri)
+}
+
+fn apt_list_has_vidcord_repository(text: &str) -> bool {
+    text.lines().any(|line| {
+        let active = line.trim();
+        !active.is_empty()
+            && !active.starts_with('#')
+            && apt_list_line_has_vidcord_repository(active)
+    })
+}
+
+fn apt_sources_stanza_has_vidcord_repository(stanza: &str) -> bool {
+    let mut enabled = true;
+    let mut has_binary_type = false;
+    let mut has_repository_uri = false;
+    let mut current_field = String::new();
+
+    for line in stanza.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if matches!(line.chars().next(), Some(' ' | '\t')) {
+            match current_field.as_str() {
+                "types" => {
+                    has_binary_type |= trimmed.split_whitespace().any(|value| value == "deb");
+                }
+                "uris" => {
+                    has_repository_uri |=
+                        trimmed.split_whitespace().any(url_has_vidcord_repository);
+                }
+                _ => {}
+            }
+            continue;
+        }
+
+        let Some((name, value)) = trimmed.split_once(':') else {
+            current_field.clear();
+            continue;
+        };
+        current_field = name.trim().to_ascii_lowercase();
+        let value = value.trim();
+        match current_field.as_str() {
+            "enabled" => enabled = !value.eq_ignore_ascii_case("no"),
+            "types" => {
+                has_binary_type |= value.split_whitespace().any(|entry| entry == "deb");
+            }
+            "uris" => {
+                has_repository_uri |= value.split_whitespace().any(url_has_vidcord_repository)
+            }
+            _ => {}
+        }
+    }
+
+    enabled && has_binary_type && has_repository_uri
+}
+
+fn apt_sources_has_vidcord_repository(text: &str) -> bool {
+    let normalized = text.replace("\r\n", "\n");
+    let mut stanza = String::new();
+    for line in normalized.lines() {
+        if line.trim().is_empty() {
+            if apt_sources_stanza_has_vidcord_repository(&stanza) {
+                return true;
+            }
+            stanza.clear();
+        } else {
+            stanza.push_str(line);
+            stanza.push('\n');
+        }
+    }
+    apt_sources_stanza_has_vidcord_repository(&stanza)
+}
+
+fn dnf_text_has_vidcord_repository(text: &str) -> bool {
+    let mut in_vidcord_section = false;
+    let mut enabled = true;
+    let mut has_repository_url = false;
+    let mut repository_found = false;
+
+    let finish_section = |in_vidcord_section: bool, enabled: bool, has_repository_url: bool| {
+        in_vidcord_section && enabled && has_repository_url
+    };
+
+    for line in text.lines() {
+        let active = line.trim();
+        if active.is_empty() || active.starts_with('#') || active.starts_with(';') {
+            continue;
+        }
+        if active.starts_with('[') && active.ends_with(']') {
+            repository_found |= finish_section(in_vidcord_section, enabled, has_repository_url);
+            in_vidcord_section = active[1..active.len() - 1]
+                .trim()
+                .eq_ignore_ascii_case("vidcord");
+            enabled = true;
+            has_repository_url = false;
+            continue;
+        }
+        if !in_vidcord_section {
+            continue;
+        }
+        let Some((key, value)) = active.split_once('=') else {
+            continue;
+        };
+        let comment_offset = value
+            .find(|character| character == '#' || character == ';')
+            .unwrap_or(value.len());
+        let value = value[..comment_offset].trim();
+        match key.trim().to_ascii_lowercase().as_str() {
+            "enabled" => enabled = value != "0",
+            "baseurl" => {
+                has_repository_url |= value.split_whitespace().any(url_has_vidcord_repository)
+            }
+            _ => {}
+        }
+    }
+    repository_found || finish_section(in_vidcord_section, enabled, has_repository_url)
+}
+
+fn apt_repository_file_has_vidcord_repository(path: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some("sources") => apt_sources_has_vidcord_repository(&text),
+        _ => apt_list_has_vidcord_repository(&text),
+    }
 }
 
 fn pacman_conf_has_vidcord_repository(text: &str) -> bool {
@@ -226,12 +409,14 @@ fn apt_repository_configured() -> bool {
         Path::new("/etc/apt/sources.list.d"),
         &["list", "sources"],
     ));
-    files_contain(&paths, text_has_vidcord_repository)
+    paths
+        .iter()
+        .any(|path| apt_repository_file_has_vidcord_repository(path))
 }
 
 fn dnf_repository_configured() -> bool {
     let paths = directory_files_with_extensions(Path::new("/etc/yum.repos.d"), &["repo"]);
-    files_contain(&paths, text_has_vidcord_repository)
+    files_contain(&paths, dnf_text_has_vidcord_repository)
 }
 
 fn pacman_repository_configured() -> bool {

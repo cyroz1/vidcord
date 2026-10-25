@@ -81,8 +81,9 @@ Future releases arrive with `sudo pacman -Syu`. Remove vidcord with
 
 The desktop app uses system `ffmpeg` and `ffprobe`; these binaries are not
 bundled. Debian and Arch package metadata install FFmpeg automatically. Fedora
-gets FFmpeg from RPM Fusion, which the RPM package manager cannot enable as an
-implicit dependency; vidcord's setup flow can ask before enabling it.
+gets FFmpeg from RPM Fusion. Vidcord first tries to install `ffmpeg` with DNF;
+if that fails, the setup flow shows the RPM Fusion enablement command for you to
+run manually.
 
 ## AppImage fallback
 

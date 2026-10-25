@@ -83,7 +83,6 @@ import {
   normalizeBatchTrimRange,
   normalizeVideoPaths,
   reorderBatchQueueItem,
-  type BatchItemStatus,
   type BatchQueueItem,
   type BatchQueueMoveDirection,
   type VideoPathPlatform,
@@ -344,6 +343,18 @@ type MemoizedSubtreeProps = {
   render: () => ReactNode;
 };
 
+type BatchLiveSummary = {
+  completed: number;
+  failed: number;
+  cancelled: number;
+};
+
+const EMPTY_BATCH_LIVE_SUMMARY: BatchLiveSummary = {
+  completed: 0,
+  failed: 0,
+  cancelled: 0,
+};
+
 type WorkflowMode = "compress" | "advanced" | "lossless" | "gif" | "batch";
 
 type WorkflowModeSelectorProps = {
@@ -529,10 +540,16 @@ export default function App() {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [batchPaths, setBatchPaths] = useState<string[]>([]);
   const [batchQueue, setBatchQueue] = useState<BatchQueueItem[]>([]);
+  const [activeBatchProgress, setActiveBatchProgress] = useState<BatchProgressPayload | null>(null);
+  const [batchLiveSummary, setBatchLiveSummary] =
+    useState<BatchLiveSummary>(EMPTY_BATCH_LIVE_SUMMARY);
   const [pathPlatform, setPathPlatform] = useState<VideoPathPlatform>(() =>
     detectVideoPathPlatform(typeof navigator === "undefined" ? "" : navigator.userAgent)
   );
   const batchProbeDataRef = useRef<Map<number, ProbeData>>(new Map());
+  const batchProgressByIdRef = useRef(
+    new Map<number, Pick<BatchProgressPayload, "item_id" | "item_percent" | "phase" | "status">>()
+  );
   const settingsLoadedRef = useRef(settingsLoaded);
   const pendingSelectionRef = useRef<readonly string[] | null>(null);
   const importScanGenerationRef = useRef<string | null>(null);
@@ -585,35 +602,31 @@ export default function App() {
     () => getSettingsSnapshot(encoderIdx, currentEncoderLabel),
     [currentEncoderLabel, encoderIdx, getSettingsSnapshot]
   );
-  // Fold each batch progress payload into the queue item it describes.
-  // useCompression invokes this synchronously from its coalesced progress
-  // flush, so the queue update batches with the progress state updates
-  // into one render instead of running as a separate derived-state effect.
+  // Keep high-frequency progress separate from the full queue. The virtualized
+  // list overlays it on the active row without copying every queue item.
   const handleBatchProgress = useCallback((payload: BatchProgressPayload) => {
-    setBatchQueue((items) => {
-      let changed = false;
-      const next = items.map((item) => {
-        if (item.id !== payload.item_id) return item;
-        const status: BatchItemStatus =
-          payload.phase === "encoding"
-            ? "encoding"
-            : payload.phase === "completed"
-              ? "completed"
-              : payload.phase === "failed"
-                ? "failed"
-                : "cancelled";
-        if (
-          item.status === status &&
-          item.progress === payload.item_percent &&
-          item.message === payload.status
-        ) {
-          return item;
-        }
-        changed = true;
-        return { ...item, status, progress: payload.item_percent, message: payload.status };
-      });
-      return changed ? next : items;
+    const previousPhase = batchProgressByIdRef.current.get(payload.item_id)?.phase;
+    batchProgressByIdRef.current.set(payload.item_id, {
+      item_id: payload.item_id,
+      item_percent: payload.item_percent,
+      phase: payload.phase,
+      status: payload.status,
     });
+    if (previousPhase !== payload.phase) {
+      setBatchLiveSummary((summary) => ({
+        completed:
+          summary.completed +
+          Number(payload.phase === "completed") -
+          Number(previousPhase === "completed"),
+        failed:
+          summary.failed + Number(payload.phase === "failed") - Number(previousPhase === "failed"),
+        cancelled:
+          summary.cancelled +
+          Number(payload.phase === "cancelled") -
+          Number(previousPhase === "cancelled"),
+      }));
+    }
+    setActiveBatchProgress(payload);
   }, []);
   const {
     compressing,
@@ -756,6 +769,9 @@ export default function App() {
     setBatchPaths([]);
     setBatchQueue([]);
     batchProbeDataRef.current.clear();
+    batchProgressByIdRef.current.clear();
+    setBatchLiveSummary(EMPTY_BATCH_LIVE_SUMMARY);
+    setActiveBatchProgress(null);
     const previous = singleModeBeforeBatchRef.current;
     singleModeBeforeBatchRef.current = null;
     if (!previous) return;
@@ -1398,6 +1414,7 @@ export default function App() {
       redoStackRef.current = [];
       syncTrimHistorySize();
       resetProgress();
+      setActiveBatchProgress(null);
       try {
         const data = await probeVideo(path);
         if (loadGenerationRef.current !== loadGeneration) return;
@@ -1478,30 +1495,25 @@ export default function App() {
       clearLosslessOfferMode();
       batchCancelledRef.current = false;
       batchProbeDataRef.current.clear();
+      batchProgressByIdRef.current.clear();
+      setBatchLiveSummary(EMPTY_BATCH_LIVE_SUMMARY);
+      setActiveBatchProgress(null);
       setBatchPaths(normalizedPaths);
-      setBatchQueue(
-        normalizedPaths.map((inputPath, id) => ({
-          id,
-          inputPath,
-          status: "queued",
-          progress: 0,
-          message: "Waiting for details...",
-        }))
-      );
+      const nextQueue: BatchQueueItem[] = normalizedPaths.map((inputPath, id) => ({
+        id,
+        inputPath,
+        status: "probing",
+        progress: 0,
+        message: "Reading details…",
+      }));
+      setBatchQueue([...nextQueue]);
       resetProgress();
 
       try {
-        const probeGroupSize = 2;
+        const probeGroupSize = 128;
         for (let offset = 0; offset < normalizedPaths.length; offset += probeGroupSize) {
           if (loadGenerationRef.current !== loadGeneration) return;
           const pathsToProbe = normalizedPaths.slice(offset, offset + probeGroupSize);
-          setBatchQueue((items) =>
-            items.map((item) =>
-              item.id >= offset && item.id < offset + pathsToProbe.length
-                ? { ...item, status: "probing", message: "Reading details…" }
-                : item
-            )
-          );
 
           let results: Awaited<ReturnType<typeof probeBatchVideos>>;
           try {
@@ -1510,13 +1522,13 @@ export default function App() {
             if (loadGenerationRef.current !== loadGeneration) return;
             if (isFfmpegMissingError(error)) markFfmpegMissing();
             const message = String(error);
-            setBatchQueue((items) =>
-              items.map((item) =>
-                item.id >= offset && item.id < offset + pathsToProbe.length
-                  ? { ...item, status: "failed", progress: 0, message }
-                  : item
-              )
-            );
+            for (let index = 0; index < pathsToProbe.length; index += 1) {
+              nextQueue[offset + index] = {
+                ...nextQueue[offset + index],
+                status: "failed",
+                message,
+              };
+            }
             continue;
           }
 
@@ -1524,26 +1536,24 @@ export default function App() {
           results.forEach((result, resultIndex) => {
             if (result.data) batchProbeDataRef.current.set(offset + resultIndex, result.data);
             if (result.error && isFfmpegMissingError(result.error)) markFfmpegMissing();
+            const id = offset + resultIndex;
+            if (result.data) {
+              nextQueue[id] = {
+                ...nextQueue[id],
+                status: "queued",
+                details: formatBatchVideoDetails(result.data),
+                message: "Ready",
+              };
+            } else {
+              nextQueue[id] = {
+                ...nextQueue[id],
+                status: "failed",
+                message: result.error ?? "FFprobe could not read this video.",
+              };
+            }
           });
-          setBatchQueue((items) =>
-            items.map((item) => {
-              const resultIndex = item.id - offset;
-              if (resultIndex < 0 || resultIndex >= pathsToProbe.length) return item;
-              const result = results[resultIndex];
-              if (result?.data) {
-                return {
-                  ...item,
-                  status: "queued",
-                  progress: 0,
-                  details: formatBatchVideoDetails(result.data),
-                  message: "Ready",
-                };
-              }
-              const message = result?.error ?? "FFprobe could not read this video.";
-              return { ...item, status: "failed", progress: 0, message };
-            })
-          );
         }
+        if (loadGenerationRef.current === loadGeneration) setBatchQueue(nextQueue);
       } finally {
         if (loadGenerationRef.current === loadGeneration) setLoadingVideo(false);
       }
@@ -2266,7 +2276,10 @@ export default function App() {
     async (retryItemIds?: readonly number[]) => {
       const retryIds = retryItemIds ? new Set(retryItemIds) : null;
       const selectedItems = retryIds
-        ? batchQueue.filter((item) => retryIds.has(item.id) && isBatchItemRetryable(item.status))
+        ? batchQueue.filter((item) => {
+            const status = batchProgressByIdRef.current.get(item.id)?.phase ?? item.status;
+            return retryIds.has(item.id) && isBatchItemRetryable(status);
+          })
         : [...batchQueue];
       if (selectedItems.length === 0) {
         addToast(
@@ -2280,6 +2293,25 @@ export default function App() {
       }
 
       resetProgress();
+      const previousProgress = new Map(batchProgressByIdRef.current);
+      batchProgressByIdRef.current.clear();
+      if (previousProgress.size > 0) {
+        setBatchQueue((items) =>
+          items.map((item) => {
+            const progress = previousProgress.get(item.id);
+            return progress
+              ? {
+                  ...item,
+                  status: progress.phase,
+                  progress: progress.item_percent,
+                  message: progress.status,
+                }
+              : item;
+          })
+        );
+      }
+      setBatchLiveSummary(EMPTY_BATCH_LIVE_SUMMARY);
+      setActiveBatchProgress(null);
       setCompressing(true);
       setLoadingVideo(true);
       batchCancelledRef.current = false;
@@ -2302,6 +2334,7 @@ export default function App() {
         scaleFilter: string | null;
       }> = [];
       const selectedIds = new Set(selectedItems.map((item) => item.id));
+      const preparationQueueUpdates = new Map<number, Partial<BatchQueueItem>>();
 
       try {
         if (ffmpegMissing) {
@@ -2328,18 +2361,11 @@ export default function App() {
         const requestedFps = FPS_OPTIONS.find((option) => option.value === fpsOption)?.fps ?? null;
 
         for (const selectedItem of selectedItems) {
-          if (batchCancelledRef.current) return;
+          if (batchCancelledRef.current) break;
           const id = selectedItem.id;
           const inputPath = selectedItem.inputPath;
           let data = batchProbeDataRef.current.get(id);
           if (!data) {
-            setBatchQueue((items) =>
-              items.map((item) =>
-                item.id === id
-                  ? { ...item, status: "probing", message: "Reading details..." }
-                  : item
-              )
-            );
             try {
               data = await probeVideo(inputPath);
               batchProbeDataRef.current.set(id, data);
@@ -2347,16 +2373,17 @@ export default function App() {
               if (isFfmpegMissingError(error)) markFfmpegMissing();
               const message = String(error);
               probeFailures.set(id, message);
-              setBatchQueue((items) =>
-                items.map((item) =>
-                  item.id === id ? { ...item, status: "failed", progress: 100, message } : item
-                )
-              );
+              preparationQueueUpdates.set(id, { status: "failed", progress: 100, message });
               continue;
             }
           }
 
-          if (!data) continue;
+          if (!data) {
+            const message = "FFprobe could not read this video.";
+            probeFailures.set(id, message);
+            preparationQueueUpdates.set(id, { status: "failed", progress: 100, message });
+            continue;
+          }
 
           const trim = normalizeBatchTrimRange(
             data.duration,
@@ -2367,11 +2394,7 @@ export default function App() {
           if (clipDuration <= 0) {
             const message = "The selected trim leaves no usable video.";
             probeFailures.set(id, message);
-            setBatchQueue((items) =>
-              items.map((item) =>
-                item.id === id ? { ...item, status: "failed", progress: 100, message } : item
-              )
-            );
+            preparationQueueUpdates.set(id, { status: "failed", progress: 100, message });
             continue;
           }
 
@@ -2397,11 +2420,7 @@ export default function App() {
           if (videoBitrate === null) {
             const message = "Source bitrate is unavailable for this video.";
             probeFailures.set(id, message);
-            setBatchQueue((items) =>
-              items.map((item) =>
-                item.id === id ? { ...item, status: "failed", progress: 100, message } : item
-              )
-            );
+            preparationQueueUpdates.set(id, { status: "failed", progress: 100, message });
             continue;
           }
 
@@ -2430,21 +2449,30 @@ export default function App() {
               encoderName
             ),
           });
-          setBatchQueue((items) =>
-            items.map((item) =>
-              item.id === id
-                ? {
-                    ...item,
-                    status: "queued",
-                    progress: 0,
-                    details: formatBatchVideoDetails(data),
-                    message: "Ready",
-                  }
-                : item
-            )
-          );
+          preparationQueueUpdates.set(id, {
+            status: "queued",
+            progress: 0,
+            details: formatBatchVideoDetails(data),
+            message: "Ready",
+          });
         }
 
+        if (batchCancelledRef.current) {
+          for (const selectedItem of selectedItems) {
+            if (probeFailures.has(selectedItem.id)) continue;
+            preparationQueueUpdates.set(selectedItem.id, {
+              status: "cancelled",
+              progress: 0,
+              message: "Batch preparation was cancelled.",
+            });
+          }
+        }
+        setBatchQueue((items) =>
+          items.map((item) => {
+            const update = preparationQueueUpdates.get(item.id);
+            return update ? { ...item, ...update } : item;
+          })
+        );
         if (batchCancelledRef.current) return;
         if (prepared.length === 0) {
           addToast(
@@ -2653,6 +2681,9 @@ export default function App() {
           });
         }
         setBatchQueue((queue) => queue.map((item) => finalQueueById.get(item.id) ?? item));
+        batchProgressByIdRef.current.clear();
+        setBatchLiveSummary(EMPTY_BATCH_LIVE_SUMMARY);
+        setActiveBatchProgress(null);
 
         if (!done.cancelled && outputPathsForCompletion.length > 0) {
           await completeBatchOutputs(outputPathsForCompletion);
@@ -2695,10 +2726,32 @@ export default function App() {
                 : { ...item, status: "failed", progress: 100, message: String(error) }
             )
           );
+          batchProgressByIdRef.current.clear();
+          setBatchLiveSummary(EMPTY_BATCH_LIVE_SUMMARY);
+          setActiveBatchProgress(null);
         }
       } finally {
         setLoadingVideo(false);
         setCompressing(false);
+        if (batchCancelledRef.current) {
+          let interruptedCount = 0;
+          for (const [id, progress] of batchProgressByIdRef.current) {
+            if (progress.phase !== "encoding") continue;
+            batchProgressByIdRef.current.set(id, {
+              ...progress,
+              phase: "cancelled",
+              status: "Batch was cancelled before this video finished.",
+            });
+            interruptedCount += 1;
+          }
+          if (interruptedCount > 0) {
+            setBatchLiveSummary((summary) => ({
+              ...summary,
+              cancelled: summary.cancelled + interruptedCount,
+            }));
+          }
+        }
+        setActiveBatchProgress(null);
       }
     },
     [
@@ -2730,7 +2783,8 @@ export default function App() {
     (itemId: number) => {
       if (loadingVideo || compressing || cancelling || finalizingOutput) return;
       const item = batchQueue.find((candidate) => candidate.id === itemId);
-      if (!item || !isBatchItemRetryable(item.status)) return;
+      const status = item && (batchProgressByIdRef.current.get(item.id)?.phase ?? item.status);
+      if (!item || !status || !isBatchItemRetryable(status)) return;
       void startBatchRef.current([itemId]);
     },
     [batchQueue, cancelling, compressing, finalizingOutput, loadingVideo]
@@ -2739,7 +2793,9 @@ export default function App() {
   const retryFailedBatchItems = useCallback(() => {
     if (loadingVideo || compressing || cancelling || finalizingOutput) return;
     const retryableIds = batchQueue
-      .filter((item) => isBatchItemRetryable(item.status))
+      .filter((item) =>
+        isBatchItemRetryable(batchProgressByIdRef.current.get(item.id)?.phase ?? item.status)
+      )
       .map((item) => item.id);
     if (retryableIds.length > 0) void startBatchRef.current(retryableIds);
   }, [batchQueue, cancelling, compressing, finalizingOutput, loadingVideo]);
@@ -3919,6 +3975,7 @@ export default function App() {
                 loadSelection,
                 isBatchMode,
                 gifMode,
+                gifOutputFormat,
                 losslessTrim,
                 workflowMode,
                 selectWorkflowMode,
@@ -4618,12 +4675,15 @@ export default function App() {
           {isBatchMode ? (
             <BatchQueue
               items={batchQueue}
+              progressById={batchProgressByIdRef.current}
+              liveSummary={batchLiveSummary}
               onClearQueue={clearBatchQueue}
               onRemoveItem={removeBatchItem}
               onMoveItem={moveBatchItem}
               onReorderItem={reorderBatchItem}
               onRetryItem={retryBatchItem}
               onRetryFailed={retryFailedBatchItems}
+              activeProgress={activeBatchProgress}
               actionsDisabled={
                 loadingVideo || selectionScanning || compressing || cancelling || finalizingOutput
               }

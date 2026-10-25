@@ -467,13 +467,11 @@ jobs:
           - platform: ubuntu-22.04
             arch: x86_64
             deb_arch: amd64
-            image: archlinux:base-devel
-            container_packages: pacman-contrib
+            image: archlinux:base-devel@sha256:3cbf69d2d5958d6a294f3722c5668e6187c4df8e00fa27f72352f0bf83e495e1
           - platform: ubuntu-22.04-arm
             arch: aarch64
             deb_arch: arm64
-            image: archlinuxarm/archlinuxarm
-            container_packages: base-devel pacman-contrib
+            image: menci/archlinuxarm:base-devel@sha256:0a4663459ee538d31c7f2fc496f32dfc3f87d1c134141ecded15f2e1d04b00ce
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -491,21 +489,27 @@ jobs:
           set -euo pipefail
           version="$(node -p 'require("./src-tauri/tauri.conf.json").version')"
           release_tag="${GITHUB_REF_NAME#v}"
-          arch_build="$RUNNER_TEMP/vidcord-arch-package"
-          mkdir -p "$arch_build"
-          node scripts/render-arch-package.mjs "$version" "$release_tag" release-assets "$arch_build"
-          cp "release-assets/vidcord_${version}_${{ matrix.deb_arch }}.deb" "$arch_build/"
+          arch_input="$RUNNER_TEMP/vidcord-arch-package-input"
+          arch_output="$RUNNER_TEMP/vidcord-arch-package-output"
+          mkdir -p "$arch_input" "$arch_output"
+          node scripts/render-arch-package.mjs "$version" "$release_tag" release-assets "$arch_input"
+          cp "release-assets/vidcord_${version}_${{ matrix.deb_arch }}.deb" "$arch_input/"
           sed -i \
             -e "s@::https://github.com/cyroz1/vidcord/releases/download/v${release_tag}/vidcord_\${pkgver}_${{ matrix.deb_arch }}.deb@@" \
-            "$arch_build/PKGBUILD"
+            "$arch_input/PKGBUILD"
           docker run --rm \
-            --volume "$arch_build:/work" \
-            --workdir /work \
+            --mount "type=bind,source=$arch_input,target=/inputs,readonly" \
+            --mount "type=bind,source=$arch_output,target=/output" \
             ${{ matrix.image }} \
-            bash -lc 'pacman -Syu --noconfirm ${{ matrix.container_packages }} && useradd --create-home build && chown -R build:build /work && su build -c "makepkg --noconfirm --clean --nodeps"'
+            bash -lc 'set -e; command -v makepkg >/dev/null; id -u build >/dev/null 2>&1 || useradd --create-home build; mkdir -p /tmp/vidcord-build; cp -a /inputs/. /tmp/vidcord-build/; chown -R build:build /tmp/vidcord-build; su build -c "cd /tmp/vidcord-build && makepkg --noconfirm --clean --nodeps"; cp /tmp/vidcord-build/vidcord-bin-*.pkg.tar.zst /output/'
+          mapfile -t built_packages < <(find "$arch_output" -maxdepth 1 -type f -name 'vidcord-bin-*.pkg.tar.zst' -print)
+          expected_package="vidcord-bin-${version}-1-${{ matrix.arch }}.pkg.tar.zst"
+          if [[ "${#built_packages[@]}" -ne 1 || "$(basename "${built_packages[0]:-}")" != "$expected_package" ]]; then
+            echo "Expected exactly $expected_package from the Arch builder." >&2
+            exit 1
+          fi
           mkdir -p artifacts
-          find "$arch_build" -maxdepth 1 -type f -name 'vidcord-bin-*.pkg.tar.zst' -exec cp {} artifacts/ \;
-          test -n "$(find artifacts -maxdepth 1 -type f -name 'vidcord-bin-*.pkg.tar.zst' -print -quit)"
+          cp -- "${built_packages[0]}" artifacts/
 
       - name: Attest pacman package
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
