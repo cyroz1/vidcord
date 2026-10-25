@@ -105,7 +105,7 @@ export function useToasts() {
         // system notification either: system notifications mirror in-app
         // toasts, and there is no in-app toast for this one. Drop silently
         // (no notification, no timer) and leave the queue untouched.
-        return;
+        return id;
       }
       applyToasts(next);
 
@@ -121,6 +121,7 @@ export function useToasts() {
         }, durationMs);
         timersRef.current.set(id, handle);
       }
+      return id;
     },
     [applyToasts, clearTimer]
   );

@@ -29,9 +29,15 @@ if [[ ! "$signing_fingerprint" =~ ^[A-Fa-f0-9]{40,64}$ ]]; then
   exit 1
 fi
 
+# Keep the passphrase out of the process list: it lives in a file inside
+# the mode-700 temporary GNUPGHOME and is removed with it by the EXIT trap.
+passphrase_file="$gpg_home/passphrase"
+printf '%s' "$signing_passphrase" > "$passphrase_file"
+chmod 600 "$passphrase_file"
+
 gpg_sign() {
   gpg --batch --yes --pinentry-mode loopback \
-    --passphrase "$signing_passphrase" \
+    --passphrase-file "$passphrase_file" \
     --local-user "$signing_fingerprint" "$@"
 }
 
@@ -213,6 +219,22 @@ for architecture in x86_64 aarch64; do
   cp -- "$generated_database" "$database_tmp"
   chmod 644 "$database_tmp"
   mv -fT -- "$database_tmp" "$database"
+
+  generated_files_database="$architecture_output/vidcord.files.tar.zst"
+  if [[ -e "$generated_files_database" || -L "$generated_files_database" ]]; then
+    if [[ ! -f "$generated_files_database" || -L "$generated_files_database" ]]; then
+      echo "repo-add produced an unsafe files database for $architecture." >&2
+      exit 1
+    fi
+    generated_files_database_real="$(realpath -e "$generated_files_database")"
+    if [[ "$generated_files_database_real" != "$architecture_output_real/vidcord.files.tar.zst" ]]; then
+      echo "The $architecture files database escaped its staging directory." >&2
+      exit 1
+    fi
+    copy_file_atomically "$generated_files_database" "$package_directory/vidcord.files.tar.zst"
+    copy_file_atomically "$generated_files_database" "$package_directory/vidcord.files"
+  fi
+
   for package in "$package_directory"/*.pkg.tar.zst; do
     gpg_sign_to_file "${package}.sig" "$package"
   done

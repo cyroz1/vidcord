@@ -2450,6 +2450,12 @@ select optgroup {
   color: var(--text-disabled);
 }
 
+.update-channel {
+  font-size: 12px;
+  color: var(--text-disabled);
+  white-space: nowrap;
+}
+
 .gh-link {
   display: inline-flex;
   align-items: center;

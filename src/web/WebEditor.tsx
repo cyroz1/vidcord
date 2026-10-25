@@ -20,7 +20,13 @@ import {
 import { normalizeLosslessKeyframes, snapLosslessTrimRange } from "../losslessTrim";
 import { applyPreviewAudioTrackSelection } from "../audioTracks";
 import { GIF_OUTPUT_FORMATS, gifOutputFormatLabel } from "../gifOutputFormat";
-import { moveQueueItem, reorderQueueItem } from "../queueReordering";
+import {
+  isQueueItemDrag,
+  moveQueueItem,
+  QUEUE_ITEM_DRAG_TYPE,
+  queueItemDragId,
+  reorderQueueItem,
+} from "../queueReordering";
 import WebTrimTimeline from "./WebTrimTimeline";
 import {
   GIF_PRESETS,
@@ -1877,25 +1883,29 @@ export default function WebEditor({
                             setDraggedQueueItemId(item.id);
                             if (event.dataTransfer) {
                               event.dataTransfer.effectAllowed = "move";
-                              event.dataTransfer.setData("text/plain", String(item.id));
+                              event.dataTransfer.setData(QUEUE_ITEM_DRAG_TYPE, String(item.id));
                             }
                           }}
                           onDragOver={(event) => {
                             if (isExporting) return;
+                            // Only internal queue drags are reorder
+                            // targets; foreign drags (files, text) fall
+                            // through to the page-level import handler.
+                            if (!isQueueItemDrag(event.dataTransfer?.types)) return;
                             event.preventDefault();
                             if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
                             if (draggedQueueItemId !== item.id) setDragOverQueueItemId(item.id);
                           }}
                           onDrop={(event) => {
                             if (isExporting) return;
+                            const sourceId = queueItemDragId(
+                              event.dataTransfer,
+                              draggedQueueItemId
+                            );
+                            if (sourceId === null) return;
                             event.preventDefault();
                             event.stopPropagation();
-                            const transferValue = event.dataTransfer?.getData("text/plain") ?? "";
-                            const dataTransferId = Number(transferValue);
-                            const sourceId =
-                              draggedQueueItemId ??
-                              (Number.isInteger(dataTransferId) ? dataTransferId : null);
-                            if (sourceId !== null && sourceId !== item.id) {
+                            if (sourceId !== item.id) {
                               reorderQueuedFile(sourceId, item.id);
                             }
                             clearQueueDragState();

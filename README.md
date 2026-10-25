@@ -441,8 +441,8 @@ register desktop and file associations. **Running the portable Linux AppImage:**
 > system FFmpeg install.
 
 The website detects the operating system. Linux opens the APT, RPM, and pacman
-install guide and links to available `.deb`, `.rpm`, pacman, and AppImage files
-directly. Windows links to the matching architecture-specific installer, and
+install guide and links to the `.deb`, `.rpm`, pacman, and AppImage files
+published with the latest release. Windows links to the matching architecture-specific installer, and
 macOS links to the universal DMG.
 If Windows architecture is uncertain, the site asks you to choose x86_64 or
 ARM64. If release metadata cannot be fetched or an installer is missing, it

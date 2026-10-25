@@ -1,12 +1,13 @@
 //! Original-file delivery for WebKitGTK, whose media backend rejects custom URI schemes.
 use std::collections::HashMap;
+#[cfg(not(unix))]
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ring::rand::{SecureRandom, SystemRandom};
 use tauri::Manager;
@@ -296,6 +297,20 @@ fn byte_range(header: &str, length: u64) -> Option<(u64, u64)> {
     (start < length && start <= end).then_some((start, end))
 }
 
+/// Open a prepared source for serving. O_NONBLOCK matters here: opening
+/// a FIFO blocks until a writer appears, so a path swapped for a FIFO
+/// after preparation would pin a request slot indefinitely before the
+/// identity check in `serve` can run. The flag has no effect on regular
+/// files once opened.
+#[cfg(unix)]
+fn open_preview_file(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(path)
+}
+
 fn reply(stream: &mut TcpStream, status: &str) -> std::io::Result<()> {
     stream.write_all(
         format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes(),
@@ -307,10 +322,23 @@ fn serve(
     expected_host: &str,
     sources: &Arc<Mutex<SourceTable>>,
 ) -> std::io::Result<()> {
+    // The per-syscall timeouts alone let a slow-loris client dribble bytes
+    // just under each deadline and pin a request slot indefinitely, so the
+    // header phase and the whole request also have total deadlines.
+    let started = Instant::now();
+    let header_deadline = Duration::from_secs(10);
     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
     let mut reader = BufReader::new((&stream).take(8193));
     let mut request = String::new();
+    // The request line gets the same total-deadline treatment as the
+    // header lines below; read_line alone would only see per-read timeouts.
+    match header_deadline.checked_sub(started.elapsed()) {
+        Some(remaining) if !remaining.is_zero() => {
+            stream.set_read_timeout(Some(remaining.min(Duration::from_secs(2))))?;
+        }
+        _ => return Ok(()),
+    }
     reader.read_line(&mut request)?;
     let mut parts = request.split_whitespace();
     let method = parts.next().unwrap_or("");
@@ -319,6 +347,12 @@ fn serve(
     let mut range: Option<String> = None;
     let mut consumed = request.len();
     loop {
+        match header_deadline.checked_sub(started.elapsed()) {
+            Some(remaining) if !remaining.is_zero() => {
+                stream.set_read_timeout(Some(remaining.min(Duration::from_secs(2))))?;
+            }
+            _ => return Ok(()),
+        }
         let mut line = String::new();
         let count = reader.read_line(&mut line)?;
         consumed += count;
@@ -363,7 +397,7 @@ fn serve(
     // path now names a different file, which any symlink swap does. Other
     // platforms keep the canonicalize comparison as the fallback.
     #[cfg(unix)]
-    let Ok(mut file) = File::open(&source.path) else {
+    let Ok(mut file) = open_preview_file(&source.path) else {
         return reply(&mut stream, "404 Not Found");
     };
     #[cfg(not(unix))]
@@ -381,7 +415,10 @@ fn serve(
             #[cfg(unix)]
             {
                 use std::os::unix::fs::MetadataExt;
-                if metadata.dev() != source.dev || metadata.ino() != source.ino {
+                if !metadata.is_file()
+                    || metadata.dev() != source.dev
+                    || metadata.ino() != source.ino
+                {
                     return reply(&mut stream, "404 Not Found");
                 }
             }
@@ -437,7 +474,22 @@ fn serve(
     stream.write_all(header.as_bytes())?;
     if method == "GET" && count > 0 {
         file.seek(SeekFrom::Start(start))?;
-        std::io::copy(&mut file.take(count), &mut stream)?;
+        // Chunked copy under a total transfer deadline (loopback moves a
+        // full file in seconds; the cap only stops a client that reads
+        // just fast enough to dodge the per-write timeout forever).
+        let transfer_deadline = Duration::from_secs(120);
+        let mut limited = file.take(count);
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            if started.elapsed() > transfer_deadline {
+                return Ok(());
+            }
+            let read = limited.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            stream.write_all(&buffer[..read])?;
+        }
     }
     Ok(())
 }
@@ -580,6 +632,31 @@ mod tests {
         let response = request(server.port, &host, &target, "");
         assert!(response.starts_with("HTTP/1.1 404"));
         assert!(!response.contains("outside-data"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn serve_refuses_a_fifo_swapped_after_prepare_without_blocking() {
+        let server = Server::start().unwrap();
+        let dir = std::env::temp_dir().join(format!("vidcord-preview-fifo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let allowed = dir.join("allowed.mp4");
+        std::fs::write(&allowed, b"allowed-data").unwrap();
+        let url = server.insert(allowed.clone()).unwrap();
+        let target = url::Url::parse(&url).unwrap().path().to_string();
+        // Swap the prepared file for a writer-less FIFO: a blocking open
+        // would pin the request slot forever (the read timeout in the
+        // request helper turns that regression into a failure here).
+        std::fs::remove_file(&allowed).unwrap();
+        let fifo_path = std::ffi::CString::new(allowed.to_string_lossy().into_owned()).unwrap();
+        let created = unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o644) };
+        assert_eq!(created, 0);
+        let host = format!("127.0.0.1:{}", server.port);
+        let started = Instant::now();
+        let response = request(server.port, &host, &target, "");
+        assert!(response.starts_with("HTTP/1.1 404"));
+        assert!(started.elapsed() < Duration::from_secs(3));
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -29,6 +29,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   instead of showing 100% and “Continuing…” between encoding passes.
 - GIF exports recover their palette after a browser encoder restart. Desktop GIF exports generate
   the palette separately to keep memory use from growing with the decoded clip length.
+- Browser exports now recover when the encoder stalls during audio analysis, size estimation, or
+  GIF palette generation instead of ending as a false cancellation.
 
 ### Export reliability
 
@@ -39,6 +41,12 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   app reload instead of returning to the same crashing state.
 - FFmpeg package-manager installs now stop after ten minutes and report a timeout instead of
   leaving setup stuck indefinitely.
+- An encode that produces an empty output file now fails instead of being reported as a
+  successful export.
+- Files that carry cover art as a separate video stream now probe and export the real video
+  stream instead of the artwork.
+- A settings change made while the app is still starting can no longer reset every other
+  setting back to its default.
 
 ### Performance
 
@@ -67,11 +75,15 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   package install without the repository, receive update prompts from the app again instead
   of being silently treated as package-manager managed.
 - Flatpak installs no longer check GitHub for updates; the platform delivers them.
+- Package-manager and Flatpak installs now say so in the footer (for example, "updates via
+  apt"), since those installs update outside the app and never see an update prompt.
 
 ### Feedback
 
 - Successful direct bug-report submissions delete the saved full report. Failed submissions keep
   the local copy for the email fallback, and copies older than seven days are cleaned up.
+- Bug reports still send when the local report copy cannot be written, and very long reports
+  are trimmed to fit the submission limit instead of failing.
 
 ### Security
 
@@ -86,6 +98,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   files, a pacman package for Arch Linux and Arch Linux ARM, and the portable AppImage.
   Signed APT, RPM, and pacman repositories let native installs update through the system
   package manager.
+- Every release artifact, including the pacman package, carries the same detached Ed25519
+  signature as the installers.
 
 ### Compatibility
 

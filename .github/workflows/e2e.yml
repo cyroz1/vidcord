@@ -1,5 +1,9 @@
 name: End-to-End UI Tests
 
+# Default to read-only; jobs declare any additional grants.
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main, "[0-9]+.[0-9]+"]
@@ -143,7 +147,18 @@ jobs:
 
       - name: Install FFmpeg (Windows)
         if: runner.os == 'Windows'
-        run: choco install ffmpeg --yes --no-progress
+        shell: pwsh
+        run: |
+          choco install ffmpeg --yes --no-progress
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+            $candidate = Get-ChildItem "C:\ProgramData\chocolatey\lib\ffmpeg\tools" -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+            if ($candidate) {
+              $candidate.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+              "FFMPEG_PATH=$($candidate.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+              $env:Path = "$($candidate.DirectoryName);$env:Path"
+            }
+          }
+          ffmpeg -version
 
       - name: Install npm dependencies
         run: npm ci --prefer-offline --no-audit --fund=false

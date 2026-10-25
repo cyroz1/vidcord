@@ -105,3 +105,23 @@ describe("parseSettingsPresets", () => {
     expect(parsed[0]).toMatchObject({ id: "one", name: "Discord" });
   });
 });
+
+describe("gif_output_format in presets", () => {
+  it("preserves webp through normalization", () => {
+    expect(normalizePresetSettings({ gif_output_format: "webp" }).gif_output_format).toBe("webp");
+  });
+
+  it("defaults a missing or invalid format to gif", () => {
+    expect(normalizePresetSettings({}).gif_output_format).toBe("gif");
+    expect(normalizePresetSettings({ gif_output_format: "avif" }).gif_output_format).toBe("gif");
+  });
+
+  it("survives a parse round trip and participates in equality", () => {
+    const parsed = parseSettingsPresets([
+      { id: "anim", name: "Animated", settings: { gif_output_format: "webp" } },
+    ]);
+    expect(parsed[0].settings.gif_output_format).toBe("webp");
+    const webp = normalizePresetSettings({ gif_output_format: "webp" });
+    expect(arePresetSettingsEqual(webp, { ...webp, gif_output_format: "gif" })).toBe(false);
+  });
+});

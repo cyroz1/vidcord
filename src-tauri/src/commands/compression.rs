@@ -83,7 +83,7 @@ where
 struct CompressionState {
     next_job_id: u64,
     active_job_id: Option<u64>,
-    processes: HashMap<u32, String>,
+    processes: HashSet<u32>,
     cancelled: bool,
 }
 
@@ -104,11 +104,11 @@ impl CompressionState {
         self.active_job_id != Some(job_id) || self.cancelled
     }
 
-    fn register_process(&mut self, job_id: u64, pid: u32, output_path: String) -> bool {
+    fn register_process(&mut self, job_id: u64, pid: u32) -> bool {
         if self.is_cancelled(job_id) {
             return false;
         }
-        self.processes.insert(pid, output_path);
+        self.processes.insert(pid);
         true
     }
 
@@ -127,14 +127,14 @@ impl CompressionState {
         }
         self.cancelled = true;
         self.processes
-            .keys()
+            .iter()
             .copied()
             .map(|pid| (job_id, pid))
             .collect()
     }
 
     fn owns_cancelled_process(&self, job_id: u64, pid: u32) -> bool {
-        self.active_job_id == Some(job_id) && self.processes.contains_key(&pid) && self.cancelled
+        self.active_job_id == Some(job_id) && self.processes.contains(&pid) && self.cancelled
     }
 
     fn finish_job(&mut self, job_id: u64) {
@@ -153,7 +153,7 @@ fn compression_state() -> &'static Arc<Mutex<CompressionState>> {
         Arc::new(Mutex::new(CompressionState {
             next_job_id: 0,
             active_job_id: None,
-            processes: HashMap::new(),
+            processes: HashSet::new(),
             cancelled: false,
         }))
     })
@@ -218,6 +218,39 @@ impl Drop for OutputReservation {
             let _ = std::fs::remove_file(&self.path);
         }
     }
+}
+
+/// A path argument beginning with `-` would be parsed by ffmpeg as an
+/// option flag (ffmpeg has no `--` end-of-options marker for these
+/// positions). Real input and output paths are absolute, so this only
+/// fires for a relative path whose first component starts with a dash;
+/// prefix `./` to make it unambiguous.
+fn ffmpeg_path_arg(path: &str) -> String {
+    if path.starts_with('-') {
+        format!("./{path}")
+    } else {
+        path.to_string()
+    }
+}
+
+/// Replace absolute paths inside a larger string with just their file
+/// names. Log lines are often shared for debugging, and FFmpeg embeds
+/// full paths in its own stderr headers (for example
+/// `Input #0, mov,mp4, from '/home/user/clip.mp4':`), so redacting only
+/// whole arguments is not enough.
+fn redact_path_substrings(text: &str, paths: &[&str]) -> String {
+    let mut redacted = text.to_string();
+    for path in paths {
+        if path.is_empty() {
+            continue;
+        }
+        let name = std::path::Path::new(path)
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "<redacted>".to_string());
+        redacted = redacted.replace(path, &name);
+    }
+    redacted
 }
 
 #[cfg(unix)]
@@ -963,6 +996,20 @@ struct FfmpegRunResult {
     last_lines: std::collections::VecDeque<String>,
     cancelled: bool,
 }
+
+/// FFmpeg exits 0 when the selected range contains no frames (a trim at
+/// or past the real stream end, or a file shortened after probing),
+/// leaving a header-only output. That is a failed run, not a result:
+/// the diagnostics name it, and a zero-byte output is never valid.
+fn run_produced_empty_output(run: &FfmpegRunResult, output_size: u64) -> bool {
+    output_size == 0
+        || run
+            .last_lines
+            .iter()
+            .any(|line| line.contains("Output file is empty"))
+}
+
+const EMPTY_OUTPUT_MESSAGE: &str = "The selected range produced no video frames. The file may have changed since it was probed, or the range starts at or after the end of the video.";
 
 #[derive(Clone)]
 struct FfmpegRunContext {
@@ -2128,7 +2175,7 @@ fn measure_audio_peak_gain_db(opts: &CompressOptions, job_id: u64) -> Result<Opt
         "-t".to_string(),
         duration,
         "-i".to_string(),
-        opts.input_path.clone(),
+        ffmpeg_path_arg(&opts.input_path),
         "-vn".to_string(),
         "-sn".to_string(),
         "-dn".to_string(),
@@ -2169,7 +2216,7 @@ fn measure_audio_peak_gain_db(opts: &CompressOptions, job_id: u64) -> Result<Opt
         let mut state = compression_state()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        state.register_process(job_id, pid, opts.output_path.clone())
+        state.register_process(job_id, pid)
     };
     if !registered {
         drop(child);
@@ -2305,7 +2352,7 @@ async fn run_ffmpeg_pass(
             "-ss".into(),
             start_time,
             "-i".into(),
-            opts.input_path.clone(),
+            ffmpeg_path_arg(&opts.input_path),
             "-t".into(),
             duration,
             // Map everything except data streams: camera files (e.g. Sony
@@ -2339,7 +2386,7 @@ async fn run_ffmpeg_pass(
             "-t".into(),
             duration,
             "-i".into(),
-            opts.input_path.clone(),
+            ffmpeg_path_arg(&opts.input_path),
             "-sn".into(),
         ]);
     }
@@ -2480,7 +2527,7 @@ async fn run_ffmpeg_pass(
     }
     cmd_args.push(match gif_pass {
         Some(GifPass::Palette(path)) => path.to_string(),
-        _ => opts.output_path.clone(),
+        _ => ffmpeg_path_arg(&opts.output_path),
     });
 
     if was_cancelled(context.job_id) {
@@ -2492,21 +2539,20 @@ async fn run_ffmpeg_pass(
     }
 
     // Log file names only: absolute paths embed the user's home directory,
-    // and this log is often shared for debugging.
-    let log_args: Vec<String> = cmd_args
-        .iter()
-        .map(|arg| {
-            if arg == &opts.input_path || arg == &opts.output_path {
-                std::path::Path::new(arg)
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| "<redacted>".to_string())
-            } else {
-                arg.clone()
-            }
-        })
-        .collect();
-    vidcord_log(&format!("FFmpeg command: ffmpeg {}", log_args.join(" ")));
+    // and this log is often shared for debugging. Redact by substring so
+    // paths inside larger arguments are covered too, not just whole
+    // arguments that exactly equal the input or output path.
+    let mut log_line =
+        redact_path_substrings(&cmd_args.join(" "), &[&opts.input_path, &opts.output_path]);
+    if let Some(pass) = &gif_pass {
+        let pass_path = match pass {
+            GifPass::Palette(path) | GifPass::Render(path) => *path,
+        };
+        if !pass_path.is_empty() {
+            log_line = log_line.replace(pass_path, "<palette>");
+        }
+    }
+    vidcord_log(&format!("FFmpeg command: ffmpeg {log_line}"));
 
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("ffmpeg");
@@ -2536,7 +2582,7 @@ async fn run_ffmpeg_pass(
         let mut state = compression_state()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        state.register_process(context.job_id, pid, opts.output_path.clone())
+        state.register_process(context.job_id, pid)
     };
     if !registered {
         let _ = child.kill();
@@ -2577,6 +2623,7 @@ async fn run_ffmpeg_pass(
     let should_emit_progress = context.emit_progress;
     let clip_duration = context.clip_duration;
     let batch_context = context.batch.clone();
+    let redact_paths = [opts.input_path.clone(), opts.output_path.clone()];
     let (progress_start, progress_span) = match gif_pass {
         Some(GifPass::Palette(_)) => (0.0, 40.0),
         Some(GifPass::Render(_)) => (40.0, 60.0),
@@ -2604,11 +2651,15 @@ async fn run_ffmpeg_pass(
             if !is_progress {
                 // Allocate the owned diagnostic only for lines that can use
                 // it; `time=` progress lines arrive constantly and never do.
+                // FFmpeg's own headers embed absolute paths; redact them
+                // here so every downstream log and error tail is covered.
                 let diagnostic = if truncated {
                     format!("{line} … [truncated]")
                 } else {
                     line.to_string()
                 };
+                let diagnostic =
+                    redact_path_substrings(&diagnostic, &[&redact_paths[0], &redact_paths[1]]);
                 if contains_ascii_ci_any(line, &[b"error", b"warning"]) {
                     vidcord_log(&format!("FFMPEG: {diagnostic}"));
                 }
@@ -2748,6 +2799,9 @@ async fn estimate_size_from_sample(
     if metadata.len() == 0 || sample_duration <= 0.0 || !sample_duration.is_finite() {
         return Ok(None);
     }
+    if run_produced_empty_output(&run, metadata.len()) {
+        return Ok(None);
+    }
 
     let projected = projected_size_from_sample(metadata.len(), sample_duration, clip_duration);
     Ok(Some(projected))
@@ -2832,15 +2886,40 @@ async fn try_lossless_trim(
     }
 
     let total_attempts = candidates.len();
+    let mut ran_any_candidate = false;
     for (attempt_index, output_path) in candidates.into_iter().enumerate() {
         let mut attempt_opts = opts.clone();
         attempt_opts.output_path = output_path.clone();
-        let mut reservation = tokio::task::spawn_blocking({
+        let reservation_result = tokio::task::spawn_blocking({
             let reservation_path = output_path.clone();
             move || OutputReservation::create(reservation_path)
         })
         .await
-        .map_err(|error| error.to_string())??;
+        .map_err(|error| error.to_string())?;
+        let mut reservation = match reservation_result {
+            Ok(reservation) => reservation,
+            Err(error) => {
+                // A candidate that cannot be reserved (e.g. its folder
+                // vanished) must not veto the fallback output path.
+                if attempt_index + 1 < total_attempts {
+                    vidcord_log(&format!(
+                        "Lossless Trim: could not reserve {output_path}: {error}; trying the next candidate"
+                    ));
+                    continue;
+                }
+                // A previous candidate was actually attempted and its
+                // reservation is gone, so the primary path is free again:
+                // fall back to normal compression instead of failing.
+                if ran_any_candidate {
+                    vidcord_log(&format!(
+                        "Lossless Trim: could not reserve the fallback candidate ({error}) after an earlier attempt; using normal compression"
+                    ));
+                    return Ok(None);
+                }
+                return Err(error);
+            }
+        };
+        ran_any_candidate = true;
 
         let run = run_ffmpeg_attempt(
             app,
@@ -2894,6 +2973,17 @@ async fn try_lossless_trim(
                 continue;
             }
         };
+        if run_produced_empty_output(&run, output_size) {
+            remove_partial_output(&output_path);
+            vidcord_log(
+                "Lossless trim produced an empty output; the selected range has no frames.",
+            );
+            let _ = app.emit(
+                "compress-done",
+                serde_json::json!({"success": false, "message": EMPTY_OUTPUT_MESSAGE}),
+            );
+            return Err(EMPTY_OUTPUT_MESSAGE.to_string());
+        }
         let output_extension = std::path::Path::new(&output_path)
             .extension()
             .and_then(|extension| extension.to_str())
@@ -3076,8 +3166,17 @@ async fn run_batch_item(
                 if is_resource_contention_error(&error) {
                     mark_batch_resource_contention(&context);
                 }
-                remove_partial_output(&opts.output_path);
-                return Err(error);
+                if error == "Cancelled" {
+                    remove_partial_output(&opts.output_path);
+                    return Err(error);
+                }
+                // Peak analysis is optional polish: a timeout or an
+                // unparseable report degrades to encoding without gain
+                // instead of failing the whole export.
+                vidcord_log(&format!(
+                    "Audio peak analysis failed; encoding without normalization gain: {error}"
+                ));
+                None
             }
         }
     } else {
@@ -3310,6 +3409,16 @@ async fn run_batch_item(
                 return Err(message);
             }
         };
+        if run_produced_empty_output(&run, output_size) {
+            if best_fit_bytes.is_some() {
+                vidcord_log(
+                    "Target-size refinement produced an empty output; keeping the previous in-range output.",
+                );
+                break;
+            }
+            remove_partial_output(&opts.output_path);
+            return Err(EMPTY_OUTPUT_MESSAGE.to_string());
+        }
         let output_is_small_enough = match target_bytes {
             Some(limit) => output_size <= limit,
             None => true,
@@ -3784,13 +3893,13 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 return Err(error);
             }
             Err(error) => {
-                vidcord_log(&format!("Audio peak analysis failed: {error}"));
-                remove_partial_output(&opts.output_path);
-                let _ = app.emit(
-                    "compress-done",
-                    serde_json::json!({"success": false, "message": error}),
-                );
-                return Err(error);
+                // Peak analysis is optional polish: a timeout or an
+                // unparseable report degrades to encoding without gain
+                // instead of failing the whole export.
+                vidcord_log(&format!(
+                    "Audio peak analysis failed; encoding without normalization gain: {error}"
+                ));
+                None
             }
         }
     } else {
@@ -4156,6 +4265,21 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 return Err(message);
             }
         };
+        if run_produced_empty_output(&run, output_size) {
+            if best_fit_bytes.is_some() {
+                vidcord_log(
+                    "Target-size refinement produced an empty output; keeping the previous in-range output.",
+                );
+                break;
+            }
+            vidcord_log("Compression produced an empty output; the selected range has no frames.");
+            remove_partial_output(&opts.output_path);
+            let _ = app.emit(
+                "compress-done",
+                serde_json::json!({"success": false, "message": EMPTY_OUTPUT_MESSAGE}),
+            );
+            return Err(EMPTY_OUTPUT_MESSAGE.to_string());
+        }
         let output_is_small_enough = match target_bytes {
             Some(limit) => output_size <= limit,
             None => true,
@@ -4477,6 +4601,13 @@ pub fn parse_ffmpeg_time(line: &str) -> Option<f64> {
     if t == "N/A" {
         return None;
     }
+    // Stream-copy status lines for sources with a negative start time
+    // report negative times (time=-00:00:08.20); dropping the sign would
+    // corrupt progress and ETA, so keep it.
+    let (sign, t) = match t.strip_prefix('-') {
+        Some(stripped) => (-1.0, stripped),
+        None => (1.0, t),
+    };
     // Avoid the per-line Vec<&str> allocation from `.split(':').collect()`.
     // FFmpeg emits dozens of progress lines per second; this runs on every one.
     let mut it = t.split(':');
@@ -4486,7 +4617,7 @@ pub fn parse_ffmpeg_time(line: &str) -> Option<f64> {
     if it.next().is_some() {
         return None;
     }
-    Some(h * 3600.0 + m * 60.0 + s)
+    Some(sign * (h * 3600.0 + m * 60.0 + s))
 }
 
 fn estimate_batch_eta_seconds(
@@ -4775,6 +4906,40 @@ mod tests {
     fn test_parse_ffmpeg_time_na() {
         let line = "time=N/A bitrate=N/A";
         assert_eq!(parse_ffmpeg_time(line), None);
+    }
+
+    #[test]
+    fn test_parse_ffmpeg_time_negative() {
+        let line = "time=-00:00:08.20 bitrate=500kbits/s";
+        assert_eq!(parse_ffmpeg_time(line), Some(-8.2));
+    }
+
+    #[test]
+    fn empty_output_detection_uses_diagnostics_and_size() {
+        let run = |lines: &[&str]| FfmpegRunResult {
+            exit_status: cancelled_exit_status(),
+            last_lines: lines.iter().map(|line| line.to_string()).collect(),
+            cancelled: false,
+        };
+        assert!(run_produced_empty_output(&run(&[]), 0));
+        assert!(run_produced_empty_output(
+            &run(&["[out#0/mp4 @ 0x1] Output file is empty, nothing was encoded"]),
+            262
+        ));
+        assert!(!run_produced_empty_output(&run(&["frame= 10"]), 262));
+        assert!(!run_produced_empty_output(&run(&[]), 1024));
+    }
+
+    #[test]
+    fn path_redaction_replaces_full_paths_inside_text() {
+        let text = "Input #0, mov,mp4, from '/home/user/Videos/clip.mp4':";
+        let redacted = redact_path_substrings(text, &["/home/user/Videos/clip.mp4"]);
+        assert_eq!(redacted, "Input #0, mov,mp4, from 'clip.mp4':");
+        assert_eq!(
+            redact_path_substrings("no paths here", &["/home/user/Videos/clip.mp4"]),
+            "no paths here"
+        );
+        assert_eq!(redact_path_substrings("unchanged", &[""]), "unchanged");
     }
 
     #[test]
@@ -5444,14 +5609,14 @@ mod tests {
         let mut state = CompressionState {
             next_job_id: 0,
             active_job_id: None,
-            processes: HashMap::new(),
+            processes: HashSet::new(),
             cancelled: false,
         };
 
         let first = state.try_begin_job().unwrap();
         assert!(state.try_begin_job().is_none());
-        assert!(state.register_process(first, 42, "first.mp4".into()));
-        assert!(state.register_process(first, 43, "second.mp4".into()));
+        assert!(state.register_process(first, 42));
+        assert!(state.register_process(first, 43));
         let mut cancelled = state.cancel_active();
         cancelled.sort_unstable();
         assert_eq!(cancelled, vec![(first, 42), (first, 43)]);

@@ -2,7 +2,7 @@ name: Site Browser Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, "[0-9]+.[0-9]+"]
     paths:
       - "src/main.tsx"
       - "src/web/**"
@@ -17,7 +17,7 @@ on:
       - "site/**"
       - ".github/workflows/**"
   pull_request:
-    branches: [main]
+    branches: [main, "[0-9]+.[0-9]+"]
     paths:
       - "src/main.tsx"
       - "src/web/**"

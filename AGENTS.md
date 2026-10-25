@@ -41,6 +41,7 @@ the authority for behavior; historical changelog entries describe their release,
 │   ├── e2eDialog.ts           # Test-only native dialog bridge
 │   ├── previewScrub.ts        # Pure preview-seek and native-context-menu helpers
 │   ├── timelineZoom.ts        # Pure trim-timeline zoom/view calculations
+│   ├── updateChannel.ts       # Package-manager update-channel resolution for the footer
 │   ├── videoMetadata.ts       # Pure source-metadata formatting helpers
 │   ├── losslessTrim.ts         # Pure lossless-fit, keyframe-snap, and keyframe-normalization helpers
 │   ├── settingsPresets.ts      # Preset schema, normalization, equality, and parsing helpers
@@ -556,8 +557,9 @@ Every `std::process::Command::new("ffmpeg"|"ffprobe")` in Rust must:
 On Windows, encoder detection and fresh availability probes also recover a standard WinGet
 `Gyan.FFmpeg` install from its portable aliases or package directory and prepend that directory to
 the current process PATH. This handles PATH registry updates that cannot propagate into an already
-running vidcord process. Keep the lookup constrained to WinGet roots and require both
-`ffmpeg.exe` and `ffprobe.exe` before using a directory.
+running vidcord process. Keep the lookup constrained to the WinGet roots and the two standard
+manual-install roots (`<SystemDrive>\ffmpeg` and `C:\ffmpeg`, searched to depth 3), and require
+both `ffmpeg.exe` and `ffprobe.exe` plus a successful version probe before using a directory.
 
 FFprobe child PIDs have a separate generation token and a six-second deadline. Starting a newer
 import must terminate older probes so stale metadata work cannot consume the full timeout. Desktop

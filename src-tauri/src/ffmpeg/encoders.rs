@@ -39,6 +39,24 @@ struct EncoderListingState {
     generation: u64,
 }
 
+struct EncoderListingGuard {
+    listing: &'static Mutex<EncoderListingState>,
+    ready: &'static Condvar,
+}
+
+impl Drop for EncoderListingGuard {
+    fn drop(&mut self) {
+        let mut state = self.listing.lock().unwrap_or_else(|e| e.into_inner());
+        state.discovering = false;
+        self.ready.notify_all();
+    }
+}
+
+/// Bounded slices for single-flight waits, matching the filter cache: a
+/// waiter re-checks state at least this often instead of sleeping forever
+/// if a discoverer dies without clearing its flight.
+const FLIGHT_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
 impl Drop for EncoderDiscoveryGuard {
     fn drop(&mut self) {
         let mut state = self.cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -141,19 +159,24 @@ pub fn get_or_discover_encoder_listing() -> Result<String, String> {
             state.discovering = true;
             break state.generation;
         }
-        state = ready.wait(state).unwrap_or_else(|e| e.into_inner());
+        state = ready
+            .wait_timeout(state, FLIGHT_WAIT_TIMEOUT)
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
     };
     drop(state);
+    // Clears `discovering` and wakes the waiters on every exit path,
+    // including a panic inside discovery.
+    let _listing_guard = EncoderListingGuard { listing, ready };
 
     let result = discover_encoder_listing();
     let mut state = listing.lock().unwrap_or_else(|e| e.into_inner());
-    state.discovering = false;
     if state.generation == discovery_generation {
         if let Ok(text) = &result {
             state.cached = Some(text.clone());
         }
     }
-    ready.notify_all();
+    drop(state);
     result
 }
 
@@ -313,7 +336,10 @@ pub fn get_available_encoders() -> AvailableEncoders {
                 state.discovering = true;
                 break state.generation;
             }
-            state = ready.wait(state).unwrap_or_else(|e| e.into_inner());
+            state = ready
+                .wait_timeout(state, FLIGHT_WAIT_TIMEOUT)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
         }
     };
     let _discovery_guard = EncoderDiscoveryGuard { cache, ready };

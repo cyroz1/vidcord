@@ -119,13 +119,17 @@ export default function FeedbackDialog({ onClose }: Props) {
       setReport(collected);
       await sendBugReport(collected);
       // The endpoint send is confirmed, so the on-disk full report copy can
-      // go; the mailto fallback path keeps it. Best effort: a failed delete
-      // must not turn a successful send into an error (the copy is also
-      // swept after 7 days).
-      try {
-        await deleteBugReport(collected.reportPath);
-      } catch {
-        // ignored
+      // go; the mailto fallback path keeps it. The copy may not exist
+      // (reportPath is empty when the local write failed), in which case
+      // there is nothing to delete. Best effort: a failed delete must not
+      // turn a successful send into an error (the copy is also swept
+      // after 7 days).
+      if (collected.reportPath !== "") {
+        try {
+          await deleteBugReport(collected.reportPath);
+        } catch {
+          // ignored
+        }
       }
       setSent(true);
     } catch (err) {
@@ -197,14 +201,16 @@ export default function FeedbackDialog({ onClose }: Props) {
                 ref={initialFocusRef}
                 style={textareaStyle}
                 value={description}
+                maxLength={8192}
                 onChange={(event) => setDescription(event.target.value)}
                 placeholder="e.g. Export failed at 80% with 'encoder error' on a 4K HEVC file…"
                 disabled={sending}
               />
               <p style={noteStyle}>
                 Sends directly to the developer. The report includes your Vidcord version, operating
-                system, and the last 100 lines of the app log. A full copy is also saved on your
-                disk.
+                system, and the last 100 lines of the app log. A full copy is saved on your disk
+                first and deleted once the send succeeds; if sending fails, the copy stays so you
+                can mail it instead.
               </p>
               {error !== null && (
                 <>
@@ -227,7 +233,7 @@ export default function FeedbackDialog({ onClose }: Props) {
                   ? "Report sent — thanks for helping improve Vidcord."
                   : "Your mail app should now have the report ready — review it and hit send there."}
               </p>
-              {report !== null && !sent && (
+              {report !== null && !sent && report.reportPath !== "" && (
                 <p style={noteStyle}>
                   A full copy was saved to:
                   <br />

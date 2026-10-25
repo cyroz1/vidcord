@@ -103,9 +103,6 @@ fn registered_appimage_entry_exists(
         return (!existing.contains(INTEGRATION_MARKER), Some(existing));
     }
 
-    let Some(appimage_name) = appimage.file_name().and_then(OsStr::to_str) else {
-        return (false, None);
-    };
     let Ok(entries) = fs::read_dir(applications_directory) else {
         return (false, None);
     };
@@ -117,13 +114,47 @@ fn registered_appimage_entry_exists(
         let Ok(contents) = fs::read_to_string(entry.path()) else {
             return false;
         };
-        contents.contains(appimage_name)
-            && contents.lines().any(|line| {
-                line.strip_prefix("MimeType=")
-                    .is_some_and(|types| types.split(';').any(|mime| mime == "inode/directory"))
-            })
+        // The entry must actually launch THIS AppImage, not merely share
+        // its file name: a same-named AppImage in another directory is a
+        // different install, and an unrelated entry mentioning the name
+        // must not suppress registration.
+        desktop_entry_exec_program(&contents).is_some_and(|program| {
+            Path::new(&program) == appimage
+                && contents.lines().any(|line| {
+                    line.strip_prefix("MimeType=")
+                        .is_some_and(|types| types.split(';').any(|mime| mime == "inode/directory"))
+                })
+        })
     });
     (found, None)
+}
+
+/// The program an `Exec=` line launches: the first token, unquoted and
+/// with desktop-entry backslash escapes resolved, or None when the entry
+/// has no Exec line.
+fn desktop_entry_exec_program(contents: &str) -> Option<String> {
+    let line = contents
+        .lines()
+        .find_map(|line| line.strip_prefix("Exec="))?
+        .trim();
+    if let Some(quoted) = line.strip_prefix('"') {
+        let mut program = String::new();
+        let mut chars = quoted.chars();
+        while let Some(c) = chars.next() {
+            match c {
+                '"' => break,
+                '\\' => {
+                    if let Some(escaped) = chars.next() {
+                        program.push(escaped);
+                    }
+                }
+                _ => program.push(c),
+            }
+        }
+        Some(program)
+    } else {
+        line.split_whitespace().next().map(str::to_string)
+    }
 }
 
 fn write_desktop_entry(path: &Path, contents: &str, current: Option<String>) -> io::Result<bool> {

@@ -45,9 +45,36 @@ struct StartupTiming {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_pending_files, existing_open_path, is_update_download_temp_name,
-        sweep_stale_update_downloads_in,
+        append_pending_files, existing_open_path, existing_open_paths_with_cwd,
+        is_update_download_temp_name, sweep_stale_update_downloads_in,
     };
+
+    #[test]
+    fn open_paths_resolve_relative_to_the_supplied_cwd() {
+        let dir = std::env::temp_dir().join(format!("vidcord-open-paths-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("clip.mp4");
+        std::fs::write(&file, b"x").unwrap();
+        let absolute = file.to_string_lossy().into_owned();
+        let url = url::Url::from_file_path(&file).unwrap().to_string();
+
+        let resolved = existing_open_paths_with_cwd(
+            vec![
+                "clip.mp4".to_string(),
+                absolute.clone(),
+                url,
+                "--flag".to_string(),
+                "missing.mp4".to_string(),
+            ],
+            &dir,
+        );
+        // The relative path resolves against the supplied cwd, the
+        // absolute path passes through, the file: URL is decoded without
+        // being joined to the cwd, and flags and missing files drop out.
+        assert_eq!(resolved, vec![absolute.clone(), absolute.clone(), absolute]);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn pending_open_files_are_merged_before_frontend_ready() {
@@ -190,6 +217,31 @@ fn existing_open_paths(arguments: impl IntoIterator<Item = String>) -> Vec<Strin
     arguments
         .into_iter()
         .filter_map(|argument| existing_open_path(&argument))
+        .collect()
+}
+
+/// Like `existing_open_paths`, but relative plain paths resolve against
+/// `cwd` instead of this process's working directory. The single-instance
+/// route needs it: a second instance launched from another directory
+/// passes paths relative to its own cwd, and checking them against the
+/// running process's cwd would drop the open or hit a same-named file.
+fn existing_open_paths_with_cwd(
+    arguments: impl IntoIterator<Item = String>,
+    cwd: &std::path::Path,
+) -> Vec<String> {
+    arguments
+        .into_iter()
+        .filter_map(|argument| {
+            let path = std::path::PathBuf::from(&argument);
+            let is_file_url = argument
+                .get(..5)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("file:"));
+            if !path.is_absolute() && !is_file_url && !argument.starts_with('-') {
+                existing_open_path(&cwd.join(path).to_string_lossy())
+            } else {
+                existing_open_path(&argument)
+            }
+        })
         .collect()
 }
 
@@ -540,7 +592,7 @@ pub fn run() {
                 .with_state_flags(StateFlags::POSITION)
                 .build(),
         )
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             // A second instance was launched — focus the existing window.
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.show();
@@ -548,7 +600,8 @@ pub fn run() {
             }
             // If the second instance was opened with a file (e.g. right-click → Open With),
             // forward that file path to the already-running frontend.
-            let paths = existing_open_paths(argv.into_iter().skip(1));
+            let paths =
+                existing_open_paths_with_cwd(argv.into_iter().skip(1), std::path::Path::new(&cwd));
             if !paths.is_empty() {
                 vidcord_log(&format!(
                     "Single-instance: forwarding {} file(s) from second instance",
