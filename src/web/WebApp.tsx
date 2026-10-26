@@ -42,12 +42,13 @@ type SiteNavLink = {
 
 const SITE_NAV_LINKS: readonly SiteNavLink[] = [
   { href: "#desktop-app", label: "Desktop App" },
+  { href: "#download", label: "Downloads" },
   { href: "#web-editor", label: "Web Demo" },
   { href: "#workflow", label: "How It Works" },
   { href: "#integrations", label: "Open With" },
   { href: "#faq", label: "FAQ" },
-  { href: "#feedback", label: "Feedback" },
   { href: "#support", label: "Support" },
+  { href: "#feedback", label: "Feedback" },
   { href: "https://github.com/cyroz1/vidcord", label: "GitHub", external: true },
 ] as const;
 

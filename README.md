@@ -440,10 +440,12 @@ register desktop and file associations. **Running the portable Linux AppImage:**
 > FFmpeg. The browser edition loads FFmpeg WebAssembly and does not require a
 > system FFmpeg install.
 
-The website detects the operating system. Linux opens the APT, RPM, and pacman
-install guide and links to the `.deb`, `.rpm`, pacman, and AppImage files
-published with the latest release. Windows links to the matching architecture-specific installer, and
-macOS links to the universal DMG.
+The website detects the operating system and, on Linux, opens repository setup
+commands for the detected distribution and architecture. If either is unclear,
+it asks you to choose. The dialog also offers direct `.deb`, `.rpm`, or pacman
+package downloads without adding the repository, plus a matching AppImage.
+Windows links to the matching architecture-specific installer, and macOS links
+to the universal DMG.
 If Windows architecture is uncertain, the site asks you to choose x86_64 or
 ARM64. If release metadata cannot be fetched or an installer is missing, it
 falls back to the GitHub release page. Mobile devices show the desktop platform

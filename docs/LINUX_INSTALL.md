@@ -69,6 +69,21 @@ repository. To upgrade a one-off installation, download and install the newer
 package manually. Without the repository, vidcord also checks GitHub and may
 offer its AppImage; that AppImage does not upgrade an installed native package.
 
+The repository setup commands below use `curl` to download the signing key. Minimal
+installations may not include it; install it from your distribution's normal
+repositories first:
+
+```sh
+# Debian or Ubuntu
+sudo apt install curl
+
+# Fedora / DNF systems
+sudo dnf install curl
+
+# Arch Linux
+sudo pacman -S curl
+```
+
 ## Debian and Ubuntu repository
 
 Before trusting the repository key, compare its fingerprint with a value

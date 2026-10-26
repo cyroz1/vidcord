@@ -1259,6 +1259,128 @@ main {
   font-size: 13px;
 }
 
+.linux-install-dialog {
+  width: min(92vw, 760px);
+  max-height: 88vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.linux-install-selectors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.linux-install-field {
+  display: grid;
+  gap: 7px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 740;
+}
+
+.linux-install-field select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: #0a1b30;
+  font: inherit;
+}
+
+.linux-install-section {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.linux-install-section h4 {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 780;
+}
+
+.linux-install-section p {
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+
+.linux-install-section .command-block {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.linux-install-section .command-block pre {
+  flex: 1 1 auto;
+}
+
+.linux-install-next-step {
+  margin-top: 18px !important;
+}
+
+.linux-install-downloads {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 235px), 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.linux-install-download-option {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(3, 15, 29, 0.42);
+}
+
+.linux-install-download {
+  width: fit-content;
+  min-height: 44px;
+  padding: 0 15px;
+}
+
+.linux-install-download-option small,
+.linux-install-asset-name {
+  display: block;
+  max-width: 100%;
+  color: var(--subtle);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.linux-install-command-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.linux-install-dialog a:not(.button) {
+  color: var(--accent-strong);
+  font-weight: 740;
+}
+
+@media (max-width: 620px) {
+  .linux-install-selectors {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .linux-install-downloads {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .linux-install-panel {
+    padding: 24px 18px;
+  }
+}
+
 .donate-section {
   display: flex;
   align-items: center;
