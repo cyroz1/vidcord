@@ -1,11 +1,13 @@
 export type DownloadPlatform = "windows" | "macos" | "linux" | "unknown";
 export type DownloadArch = "x64" | "arm64" | "unknown";
+export type LinuxDistro = "debian" | "fedora" | "arch" | "unknown";
 export type LinuxPackageFormat = "deb" | "rpm" | "pacman";
 
 export type DownloadEnvironment = {
   platform: DownloadPlatform;
   arch: DownloadArch;
   archCertain: boolean;
+  distro: LinuxDistro;
 };
 
 export type ReleaseAsset = {
@@ -40,6 +42,7 @@ const DEFAULT_ENVIRONMENT: DownloadEnvironment = {
   platform: "unknown",
   arch: "unknown",
   archCertain: false,
+  distro: "unknown",
 };
 
 type UserAgentData = {
@@ -119,6 +122,24 @@ export function normalizeDownloadArch(value: unknown): DownloadArch {
   return "unknown";
 }
 
+export function normalizeLinuxDistro(value: unknown): LinuxDistro {
+  const text = String(value ?? "").toLowerCase();
+
+  if (/\b(?:debian|ubuntu|linux mint|pop!?_os|elementary|zorin)\b/.test(text)) {
+    return "debian";
+  }
+
+  if (/\b(?:fedora|red hat|rhel|centos|rocky linux|alma linux)\b/.test(text)) {
+    return "fedora";
+  }
+
+  if (/\barch(?:\s+linux)?\b/.test(text)) {
+    return "arch";
+  }
+
+  return "unknown";
+}
+
 export async function detectDownloadEnvironment(): Promise<DownloadEnvironment> {
   if (typeof navigator === "undefined") {
     return DEFAULT_ENVIRONMENT;
@@ -134,8 +155,13 @@ export async function detectDownloadEnvironment(): Promise<DownloadEnvironment> 
   const userAgentData = navigatorWithUserAgentData.userAgentData;
   let platformSource =
     userAgentData?.platform || navigatorWithUserAgentData.platform || navigator.userAgent;
-  let arch: DownloadArch = "unknown";
-  let archCertain = false;
+  let arch = normalizeDownloadArch(
+    `${navigatorWithUserAgentData.platform ?? ""} ${navigator.userAgent}`
+  );
+  let archCertain = arch !== "unknown";
+  const distro = normalizeLinuxDistro(
+    `${navigatorWithUserAgentData.platform ?? ""} ${userAgentData?.platform ?? ""} ${navigator.userAgent}`
+  );
 
   if (userAgentData && typeof userAgentData.getHighEntropyValues === "function") {
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -147,7 +173,7 @@ export async function detectDownloadEnvironment(): Promise<DownloadEnvironment> 
         }),
       ]);
       if (!values)
-        return { platform: normalizeDownloadPlatform(platformSource), arch, archCertain };
+        return { platform: normalizeDownloadPlatform(platformSource), arch, archCertain, distro };
       const detectedArch = normalizeDownloadArch(
         `${values.architecture ?? ""} ${values.bitness ?? ""}`
       );
@@ -158,8 +184,7 @@ export async function detectDownloadEnvironment(): Promise<DownloadEnvironment> 
         archCertain = true;
       }
     } catch {
-      arch = "unknown";
-      archCertain = false;
+      // Keep an architecture that was explicit in the legacy user agent.
     } finally {
       clearTimeout(timeout);
     }
@@ -169,6 +194,7 @@ export async function detectDownloadEnvironment(): Promise<DownloadEnvironment> 
     platform: normalizeDownloadPlatform(platformSource),
     arch,
     archCertain,
+    distro,
   };
 }
 

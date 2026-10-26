@@ -21,7 +21,7 @@ routes, FFmpeg workers, and WASM before Tauri embeds `dist/`.
 | Native capability discovery | [useEncoders.ts](../src/hooks/useEncoders.ts), [encoders.rs](../src-tauri/src/ffmpeg/encoders.rs), [gpu.rs](../src-tauri/src/gpu.rs): cached discovery and bounded hardware validation                      |
 | Desktop host                | [lib.rs](../src-tauri/src/lib.rs): platform setup, plugins, command registration, file-open delivery, theme, and page-load cleanup                                                                          |
 | Browser shell               | [WebApp.tsx](../src/web/WebApp.tsx): product page, deferred editor, drop forwarding, feedback, and support                                                                                                  |
-| Download story              | [DesktopUpgrade.tsx](../src/web/DesktopUpgrade.tsx), [desktopDownloads.ts](../src/web/desktopDownloads.ts): platform/architecture selection, GitHub assets, Linux install-guide CTA, Shields download count |
+| Download story              | [DesktopUpgrade.tsx](../src/web/DesktopUpgrade.tsx), [desktopDownloads.ts](../src/web/desktopDownloads.ts): platform/architecture/distribution selection, GitHub assets, Linux install dialog, Shields download count |
 | Browser editor              | [WebEditor.tsx](../src/web/WebEditor.tsx), [WebTrimTimeline.tsx](../src/web/WebTrimTimeline.tsx): file/metadata ownership, mode controls, preview, trim history, queue, export delivery                     |
 | Browser export              | [exportPlan.ts](../src/web/exportPlan.ts), [webExporter.ts](../src/web/webExporter.ts), [ffmpegEngine.ts](../src/web/ffmpegEngine.ts): arguments, adaptive passes, owned worker sessions                    |
 

@@ -13,6 +13,7 @@ import {
   type DownloadArch,
   type DownloadEnvironment,
   type DownloadPlatform,
+  type LinuxDistro,
   type LinuxPackageFormat,
   type LatestRelease,
 } from "./desktopDownloads";
@@ -33,6 +34,67 @@ const LINUX_PACKAGE_DOWNLOADS = [
   format: LinuxPackageFormat;
   arch: Exclude<DownloadArch, "unknown">;
 }>;
+
+type LinuxDistroChoice = Exclude<LinuxDistro, "unknown"> | "other";
+
+const LINUX_DISTRO_CHOICES = [
+  { id: "debian", label: "Debian, Ubuntu, or a derivative" },
+  { id: "fedora", label: "Fedora or another DNF system" },
+  { id: "arch", label: "Arch Linux or Arch Linux ARM" },
+  { id: "other", label: "Other Linux distribution" },
+] as const satisfies ReadonlyArray<{ id: LinuxDistroChoice; label: string }>;
+
+const LINUX_INSTALL_STEPS: Record<
+  Exclude<LinuxDistroChoice, "other">,
+  {
+    name: string;
+    format: LinuxPackageFormat;
+    keyCommand: string;
+    repositoryCommand: string;
+  }
+> = {
+  debian: {
+    name: "Debian / Ubuntu",
+    format: "deb",
+    keyCommand: `sudo apt install curl
+curl -fsSLo /tmp/vidcord-repo-key.gpg \\
+  https://cyroz1.github.io/vidcord/vidcord-repo-key.gpg
+gpg --show-keys --with-fingerprint /tmp/vidcord-repo-key.gpg`,
+    repositoryCommand: `sudo install -d -m 0755 /usr/share/keyrings
+sudo install -m 0644 /tmp/vidcord-repo-key.gpg \\
+  /usr/share/keyrings/vidcord-repo-key.gpg
+echo 'deb [signed-by=/usr/share/keyrings/vidcord-repo-key.gpg] https://cyroz1.github.io/vidcord/apt stable main' \\
+  | sudo tee /etc/apt/sources.list.d/vidcord.list >/dev/null
+sudo apt update
+sudo apt install vidcord`,
+  },
+  fedora: {
+    name: "Fedora / DNF",
+    format: "rpm",
+    keyCommand: `sudo dnf install curl gnupg2
+curl -fsSLo /tmp/vidcord-repo-key.asc \\
+  https://cyroz1.github.io/vidcord/vidcord-repo-key.asc
+gpg --show-keys --with-fingerprint /tmp/vidcord-repo-key.asc`,
+    repositoryCommand: `sudo curl -fsSLo /etc/yum.repos.d/vidcord.repo \\
+  https://cyroz1.github.io/vidcord/rpm/vidcord.repo
+sudo dnf install vidcord`,
+  },
+  arch: {
+    name: "Arch Linux / Arch Linux ARM",
+    format: "pacman",
+    keyCommand: `sudo pacman -S --needed curl gnupg
+curl -fsSLo /tmp/vidcord-repo-key.asc \\
+  https://cyroz1.github.io/vidcord/vidcord-repo-key.asc
+gpg --show-keys --with-fingerprint /tmp/vidcord-repo-key.asc`,
+    repositoryCommand: `fingerprint="$(gpg --show-keys --with-colons /tmp/vidcord-repo-key.asc \\
+  | awk -F: '$1 == "fpr" { print $10; exit }')"
+sudo pacman-key --add /tmp/vidcord-repo-key.asc
+sudo pacman-key --lsign-key "$fingerprint"
+printf '\\n[vidcord]\\nSigLevel = Required DatabaseRequired\\nServer = https://cyroz1.github.io/vidcord/pacman/$arch\\n' \\
+  | sudo tee -a /etc/pacman.conf >/dev/null
+sudo pacman -Syu vidcord-bin`,
+  },
+};
 
 const DOWNLOAD_PLATFORMS = [
   {
@@ -168,6 +230,45 @@ function createLinuxPackageAction(
     needsArchChoice: false,
     assetName: undefined,
   };
+}
+
+function createLinuxAppImageAction(
+  arch: Exclude<DownloadArch, "unknown">,
+  release: LatestRelease | null,
+  releaseError: boolean
+): DownloadAction {
+  const selectedAsset = release ? selectBestDownloadAsset("linux", arch, release.assets) : null;
+
+  if (selectedAsset) {
+    return {
+      href: selectedAsset.browser_download_url,
+      label: `Linux ${archDisplayName(arch)} AppImage`,
+      direct: true,
+      pending: false,
+      needsArchChoice: false,
+      assetName: selectedAsset.name,
+    };
+  }
+
+  return {
+    href: release || releaseError ? LATEST_RELEASE_URL : "#download",
+    label: `Linux ${archDisplayName(arch)} AppImage`,
+    direct: false,
+    pending: !release && !releaseError,
+    needsArchChoice: false,
+  };
+}
+
+function localPackageInstallCommand(format: LinuxPackageFormat, assetName: string): string {
+  if (format === "deb") {
+    return `sudo apt install ./${assetName}`;
+  }
+
+  if (format === "rpm") {
+    return `sudo dnf install ./${assetName}`;
+  }
+
+  return `sudo pacman -U ./${assetName}`;
 }
 
 function architectureOptions(platform: Exclude<DownloadPlatform, "unknown">): ArchitectureOption[] {
@@ -399,7 +500,7 @@ function downloadStatusText(
   }
 
   if (platform === "linux") {
-    return "Linux detected. Open the package-manager setup guide or choose a direct package or AppImage download below.";
+    return "Linux detected. Open install options for repository commands, a direct package, or the matching AppImage.";
   }
 
   const platformLabel = platformDisplayName(platform);
@@ -464,7 +565,13 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
     DownloadPlatform,
     "unknown"
   > | null>(null);
+  const [linuxInstallOpen, setLinuxInstallOpen] = useState(false);
+  const [linuxInstallDistro, setLinuxInstallDistro] = useState<LinuxDistroChoice | "unknown">(
+    "unknown"
+  );
+  const [linuxInstallArch, setLinuxInstallArch] = useState<DownloadArch>("unknown");
   const architectureDialogRef = useRef<HTMLDialogElement>(null);
+  const linuxInstallDialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     const existingLink = document.querySelector<HTMLLinkElement>(
@@ -583,6 +690,24 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
     };
   }, [architectureChoice]);
 
+  useEffect(() => {
+    const dialog = linuxInstallDialogRef.current;
+
+    if (!dialog) {
+      return;
+    }
+
+    if (linuxInstallOpen && !dialog.open) {
+      try {
+        dialog.showModal();
+      } catch {
+        dialog.setAttribute("open", "");
+      }
+    } else if (!linuxInstallOpen && dialog.open) {
+      dialog.close();
+    }
+  }, [linuxInstallOpen]);
+
   const selectedPlatform = environment.platform;
   const ffmpegInfo = ffmpegInstallInfo(selectedPlatform);
   const desktopAction: DownloadAction =
@@ -596,14 +721,51 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
         }
       : selectedPlatform === "linux"
         ? {
-            href: LINUX_INSTALL_GUIDE,
-            label: "Linux package installation instructions",
+            href: "#linux-install",
+            label: "Choose Linux installation options",
             direct: false,
             pending: false,
             needsArchChoice: false,
           }
         : createDownloadAction(selectedPlatform, environment, release, releaseError);
   const portableLinuxAction = createDownloadAction("linux", environment, release, releaseError);
+  const selectedLinuxInstallSteps =
+    linuxInstallDistro !== "unknown" && linuxInstallDistro !== "other"
+      ? LINUX_INSTALL_STEPS[linuxInstallDistro]
+      : null;
+  const directLinuxAppImageAction =
+    linuxInstallArch !== "unknown"
+      ? createLinuxAppImageAction(linuxInstallArch, release, releaseError)
+      : null;
+  const linuxPackageChoices =
+    linuxInstallArch === "unknown" || linuxInstallDistro === "unknown"
+      ? []
+      : linuxInstallDistro === "other"
+        ? LINUX_PACKAGE_DOWNLOADS.filter((option) => option.arch === linuxInstallArch)
+        : LINUX_PACKAGE_DOWNLOADS.filter(
+            (option) =>
+              option.format === selectedLinuxInstallSteps?.format &&
+              option.arch === linuxInstallArch
+          );
+  const linuxPackageDownloads = linuxPackageChoices.map((option) => ({
+    ...option,
+    action: createLinuxPackageAction(
+      option.label,
+      option.format,
+      option.arch,
+      release,
+      releaseError
+    ),
+  }));
+
+  const openLinuxInstaller = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    setLinuxInstallDistro((current) => (current === "unknown" ? environment.distro : current));
+    setLinuxInstallArch((current) =>
+      current === "unknown" && environment.archCertain ? environment.arch : current
+    );
+    setLinuxInstallOpen(true);
+  };
 
   const handleDownloadClick = (
     event: MouseEvent<HTMLAnchorElement>,
@@ -636,46 +798,29 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           </p>
 
           <div className="hero-actions">
-            <div className="desktop-download-primary">
-              <a
-                className="button button-primary"
-                id="primaryDownload"
-                href={desktopAction.href}
-                aria-label={desktopAction.label}
-                aria-disabled={desktopAction.pending ? "true" : undefined}
-                target={selectedPlatform === "linux" ? "_blank" : undefined}
-                rel={selectedPlatform === "linux" ? "noreferrer" : undefined}
-                onClick={(event) => {
-                  if (selectedPlatform !== "unknown") {
-                    handleDownloadClick(event, selectedPlatform, desktopAction);
-                  }
-                }}
-              >
-                <DownloadIcon />
-                <span>
-                  {desktopAction.needsArchChoice
-                    ? desktopAction.label
-                    : selectedPlatform === "linux"
-                      ? "Install on Linux"
-                      : "Download for your platform"}
-                </span>
-              </a>
-              <p className="web-demo-callout">
-                Need a quick export on a phone or tablet? <a href="#web-editor">Try the web demo</a>
-                {selectedPlatform === "linux" ? (
-                  <>
-                    {" "}
-                    · Prefer a portable copy?{" "}
-                    <a
-                      href={portableLinuxAction.href}
-                      onClick={(event) => handleDownloadClick(event, "linux", portableLinuxAction)}
-                    >
-                      Download AppImage
-                    </a>
-                  </>
-                ) : null}
-              </p>
-            </div>
+            <a
+              className="button button-primary"
+              id="primaryDownload"
+              href={desktopAction.href}
+              aria-label={desktopAction.label}
+              aria-disabled={desktopAction.pending ? "true" : undefined}
+              onClick={(event) => {
+                if (selectedPlatform === "linux") {
+                  openLinuxInstaller(event);
+                } else if (selectedPlatform !== "unknown") {
+                  handleDownloadClick(event, selectedPlatform, desktopAction);
+                }
+              }}
+            >
+              <DownloadIcon />
+              <span>
+                {desktopAction.needsArchChoice
+                  ? desktopAction.label
+                  : selectedPlatform === "linux"
+                    ? "Install on Linux"
+                    : "Download for your platform"}
+              </span>
+            </a>
             <a
               className="button button-secondary"
               href="https://github.com/cyroz1/vidcord"
@@ -688,6 +833,21 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
               <span>View on GitHub</span>
             </a>
           </div>
+          <p className="web-demo-callout">
+            Need a quick export on a phone or tablet? <a href="#web-editor">Try the web demo</a>
+            {selectedPlatform === "linux" ? (
+              <>
+                {" "}
+                · Prefer a portable copy?{" "}
+                <a
+                  href={portableLinuxAction.href}
+                  onClick={(event) => handleDownloadClick(event, "linux", portableLinuxAction)}
+                >
+                  Download AppImage
+                </a>
+              </>
+            ) : null}
+          </p>
 
           <p className="download-count">
             <strong id="downloadCount">{downloadCount}</strong>
@@ -1118,12 +1278,10 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <article>
             <h3>How do I install vidcord on Linux?</h3>
             <p>
-              Install through APT, DNF/RPM, or pacman for package-manager updates and removal. The
-              <a href={LINUX_INSTALL_GUIDE} target="_blank" rel="noreferrer">
-                {" "}
-                Linux install guide
-              </a>
-              has setup steps; a portable AppImage remains available too.
+              The Linux download button shows repository commands for your distribution and
+              architecture, or asks you to choose them if the browser cannot detect them. You can
+              also download a one-time package without adding the repository or get the matching
+              AppImage.
             </p>
           </article>
           <article>
@@ -1286,19 +1444,23 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
                 <p>{description}</p>
                 <a
                   className="button button-platform"
-                  href={isLinux ? LINUX_INSTALL_GUIDE : action.href}
-                  aria-label={isLinux ? "Linux package installation instructions" : action.label}
+                  href={isLinux ? "#linux-install" : action.href}
+                  aria-label={isLinux ? "Choose Linux installation options" : action.label}
                   aria-disabled={!isLinux && action.pending ? "true" : undefined}
                   data-download-for={id}
                   data-direct-download={String(!isLinux && action.direct)}
                   data-asset-name={!isLinux ? action.assetName : undefined}
                   data-needs-arch-choice={!isLinux && action.needsArchChoice ? id : undefined}
-                  target={isLinux ? "_blank" : undefined}
-                  rel={isLinux ? "noreferrer" : undefined}
-                  onClick={isLinux ? undefined : (event) => handleDownloadClick(event, id, action)}
+                  onClick={(event) => {
+                    if (isLinux) {
+                      openLinuxInstaller(event);
+                    } else {
+                      handleDownloadClick(event, id, action);
+                    }
+                  }}
                 >
                   <DownloadIcon />
-                  <span>{isLinux ? "Package install guide" : action.label}</span>
+                  <span>{isLinux ? "Install on Linux" : action.label}</span>
                 </a>
                 {isLinux ? (
                   <>
@@ -1370,6 +1532,198 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
             );
           })}
         </div>
+
+        {linuxInstallOpen ? (
+          <dialog
+            id="linux-install"
+            ref={linuxInstallDialogRef}
+            className="arch-dialog linux-install-dialog"
+            aria-labelledby="linux-install-title"
+            onCancel={(event) => {
+              event.preventDefault();
+              setLinuxInstallOpen(false);
+            }}
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setLinuxInstallOpen(false);
+              }
+            }}
+          >
+            <div className="arch-dialog-panel linux-install-panel">
+              <button
+                className="arch-dialog-close"
+                type="button"
+                aria-label="Close Linux install options"
+                onClick={() => setLinuxInstallOpen(false)}
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </button>
+              <h3 id="linux-install-title">Install vidcord on Linux</h3>
+              <p>
+                {environment.distro === "unknown"
+                  ? "Your browser could not identify the Linux distribution. Choose it below to get the right commands."
+                  : `Detected ${LINUX_INSTALL_STEPS[environment.distro].name}. Check or change the selection below.`}{" "}
+                {environment.archCertain && environment.arch !== "unknown"
+                  ? `Detected ${archDisplayName(environment.arch)} architecture.`
+                  : "Choose your computer's architecture if it is not detected."}
+              </p>
+
+              <div className="linux-install-selectors">
+                <label className="linux-install-field" htmlFor="linux-install-distro">
+                  <span>Linux distribution</span>
+                  <select
+                    id="linux-install-distro"
+                    value={linuxInstallDistro}
+                    onChange={(event) =>
+                      setLinuxInstallDistro(event.currentTarget.value as LinuxDistroChoice | "unknown")
+                    }
+                  >
+                    <option value="unknown">Choose your distribution</option>
+                    {LINUX_DISTRO_CHOICES.map(({ id, label }) => (
+                      <option value={id} key={id}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="linux-install-field" htmlFor="linux-install-arch">
+                  <span>Architecture</span>
+                  <select
+                    id="linux-install-arch"
+                    value={linuxInstallArch}
+                    onChange={(event) => setLinuxInstallArch(event.currentTarget.value as DownloadArch)}
+                  >
+                    <option value="unknown">Choose your architecture</option>
+                    <option value="x64">x86_64 (Intel / AMD)</option>
+                    <option value="arm64">ARM64 (aarch64)</option>
+                  </select>
+                </label>
+              </div>
+
+              {selectedLinuxInstallSteps && linuxInstallArch !== "unknown" ? (
+                <section className="linux-install-section">
+                  <h4>Install through {selectedLinuxInstallSteps.name}</h4>
+                  <p>
+                    First download and inspect the repository signing key. Compare its fingerprint
+                    with a value published by the maintainers through an independent, trusted
+                    channel before continuing.
+                  </p>
+                  <CopyCommand command={selectedLinuxInstallSteps.keyCommand} />
+                  <p className="linux-install-next-step">
+                    After verifying the key, add the repository and install vidcord:
+                  </p>
+                  <CopyCommand command={selectedLinuxInstallSteps.repositoryCommand} />
+                </section>
+              ) : null}
+
+              {linuxInstallDistro === "other" ? (
+                <section className="linux-install-section">
+                  <h4>Other Linux distribution</h4>
+                  <p>
+                    Choose the package format supported by your distribution below, or use the
+                    portable AppImage. Check the Linux install guide for distribution-specific notes.
+                  </p>
+                  <a href={LINUX_INSTALL_GUIDE} target="_blank" rel="noreferrer">
+                    Linux install guide
+                  </a>
+                </section>
+              ) : null}
+
+              {linuxPackageDownloads.length > 0 ? (
+                <section className="linux-install-section">
+                  <h4>Download a package without adding the repository</h4>
+                  <p>
+                    This installs the downloaded package once. Your system package manager will
+                    still install its dependencies; future vidcord updates will need a manual
+                    download unless you add the repository.
+                  </p>
+                  <div className="linux-install-downloads">
+                    {linuxPackageDownloads.map(({ id, label, format, action }) => (
+                      <div className="linux-install-download-option" key={id}>
+                        <a
+                          className="button button-secondary linux-install-download"
+                          href={action.href}
+                          aria-label={action.assetName ? `${label}: ${action.assetName}` : label}
+                          aria-disabled={action.pending ? "true" : undefined}
+                          data-download-for={`linux-installer-package-${id}`}
+                          data-direct-download={String(action.direct)}
+                          data-asset-name={action.assetName}
+                          onClick={(event) => {
+                            if (action.pending) event.preventDefault();
+                          }}
+                        >
+                          <span>
+                            {action.direct
+                              ? `Download ${format === "deb" ? ".deb" : format === "rpm" ? ".rpm" : "pacman"}`
+                              : action.pending
+                                ? "Checking latest package…"
+                                : "Browse release packages"}
+                          </span>
+                        </a>
+                        <small>{action.assetName ?? label}</small>
+                        {action.assetName ? (
+                          <>
+                            <span className="linux-install-command-hint">
+                              Run this from the folder where you saved the package:
+                            </span>
+                            <CopyCommand command={localPackageInstallCommand(format, action.assetName)} />
+                          </>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {linuxInstallArch !== "unknown" && directLinuxAppImageAction ? (
+                <section className="linux-install-section">
+                  <h4>Portable AppImage</h4>
+                  <p>Download the binary for this architecture without configuring a repository.</p>
+                  <a
+                    className="button button-primary linux-install-download"
+                    href={directLinuxAppImageAction.href}
+                    aria-label={
+                      directLinuxAppImageAction.assetName
+                        ? `Download ${directLinuxAppImageAction.assetName}`
+                        : directLinuxAppImageAction.label
+                    }
+                    aria-disabled={directLinuxAppImageAction.pending ? "true" : undefined}
+                    data-download-for="linux-installer-appimage"
+                    data-direct-download={String(directLinuxAppImageAction.direct)}
+                    data-asset-name={directLinuxAppImageAction.assetName}
+                    onClick={(event) => {
+                      if (directLinuxAppImageAction.pending) event.preventDefault();
+                    }}
+                  >
+                    <DownloadIcon />
+                    <span>
+                      {directLinuxAppImageAction.direct
+                        ? "Download matching AppImage"
+                        : directLinuxAppImageAction.pending
+                          ? "Checking latest AppImage…"
+                          : "View AppImage releases"}
+                    </span>
+                  </a>
+                  {directLinuxAppImageAction.assetName ? (
+                    <>
+                      <small className="linux-install-asset-name">
+                        {directLinuxAppImageAction.assetName}
+                      </small>
+                      <span className="linux-install-command-hint">
+                        Make it executable, then run it from the folder where you saved it:
+                      </span>
+                      <CopyCommand
+                        command={`chmod +x ${directLinuxAppImageAction.assetName}\n./${directLinuxAppImageAction.assetName}`}
+                      />
+                    </>
+                  ) : null}
+                </section>
+              ) : null}
+            </div>
+          </dialog>
+        ) : null}
 
         {architectureChoice ? (
           <dialog

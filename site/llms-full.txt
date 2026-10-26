@@ -120,7 +120,7 @@ branch after the repository signing key and Pages source are configured. See
 https://github.com/cyroz1/vidcord/blob/main/docs/LINUX_INSTALL.md for setup and
 package-manager update/removal commands.
 
-The desktop download section detects the operating system. Linux's main action opens the install guide for APT, DNF/RPM, and pacman repositories. The Linux card links to the `.deb`, `.rpm`, and pacman files and AppImages published with the latest release for both architectures; if a matching asset is missing it links to the latest release page. Windows and macOS buttons link directly to the matching latest GitHub release asset when metadata is available; macOS uses the universal DMG and Windows offers architecture-specific installers. If release metadata cannot be fetched or an asset is missing, the page falls back to https://github.com/cyroz1/vidcord/releases/latest. Mobile devices show the desktop platform choices without recommending an installer for the device. The section also displays the aggregate release download count when Shields.io is available.
+The desktop download section detects the operating system and Linux CPU architecture. Linux's main action opens distribution-specific repository commands, a direct native package download that does not add the repository, and the matching AppImage. Browser user-agent data rarely identifies a Linux distribution; when distribution or architecture is unknown, the dialog asks the user to select it. Supported repository commands cover Debian/Ubuntu (APT), Fedora/DNF, and Arch Linux/Arch Linux ARM (pacman); other distributions can choose a package format or use the AppImage. The Linux download card also links to the `.deb`, `.rpm`, pacman, and AppImage files published with the latest release for both architectures. Windows and macOS buttons link directly to the matching latest GitHub release asset when metadata is available; macOS uses the universal DMG and Windows offers architecture-specific installers. If release metadata cannot be fetched or an asset is missing, the page links to https://github.com/cyroz1/vidcord/releases/latest. Mobile devices show the desktop platform choices without recommending an installer for the device. The section also displays the aggregate release download count when Shields.io is available.
 
 ## Common questions and grounded answers
 
@@ -154,7 +154,7 @@ System FFmpeg format coverage, GPU encoder discovery and selection, full source 
 
 ### How does the desktop download work?
 
-The root download section detects the operating system and links directly to the matching latest-release binary when metadata is available. If x64 versus ARM64 is unclear, it asks the user to choose. If the lookup fails, it links to the latest GitHub release page.
+The root download section detects the operating system and links to the matching latest-release binary when metadata is available. On Linux, the primary button opens repository setup commands for the detected distribution and architecture, plus direct package and AppImage downloads. It asks the user to choose any Linux distribution or architecture it cannot identify. If x64 versus ARM64 is unclear on Windows, it asks the user to choose. If release lookup fails, it links to the latest GitHub release page.
 
 ### How do desktop updates work?
 

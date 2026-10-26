@@ -70,7 +70,12 @@ describe("desktop download detection", () => {
     });
     const environment = detectDownloadEnvironment();
     await vi.advanceTimersByTimeAsync(1500);
-    expect(await environment).toEqual({ platform: "windows", arch: "unknown", archCertain: false });
+    expect(await environment).toEqual({
+      platform: "windows",
+      arch: "unknown",
+      archCertain: false,
+      distro: "unknown",
+    });
   });
   it("normalizes legacy platform and architecture signals", () => {
     expect(normalizeDownloadPlatform("Win32")).toBe("windows");

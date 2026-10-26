@@ -2405,17 +2405,9 @@
   color: #bceaff;
 }
 
-.desktop-download-primary {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-}
-
 .web-demo-callout {
-  max-width: 310px;
-  margin: 0;
+  max-width: 600px;
+  margin: 10px 0 0;
   color: var(--web-muted);
   font-size: 13px;
   line-height: 1.45;
