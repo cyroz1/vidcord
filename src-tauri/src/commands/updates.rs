@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 static HTTP_CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
 static DOWNLOAD_CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
@@ -75,7 +75,6 @@ struct ReleaseAsset {
 #[derive(Clone, Debug, serde::Deserialize)]
 struct GitHubRelease {
     tag_name: Option<String>,
-    name: Option<String>,
     html_url: Option<String>,
     assets: Vec<ReleaseAsset>,
 }
@@ -350,7 +349,10 @@ fn dnf_text_has_vidcord_repository(text: &str) -> bool {
                     "0" | "no" | "false" | "off"
                 )
             }
-            "baseurl" => {
+            // A hand-edited section may locate the same repository through
+            // a metalink or mirrorlist URL instead of a direct baseurl; all
+            // three count when the URL is the official repository.
+            "baseurl" | "metalink" | "mirrorlist" => {
                 has_repository_url |= value
                     .split_whitespace()
                     .any(|baseurl| url_has_vidcord_repository(baseurl, VIDCORD_RPM_REPOSITORY_PATH))
@@ -365,9 +367,14 @@ fn apt_repository_file_has_vidcord_repository(path: &Path) -> bool {
     let Ok(text) = std::fs::read_to_string(path) else {
         return false;
     };
-    match path.extension().and_then(|extension| extension.to_str()) {
-        Some("sources") => apt_sources_has_vidcord_repository(&text),
-        _ => apt_list_has_vidcord_repository(&text),
+    let is_sources_file = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("sources"));
+    if is_sources_file {
+        apt_sources_has_vidcord_repository(&text)
+    } else {
+        apt_list_has_vidcord_repository(&text)
     }
 }
 
@@ -406,12 +413,81 @@ fn pacman_conf_has_vidcord_repository(text: &str) -> bool {
             continue;
         }
 
-        has_official_server |= value
-            .split_whitespace()
-            .any(|server| url_has_vidcord_repository(server, VIDCORD_PACMAN_REPOSITORY_PATH));
+        has_official_server |= pacman_server_value_is_official(value);
     }
 
     in_vidcord_section && has_official_server
+}
+
+fn pacman_server_value_is_official(value: &str) -> bool {
+    value
+        .split_whitespace()
+        .any(|server| url_has_vidcord_repository(server, VIDCORD_PACMAN_REPOSITORY_PATH))
+}
+
+/// The `Include =` paths declared inside the `[vidcord]` section. pacman
+/// resolves a relative include against the directory holding pacman.conf.
+fn pacman_vidcord_include_paths(text: &str) -> Vec<String> {
+    let mut in_vidcord_section = false;
+    let mut includes = Vec::new();
+
+    for line in text.lines() {
+        let active = line.split('#').next().unwrap_or_default().trim();
+        if active.is_empty() {
+            continue;
+        }
+        if active.starts_with('[') && active.ends_with(']') {
+            in_vidcord_section = active[1..active.len() - 1]
+                .trim()
+                .eq_ignore_ascii_case("vidcord");
+            continue;
+        }
+        if !in_vidcord_section {
+            continue;
+        }
+        let Some((key, value)) = active.split_once('=') else {
+            continue;
+        };
+        if key.trim().eq_ignore_ascii_case("include") {
+            let value = value
+                .trim()
+                .trim_matches(|character| character == '\'' || character == '"');
+            if !value.is_empty() {
+                includes.push(value.to_string());
+            }
+        }
+    }
+    includes
+}
+
+/// Server lines in an included mirrorlist carry no section header: the
+/// whole file belongs to whichever repository section included it.
+fn pacman_included_servers_have_vidcord_repository(text: &str) -> bool {
+    text.lines().any(|line| {
+        let active = line.split('#').next().unwrap_or_default().trim();
+        let Some((key, value)) = active.split_once('=') else {
+            return false;
+        };
+        key.trim().eq_ignore_ascii_case("server") && pacman_server_value_is_official(value)
+    })
+}
+
+/// The full pacman check: a literal official `Server =` in the `[vidcord]`
+/// section, or an official server reached through one of that section's
+/// `Include =` files. Include contents come from `read_include` so tests
+/// can drive the composition without the filesystem.
+fn pacman_repository_configured_with(
+    text: &str,
+    read_include: impl Fn(&str) -> Option<String>,
+) -> bool {
+    if pacman_conf_has_vidcord_repository(text) {
+        return true;
+    }
+    pacman_vidcord_include_paths(text).iter().any(|include| {
+        read_include(include)
+            .map(|included| pacman_included_servers_have_vidcord_repository(&included))
+            .unwrap_or(false)
+    })
 }
 
 fn files_contain(paths: &[PathBuf], predicate: impl Fn(&str) -> bool) -> bool {
@@ -431,8 +507,11 @@ fn directory_files_with_extensions(dir: &Path, extensions: &[&str]) -> Vec<PathB
         .filter(|path| {
             path.extension()
                 .and_then(|extension| extension.to_str())
-                .map(|extension| extensions.contains(&extension))
-                .unwrap_or(false)
+                .is_some_and(|extension| {
+                    extensions
+                        .iter()
+                        .any(|expected| extension.eq_ignore_ascii_case(expected))
+                })
         })
         .collect()
 }
@@ -454,10 +533,19 @@ fn dnf_repository_configured() -> bool {
 }
 
 fn pacman_repository_configured() -> bool {
-    files_contain(
-        &[PathBuf::from("/etc/pacman.conf")],
-        pacman_conf_has_vidcord_repository,
-    )
+    let pacman_conf = Path::new("/etc/pacman.conf");
+    let Ok(text) = std::fs::read_to_string(pacman_conf) else {
+        return false;
+    };
+    let conf_dir = pacman_conf.parent().unwrap_or_else(|| Path::new("/etc"));
+    pacman_repository_configured_with(&text, |include| {
+        let path = if Path::new(include).is_absolute() {
+            PathBuf::from(include)
+        } else {
+            conf_dir.join(include)
+        };
+        std::fs::read_to_string(path).ok()
+    })
 }
 
 /// The package manager that delivers updates for this installation, if any.
@@ -519,6 +607,21 @@ fn release_tag(release: &GitHubRelease) -> Result<&str, String> {
         .as_deref()
         .ok_or_else(|| "Update release is missing a valid tag.".to_string())?;
     validate_release_tag(tag)
+}
+
+/// True only when `tag` parses to a version strictly newer than
+/// `current_version`. The install command uses this as a backend downgrade
+/// guard: the update prompt only offers newer releases, but a stale or
+/// buggy caller must not be able to roll an installation back to an older
+/// (still validly signed) release through the command directly.
+fn release_tag_is_newer_than(tag: &str, current_version: &str) -> bool {
+    let Ok(candidate) = semver::Version::parse(&normalize_semver(tag)) else {
+        return false;
+    };
+    let Ok(current) = semver::Version::parse(&normalize_semver(current_version)) else {
+        return false;
+    };
+    candidate > current
 }
 
 fn canonical_release_asset_url(tag: &str, name: &str) -> Result<String, String> {
@@ -593,16 +696,33 @@ async fn fetch_release(url: &str) -> Result<GitHubRelease, String> {
 }
 
 async fn fetch_release_with(url: &str, client: &reqwest::Client) -> Result<GitHubRelease, String> {
-    let resp = client
-        .get(url)
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-        .map_err(|e| {
+    // Bound the header wait and the body read with the same deadline the
+    // installer and signature transfers use. The check client already has
+    // a six-second total timeout that fires first, but the install flow
+    // deliberately uses the timeout-free download client, and without these
+    // bounds a proxy that accepts the connection and then stalls would hang
+    // the release-metadata fetch (and the latched install command) forever.
+    // The JSON body is small, so a single deadline for reading it cannot
+    // reject a healthy response the way a whole-installer timeout could.
+    let send_result = tokio::time::timeout(
+        DOWNLOAD_SEND_TIMEOUT,
+        client
+            .get(url)
+            .header("Accept", "application/vnd.github+json")
+            .send(),
+    )
+    .await;
+    let resp = match send_result {
+        Ok(result) => result.map_err(|e| {
             let msg = e.to_string();
             vidcord_log(&format!("update release request failed: {msg}"));
             msg
-        })?;
+        })?,
+        Err(_) => {
+            vidcord_log("update release request timed out waiting for response headers");
+            return Err("Update release request timed out.".to_string());
+        }
+    };
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -610,11 +730,17 @@ async fn fetch_release_with(url: &str, client: &reqwest::Client) -> Result<GitHu
         return Err(format!("HTTP {status}"));
     }
 
-    resp.json::<GitHubRelease>().await.map_err(|e| {
-        let msg = e.to_string();
-        vidcord_log(&format!("update release response parse failed: {msg}"));
-        msg
-    })
+    match tokio::time::timeout(DOWNLOAD_SEND_TIMEOUT, resp.json::<GitHubRelease>()).await {
+        Ok(result) => result.map_err(|e| {
+            let msg = e.to_string();
+            vidcord_log(&format!("update release response parse failed: {msg}"));
+            msg
+        }),
+        Err(_) => {
+            vidcord_log("update release response timed out while reading the body");
+            Err("Update release request timed out.".to_string())
+        }
+    }
 }
 
 async fn fetch_latest_release() -> Result<GitHubRelease, String> {
@@ -623,7 +749,6 @@ async fn fetch_latest_release() -> Result<GitHubRelease, String> {
     {
         return Ok(GitHubRelease {
             tag_name: Some("v99.99.99".to_string()),
-            name: Some("v99.99.99".to_string()),
             html_url: Some("https://github.com/cyroz1/vidcord/releases/tag/v99.99.99".to_string()),
             assets: vec![],
         });
@@ -660,6 +785,22 @@ fn safe_asset_filename(name: &str) -> Result<&str, String> {
 
 fn sha256_hex(digest: &[u8; 32]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+async fn hash_downloaded_file(path: &Path) -> std::io::Result<[u8; 32]> {
+    let mut file = tokio::fs::File::open(path).await?;
+    let mut hasher = Sha256::new();
+    // Heap-allocated: an inline array this size would live in the async
+    // state machine and blow the stack of the task polling it.
+    let mut buffer = vec![0_u8; 256 * 1024];
+    loop {
+        let read = file.read(&mut buffer).await?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hasher.finalize().into())
 }
 
 fn release_signature_message(release_tag: &str, asset_name: &str, sha256: &[u8; 32]) -> Vec<u8> {
@@ -718,6 +859,50 @@ fn temp_download_path(path: &Path) -> Result<PathBuf, String> {
     )))
 }
 
+/// True when `name` matches the temporary-download shape
+/// (`.{installer name}.{pid}.{counter}.download`) for a process other than
+/// this one, marking it as a leftover from an install attempt that was
+/// hard-killed before its guard could remove the partial file.
+fn is_stale_temp_download_name(name: &str, own_pid: &str) -> bool {
+    let Some(stripped) = name
+        .strip_prefix('.')
+        .and_then(|rest| rest.strip_suffix(".download"))
+    else {
+        return false;
+    };
+    if !stripped.starts_with("vidcord") {
+        return false;
+    }
+    let mut parts = stripped.rsplit('.');
+    let Some(_counter) = parts.next() else {
+        return false;
+    };
+    let Some(pid) = parts.next() else {
+        return false;
+    };
+    !pid.is_empty() && pid.bytes().all(|byte| byte.is_ascii_digit()) && pid != own_pid
+}
+
+/// Best-effort removal of stale partial update downloads left behind by an
+/// install attempt that never got to clean up (SIGKILL, crash, power loss).
+/// Files belonging to this process are never touched, and every error is
+/// ignored: a failed sweep must never block an install.
+fn sweep_stale_temp_downloads(dir: &Path) {
+    let own_pid = std::process::id().to_string();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if name
+            .to_str()
+            .is_some_and(|name| is_stale_temp_download_name(name, &own_pid))
+        {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
 async fn create_temp_download_file(path: &Path) -> Result<(PathBuf, tokio::fs::File), String> {
     for _ in 0..64 {
         let tmp = temp_download_path(path)?;
@@ -758,6 +943,7 @@ fn collision_safe_download_path(path: &Path, collision_index: usize) -> Result<P
 async fn publish_download_without_clobber(
     tmp: &Path,
     preferred_path: &Path,
+    expected_sha256: &[u8; 32],
 ) -> Result<PathBuf, String> {
     // `rename` overwrites an existing destination on Unix. Creating a hard
     // link instead gives us the same atomic visibility while also providing
@@ -783,7 +969,7 @@ async fn publish_download_without_clobber(
                 vidcord_log(&format!(
                     "update install: hard-link publish unavailable ({link_error}); using create-new copy"
                 ));
-                match copy_download_without_clobber(tmp, &candidate).await {
+                match copy_download_without_clobber(tmp, &candidate, expected_sha256).await {
                     Ok(()) => {
                         if let Err(error) = tokio::fs::remove_file(tmp).await {
                             vidcord_log(&format!(
@@ -802,7 +988,11 @@ async fn publish_download_without_clobber(
     Err("Could not choose an unused update installer filename.".to_string())
 }
 
-async fn copy_download_without_clobber(source: &Path, destination: &Path) -> std::io::Result<()> {
+async fn copy_download_without_clobber(
+    source: &Path,
+    destination: &Path,
+    expected_sha256: &[u8; 32],
+) -> std::io::Result<()> {
     let mut source_file = tokio::fs::File::open(source).await?;
     let mut destination_file = tokio::fs::OpenOptions::new()
         .create_new(true)
@@ -820,8 +1010,30 @@ async fn copy_download_without_clobber(source: &Path, destination: &Path) -> std
     if copy_result.is_err() {
         drop(destination_file);
         let _ = tokio::fs::remove_file(destination).await;
+        return copy_result;
     }
-    copy_result
+    drop(destination_file);
+
+    // The hard-link publish path exposes the exact verified inode, but this
+    // copy is the one path where the published bytes were never hashed: a
+    // filesystem or network mount that silently corrupts the copy would
+    // otherwise hand the user an unverified installer under the real name.
+    // Re-hash the destination and refuse anything that differs from the
+    // verified download.
+    match hash_downloaded_file(destination).await {
+        Ok(actual_sha256) if actual_sha256 == *expected_sha256 => Ok(()),
+        Ok(_) => {
+            let _ = tokio::fs::remove_file(destination).await;
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Update installer changed while it was being copied to Downloads.",
+            ))
+        }
+        Err(error) => {
+            let _ = tokio::fs::remove_file(destination).await;
+            Err(error)
+        }
+    }
 }
 
 async fn download_release_signature(url: &str) -> Result<[u8; 64], String> {
@@ -1006,7 +1218,7 @@ async fn finish_verified_download(
         return Err(error);
     }
 
-    let published_path = match publish_download_without_clobber(tmp, path).await {
+    let published_path = match publish_download_without_clobber(tmp, path, &asset.sha256).await {
         Ok(published_path) => published_path,
         Err(err) => {
             let _ = tokio::fs::remove_file(tmp).await;
@@ -1078,14 +1290,19 @@ pub async fn check_for_updates(current_version: String) -> Result<serde_json::Va
     }
 
     let release = fetch_latest_release().await?;
-    let tag = release
-        .tag_name
-        .as_deref()
-        .or(release.name.as_deref())
-        .ok_or_else(|| {
-            vidcord_log("update check: response missing tag_name/name");
-            "Missing tag_name".to_string()
-        })?;
+    // Use the same tag extraction as the install path: only `tag_name`
+    // counts (never the free-text release name), and it must pass the
+    // install validation, so the prompt can never offer a version the
+    // installer would refuse or fail to fetch back by tag.
+    let tag = match release_tag(&release) {
+        Ok(tag) => tag,
+        Err(error) => {
+            vidcord_log(&format!(
+                "update check: latest release has no installable tag: {error}"
+            ));
+            return Ok(serde_json::json!({"update_available": false}));
+        }
+    };
     let release_url = release
         .html_url
         .as_deref()
@@ -1107,15 +1324,9 @@ pub async fn check_for_updates(current_version: String) -> Result<serde_json::Va
     })?;
 
     if latest > cur {
-        // Only offer an update the install path could actually accept:
-        // lenient semver parsing here admits tags (for example build
-        // metadata) that validate_release_tag rejects at install time.
-        if validate_release_tag(tag).is_err() {
-            vidcord_log(&format!(
-                "update check: latest tag {tag:?} is not installable; not offering it"
-            ));
-            return Ok(serde_json::json!({"update_available": false}));
-        }
+        // `tag` already passed release_tag() validation above, which is
+        // the same gate the install path applies, so any update offered
+        // here is one the installer can accept.
         let installer_asset = select_platform_asset(&release).ok();
         Ok(serde_json::json!({
             "update_available": true,
@@ -1170,6 +1381,9 @@ pub async fn download_and_open_update_installer(
                 .to_string(),
         );
     }
+    if !release_tag_is_newer_than(actual_release_tag, env!("CARGO_PKG_VERSION")) {
+        return Err("The requested update is not newer than the installed version.".to_string());
+    }
     let asset = select_platform_asset(&release)?;
     let signature = download_release_signature(&asset.signature_url).await?;
     // The signature verdict depends only on the tag, the filename, and
@@ -1191,6 +1405,11 @@ pub async fn download_and_open_update_installer(
     tokio::fs::create_dir_all(target_dir)
         .await
         .map_err(|e| e.to_string())?;
+    // Clean up partial downloads orphaned by a hard-killed earlier attempt
+    // before this attempt creates its own temporary file. Best-effort: the
+    // result is ignored on purpose.
+    let sweep_dir = target_dir.to_path_buf();
+    let _ = tokio::task::spawn_blocking(move || sweep_stale_temp_downloads(&sweep_dir)).await;
 
     let send_result = tokio::time::timeout(
         DOWNLOAD_SEND_TIMEOUT,
@@ -1405,6 +1624,111 @@ mod tests {
     }
 
     #[test]
+    fn dnf_repository_text_detects_metalink_and_mirrorlist_sections() {
+        assert!(dnf_text_has_vidcord_repository(
+            "[vidcord]\nmetalink=https://cyroz1.github.io/vidcord/rpm/metalink.xml\nenabled=1"
+        ));
+        assert!(dnf_text_has_vidcord_repository(
+            "[vidcord]\nmirrorlist=https://cyroz1.github.io/vidcord/rpm/mirrors\nenabled=1"
+        ));
+        assert!(!dnf_text_has_vidcord_repository(
+            "[vidcord]\nmetalink=https://mirrors.example.com/vidcord/rpm/metalink.xml\nenabled=1"
+        ));
+        assert!(!dnf_text_has_vidcord_repository(
+            "[vidcord]\nmetalink=https://cyroz1.github.io/vidcord/apt\nenabled=1"
+        ));
+        assert!(!dnf_text_has_vidcord_repository(
+            "[vidcord]\nmirrorlist=https://cyroz1.github.io/vidcord/rpm/mirrors\nenabled=0"
+        ));
+    }
+
+    #[test]
+    fn pacman_vidcord_include_paths_come_only_from_the_vidcord_section() {
+        let text = "[options]\nInclude = /etc/pacman.d/options-mirrors\n[vidcord]\nInclude = /etc/pacman.d/vidcord-mirrors\nSigLevel = Required DatabaseRequired\n[core]\nInclude = /etc/pacman.d/mirrorlist";
+        assert_eq!(
+            pacman_vidcord_include_paths(text),
+            ["/etc/pacman.d/vidcord-mirrors"]
+        );
+        assert!(pacman_vidcord_include_paths(
+            "[vidcord]\nServer = https://cyroz1.github.io/vidcord/pacman/$arch"
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn pacman_repository_detection_follows_vidcord_includes() {
+        let conf =
+            "[vidcord]\nSigLevel = Required DatabaseRequired\nInclude = /etc/pacman.d/vidcord-mirrors";
+        let official = |path: &str| match path {
+            "/etc/pacman.d/vidcord-mirrors" => Some(
+                "# vidcord mirrors\nServer = https://cyroz1.github.io/vidcord/pacman/$arch\n"
+                    .to_string(),
+            ),
+            _ => None,
+        };
+        assert!(pacman_repository_configured_with(conf, official));
+
+        let foreign =
+            |_: &str| Some("Server = https://mirror.example/vidcord/pacman/$arch\n".to_string());
+        assert!(!pacman_repository_configured_with(conf, foreign));
+
+        let missing = |_: &str| None;
+        assert!(!pacman_repository_configured_with(conf, missing));
+
+        // Includes declared by other sections are never followed.
+        let other_section = "[core]\nInclude = /etc/pacman.d/vidcord-mirrors";
+        assert!(!pacman_repository_configured_with(other_section, official));
+    }
+
+    #[test]
+    fn directory_scan_matches_extensions_case_insensitively() {
+        let directory = unique_test_directory();
+        std::fs::create_dir_all(&directory).unwrap();
+        for name in [
+            "vidcord.list",
+            "vidcord.LIST",
+            "vidcord.Sources",
+            "notes.txt",
+        ] {
+            std::fs::write(directory.join(name), b"").unwrap();
+        }
+
+        let mut found = directory_files_with_extensions(&directory, &["list", "sources"]);
+        found.sort();
+        let names: Vec<String> = found
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+
+        assert_eq!(names, ["vidcord.LIST", "vidcord.Sources", "vidcord.list"]);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn apt_repository_files_are_read_by_case_insensitive_extension() {
+        let directory = unique_test_directory();
+        std::fs::create_dir_all(&directory).unwrap();
+
+        let sources = directory.join("vidcord.SOURCES");
+        std::fs::write(
+            &sources,
+            "Types: deb\nURIs: https://cyroz1.github.io/vidcord/apt\nSuites: stable\n",
+        )
+        .unwrap();
+        assert!(apt_repository_file_has_vidcord_repository(&sources));
+
+        let list = directory.join("vidcord.List");
+        std::fs::write(
+            &list,
+            "deb https://cyroz1.github.io/vidcord/apt stable main\n",
+        )
+        .unwrap();
+        assert!(apt_repository_file_has_vidcord_repository(&list));
+
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn package_manager_names_match_repository_docs() {
         assert_eq!(LinuxPackageManager::Apt.as_str(), "apt");
         assert_eq!(LinuxPackageManager::Dnf.as_str(), "dnf");
@@ -1440,12 +1764,25 @@ mod tests {
     }
 
     #[test]
+    fn downgrade_guard_accepts_only_strictly_newer_tags() {
+        assert!(release_tag_is_newer_than("v7.8", "7.7.0"));
+        assert!(release_tag_is_newer_than("v7.7.1", "7.7.0"));
+        assert!(release_tag_is_newer_than("7.8.0", "7.7.0"));
+        assert!(!release_tag_is_newer_than("v7.7", "7.7.0"));
+        assert!(!release_tag_is_newer_than("v7.7.0", "7.7.0"));
+        assert!(!release_tag_is_newer_than("v7.6", "7.7.0"));
+        assert!(!release_tag_is_newer_than("v7.6.9", "7.7.0"));
+        // Unparseable input on either side never authorizes an install.
+        assert!(!release_tag_is_newer_than("not-a-version", "7.7.0"));
+        assert!(!release_tag_is_newer_than("v7.8", "not-a-version"));
+    }
+
+    #[test]
     fn selects_current_platform_asset() {
         let suffix = platform_asset_suffixes().unwrap()[0];
         let installer_name = format!("vidcord_9.0.0{suffix}");
         let release = GitHubRelease {
             tag_name: Some("v9.0".to_string()),
-            name: None,
             html_url: None,
             assets: vec![
                 ReleaseAsset {
@@ -1487,7 +1824,6 @@ mod tests {
         let fallback_name = format!("vidcord_9.0.0{suffix}");
         let release = GitHubRelease {
             tag_name: Some("v9.0".to_string()),
-            name: None,
             html_url: None,
             assets: vec![
                 // The canonical name is preferred, but its digest is
@@ -1537,7 +1873,6 @@ mod tests {
         let suffix = platform_asset_suffixes().unwrap()[0];
         let release = GitHubRelease {
             tag_name: Some("v9.0".to_string()),
-            name: None,
             html_url: None,
             assets: vec![ReleaseAsset {
                 name: format!("vidcord_9.0.0{suffix}"),
@@ -1690,8 +2025,9 @@ mod tests {
             .await
             .unwrap();
         tokio::fs::write(&tmp, b"new installer").await.unwrap();
+        let expected_sha256: [u8; 32] = Sha256::digest(b"new installer").into();
 
-        let published = publish_download_without_clobber(&tmp, &preferred)
+        let published = publish_download_without_clobber(&tmp, &preferred, &expected_sha256)
             .await
             .unwrap();
 
@@ -1781,18 +2117,92 @@ mod tests {
         tokio::fs::write(&tmp, b"new installer").await.unwrap();
         tokio::fs::write(&destination, b"original").await.unwrap();
 
-        let error = copy_download_without_clobber(&tmp, &destination)
+        let expected_sha256: [u8; 32] = Sha256::digest(b"new installer").into();
+        let error = copy_download_without_clobber(&tmp, &destination, &expected_sha256)
             .await
             .unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
         assert_eq!(tokio::fs::read(&destination).await.unwrap(), b"original");
 
         let collision = directory.join("vidcord (1).exe");
-        copy_download_without_clobber(&tmp, &collision)
+        copy_download_without_clobber(&tmp, &collision, &expected_sha256)
             .await
             .unwrap();
         assert_eq!(tokio::fs::read(&collision).await.unwrap(), b"new installer");
 
         tokio::fs::remove_dir_all(directory).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn copy_fallback_rejects_a_destination_whose_bytes_differ() {
+        let directory = unique_test_directory();
+        tokio::fs::create_dir_all(&directory).await.unwrap();
+        let tmp = directory.join(".vidcord.download");
+        let destination = directory.join("vidcord.exe");
+        tokio::fs::write(&tmp, b"new installer").await.unwrap();
+        // The verified download hashed to something else, so the bytes the
+        // copy landed must be refused and removed, never published.
+        let other_sha256: [u8; 32] = Sha256::digest(b"different bytes").into();
+
+        let error = copy_download_without_clobber(&tmp, &destination, &other_sha256)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(!destination.exists());
+        tokio::fs::remove_dir_all(directory).await.unwrap();
+    }
+
+    #[test]
+    fn stale_temp_download_names_match_only_other_processes() {
+        assert!(is_stale_temp_download_name(
+            ".vidcord_7.7.0_amd64.AppImage.4242.0.download",
+            "1234"
+        ));
+        assert!(!is_stale_temp_download_name(
+            ".vidcord_7.7.0_amd64.AppImage.1234.0.download",
+            "1234"
+        ));
+        assert!(!is_stale_temp_download_name(
+            "vidcord_7.7.0_amd64.AppImage",
+            "1234"
+        ));
+        assert!(!is_stale_temp_download_name(
+            "vidcord_7.7.0_amd64.AppImage.4242.0.download",
+            "1234"
+        ));
+        assert!(!is_stale_temp_download_name(
+            ".other_1.0.4242.0.download",
+            "1234"
+        ));
+        assert!(!is_stale_temp_download_name(
+            ".vidcord_backup.4242.download",
+            "1234"
+        ));
+    }
+
+    #[test]
+    fn stale_temp_download_sweep_removes_only_other_processes_files() {
+        let directory = unique_test_directory();
+        std::fs::create_dir_all(&directory).unwrap();
+        let own_pid = std::process::id();
+        let stale = directory.join(format!(
+            ".vidcord_7.7.0_amd64.AppImage.{}.0.download",
+            own_pid + 1_000_000
+        ));
+        let own = directory.join(format!(
+            ".vidcord_7.7.0_amd64.AppImage.{own_pid}.0.download"
+        ));
+        let unrelated = directory.join("vidcord_7.7.0_amd64.AppImage");
+        std::fs::write(&stale, b"partial").unwrap();
+        std::fs::write(&own, b"partial").unwrap();
+        std::fs::write(&unrelated, b"installer").unwrap();
+
+        sweep_stale_temp_downloads(&directory);
+
+        assert!(!stale.exists());
+        assert!(own.exists());
+        assert!(unrelated.exists());
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }
