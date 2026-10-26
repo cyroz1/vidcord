@@ -1,0 +1,15 @@
+Package: vidcord
+Version: 7.7.0
+Architecture: arm64
+Maintainer: cyroz1
+Installed-Size: 10321
+Depends: ffmpeg, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-libav, libwebkit2gtk-4.1-0, libgtk-3-0
+Filename: pool/main/vidcord_7.7.0_arm64.deb
+Size: 5009772
+MD5sum: d2ccb6da3d2ee5c60552add168136844
+SHA1: 480fe4223956434148218162deeb45d979f8d5ca
+SHA256: 750726e259807b6ec56f575a995d7e4c585de428b6edbe4c776b9986c5873466
+Priority: optional
+Description: Compress videos for Discord
+ (none)
+

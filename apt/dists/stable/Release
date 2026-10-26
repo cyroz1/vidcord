@@ -1,0 +1,40 @@
+Architectures: amd64 arm64
+Codename: stable
+Components: main
+Date: Mon, 26 Oct 2026 16:26:30 +0000
+Description: Vidcord stable package repository
+Label: Vidcord
+Origin: Vidcord
+Suite: stable
+MD5Sum:
+ ae0c0f6c0230ff65a5f723c4277c250d              191 Release
+ d5a1eb2efbf8f85565af1ab1443de82b              530 main/binary-amd64/Packages
+ 35f8e862a0d428ec9c59fa2d6c0b659a              379 main/binary-amd64/Packages.gz
+ 946b6a59912f0c4efd5a15d4965531af              440 main/binary-amd64/Packages.xz
+ b4c76a7322ce933a8e99c6b578f55405              530 main/binary-arm64/Packages
+ 7f9951c674e5a30cbdaf462b22a49d9b              379 main/binary-arm64/Packages.gz
+ abe500378a04f222531782f33ed9c930              444 main/binary-arm64/Packages.xz
+SHA1:
+ 1fc423597bbcc1d6f4f2064630d3142e4e9036e5              191 Release
+ 489d71f3abb809af9557efbbacd8ceeb9faea896              530 main/binary-amd64/Packages
+ 666f18957883073d92df765eed3b0e9d5b07f750              379 main/binary-amd64/Packages.gz
+ ccb499b3eab65ab84a50ac3170b1f7f6bffe464d              440 main/binary-amd64/Packages.xz
+ 968f2733be378ab965cd13e16d37ca9ae57ee279              530 main/binary-arm64/Packages
+ 2c089ed3a36dc08e7b062ea96f906f8baac9fb1f              379 main/binary-arm64/Packages.gz
+ 1579683646e9a3f8cffaffa7299dea66dc7e5394              444 main/binary-arm64/Packages.xz
+SHA256:
+ a8b903b962771f44691b2a037fa033c20ab3cc4292290ef473ea8eb4216abc47              191 Release
+ 2ad1c73de4e0f178b760e1dbebc895176ba8edf9afc9127bd754f6862ba41adc              530 main/binary-amd64/Packages
+ 5c2b27ffb5e3299d2bb518b664ebd505d5596aa3aa414cef1879cb9cdcaaf76b              379 main/binary-amd64/Packages.gz
+ 945ca9a02e3c2b960ab469547c5f0ece065a017b2bddbcc68bb22eb4b80c6006              440 main/binary-amd64/Packages.xz
+ a2213528ce2337f3d1d0c0d56274d95178ac02e410a5d1993978f5530505e209              530 main/binary-arm64/Packages
+ 09b589e36ed36c95c24b34512ef4835df7afc2f28384e90aef7613e4f7eebb03              379 main/binary-arm64/Packages.gz
+ c156784df2d616a6c863fa51f2b416e33d06689f5b72aa96b5e0f082bffcfab8              444 main/binary-arm64/Packages.xz
+SHA512:
+ 5a96b9bf42c477febf1348bfda60e041fb191018a5c23b3ef9814476beec4c82c47f5c8d28b01fbc60958f9637286906e8ce01a0229b5f56e0289c031a9f2754              191 Release
+ 98df68ef6c0ae4bf6a6ebbf83a049f5598097ab526b8f5d1ed6898952b55b1bda4e9b2610ab9b103d5cab0deb18f2da022f8fddc4c043d9552adb5f1e80e9a9e              530 main/binary-amd64/Packages
+ 0ea211c4c5449336612a9275398ccb44f7c9c09d82f3e568ad6a8370bd347ebf7fa7c22772689f2ff2f47fc0d0dda58782855051d0bfa9fd52f56b38a50818f4              379 main/binary-amd64/Packages.gz
+ 05fcb1bea1d6badd28446deb0ae8a4bf73c3308244c2b079b41e6dff57c53a1c36c9049184f17c876d8fdb48cd115c4acbb7644b870885d99866232a31179f73              440 main/binary-amd64/Packages.xz
+ f8a539f7ac83b2f4a12e16372b9b375d119bc4f67cda1a6cedaa89cd6b02e89cc929eab0b890a7a8b41fa4865208efec8459e5c366de306f2897d749931c2c5b              530 main/binary-arm64/Packages
+ 41b839fd9fd68dc1fb08ce2acbfca04f3c687d214db0d3a41e2019cbd0a26e8ea65964bc6534b1946749ed4d18af66abedf130a4d05b075df3ba4f33547c360d              379 main/binary-arm64/Packages.gz
+ 3fea7c16fb4b58d70e017d3893a1ebcfe4d5ea05ff34a0736b9ddc5305fffafb41f3dd731e72785bcc5d6162a9ff1a610bbaa9ea511ea2dfc03cb026cf412a2a              444 main/binary-arm64/Packages.xz
