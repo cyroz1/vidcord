@@ -526,11 +526,13 @@ jobs:
           sed -i \
             -e "s@::https://github.com/cyroz1/vidcord/releases/download/v${release_tag}/vidcord_${version}_${{ matrix.deb_arch }}.deb@@" \
             "$arch_input/.SRCINFO"
+          # Arch Linux ARM's makepkg defaults to xz; release artifacts and the
+          # package repository use zstd on both architectures.
           docker run --rm \
             --mount "type=bind,source=$arch_input,target=/inputs,readonly" \
             --mount "type=bind,source=$arch_output,target=/output" \
             ${{ matrix.image }} \
-            bash -lc 'set -e; command -v makepkg >/dev/null; id -u build >/dev/null 2>&1 || useradd --create-home build; mkdir -p /tmp/vidcord-build; cp -a /inputs/. /tmp/vidcord-build/; chown -R build:build /tmp/vidcord-build; su build -c "cd /tmp/vidcord-build && makepkg --noconfirm --clean --nodeps"; cp /tmp/vidcord-build/vidcord-bin-*.pkg.tar.zst /output/'
+            bash -lc 'set -e; command -v makepkg >/dev/null; id -u build >/dev/null 2>&1 || useradd --create-home build; mkdir -p /tmp/vidcord-build; cp -a /inputs/. /tmp/vidcord-build/; printf "\nPKGEXT=.pkg.tar.zst\n" >> /etc/makepkg.conf; chown -R build:build /tmp/vidcord-build; su build -c "cd /tmp/vidcord-build && makepkg --noconfirm --clean --nodeps"; cp /tmp/vidcord-build/vidcord-bin-*.pkg.tar.zst /output/'
           mapfile -t built_packages < <(find "$arch_output" -maxdepth 1 -type f -name 'vidcord-bin-*.pkg.tar.zst' -print)
           expected_package="vidcord-bin-${version}-1-${{ matrix.arch }}.pkg.tar.zst"
           if [[ "${#built_packages[@]}" -ne 1 || "$(basename "${built_packages[0]:-}")" != "$expected_package" ]]; then
