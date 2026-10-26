@@ -268,7 +268,8 @@ jobs:
         run: |
           # The x64 GitHub runner uses Azure's mirror, which is unusually slow
           # for this large dependency set. Use Ubuntu's public archive instead.
-          sudo find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) \
+          sudo find /etc/apt -type f \
+            \( -name '*.list' -o -name '*.sources' -o -name 'apt-mirrors.txt' \) \
             -exec sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' {} +
           # Tauri bundles the installed GStreamer runtime/plugins into Linux
           # AppImages for WebKitGTK HTML video playback.
