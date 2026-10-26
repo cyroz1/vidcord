@@ -1469,61 +1469,75 @@ pub async fn resolve_batch_output_paths(
     output_extension: Option<String>,
 ) -> Result<Vec<String>, String> {
     tokio::task::spawn_blocking(move || {
-        let output_extension = output_extension.unwrap_or_else(|| "mp4".into());
-        if output_extension != "mp4" {
-            return Err("Invalid output format".into());
-        }
-
-        let staging = staging.unwrap_or(false);
-        let staging_path = if staging {
-            let directory = staging_directory();
-            std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-            Some(directory)
-        } else {
-            None
-        };
-        let mut reserved = HashSet::new();
-        let mut outputs = Vec::with_capacity(input_paths.len());
-        for input_path in input_paths {
-            let input = std::path::PathBuf::from(&input_path);
-            let directory = if let Some(staging_path) = staging_path.as_ref() {
-                staging_path.clone()
-            } else if use_input_directory.unwrap_or(false) {
-                input
-                    .parent()
-                    .filter(|directory| directory.is_dir())
-                    .ok_or_else(|| {
-                        "The imported clip's folder is no longer available.".to_string()
-                    })?
-                    .to_path_buf()
-            } else if let Some(directory) = output_directory
-                .as_deref()
-                .filter(|path| !path.trim().is_empty())
-            {
-                let directory = std::path::PathBuf::from(directory);
-                if !directory.is_dir() {
-                    return Err(
-                        "The custom output folder is no longer available. Choose it again.".into(),
-                    );
-                }
-                directory
-            } else {
-                let downloads = dirs::download_dir()
-                    .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
-                    .ok_or("Cannot find Downloads folder")?;
-                std::fs::create_dir_all(&downloads).map_err(|e| e.to_string())?;
-                downloads
-            };
-
-            let output =
-                unique_output_path_with_reserved(&input, &directory, &output_extension, &reserved);
-            reserved.insert(output_path_key(&output));
-            outputs.push(output.to_string_lossy().into_owned());
-        }
-        Ok(outputs)
+        resolve_batch_output_paths_blocking(
+            input_paths,
+            output_directory,
+            use_input_directory,
+            staging,
+            output_extension,
+            ensure_staging_directory,
+        )
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+fn resolve_batch_output_paths_blocking(
+    input_paths: Vec<String>,
+    output_directory: Option<String>,
+    use_input_directory: Option<bool>,
+    staging: Option<bool>,
+    output_extension: Option<String>,
+    prepare_staging: impl FnOnce() -> Result<std::path::PathBuf, String>,
+) -> Result<Vec<String>, String> {
+    let output_extension = output_extension.unwrap_or_else(|| "mp4".into());
+    if output_extension != "mp4" {
+        return Err("Invalid output format".into());
+    }
+
+    let staging = staging.unwrap_or(false);
+    let staging_path = if staging {
+        Some(prepare_staging()?)
+    } else {
+        None
+    };
+    let mut reserved = HashSet::new();
+    let mut outputs = Vec::with_capacity(input_paths.len());
+    for input_path in input_paths {
+        let input = std::path::PathBuf::from(&input_path);
+        let directory = if let Some(staging_path) = staging_path.as_ref() {
+            staging_path.clone()
+        } else if use_input_directory.unwrap_or(false) {
+            input
+                .parent()
+                .filter(|directory| directory.is_dir())
+                .ok_or_else(|| "The imported clip's folder is no longer available.".to_string())?
+                .to_path_buf()
+        } else if let Some(directory) = output_directory
+            .as_deref()
+            .filter(|path| !path.trim().is_empty())
+        {
+            let directory = std::path::PathBuf::from(directory);
+            if !directory.is_dir() {
+                return Err(
+                    "The custom output folder is no longer available. Choose it again.".into(),
+                );
+            }
+            directory
+        } else {
+            let downloads = dirs::download_dir()
+                .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
+                .ok_or("Cannot find Downloads folder")?;
+            std::fs::create_dir_all(&downloads).map_err(|e| e.to_string())?;
+            downloads
+        };
+
+        let output =
+            unique_output_path_with_reserved(&input, &directory, &output_extension, &reserved);
+        reserved.insert(output_path_key(&output));
+        outputs.push(output.to_string_lossy().into_owned());
+    }
+    Ok(outputs)
 }
 
 fn unique_output_path(
@@ -1741,7 +1755,7 @@ fn ensure_staging_directory() -> Result<std::path::PathBuf, String> {
 }
 
 fn validated_staged_output(path: &str) -> Result<std::path::PathBuf, String> {
-    let staging = std::fs::canonicalize(staging_directory())
+    let staging = std::fs::canonicalize(ensure_staging_directory()?)
         .map_err(|_| "The temporary output folder is unavailable.".to_string())?;
     let staged = std::fs::canonicalize(path)
         .map_err(|_| "The temporary output file is unavailable.".to_string())?;
@@ -1783,7 +1797,7 @@ fn reject_staging_destination(
     parent: &std::path::Path,
     file_name: &str,
 ) -> Result<(), String> {
-    let staging = std::fs::canonicalize(staging_directory())
+    let staging = std::fs::canonicalize(ensure_staging_directory()?)
         .map_err(|_| "The temporary output folder is unavailable.".to_string())?;
     let canonical_parent = std::fs::canonicalize(parent)
         .map_err(|_| "The selected output folder is unavailable.".to_string())?;
@@ -2385,6 +2399,47 @@ mod tests {
         assert_eq!(
             std::fs::metadata(&staging).unwrap().permissions().mode() & 0o777,
             0o700
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn batch_staging_rejects_redirected_temporary_directory() {
+        use super::{ensure_staging_directory_in, resolve_batch_output_paths_blocking};
+        use std::os::unix::fs::symlink;
+
+        let root =
+            std::env::temp_dir().join(format!("vidcord_batch_staging_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir(&root).unwrap();
+        let target = root.join("target");
+        std::fs::create_dir(&target).unwrap();
+        symlink(&target, root.join("private")).unwrap();
+        let resolve = || {
+            resolve_batch_output_paths_blocking(
+                vec!["video.mp4".into()],
+                None,
+                None,
+                Some(true),
+                None,
+                || ensure_staging_directory_in(&root, std::ffi::OsStr::new("private")),
+            )
+        };
+        assert!(resolve().is_err());
+        assert_eq!(std::fs::read_dir(&target).unwrap().count(), 0);
+
+        std::fs::remove_file(root.join("private")).unwrap();
+        let outputs = resolve().unwrap();
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(
+            std::path::Path::new(&outputs[0]).parent(),
+            Some(
+                std::fs::canonicalize(&root)
+                    .unwrap()
+                    .join("private/staged-output")
+                    .as_path()
+            )
         );
         std::fs::remove_dir_all(root).unwrap();
     }
