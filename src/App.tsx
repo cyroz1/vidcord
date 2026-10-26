@@ -3945,7 +3945,8 @@ export default function App() {
             <p id="update-description" className="update-modal-copy">
               A newer vidcord release is available. Install will download the matching
               {updateInfo.installerName ? ` ${updateInfo.installerName}` : " installer"} for this
-              computer and open it.
+              computer and{" "}
+              {pathPlatform === "linux" ? "show it in your file manager." : "open it."}
             </p>
 
             <div className="update-modal-actions">
