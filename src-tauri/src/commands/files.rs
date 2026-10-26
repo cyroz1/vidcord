@@ -1636,7 +1636,11 @@ fn resolve_output_path_blocking(
 }
 
 fn staging_directory() -> std::path::PathBuf {
-    std::env::temp_dir().join("vidcord").join("staged-output")
+    #[cfg(unix)]
+    let directory = format!("vidcord-{}", unsafe { libc::geteuid() });
+    #[cfg(not(unix))]
+    let directory = "vidcord";
+    std::env::temp_dir().join(directory).join("staged-output")
 }
 
 /// Create the staging directory and prove it is private before any
@@ -1648,13 +1652,24 @@ fn staging_directory() -> std::path::PathBuf {
 /// user or root and not group/world-writable unless sticky (like /tmp).
 #[cfg(unix)]
 fn ensure_staging_directory() -> Result<std::path::PathBuf, String> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-
     let staging = staging_directory();
-    std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
-    std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o700))
-        .map_err(|e| e.to_string())?;
-    let resolved = std::fs::canonicalize(&staging).map_err(|e| e.to_string())?;
+    let root = staging
+        .parent()
+        .and_then(std::path::Path::parent)
+        .ok_or_else(|| "The temporary output folder is unavailable.".to_string())?;
+    ensure_staging_directory_in(root, staging.parent().unwrap().file_name().unwrap())
+}
+
+#[cfg(unix)]
+fn ensure_staging_directory_in(
+    root: &std::path::Path,
+    directory_name: &std::ffi::OsStr,
+) -> Result<std::path::PathBuf, String> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let resolved = std::fs::canonicalize(root).map_err(|e| e.to_string())?;
 
     let effective_uid = unsafe { libc::geteuid() };
     let mut current = std::path::PathBuf::new();
@@ -1672,7 +1687,49 @@ fn ensure_staging_directory() -> Result<std::path::PathBuf, String> {
             return Err("The temporary output folder is not private.".to_string());
         }
     }
-    Ok(resolved)
+    // Open each new component relative to a held directory descriptor.
+    // Never follow a pre-existing symlink or change permissions before
+    // confirming the directory belongs to this user.
+    fn private_child(
+        parent: &std::fs::File,
+        name: &std::ffi::OsStr,
+    ) -> Result<std::fs::File, String> {
+        let name = std::ffi::CString::new(name.as_bytes()).map_err(|e| e.to_string())?;
+        let result = unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) };
+        if result != 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::AlreadyExists {
+                return Err(error.to_string());
+            }
+        }
+        let fd = unsafe {
+            libc::openat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 {
+            return Err("The temporary output folder is not private.".to_string());
+        }
+        let file = unsafe { std::fs::File::from_raw_fd(fd) };
+        let metadata = file.metadata().map_err(|e| e.to_string())?;
+        if metadata.uid() != unsafe { libc::geteuid() } {
+            return Err("The temporary output folder is not private.".to_string());
+        }
+        file.set_permissions(std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| e.to_string())?;
+        Ok(file)
+    }
+
+    let root_file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(&resolved)
+        .map_err(|e| e.to_string())?;
+    let parent = private_child(&root_file, directory_name)?;
+    let _staging = private_child(&parent, std::ffi::OsStr::new("staged-output"))?;
+    Ok(resolved.join(directory_name).join("staged-output"))
 }
 
 #[cfg(not(unix))]
@@ -2282,6 +2339,54 @@ mod tests {
 
         assert!(validated_clipboard_file(directory.to_string_lossy().into_owned()).is_err());
         std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staging_rejects_symlinked_directories_without_changing_their_permissions() {
+        use super::ensure_staging_directory_in;
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let root = std::env::temp_dir().join(format!(
+            "vidcord_staging_symlink_test_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir(&root).unwrap();
+        let target = root.join("target");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let parent = root.join("private");
+
+        symlink(&target, &parent).unwrap();
+        assert!(ensure_staging_directory_in(&root, std::ffi::OsStr::new("private")).is_err());
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+        std::fs::remove_file(&parent).unwrap();
+
+        std::fs::create_dir(&parent).unwrap();
+        symlink(&target, parent.join("staged-output")).unwrap();
+        assert!(ensure_staging_directory_in(&root, std::ffi::OsStr::new("private")).is_err());
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+        std::fs::remove_file(parent.join("staged-output")).unwrap();
+
+        let staging = ensure_staging_directory_in(&root, std::ffi::OsStr::new("private")).unwrap();
+        assert_eq!(
+            staging,
+            std::fs::canonicalize(&root)
+                .unwrap()
+                .join("private/staged-output")
+        );
+        assert_eq!(
+            std::fs::metadata(&staging).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

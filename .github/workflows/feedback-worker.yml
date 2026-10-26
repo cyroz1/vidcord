@@ -1,0 +1,35 @@
+name: Feedback Worker Tests
+
+on:
+  push:
+    branches: [main, "[0-9]+.[0-9]+"]
+    paths:
+      - "workers/feedback/**"
+      - ".github/workflows/feedback-worker.yml"
+  pull_request:
+    branches: [main, "[0-9]+.[0-9]+"]
+    paths:
+      - "workers/feedback/**"
+      - ".github/workflows/feedback-worker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22.23.1
+      - name: Check Worker syntax and test request handling
+        run: |
+          node --check workers/feedback/src/index.js
+          node --test workers/feedback/test/index.test.js

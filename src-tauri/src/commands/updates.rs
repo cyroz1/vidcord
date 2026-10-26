@@ -859,50 +859,6 @@ fn temp_download_path(path: &Path) -> Result<PathBuf, String> {
     )))
 }
 
-/// True when `name` matches the temporary-download shape
-/// (`.{installer name}.{pid}.{counter}.download`) for a process other than
-/// this one, marking it as a leftover from an install attempt that was
-/// hard-killed before its guard could remove the partial file.
-fn is_stale_temp_download_name(name: &str, own_pid: &str) -> bool {
-    let Some(stripped) = name
-        .strip_prefix('.')
-        .and_then(|rest| rest.strip_suffix(".download"))
-    else {
-        return false;
-    };
-    if !stripped.starts_with("vidcord") {
-        return false;
-    }
-    let mut parts = stripped.rsplit('.');
-    let Some(_counter) = parts.next() else {
-        return false;
-    };
-    let Some(pid) = parts.next() else {
-        return false;
-    };
-    !pid.is_empty() && pid.bytes().all(|byte| byte.is_ascii_digit()) && pid != own_pid
-}
-
-/// Best-effort removal of stale partial update downloads left behind by an
-/// install attempt that never got to clean up (SIGKILL, crash, power loss).
-/// Files belonging to this process are never touched, and every error is
-/// ignored: a failed sweep must never block an install.
-fn sweep_stale_temp_downloads(dir: &Path) {
-    let own_pid = std::process::id().to_string();
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        if name
-            .to_str()
-            .is_some_and(|name| is_stale_temp_download_name(name, &own_pid))
-        {
-            let _ = std::fs::remove_file(entry.path());
-        }
-    }
-}
-
 async fn create_temp_download_file(path: &Path) -> Result<(PathBuf, tokio::fs::File), String> {
     for _ in 0..64 {
         let tmp = temp_download_path(path)?;
@@ -1405,12 +1361,6 @@ pub async fn download_and_open_update_installer(
     tokio::fs::create_dir_all(target_dir)
         .await
         .map_err(|e| e.to_string())?;
-    // Clean up partial downloads orphaned by a hard-killed earlier attempt
-    // before this attempt creates its own temporary file. Best-effort: the
-    // result is ignored on purpose.
-    let sweep_dir = target_dir.to_path_buf();
-    let _ = tokio::task::spawn_blocking(move || sweep_stale_temp_downloads(&sweep_dir)).await;
-
     let send_result = tokio::time::timeout(
         DOWNLOAD_SEND_TIMEOUT,
         download_client()?
@@ -2151,58 +2101,5 @@ mod tests {
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
         assert!(!destination.exists());
         tokio::fs::remove_dir_all(directory).await.unwrap();
-    }
-
-    #[test]
-    fn stale_temp_download_names_match_only_other_processes() {
-        assert!(is_stale_temp_download_name(
-            ".vidcord_7.7.0_amd64.AppImage.4242.0.download",
-            "1234"
-        ));
-        assert!(!is_stale_temp_download_name(
-            ".vidcord_7.7.0_amd64.AppImage.1234.0.download",
-            "1234"
-        ));
-        assert!(!is_stale_temp_download_name(
-            "vidcord_7.7.0_amd64.AppImage",
-            "1234"
-        ));
-        assert!(!is_stale_temp_download_name(
-            "vidcord_7.7.0_amd64.AppImage.4242.0.download",
-            "1234"
-        ));
-        assert!(!is_stale_temp_download_name(
-            ".other_1.0.4242.0.download",
-            "1234"
-        ));
-        assert!(!is_stale_temp_download_name(
-            ".vidcord_backup.4242.download",
-            "1234"
-        ));
-    }
-
-    #[test]
-    fn stale_temp_download_sweep_removes_only_other_processes_files() {
-        let directory = unique_test_directory();
-        std::fs::create_dir_all(&directory).unwrap();
-        let own_pid = std::process::id();
-        let stale = directory.join(format!(
-            ".vidcord_7.7.0_amd64.AppImage.{}.0.download",
-            own_pid + 1_000_000
-        ));
-        let own = directory.join(format!(
-            ".vidcord_7.7.0_amd64.AppImage.{own_pid}.0.download"
-        ));
-        let unrelated = directory.join("vidcord_7.7.0_amd64.AppImage");
-        std::fs::write(&stale, b"partial").unwrap();
-        std::fs::write(&own, b"partial").unwrap();
-        std::fs::write(&unrelated, b"installer").unwrap();
-
-        sweep_stale_temp_downloads(&directory);
-
-        assert!(!stale.exists());
-        assert!(own.exists());
-        assert!(unrelated.exists());
-        std::fs::remove_dir_all(directory).unwrap();
     }
 }

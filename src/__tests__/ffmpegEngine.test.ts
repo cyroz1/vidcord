@@ -53,6 +53,52 @@ function currentFfmpeg() {
 }
 
 describe("browser encoder lifecycle", () => {
+  it("reports the current download to an export that joins encoder warmup", async () => {
+    let streamController!: ReadableStreamDefaultController<Uint8Array>;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            streamController = controller;
+          },
+        }),
+        { headers: { "content-length": "8" } }
+      )
+    );
+    const warmupProgress = vi.fn();
+    const warmup = engine.load(warmupProgress);
+    streamController.enqueue(new Uint8Array([0, 97, 115, 109]));
+    await vi.waitFor(() => {
+      expect(warmupProgress).toHaveBeenCalledWith({
+        stage: "downloading",
+        loadedBytes: 4,
+        totalBytes: 8,
+      });
+    });
+
+    const onProgress = vi.fn();
+    const exportLoad = engine.load(onProgress);
+    expect(onProgress).toHaveBeenCalledWith({
+      stage: "downloading",
+      loadedBytes: 4,
+      totalBytes: 8,
+    });
+    streamController.enqueue(new Uint8Array([1, 0, 0, 0]));
+    streamController.close();
+    await Promise.all([warmup, exportLoad]);
+    expect(onProgress).toHaveBeenCalledWith({
+      stage: "downloading",
+      loadedBytes: 8,
+      totalBytes: 8,
+    });
+    expect(onProgress).toHaveBeenCalledWith({
+      stage: "starting",
+      loadedBytes: 0,
+      totalBytes: null,
+    });
+    expect(engine.isLoaded).toBe(true);
+  });
+
   it("aborts an in-flight encoder download and can retry", async () => {
     let signal: AbortSignal | undefined;
     vi.mocked(fetch).mockImplementationOnce(

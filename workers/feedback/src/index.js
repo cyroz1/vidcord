@@ -121,6 +121,10 @@ export default {
       return json({ error: "invalid json" }, 400);
     }
 
+    if (data === null || typeof data !== "object" || Array.isArray(data)) {
+      return json({ error: "subject and body are required" }, 400);
+    }
+
     const { subject, body } = data;
     if (typeof subject !== "string" || typeof body !== "string" || !subject || !body) {
       return json({ error: "subject and body are required" }, 400);

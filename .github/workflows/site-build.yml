@@ -4,9 +4,9 @@ on:
   push:
     branches: [main, "[0-9]+.[0-9]+"]
     paths:
-      - "src/main.tsx"
-      - "src/web/**"
-      - "src/index.css"
+      # The browser build shares helpers and components with the desktop app,
+      # and the shared entry also bundles the lazy desktop application.
+      - "src/**"
       - "index.html"
       - "public/**"
       - "vite.config.ts"
@@ -19,9 +19,7 @@ on:
   pull_request:
     branches: [main, "[0-9]+.[0-9]+"]
     paths:
-      - "src/main.tsx"
-      - "src/web/**"
-      - "src/index.css"
+      - "src/**"
       - "index.html"
       - "public/**"
       - "vite.config.ts"

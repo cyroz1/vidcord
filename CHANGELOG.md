@@ -5,13 +5,20 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ## WIP
 
+### Desktop exports
+
+- Protected temporary exports from symlink redirection by other local users.
+
+### Browser exports
+
+- Encoder download progress remains visible when an export starts during background preparation.
+
 ### Updates
 
 - Update installs no longer stall forever while fetching release details, and the installer now
   refuses a release that is not newer than the running version instead of silently rolling back.
 - Installers published through the copy fallback (FAT, exFAT, and network filesystems) are
-  re-verified after copying, and partial downloads left behind by a killed install are cleaned up
-  on the next attempt.
+  re-verified after copying. Update downloads no longer remove files belonging to another process.
 - Linux package-manager update routing recognizes more hand-edited repository setups: DNF
   metalink and mirrorlist entries, pacman `Include` mirrorlists, and APT source files with
   uppercase extensions.

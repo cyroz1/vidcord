@@ -431,9 +431,9 @@ Output handling has two paths:
   creates that exact path and owns it across every adaptive retry. Treat path resolution as
   advisory; do not replace the create-new reservation with a check-then-write flow or allow
   FFmpeg's `-y` to overwrite an unrelated file.
-- **Ask when done**: compression writes only beneath
-  `%TEMP%/vidcord/staged-output` (the platform temp equivalent), then the frontend opens a save
-  dialog. `publish_staged_output` canonicalizes and accepts only a direct file child of that staging
+- **Ask when done**: compression writes only beneath a per-user temporary staging directory
+  (`vidcord-<uid>/staged-output` on Unix, `vidcord/staged-output` on Windows), then the frontend
+  opens a save dialog. `publish_staged_output` canonicalizes and accepts only a direct file child of that staging
   directory, first tries a same-filesystem hard link to a unique temporary path beside the
   destination, falls back to a create-new copy when linking is unavailable, syncs the temporary
   file, atomically publishes it via `settings::replace_file`, and removes the staged file.
@@ -743,9 +743,9 @@ Each platform build installs the locked Tauri CLI from `tools/tauri-cli/package-
 of installing the full frontend toolchain again; `scripts/check-build-tools.mjs` verifies that its
 package integrity matches the root lockfile. Site changes run Site Checks. Browser source and
 generated browser-asset changes also run Site Browser Build, which rebuilds and checks the committed
-browser output. Both site workflows filter on `main` pushes and PRs targeting `main` (plus manual runs);
-the app and E2E workflows also cover `X.Y` version branches. Site Browser Build watches all
-`site/**`, so marketing-only and crawler-file changes also rebuild the browser bundle. It reuses
+browser output. Both site workflows cover `main` and `X.Y` version branches, plus manual runs.
+Site Browser Build watches all `src/**` because the browser bundle shares source with the desktop
+app, and all `site/**`, so marketing-only and crawler-file changes also rebuild the browser bundle. It reuses
 the installed prebuilt FFmpeg core; it does not compile FFmpeg from source.
 
 ## Known pitfalls

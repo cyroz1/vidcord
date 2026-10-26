@@ -83,7 +83,7 @@ node --test workers/feedback/test/index.test.js
 ```
 
 These tests mock forwarding and do not send real email. They are separate from
-`npm test`, whose Vitest include is limited to `src/`; no dedicated Worker CI
-job currently invokes this suite. For an intentional live smoke test, use the
+`npm test`, whose Vitest include is limited to `src/`; the Feedback Worker Tests
+workflow runs them for Worker changes. For an intentional live smoke test, use the
 site's Report a bug form with an identifiable test description; successful
 submission sends an actual email to the developer.

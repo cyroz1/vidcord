@@ -27,6 +27,7 @@ import {
 } from "../web/exportPlan";
 import {
   formatBrowserEta,
+  formatDownloadEta,
   formatPassEta,
   progressFromMediaTime,
   progressInSegment,
@@ -62,6 +63,14 @@ describe("browser export planning", () => {
     expect(formatBrowserEta(0, 2_000)).toBe("ETA: estimating…");
     expect(formatBrowserEta(50, 10_000)).toBe("ETA: 0:10");
     expect(formatBrowserEta(100, 10_000)).toBe("Complete");
+  });
+
+  it("estimates download time from bytes received after joining warmup", () => {
+    expect(formatDownloadEta(80, 100, 80, 2_000)).toBe("ETA: estimating…");
+    expect(formatDownloadEta(90, 100, 80, 10_000)).toBe("ETA: 0:10");
+    expect(formatDownloadEta(50, 100, 0, 10_000)).toBe("ETA: 0:10");
+    expect(formatDownloadEta(100, 100, 80, 10_000)).toBe("Complete");
+    expect(formatDownloadEta(10, 100, 80, 10_000)).toBe("ETA: estimating…");
   });
 
   it("keeps an in-flight export distinct from a completed pass", () => {

@@ -38,7 +38,7 @@ import {
 } from "./exportPlan";
 import type { BrowserEncoderLoadProgress, BrowserFfmpegEngine } from "./ffmpegEngine";
 import { buildKeyframeProbeArgs, parseKeyframeTimes } from "./keyframes";
-import { formatBrowserEta, formatPassEta, progressInSegment } from "./browserProgress";
+import { formatDownloadEta, formatPassEta, progressInSegment } from "./browserProgress";
 import { effectiveBrowserExportMode, shouldCopyBrowserExport } from "./webExportState";
 import {
   loadBrowserSettings,
@@ -344,7 +344,7 @@ export default function WebEditor({
   const exportUiUpdatedAtRef = useRef(0);
   const exportUiStatusRef = useRef("");
   const exportSegmentRef = useRef<{ key: string; startedAt: number } | null>(null);
-  const encoderLoadStartedAtRef = useRef(0);
+  const encoderLoadSampleRef = useRef<{ bytes: number; startedAt: number } | null>(null);
   const encoderWarmupStartedRef = useRef(false);
   const componentMountedRef = useRef(true);
   const engineRef = useRef<BrowserFfmpegEngine | null>(null);
@@ -419,6 +419,10 @@ export default function WebEditor({
       }
 
       const { loadedBytes, totalBytes } = loadProgress;
+      if (!encoderLoadSampleRef.current || loadedBytes < encoderLoadSampleRef.current.bytes) {
+        encoderLoadSampleRef.current = { bytes: loadedBytes, startedAt: Date.now() };
+      }
+      const sample = encoderLoadSampleRef.current;
       const percent =
         totalBytes && totalBytes > 0
           ? Math.max(0, Math.min(100, (loadedBytes / totalBytes) * 100))
@@ -430,9 +434,9 @@ export default function WebEditor({
           : `Downloading encoder · ${formatFileSize(loadedBytes)}`
       );
       setEta(
-        percent === null
-          ? "ETA: estimating…"
-          : formatBrowserEta(percent, Date.now() - encoderLoadStartedAtRef.current)
+        totalBytes && totalBytes > 0
+          ? formatDownloadEta(loadedBytes, totalBytes, sample.bytes, Date.now() - sample.startedAt)
+          : "ETA: estimating…"
       );
     },
     []
@@ -1143,7 +1147,7 @@ export default function WebEditor({
       setIsExporting(true);
       setWasmLoading(true);
       setEncoderLoadProgress(0);
-      encoderLoadStartedAtRef.current = Date.now();
+      encoderLoadSampleRef.current = null;
       exportProgressRef.current = 0;
       exportUiUpdatedAtRef.current = 0;
       exportUiStatusRef.current = "";

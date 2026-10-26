@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::{Instant, SystemTime};
+use std::time::Instant;
 use tauri::{webview::PageLoadEvent, AppHandle, Emitter, Manager};
 use tauri_plugin_window_state::StateFlags;
 
@@ -44,10 +44,7 @@ struct StartupTiming {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        append_pending_files, existing_open_path, existing_open_paths_with_cwd,
-        is_update_download_temp_name, sweep_stale_update_downloads_in,
-    };
+    use super::{append_pending_files, existing_open_path, existing_open_paths_with_cwd};
 
     #[test]
     fn open_paths_resolve_relative_to_the_supplied_cwd() {
@@ -116,67 +113,6 @@ mod tests {
         assert_eq!(existing_open_path("file:///definitely/not/real.mp4"), None);
         std::fs::remove_file(path).ok();
     }
-
-    #[test]
-    fn update_download_temp_names_match_only_the_updater_pattern() {
-        for name in [
-            ".vidcord_7.7_x64-setup.exe.999999999.0.download",
-            ".vidcord_7.7_arm64-setup.exe.999999999.1.download",
-            ".vidcord_7.7_universal.dmg.999999999.0.download",
-            ".vidcord_7.7_amd64.AppImage.999999999.2.download",
-            ".vidcord_7.7_aarch64.AppImage.999999999.0.download",
-            ".vidcord-update.999999999.0.download",
-        ] {
-            assert!(is_update_download_temp_name(name), "{name}");
-        }
-        for name in [
-            // Missing the leading dot, wrong suffix, or not an installer.
-            "vidcord_7.7_x64-setup.exe.999999999.0.download",
-            ".vidcord_7.7_x64-setup.exe.999999999.0.download.bak",
-            ".vidcord_7.7_x64-setup.exe.999999999.download",
-            ".vidcord_7.7_x64-setup.exe.latest.0.download",
-            ".vidcord_7.7_x64-setup.exe.999999999.x.download",
-            ".other_1.0_x64-setup.exe.999999999.0.download",
-            ".vidcord_7.7_notes.txt.999999999.0.download",
-            "vidcord_7.7_x64-setup.exe",
-        ] {
-            assert!(!is_update_download_temp_name(name), "{name}");
-        }
-        // A temp file stamped with this process's own pid is never stale.
-        let own = format!(
-            ".vidcord_7.7_x64-setup.exe.{}.0.download",
-            std::process::id()
-        );
-        assert!(!is_update_download_temp_name(&own));
-    }
-
-    #[test]
-    fn stale_update_sweep_removes_only_old_matching_files() {
-        use std::time::{Duration, SystemTime};
-
-        let dir =
-            std::env::temp_dir().join(format!("vidcord-update-sweep-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let stale = dir.join(".vidcord_7.7_x64-setup.exe.999999999.0.download");
-        let unrelated = dir.join("keep-me.txt");
-        std::fs::write(&stale, b"partial").unwrap();
-        std::fs::write(&unrelated, b"keep").unwrap();
-
-        // Nothing is older than the epoch, so nothing is removed.
-        sweep_stale_update_downloads_in(std::slice::from_ref(&dir), SystemTime::UNIX_EPOCH);
-        assert!(stale.exists());
-
-        // With a process start after the files were written, only the
-        // matching temp file is removed.
-        sweep_stale_update_downloads_in(
-            std::slice::from_ref(&dir),
-            SystemTime::now() + Duration::from_secs(60),
-        );
-        assert!(!stale.exists());
-        assert!(unrelated.exists());
-
-        std::fs::remove_dir_all(&dir).ok();
-    }
 }
 
 fn append_pending_files(pending: &mut Option<Vec<String>>, paths: Vec<String>) {
@@ -243,121 +179,6 @@ fn existing_open_paths_with_cwd(
             }
         })
         .collect()
-}
-
-/// Whether a filename matches the update installer's temporary-download
-/// pattern from `commands::updates::temp_download_path`:
-/// `.{asset}.{pid}.{counter}.download`, where the asset is a `vidcord_*`
-/// installer name ending in a known platform suffix.
-fn is_update_download_temp_name(file_name: &str) -> bool {
-    let Some(core) = file_name
-        .strip_prefix('.')
-        .and_then(|name| name.strip_suffix(".download"))
-    else {
-        return false;
-    };
-    let Some((rest, counter)) = core.rsplit_once('.') else {
-        return false;
-    };
-    let Some((asset, pid)) = rest.rsplit_once('.') else {
-        return false;
-    };
-    if counter.is_empty() || !counter.bytes().all(|byte| byte.is_ascii_digit()) {
-        return false;
-    }
-    if pid.is_empty() || !pid.bytes().all(|byte| byte.is_ascii_digit()) {
-        return false;
-    }
-    // Files stamped with this process's own pid are never stale.
-    if pid.parse::<u32>() == Ok(std::process::id()) {
-        return false;
-    }
-    let asset = asset.to_ascii_lowercase();
-    asset == "vidcord-update"
-        || (asset.starts_with("vidcord_")
-            && [
-                "_x64-setup.exe",
-                "_arm64-setup.exe",
-                "_universal.dmg",
-                "_amd64.appimage",
-                "_aarch64.appimage",
-            ]
-            .iter()
-            .any(|suffix| asset.ends_with(suffix)))
-}
-
-/// Remove partial update downloads left behind by a process that was killed
-/// before its cleanup guard could run. Only files matching the updater's
-/// exact temp pattern and last modified before this process started are
-/// removed, so a download in progress elsewhere is never touched. Best
-/// effort: failures are logged, never propagated.
-fn sweep_stale_update_downloads_in(
-    directories: &[std::path::PathBuf],
-    process_started: SystemTime,
-) {
-    let mut removed = 0usize;
-    for directory in directories {
-        let entries = match std::fs::read_dir(directory) {
-            Ok(entries) => entries,
-            Err(error) => {
-                vidcord_log(&format!(
-                    "Update cleanup: could not scan for stale partial downloads: {error}"
-                ));
-                continue;
-            }
-        };
-        for entry in entries.flatten() {
-            let file_name = entry.file_name();
-            let Some(file_name) = file_name.to_str() else {
-                continue;
-            };
-            if !is_update_download_temp_name(file_name) {
-                continue;
-            }
-            let Ok(metadata) = entry.metadata() else {
-                continue;
-            };
-            if !metadata.is_file() {
-                continue;
-            }
-            match metadata.modified() {
-                Ok(modified) if modified < process_started => {}
-                _ => continue,
-            }
-            match std::fs::remove_file(entry.path()) {
-                Ok(()) => removed += 1,
-                Err(error) => {
-                    vidcord_log(&format!(
-                        "Update cleanup: could not remove a stale partial download: {error}"
-                    ));
-                }
-            }
-        }
-    }
-    if removed > 0 {
-        vidcord_log(&format!(
-            "Update cleanup: removed {removed} stale partial update download(s)"
-        ));
-    }
-}
-
-fn sweep_stale_update_downloads(process_started: SystemTime) {
-    // The same directories the updater can place a download target in,
-    // mirroring the fallback chain in commands::updates::download_target_path.
-    let mut directories: Vec<std::path::PathBuf> = Vec::new();
-    for directory in [
-        dirs::download_dir(),
-        dirs::data_local_dir(),
-        Some(std::env::temp_dir()),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if !directories.contains(&directory) {
-            directories.push(directory);
-        }
-    }
-    sweep_stale_update_downloads_in(&directories, process_started);
 }
 
 /// Grant the runtime asset-protocol scope for user-selected open paths.
@@ -493,7 +314,6 @@ fn sync_native_window_theme(app: AppHandle, dark: bool) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let startup_started_at = Instant::now();
-    let process_started_at = SystemTime::now();
     log::setup_crash_log();
 
     #[cfg(target_os = "linux")]
@@ -642,19 +462,6 @@ pub fn run() {
             }
         })
         .setup(move |app| {
-            // One-time sweep for partial update downloads orphaned by a
-            // killed process (the updater's cleanup guard cannot run after
-            // SIGKILL or power loss). Directory scans stay off the startup
-            // path, and the sweep only removes files older than this process.
-            if let Err(error) = std::thread::Builder::new()
-                .name("vidcord-update-cleanup".to_string())
-                .spawn(move || sweep_stale_update_downloads(process_started_at))
-            {
-                vidcord_log(&format!(
-                    "Could not start the stale update download cleanup: {error}"
-                ));
-            }
-
             // AppImage folder Open With registration scans and writes desktop
             // files; keep that filesystem work off the startup path and run
             // it in the background after setup.

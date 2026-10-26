@@ -191,6 +191,11 @@ export class BrowserFfmpegEngine {
 
   private loading: Promise<void> | null = null;
 
+  private loadProgress: {
+    listeners: Set<(progress: BrowserEncoderLoadProgress) => void>;
+    latest: BrowserEncoderLoadProgress | null;
+  } | null = null;
+
   private loadGeneration = 0;
 
   private loadController: AbortController | null = null;
@@ -205,8 +210,7 @@ export class BrowserFfmpegEngine {
 
   private runLogHandler: ((message: string) => void) | null = null;
 
-  private stallWatch: { timer: ReturnType<typeof setTimeout>; fire: () => void } | null =
-    null;
+  private stallWatch: { timer: ReturnType<typeof setTimeout>; fire: () => void } | null = null;
 
   private readonly handleProgress = ({ progress, time }: FfmpegProgressEvent) => {
     const event = {
@@ -230,7 +234,23 @@ export class BrowserFfmpegEngine {
 
   async load(onProgress?: (progress: BrowserEncoderLoadProgress) => void): Promise<void> {
     if (this.ffmpeg?.loaded) return;
-    if (this.loading) return this.loading;
+    if (this.loading) {
+      if (onProgress && this.loadProgress) {
+        this.loadProgress.listeners.add(onProgress);
+        if (this.loadProgress.latest) onProgress(this.loadProgress.latest);
+      }
+      return this.loading;
+    }
+
+    const progressState = {
+      listeners: new Set(onProgress ? [onProgress] : []),
+      latest: null as BrowserEncoderLoadProgress | null,
+    };
+    this.loadProgress = progressState;
+    const reportProgress = (progress: BrowserEncoderLoadProgress) => {
+      progressState.latest = progress;
+      for (const listener of progressState.listeners) listener(progress);
+    };
 
     const ffmpeg = new FFmpeg();
     ffmpeg.on("progress", this.handleProgress);
@@ -247,12 +267,12 @@ export class BrowserFfmpegEngine {
       let wasmSource: WasmSource | null = null;
 
       try {
-        wasmSource = await resolveWasmSource(controller.signal, onProgress);
+        wasmSource = await resolveWasmSource(controller.signal, reportProgress);
         if (this.loadGeneration !== loadGeneration || this.ffmpeg !== ffmpeg) {
           ffmpeg.terminate();
           throw new Error("The browser encoder load was cancelled.");
         }
-        onProgress?.({ stage: "starting", loadedBytes: 0, totalBytes: null });
+        reportProgress({ stage: "starting", loadedBytes: 0, totalBytes: null });
         await ffmpeg.load({ coreURL, wasmURL: wasmSource.url }, { signal: controller.signal });
         controller.signal.throwIfAborted();
       } catch (error: unknown) {
@@ -267,6 +287,7 @@ export class BrowserFfmpegEngine {
         if (this.loadGeneration === loadGeneration) {
           this.loading = null;
           this.loadController = null;
+          this.loadProgress = null;
         }
       }
     })();
@@ -540,6 +561,7 @@ export class BrowserFfmpegEngine {
     this.loadController?.abort(new Error("Export cancelled."));
     this.loadController = null;
     this.loading = null;
+    this.loadProgress = null;
     this.sessionOwner = null;
     this.operationProgressHandler = null;
     this.runLogHandler = null;

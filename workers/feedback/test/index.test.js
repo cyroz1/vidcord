@@ -23,6 +23,32 @@ function makeEnv(overrides = {}) {
   };
 }
 
+test("rejects valid JSON that is not a report object without forwarding it", async (t) => {
+  const originalFetch = globalThis.fetch;
+  let emailRequests = 0;
+  globalThis.fetch = async () => {
+    emailRequests += 1;
+    return new Response(null, { status: 200 });
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  for (const value of [null, [], "report", 42, false, { subject: "feedback" }]) {
+    const response = await worker.fetch(
+      new Request("https://vidcord.app/api/feedback", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(value),
+      }),
+      makeEnv({ RESEND_API_KEY: "test-key" })
+    );
+    assert.equal(response.status, 400, `expected rejection for ${JSON.stringify(value)}`);
+    assert.deepEqual(await response.json(), { error: "subject and body are required" });
+  }
+  assert.equal(emailRequests, 0);
+});
+
 test("streams an oversized body only until the byte limit is crossed", async () => {
   let pulls = 0;
   let canceled = false;

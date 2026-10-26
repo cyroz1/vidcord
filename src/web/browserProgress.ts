@@ -69,6 +69,29 @@ export function formatBrowserEta(progress: number, elapsedMs: number): string {
   return `ETA: ${formatClock(remainingSeconds)}`;
 }
 
+/** Estimate from bytes observed since subscribing, including when a download is already underway. */
+export function formatDownloadEta(
+  loadedBytes: number,
+  totalBytes: number,
+  initialBytes: number,
+  elapsedMs: number
+): string {
+  if (
+    !Number.isFinite(loadedBytes) ||
+    !Number.isFinite(totalBytes) ||
+    !Number.isFinite(initialBytes) ||
+    totalBytes <= 0 ||
+    initialBytes < 0 ||
+    loadedBytes < initialBytes
+  ) {
+    return "ETA: estimating…";
+  }
+  if (loadedBytes >= totalBytes) return "Complete";
+  if (initialBytes >= totalBytes) return "ETA: estimating…";
+  const observedProgress = ((loadedBytes - initialBytes) / (totalBytes - initialBytes)) * 100;
+  return formatBrowserEta(observedProgress, elapsedMs);
+}
+
 /**
  * ETA text for the current export operation. A finished encoding pass may
  * still need output-size checks, more passes, or file delivery before the
