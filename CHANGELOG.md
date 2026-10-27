@@ -5,6 +5,11 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ## WIP
 
+### Desktop interface
+
+- The desktop window now fits its controls to the current display and window decorations,
+  with a shorter layout on smaller screens and pages for long lists instead of scrolling.
+
 ### Desktop exports
 
 - Protected temporary exports from symlink redirection by other local users.

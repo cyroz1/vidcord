@@ -2,18 +2,13 @@
 .app {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  overflow: hidden;
-  max-width: 100%;
+  flex: 0 0 auto;
+  width: 100%;
 }
 
 .app-content {
   display: flex;
-  flex: 1;
   flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-  overflow: hidden;
 }
 
 /* ── Update prompt ───────────────────────────────────────────────────── */
@@ -151,7 +146,7 @@
   border: 1px solid var(--border-subtle);
   border-left: 3px solid var(--warning);
   border-radius: var(--radius-sm);
-  margin: 8px 14px 0;
+  margin: 0 0 2px;
   padding: 8px 12px;
   display: flex;
   align-items: center;
@@ -198,39 +193,160 @@
   filter: brightness(1.08);
 }
 
-/* ── Scroll area ─────────────────────────────────────────────────────── */
+/* ── Main content ────────────────────────────────────────────────────── */
 .scroll-area {
-  flex: 1;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: none;
   padding: 6px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workflow-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.editor-group,
+.export-group {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
 }
 
-.scroll-area::-webkit-scrollbar {
-  display: none;
+.app[data-compact-height] .scroll-area {
+  display: grid;
+  grid-template-columns: minmax(432px, auto) minmax(min-content, auto);
+  grid-template-areas: "editor workflow" "editor export";
+  align-content: start;
+  align-items: start;
+  gap: 4px 12px;
 }
 
-.app-content.has-ffmpeg-banner .scroll-area {
-  padding-top: 10px;
+.app[data-compact-height] .editor-group {
+  grid-area: editor;
 }
 
-.workflow-card {
-  display: contents;
+.app[data-compact-height] .workflow-card {
+  grid-area: workflow;
+}
+
+.app[data-compact-height] .export-group {
+  grid-area: export;
+}
+
+.app[data-compact-narrow] .scroll-area {
+  grid-template-columns: minmax(280px, auto) minmax(min-content, auto);
+}
+
+.app[data-compact-narrow] .settings-row:not(.lossless-settings-row) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(max-content, 1fr));
+  align-items: end;
+}
+
+.app[data-compact-narrow] .settings-row.advanced .encoder-label {
+  grid-column: span 5;
+}
+
+.app[data-compact-narrow] .settings-row.advanced {
+  grid-template-columns: repeat(6, minmax(50px, 1fr));
+}
+
+.app[data-compact-narrow] .settings-row.advanced > label {
+  grid-column: span 2;
+}
+
+.app[data-compact-narrow] .settings-row.advanced > .fps-label {
+  grid-column: span 1;
+}
+
+.app[data-compact-narrow] .output-options {
+  grid-template-columns: minmax(190px, 1fr) minmax(225px, 1.15fr);
+}
+
+.app[data-compact-narrow] .preview-pane {
+  min-width: 280px;
+  max-width: 280px;
+}
+
+.app[data-compact-narrow][data-compact-tight] .file-section {
+  min-height: 58px;
+}
+
+.app[data-compact-narrow][data-compact-tight] .drop-zone {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 10px;
+}
+
+.app[data-compact-narrow][data-compact-tight] .drop-label {
+  width: auto;
+  flex: 1 1 auto;
+  word-break: normal;
+}
+
+.app[data-compact-narrow][data-compact-tight] .browse-btn {
+  flex: 0 0 auto;
+}
+
+.app[data-compact-tight] .footer {
+  margin-bottom: 0;
+  padding-top: 0;
+}
+
+.app[data-compact-narrow] .batch-queue-item {
+  display: grid;
+  grid-template-columns: 20px 12px minmax(0, 1fr);
+  gap: 2px 6px;
+}
+
+.app[data-compact-narrow] .batch-queue {
+  gap: 6px;
+  padding: 9px;
+}
+
+.app[data-compact-narrow][data-compact-tight] .batch-queue {
+  padding-block: 6px;
+}
+
+.app[data-compact-narrow] .batch-queue-index,
+.app[data-compact-narrow] .batch-queue-drag-handle,
+.app[data-compact-narrow] .batch-queue-copy {
+  grid-row: 1;
+}
+
+.app[data-compact-narrow] .batch-queue-progress {
+  grid-column: 1 / 3;
+  grid-row: 2;
+  text-align: left;
+}
+
+.app[data-compact-narrow] .batch-queue-controls {
+  grid-column: 3;
+  grid-row: 2;
+  justify-self: end;
+}
+
+.app[data-compact-height] .audio-track-popup,
+.app[data-compact-height] .trim-options-panel {
+  position: fixed;
+  top: 50%;
+  right: auto;
+  bottom: auto;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 
 /* ── Drop zone ───────────────────────────────────────────────────────── */
 .file-section {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 76px;
-  height: 80px;
-  flex: 0 0 80px;
+  min-height: 80px;
+  flex: 0 0 auto;
   gap: 8px;
   min-width: 0;
 }
@@ -362,6 +478,10 @@
   white-space: nowrap;
 }
 
+.loaded-file-details {
+  white-space: normal;
+}
+
 .loaded-file-name {
   color: var(--text);
   font-size: 13px;
@@ -414,7 +534,7 @@
   flex: 0 0 auto;
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(max-content, 1fr));
   gap: 2px;
   padding: 2px;
   border: 1px solid var(--border-subtle);
@@ -434,7 +554,7 @@
   background: transparent;
   font-size: 11px;
   font-weight: 600;
-  padding: 0;
+  padding: 0 6px;
   white-space: nowrap;
   transition:
     color 0.15s,
@@ -614,7 +734,7 @@
 }
 
 .batch-queue {
-  flex: 1 1 0;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -668,11 +788,8 @@
 .batch-queue-hint {
   min-width: 0;
   flex: 1 1 auto;
-  overflow: hidden;
   color: var(--text-tertiary);
   font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .batch-queue-retry-all,
@@ -734,31 +851,74 @@
   opacity: 0.28;
 }
 
-.batch-queue-viewport {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-}
-
 .batch-queue-list {
-  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   width: 100%;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.pagination button {
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.pagination button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.page-jump {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.page-jump input {
+  width: 50px;
+  min-height: 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--surface2);
+  color: var(--text);
+  padding: 3px 6px;
+}
+
+.page-jump button {
+  min-height: 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--surface2);
+  color: var(--text);
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
 .batch-queue-item {
-  position: absolute;
-  right: 0;
-  left: 0;
   display: flex;
   align-items: flex-start;
   gap: 8px;
   min-width: 0;
-  height: 56px;
+  min-height: 56px;
   padding: 6px 7px;
   border: 1px solid transparent;
   border-radius: var(--radius-xs);
@@ -837,6 +997,8 @@
   color: var(--text-tertiary);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
+  overflow: visible;
+  white-space: normal;
 }
 
 .batch-queue-status {
@@ -943,10 +1105,9 @@
 
 .settings-row {
   position: relative;
-  /* Keep every mode's settings slot identical across WebView text metrics. */
-  flex: 0 0 49.5px;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
   min-height: 49.5px;
-  height: 49.5px;
 }
 
 .settings-row label,
@@ -1046,13 +1207,13 @@ select optgroup {
 }
 
 .settings-row .crop-label {
-  flex: 0 0 64px;
-  min-width: 64px;
+  flex: 0 0 76px;
+  min-width: 76px;
 }
 
 .settings-row .fps-label {
-  flex: 0 0 68px;
-  min-width: 68px;
+  flex: 0 0 82px;
+  min-width: 82px;
 }
 
 .settings-row .crop-label select,
@@ -1062,14 +1223,18 @@ select optgroup {
   background-position: right 4px center;
 }
 
+.settings-row .fps-label select {
+  padding-right: 22px;
+}
+
 .settings-row .target-label {
-  flex: 0 0 120px;
-  min-width: 120px;
+  flex: 0 0 auto;
+  min-width: max-content;
 }
 
 .settings-row .encoder-field {
   flex: 1 1 0;
-  min-width: 0;
+  min-width: max-content;
 }
 
 .settings-row .encoder-label {
@@ -1079,7 +1244,7 @@ select optgroup {
 
 .settings-row.advanced {
   display: grid;
-  grid-template-columns: 52px 82px 58px 46px minmax(0, 1fr);
+  grid-template-columns: 70px 96px 76px 60px minmax(160px, 1fr);
   gap: 6px;
   align-items: end;
   z-index: 20;
@@ -1087,8 +1252,6 @@ select optgroup {
 
 .settings-row.advanced label {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1186,6 +1349,29 @@ select optgroup {
 .encoder-row select {
   flex: 1;
   min-width: 0;
+}
+
+.sized-select {
+  position: relative;
+  display: block;
+  flex: 1 1 auto;
+  min-width: max-content;
+}
+
+.sized-select select {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+}
+
+.sized-select > span {
+  display: block;
+  min-height: 32px;
+  visibility: hidden;
+  padding: 5px 28px 5px 10px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .encoder-autocomplete {
@@ -1338,9 +1524,7 @@ select optgroup {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  max-height: 150px;
   margin-top: 4px;
-  overflow-y: auto;
 }
 
 .audio-track-option {
@@ -1423,9 +1607,6 @@ select optgroup {
   width: max-content;
   min-width: 100%;
   max-width: min(300px, calc(100vw - 28px));
-  max-height: 168px;
-  overflow-y: auto;
-  overflow-x: hidden;
   padding: 4px;
   background: rgb(28, 28, 32);
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -1644,11 +1825,10 @@ select optgroup {
   flex-direction: column;
   gap: 5px;
   box-shadow: var(--shadow-card), var(--card-top);
-  flex: 0 0 90px;
-  height: 90px;
+  flex: 0 0 auto;
+  min-height: 90px;
   min-width: 0;
   max-width: 100%;
-  contain: layout style;
 }
 
 .trim-section.shortcuts-open {
@@ -1931,9 +2111,6 @@ select optgroup {
   right: 0;
   z-index: 100;
   width: min(264px, calc(100vw - 40px));
-  max-height: min(390px, calc(100vh - 40px));
-  overflow-y: auto;
-  overscroll-behavior: contain;
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -1947,6 +2124,23 @@ select optgroup {
 
 .trim-options-panel[hidden] {
   display: none;
+}
+
+.trim-options-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.trim-options-close {
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 2px 6px;
+  font-size: 16px;
 }
 
 .trim-option-row {
@@ -2317,7 +2511,19 @@ select optgroup {
 .gif-settings-row .gif-fps-label,
 .gif-settings-row .gif-crop-label {
   flex: 1 1 0;
-  min-width: 0;
+}
+
+.gif-settings-row .gif-format-label {
+  min-width: max-content;
+}
+
+.gif-settings-row .target-label {
+  min-width: 100px;
+}
+
+.gif-settings-row .gif-fps-label,
+.gif-settings-row .gif-crop-label {
+  min-width: 76px;
 }
 
 .footer-meta {
@@ -2480,6 +2686,8 @@ button.gh-link {
 }
 
 .preview-pane {
+  min-width: 432px;
+  max-width: 432px;
   align-self: center;
 }
 

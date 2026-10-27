@@ -5,6 +5,7 @@ import {
   normalizeAudioTrackIndices,
 } from "../audioTracks";
 import type { AudioTrack } from "../ipc";
+import { useTightWindow } from "../hooks/useTightWindow";
 
 type Props = {
   tracks: AudioTrack[];
@@ -38,6 +39,8 @@ const MIXER_ICON = (
   </svg>
 );
 
+const TRACKS_PER_PAGE = 3;
+
 export default memo(function AudioTrackPicker({
   tracks,
   selection,
@@ -49,7 +52,9 @@ export default memo(function AudioTrackPicker({
   onAudioNormalizeChange,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const [page, setPage] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
+  const tightWindow = useTightWindow(rootRef);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const selectAllRef = useRef<HTMLInputElement>(null);
 
@@ -57,15 +62,12 @@ export default memo(function AudioTrackPicker({
   // focus was inside the popup; without this it drops to <body> and
   // keyboard users lose their place. Pointer closes leave focus alone:
   // it follows the pointer target.
-  const close = useCallback(
-    (returnFocus: boolean) => {
-      if (returnFocus && rootRef.current?.contains(document.activeElement)) {
-        triggerRef.current?.focus();
-      }
-      setOpen(false);
-    },
-    []
-  );
+  const close = useCallback((returnFocus: boolean) => {
+    if (returnFocus && rootRef.current?.contains(document.activeElement)) {
+      triggerRef.current?.focus();
+    }
+    setOpen(false);
+  }, []);
   const selectedIndices = useMemo(
     () => normalizeAudioTrackIndices(selection, tracks),
     [selection, tracks]
@@ -105,6 +107,10 @@ export default memo(function AudioTrackPicker({
   const selectionLabel =
     tracks.length === 0 ? "No audio tracks" : `${selectedIndices.length} selected`;
   const buttonLabel = removeAudio ? "Audio muted" : selectionLabel;
+  const pageSize = tightWindow ? 1 : TRACKS_PER_PAGE;
+  const pageCount = Math.max(1, Math.ceil(tracks.length / pageSize));
+  const currentPage = Math.min(page, pageCount - 1);
+  const pageStart = currentPage * pageSize;
 
   return (
     <div className="audio-track-control" ref={rootRef}>
@@ -179,7 +185,7 @@ export default memo(function AudioTrackPicker({
             {tracks.length === 0 ? (
               <p className="audio-track-empty">This video has no audio tracks.</p>
             ) : (
-              tracks.map((track) => (
+              tracks.slice(pageStart, pageStart + pageSize).map((track) => (
                 <label className="audio-track-option" key={track.index}>
                   <input
                     type="checkbox"
@@ -205,6 +211,27 @@ export default memo(function AudioTrackPicker({
               ))
             )}
           </div>
+          {pageCount > 1 && (
+            <div className="pagination" aria-label="Audio track pages">
+              <button
+                type="button"
+                onClick={() => setPage(currentPage - 1)}
+                disabled={currentPage === 0}
+              >
+                Previous
+              </button>
+              <span aria-live="polite">
+                {pageStart + 1}–{Math.min(pageStart + pageSize, tracks.length)} of {tracks.length}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage(currentPage + 1)}
+                disabled={currentPage === pageCount - 1}
+              >
+                Next
+              </button>
+            </div>
+          )}
           <div className="audio-track-popup-footer">
             <span>
               {removeAudio

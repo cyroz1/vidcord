@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   assertGifOutput,
@@ -87,6 +87,7 @@ describe("vidcord desktop end-to-end workflow", function () {
       timeout: 10_000,
       timeoutMsg: "The deterministic update modal did not close",
     });
+    await assertMainFits("initial screen");
     await browser.$(".drop-zone").click();
     await browser.$(".loaded-file-card").waitForDisplayed({ timeout: 60_000 });
     await browser.waitUntil(async () => await browser.$(".compress-btn").isEnabled(), {
@@ -100,7 +101,29 @@ describe("vidcord desktop end-to-end workflow", function () {
     for (const mode of ["Advanced", "Lossless Trim", "GIF", "Compress"]) {
       await clickMode(mode);
       assert.equal(await selectedMode(), mode);
+      await assertMainFits(`${mode} mode`);
     }
+    await browser.$(".target-label select").selectByAttribute("value", "4");
+    await assertMainFits("long target label");
+    await browser.execute(() => {
+      const style = document.createElement("style");
+      style.id = "e2e-larger-select-text";
+      style.textContent = ".sized-select select { font-size: 16px !important; }";
+      document.head.appendChild(style);
+      window.dispatchEvent(new Event("resize"));
+    });
+    await assertMainFits("larger selected text");
+    await browser.execute(() => {
+      document.getElementById("e2e-larger-select-text")?.remove();
+      window.dispatchEvent(new Event("resize"));
+    });
+    await browser.$(".target-label select").selectByAttribute("value", "0");
+    await clickMode("GIF");
+    await browser.$(".gif-format-label select").selectByAttribute("value", "webp");
+    await assertMainFits("WebP format label");
+    await browser.$(".gif-format-label select").selectByAttribute("value", "gif");
+    await clickMode("Compress");
+    await assertMainFits("restored Compress mode");
     console.log("Desktop E2E: all desktop modes switch");
 
     // Exercise all output destination and completion controls. The one native
@@ -165,6 +188,7 @@ describe("vidcord desktop end-to-end workflow", function () {
     await audioSettingsButton.click();
     const audioDialog = await browser.$('[role="dialog"][aria-label="Audio settings"]');
     await audioDialog.waitForDisplayed();
+    await assertOverlayFits('[role="dialog"][aria-label="Audio settings"]');
     const audioChecks = await audioDialog.$$('input[type="checkbox"]');
     const initialMute = await audioChecks[0].isSelected();
     await audioChecks[0].click();
@@ -195,12 +219,28 @@ describe("vidcord desktop end-to-end workflow", function () {
 
     await browser.$('button[aria-label="Show FFmpeg encoders"]').click();
     await browser.$('[role="dialog"][aria-labelledby="encoders-dialog-title"]').waitForDisplayed();
-    assert.match(
-      await browser.$('[aria-label="Available FFmpeg video encoders"]').getText(),
-      /libx264/i
-    );
+    await assertOverlayFits('[role="dialog"][aria-labelledby="encoders-dialog-title"]');
+    let foundX264 = false;
+    for (let page = 0; page < 100; page += 1) {
+      if (
+        /libx264/i.test(await browser.$('[aria-label="Available FFmpeg video encoders"]').getText())
+      ) {
+        foundX264 = true;
+        break;
+      }
+      const nextPage = await browser.$(".encoders-dialog .pagination button:last-child");
+      if (!(await nextPage.isEnabled())) break;
+      await nextPage.click();
+    }
+    assert.ok(foundX264, "The paged encoder list did not include libx264");
+    await assertOverlayFits('[role="dialog"][aria-labelledby="encoders-dialog-title"]');
     await browser.$('button[aria-label="Close FFmpeg video encoders"]').click();
     console.log("Desktop E2E: encoder dialog");
+
+    await browser.$('button[aria-label="Report a bug"]').click();
+    await browser.$('[role="dialog"][aria-labelledby="feedback-dialog-title"]').waitForDisplayed();
+    await assertOverlayFits('[role="dialog"][aria-labelledby="feedback-dialog-title"]');
+    await browser.$('button[aria-label="Close bug report dialog"]').click();
 
     // Check the native playback control is available on platforms where the
     // WebKit/GStreamer surface exposes it. Browser playback is exercised above.
@@ -320,6 +360,7 @@ describe("vidcord desktop end-to-end workflow", function () {
       timeout: 60_000,
       timeoutMsg: "The batch queue did not list both imported videos",
     });
+    await assertMainFits("batch queue");
     const moveSampleBUp = await browser.$('button[aria-label="Move sample-b.mp4 up in queue"]');
     await browser.waitUntil(async () => await moveSampleBUp.isEnabled(), {
       timeout: 60_000,
@@ -358,6 +399,34 @@ describe("vidcord desktop end-to-end workflow", function () {
 
     await dismissAllToasts();
     await browser.saveScreenshot(path.join(artifactsDirectory, "desktop-e2e-success.png"));
+    await browser.$('button[aria-label="Clear all videos from the queue"]').click();
+    await browser.$(".batch-queue").waitForDisplayed({ reverse: true });
+
+    const queueLayoutDirectory = path.join(outputDirectory, "queue-layout");
+    mkdirSync(queueLayoutDirectory, { recursive: true });
+    const queueLayoutPaths = Array.from({ length: 5 }, (_, index) => {
+      const target = path.join(queueLayoutDirectory, `layout-${index + 1}.mp4`);
+      copyFileSync(sampleA, target);
+      return target;
+    });
+    await dropFiles(queueLayoutPaths);
+    await browser.$(".batch-queue").waitForDisplayed({ timeout: 60_000 });
+    await browser.waitUntil(
+      async () =>
+        await browser.$('button[aria-label="Clear all videos from the queue"]').isEnabled(),
+      {
+        timeout: 60_000,
+        timeoutMsg: "The paged batch queue did not finish probing",
+      }
+    );
+    await assertMainFits("paged batch queue");
+    const firstPage = await queueNames();
+    await browser.$(".batch-queue .pagination button:last-child").click();
+    await browser.waitUntil(async () => (await queueNames())[0] !== firstPage[0], {
+      timeout: 10_000,
+      timeoutMsg: "The batch queue did not advance to its next page",
+    });
+    await assertMainFits("next batch page");
     await browser.$('button[aria-label="Clear all videos from the queue"]').click();
     await browser.$(".batch-queue").waitForDisplayed({ reverse: true });
   });
@@ -600,12 +669,146 @@ async function clickMode(name) {
   const buttons = await browser.$$(".workflow-mode-selector button");
   for (const button of buttons) {
     if ((await button.getText()).trim() === name) {
-      await button.scrollIntoView();
       await button.click();
       return;
     }
   }
   throw new Error(`Could not find export mode: ${name}`);
+}
+
+async function assertMainFits(label) {
+  let lastMetrics;
+  await browser
+    .waitUntil(
+      async () => {
+        lastMetrics = await browser.execute(async () => {
+          const app = document.querySelector(".app");
+          const area = document.querySelector(".scroll-area");
+          if (!app || !area) return null;
+          const appHeight = app.getBoundingClientRect().height;
+          const oldWidth = app.style.width;
+          app.style.width = "min-content";
+          const minimumWidth = Math.ceil(
+            Math.max(app.getBoundingClientRect().width, app.scrollWidth)
+          );
+          app.style.width = oldWidth;
+          const selectors = [
+            ".file-section",
+            ".workflow-mode-selector",
+            ".settings-row",
+            ".preview-pane",
+            ".trim-section",
+            ".batch-queue",
+            ".batch-trim-settings",
+            ".output-options",
+            ".export-summary",
+            ".compress-btn",
+            ".progress-section",
+            ".footer",
+          ];
+          const clippedValues = [...document.querySelectorAll(".sized-select")].flatMap(
+            (wrapper) => {
+              const select = wrapper.querySelector("select");
+              const text = wrapper.querySelector("span");
+              if (!select || !text) return [];
+              const actual = getComputedStyle(select);
+              const measured = getComputedStyle(text);
+              return text.scrollWidth > select.clientWidth + 1 ||
+                actual.fontSize !== measured.fontSize
+                ? [select.selectedOptions[0]?.textContent]
+                : [];
+            }
+          );
+          const outside = selectors.flatMap((selector) =>
+            [...document.querySelectorAll(selector)].flatMap((element) => {
+              const rect = element.getBoundingClientRect();
+              if (!rect.width || !rect.height) return [];
+              return rect.left < -1 ||
+                rect.top < -1 ||
+                rect.right > innerWidth + 1 ||
+                rect.bottom > innerHeight + 1
+                ? [
+                    {
+                      selector,
+                      left: rect.left,
+                      top: rect.top,
+                      right: rect.right,
+                      bottom: rect.bottom,
+                    },
+                  ]
+                : [];
+            })
+          );
+          const nativeWindow = window.__TAURI__.window.getCurrentWindow();
+          const [outer, position, monitor] = await Promise.all([
+            nativeWindow.outerSize().catch(() => null),
+            nativeWindow.outerPosition().catch(() => null),
+            window.__TAURI__.window.currentMonitor().catch(() => null),
+          ]);
+          return {
+            viewport: [innerWidth, innerHeight],
+            app: [app.scrollWidth, app.scrollHeight],
+            minimum: [minimumWidth, Math.ceil(appHeight)],
+            area: [area.clientWidth, area.scrollWidth, area.clientHeight, area.scrollHeight],
+            outside,
+            clippedValues,
+            screen:
+              outer && position && monitor ? { outer, position, workArea: monitor.workArea } : null,
+          };
+        });
+        return Boolean(
+          lastMetrics &&
+          lastMetrics.outside.length === 0 &&
+          lastMetrics.clippedValues.length === 0 &&
+          lastMetrics.app[0] <= lastMetrics.viewport[0] + 1 &&
+          lastMetrics.app[1] <= lastMetrics.viewport[1] + 1 &&
+          lastMetrics.viewport[0] - lastMetrics.minimum[0] <= 5 &&
+          lastMetrics.viewport[1] - lastMetrics.minimum[1] <= 5 &&
+          (!lastMetrics.screen ||
+            (lastMetrics.screen.outer.width <= lastMetrics.screen.workArea.size.width &&
+              lastMetrics.screen.outer.height <= lastMetrics.screen.workArea.size.height)) &&
+          lastMetrics.area[1] <= lastMetrics.area[0] + 1 &&
+          lastMetrics.area[3] <= lastMetrics.area[2] + 1
+        );
+      },
+      { timeout: 20_000, timeoutMsg: `${label} did not fit the desktop WebView` }
+    )
+    .catch((error) => {
+      throw new Error(`${error.message}; layout: ${JSON.stringify(lastMetrics)}`);
+    });
+}
+
+async function assertOverlayFits(selector) {
+  let lastMetrics;
+  await browser
+    .waitUntil(
+      async () => {
+        lastMetrics = await browser.execute((query) => {
+          const element = document.querySelector(query);
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return {
+            left: rect.left,
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+            width: innerWidth,
+            height: innerHeight,
+          };
+        }, selector);
+        return Boolean(
+          lastMetrics &&
+          lastMetrics.left >= -1 &&
+          lastMetrics.top >= -1 &&
+          lastMetrics.right <= lastMetrics.width + 1 &&
+          lastMetrics.bottom <= lastMetrics.height + 1
+        );
+      },
+      { timeout: 20_000, timeoutMsg: `${selector} did not fit the desktop WebView` }
+    )
+    .catch((error) => {
+      throw new Error(`${error.message}; overlay: ${JSON.stringify(lastMetrics)}`);
+    });
 }
 
 async function setTauriDialogMocks(openResults, saveResults) {
@@ -704,12 +907,13 @@ async function exerciseTrimToolbar() {
   assert.equal(await timeLabels.getAttribute("aria-pressed"), "true");
   await timeLabels.click();
   await browser.$("summary").click();
-  await browser.$('button[aria-label="More trim options"]').click();
+  await assertOverlayFits('[role="dialog"][aria-label="More trim options"]');
+  await browser.$('button[aria-label="Close trim options"]').click();
 }
 
 async function startExport(before, directory, extension, expectedNewFiles = 1) {
   const exportButton = await browser.$(".compress-btn");
-  await exportButton.scrollIntoView();
+  await assertMainFits("export controls");
   await browser.waitUntil(async () => await exportButton.isEnabled(), {
     timeout: 60_000,
     timeoutMsg: `Export button remained disabled (${await exportButton.getAttribute(

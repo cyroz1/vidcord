@@ -21,6 +21,7 @@ import AudioTrackPicker from "./components/AudioTrackPicker";
 import { useToasts } from "./hooks/useToasts";
 import { useSettings, type CompletionAction, type OutputDestination } from "./hooks/useSettings";
 import { useEncoders, type Encoder } from "./hooks/useEncoders";
+import { useDesktopWindowSizing } from "./hooks/useDesktopWindowSizing";
 import { createImportScanId } from "./importScanId";
 import { summarizeImportResults } from "./importSummary";
 import {
@@ -240,6 +241,7 @@ const QUALITY_PRESETS_BY_INDEX = [
 ] as const;
 
 const GIF_FPS_OPTIONS = [15, 30, 50] as const;
+const ENCODER_OPTIONS_PER_PAGE = 5;
 
 const RESOLUTION_OPTIONS = ["Native", "4K", "1440p", "1080p", "720p", "480p"];
 const FPS_OPTIONS = [
@@ -686,7 +688,9 @@ export default function App() {
   const losslessInfoRequestRef = useRef(0);
   const losslessInfoCacheRef = useRef<Map<string, LosslessTrimInfo>>(new Map());
   const snapshotInFlightRef = useRef(false);
+  const appRef = useRef<HTMLDivElement>(null);
   const appContentRef = useRef<HTMLDivElement>(null);
+  useDesktopWindowSizing(appRef);
   const updateModalRef = useRef<HTMLDivElement>(null);
   const updatePrimaryActionRef = useRef<HTMLButtonElement>(null);
   const updatePreviousFocusRef = useRef<HTMLElement | null>(null);
@@ -3907,7 +3911,7 @@ export default function App() {
   );
 
   return (
-    <div className="app">
+    <div className="app" ref={appRef}>
       {showUpdateModal && updateInfo && (
         <div
           className="update-modal-backdrop"
@@ -3982,41 +3986,7 @@ export default function App() {
         </div>
       )}
 
-      <div
-        ref={appContentRef}
-        className={`app-content${ffmpegMissing ? " has-ffmpeg-banner" : ""}`}
-        aria-hidden={modalOpen ? true : undefined}
-      >
-        {ffmpegMissing && (
-          <div className="ffmpeg-banner">
-            <span className="ffmpeg-banner-copy" role="status">
-              FFmpeg required for compression.
-            </span>
-            <button
-              className="ffmpeg-install-btn"
-              type="button"
-              onClick={installFfmpeg}
-              disabled={installingFfmpeg}
-            >
-              {installingFfmpeg ? "Installing…" : "Install"}
-            </button>
-            <button className="ffmpeg-link-btn" type="button" onClick={retryFfmpegDetection}>
-              Retry
-            </button>
-            <button
-              className="ffmpeg-link-btn"
-              type="button"
-              onClick={() =>
-                void openExternalUrl(
-                  "https://github.com/cyroz1/vidcord/blob/main/docs/FFMPEG_SETUP.md"
-                ).catch(() => {})
-              }
-            >
-              Guide
-            </button>
-          </div>
-        )}
-
+      <div ref={appContentRef} className="app-content" aria-hidden={modalOpen ? true : undefined}>
         <div className="scroll-area">
           <div className="workflow-card">
             <MemoizedSubtree
@@ -4195,20 +4165,25 @@ export default function App() {
                     <div className="row settings-row gif-settings-row">
                       <label className="gif-format-label">
                         Output format
-                        <select
-                          value={gifOutputFormat}
-                          onChange={(event) => {
-                            const next = event.target.value === "webp" ? "webp" : "gif";
-                            setGifOutputFormat(next);
-                            saveSettings({ gif_output_format: next });
-                          }}
-                        >
-                          {GIF_OUTPUT_FORMATS.map((format) => (
-                            <option key={format.value} value={format.value}>
-                              {format.label} (.{format.extension})
-                            </option>
-                          ))}
-                        </select>
+                        <span className="sized-select">
+                          <select
+                            value={gifOutputFormat}
+                            onChange={(event) => {
+                              const next = event.target.value === "webp" ? "webp" : "gif";
+                              setGifOutputFormat(next);
+                              saveSettings({ gif_output_format: next });
+                            }}
+                          >
+                            {GIF_OUTPUT_FORMATS.map((format) => (
+                              <option key={format.value} value={format.value}>
+                                {format.label} (.{format.extension})
+                              </option>
+                            ))}
+                          </select>
+                          <span aria-hidden="true">
+                            {gifOutputFormatLabel(gifOutputFormat)} (.{gifOutputFormat})
+                          </span>
+                        </span>
                       </label>
                       <label className="target-label">
                         Target size
@@ -4272,20 +4247,25 @@ export default function App() {
                     <div className="row settings-row">
                       <label className="target-label">
                         Discord target
-                        <select
-                          value={qualityIdx === 1 ? 0 : qualityIdx}
-                          onChange={(e) => {
-                            clearLosslessOfferMode();
-                            setQualityIdx(+e.target.value);
-                            saveSettings({ quality_index: +e.target.value });
-                          }}
-                        >
-                          {QUALITY_PRESETS.map((p) => (
-                            <option key={p.label} value={p.index}>
-                              {p.label.replace(",", " ·")}
-                            </option>
-                          ))}
-                        </select>
+                        <span className="sized-select">
+                          <select
+                            value={qualityIdx === 1 ? 0 : qualityIdx}
+                            onChange={(e) => {
+                              clearLosslessOfferMode();
+                              setQualityIdx(+e.target.value);
+                              saveSettings({ quality_index: +e.target.value });
+                            }}
+                          >
+                            {QUALITY_PRESETS.map((p) => (
+                              <option key={p.label} value={p.index}>
+                                {p.label.replace(",", " ·")}
+                              </option>
+                            ))}
+                          </select>
+                          <span aria-hidden="true">
+                            {selectedQualityPreset.label.replace(",", " ·")}
+                          </span>
+                        </span>
                       </label>
                       <label className="crop-label">
                         Crop
@@ -4341,38 +4321,41 @@ export default function App() {
                           )}
                         </div>
                         <div className="encoder-row">
-                          <select
-                            id="encoder-select"
-                            value={encoderIdx}
-                            onChange={(e) => {
-                              setEncoderIdx(+e.target.value);
-                              saveSettings({
-                                encoder_index: +e.target.value,
-                                encoder_label: encoders[+e.target.value]?.label,
-                              });
-                            }}
-                          >
-                            <optgroup label="H.264 — universally compatible">
-                              {encoders.map(
-                                (e, i) =>
-                                  !isH265Encoder(e.name) && (
-                                    <option key={e.name} value={i}>
-                                      {e.label}
-                                    </option>
-                                  )
-                              )}
-                            </optgroup>
-                            <optgroup label="H.265 — more efficient, may not play for all recipients">
-                              {encoders.map(
-                                (e, i) =>
-                                  isH265Encoder(e.name) && (
-                                    <option key={e.name} value={i}>
-                                      {e.label}
-                                    </option>
-                                  )
-                              )}
-                            </optgroup>
-                          </select>
+                          <div className="sized-select">
+                            <select
+                              id="encoder-select"
+                              value={encoderIdx}
+                              onChange={(e) => {
+                                setEncoderIdx(+e.target.value);
+                                saveSettings({
+                                  encoder_index: +e.target.value,
+                                  encoder_label: encoders[+e.target.value]?.label,
+                                });
+                              }}
+                            >
+                              <optgroup label="H.264 — universally compatible">
+                                {encoders.map(
+                                  (e, i) =>
+                                    !isH265Encoder(e.name) && (
+                                      <option key={e.name} value={i}>
+                                        {e.label}
+                                      </option>
+                                    )
+                                )}
+                              </optgroup>
+                              <optgroup label="H.265 — more efficient, may not play for all recipients">
+                                {encoders.map(
+                                  (e, i) =>
+                                    isH265Encoder(e.name) && (
+                                      <option key={e.name} value={i}>
+                                        {e.label}
+                                      </option>
+                                    )
+                                )}
+                              </optgroup>
+                            </select>
+                            <span aria-hidden="true">{encoders[encoderIdx]?.label}</span>
+                          </div>
                           <button
                             type="button"
                             className={`mute-btn${removeAudio ? " active" : ""}`}
@@ -4673,30 +4656,77 @@ export default function App() {
                               }}
                             />
                             {showEncoderOptions && (
-                              <div
-                                id="advanced-encoder-options"
-                                className="encoder-options"
-                                role="listbox"
-                                aria-label="Encoder suggestions"
-                              >
-                                {filteredEncoderOptions.map((option, index) => (
+                              <div className="encoder-options">
+                                <div
+                                  id="advanced-encoder-options"
+                                  role="listbox"
+                                  aria-label="Encoder suggestions"
+                                >
+                                  {filteredEncoderOptions
+                                    .slice(
+                                      Math.floor(activeEncoderOption / ENCODER_OPTIONS_PER_PAGE) *
+                                        ENCODER_OPTIONS_PER_PAGE,
+                                      (Math.floor(activeEncoderOption / ENCODER_OPTIONS_PER_PAGE) +
+                                        1) *
+                                        ENCODER_OPTIONS_PER_PAGE
+                                    )
+                                    .map((option, pageIndex) => {
+                                      const index =
+                                        Math.floor(activeEncoderOption / ENCODER_OPTIONS_PER_PAGE) *
+                                          ENCODER_OPTIONS_PER_PAGE +
+                                        pageIndex;
+                                      return (
+                                        <div
+                                          id={`advanced-encoder-option-${index}`}
+                                          role="option"
+                                          aria-selected={index === activeEncoderOption}
+                                          className={`encoder-option${
+                                            index === activeEncoderOption ? " active" : ""
+                                          }`}
+                                          key={option}
+                                          onMouseEnter={() => setActiveEncoderOption(index)}
+                                          onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            acceptEncoderOption(option);
+                                          }}
+                                        >
+                                          {option}
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                                {filteredEncoderOptions.length > ENCODER_OPTIONS_PER_PAGE && (
                                   <div
-                                    id={`advanced-encoder-option-${index}`}
-                                    role="option"
-                                    aria-selected={index === activeEncoderOption}
-                                    className={`encoder-option${
-                                      index === activeEncoderOption ? " active" : ""
-                                    }`}
-                                    key={option}
-                                    onMouseEnter={() => setActiveEncoderOption(index)}
-                                    onMouseDown={(e) => {
-                                      e.preventDefault();
-                                      acceptEncoderOption(option);
-                                    }}
+                                    className="pagination"
+                                    aria-label="Encoder suggestion pages"
+                                    onMouseDown={(event) => event.preventDefault()}
                                   >
-                                    {option}
+                                    <button
+                                      type="button"
+                                      disabled={activeEncoderOption < ENCODER_OPTIONS_PER_PAGE}
+                                      onClick={() => setActiveEncoderOption(0)}
+                                    >
+                                      Previous
+                                    </button>
+                                    <span>
+                                      {Math.floor(activeEncoderOption / ENCODER_OPTIONS_PER_PAGE) +
+                                        1}{" "}
+                                      of{" "}
+                                      {Math.ceil(
+                                        filteredEncoderOptions.length / ENCODER_OPTIONS_PER_PAGE
+                                      )}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      disabled={activeEncoderOption >= ENCODER_OPTIONS_PER_PAGE}
+                                      onClick={() =>
+                                        setActiveEncoderOption(ENCODER_OPTIONS_PER_PAGE)
+                                      }
+                                    >
+                                      Next
+                                    </button>
                                   </div>
-                                ))}
+                                )}
                               </div>
                             )}
                           </div>
@@ -4729,167 +4759,200 @@ export default function App() {
             />
           </div>
 
-          {isBatchMode ? (
-            <BatchQueue
-              items={batchQueue}
-              progressById={batchProgressByIdRef.current}
-              liveSummary={batchLiveSummary}
-              onClearQueue={clearBatchQueue}
-              onRemoveItem={removeBatchItem}
-              onMoveItem={moveBatchItem}
-              onReorderItem={reorderBatchItem}
-              onRetryItem={retryBatchItem}
-              onRetryFailed={retryFailedBatchItems}
-              activeProgress={activeBatchProgress}
-              actionsDisabled={
-                loadingVideo || selectionScanning || compressing || cancelling || finalizingOutput
+          <div className="editor-group">
+            {ffmpegMissing && (
+              <div className="ffmpeg-banner">
+                <span className="ffmpeg-banner-copy" role="status">
+                  FFmpeg required for compression.
+                </span>
+                <button
+                  className="ffmpeg-install-btn"
+                  type="button"
+                  onClick={installFfmpeg}
+                  disabled={installingFfmpeg}
+                >
+                  {installingFfmpeg ? "Installing…" : "Install"}
+                </button>
+                <button className="ffmpeg-link-btn" type="button" onClick={retryFfmpegDetection}>
+                  Retry
+                </button>
+                <button
+                  className="ffmpeg-link-btn"
+                  type="button"
+                  onClick={() =>
+                    void openExternalUrl(
+                      "https://github.com/cyroz1/vidcord/blob/main/docs/FFMPEG_SETUP.md"
+                    ).catch(() => {})
+                  }
+                >
+                  Guide
+                </button>
+              </div>
+            )}
+            {isBatchMode ? (
+              <BatchQueue
+                items={batchQueue}
+                progressById={batchProgressByIdRef.current}
+                liveSummary={batchLiveSummary}
+                onClearQueue={clearBatchQueue}
+                onRemoveItem={removeBatchItem}
+                onMoveItem={moveBatchItem}
+                onReorderItem={reorderBatchItem}
+                onRetryItem={retryBatchItem}
+                onRetryFailed={retryFailedBatchItems}
+                activeProgress={activeBatchProgress}
+                actionsDisabled={
+                  loadingVideo || selectionScanning || compressing || cancelling || finalizingOutput
+                }
+              />
+            ) : (
+              <>
+                {/* Preview and trim editor */}
+                <PreviewPane
+                  cropAspectRatio={losslessTrim ? "off" : cropAspectRatio}
+                  ref={previewRef}
+                  filePath={filePath}
+                  loadingVideo={loadingVideo}
+                  startTime={startTime}
+                  endTime={endTime}
+                  previewTime={previewFocusTime}
+                  isScrubbing={previewScrubbing}
+                  loopPlayback={loopPlayback}
+                  probeData={probeData}
+                  removeAudio={gifMode || removeAudio || previewAudioTrackIndices.length === 0}
+                  previewAudioTrackIndices={previewAudioTrackIndices}
+                  onTimeUpdate={handlePreviewTimeUpdate}
+                  onSnapshot={handleSnapshot}
+                  onSnapshotError={handleSnapshotError}
+                  onPlaybackError={handlePreviewPlaybackError}
+                />
+
+                <TrimTimeline
+                  selectedDuration={selectedDuration}
+                  selectedDurationPct={selectedDurationPct}
+                  editableTimes={!gifMode && (advancedMode || losslessTrim)}
+                  losslessTrim={losslessTrim}
+                  losslessInfoLoading={losslessInfoLoading}
+                  losslessInfoError={losslessInfoError}
+                  trimReady={trimReady}
+                  canSetInPoint={canSetInPoint}
+                  canSetOutPoint={canSetOutPoint}
+                  canUndoTrim={trimHistorySize.undo > 0}
+                  canRedoTrim={trimHistorySize.redo > 0}
+                  snapMode={snapMode}
+                  timelineZoom={timelineZoom}
+                  trimWrapRef={trimWrapRef}
+                  startTime={startTime}
+                  endTime={endTime}
+                  viewStartVal={viewStartVal}
+                  viewEndVal={viewEndVal}
+                  startVal={startVal}
+                  endVal={endVal}
+                  startPct={startPct}
+                  endPct={endPct}
+                  trimPlayheadRef={trimPlayheadElementRef}
+                  onSetInPoint={setInPoint}
+                  onSetOutPoint={setOutPoint}
+                  onSnapModeChange={setSnapModeFromTimeline}
+                  onZoomOut={zoomTimelineOut}
+                  onZoomReset={resetTimelineZoom}
+                  onZoomIn={zoomTimelineIn}
+                  onUndoTrim={undoTrim}
+                  onRedoTrim={redoTrim}
+                  loopPlayback={loopPlayback}
+                  onLoopPlaybackChange={setLoopPlaybackFromTimeline}
+                  onTrimWheel={handleTrimWheel}
+                  onTimelineClick={handleTimelineClick}
+                  onRangeDragStart={handleRangeDragStart}
+                  onPlayheadDragStart={handlePlayheadDragStart}
+                  onStartHandlePointerDown={handleStartHandlePointerDown}
+                  onEndHandlePointerDown={handleEndHandlePointerDown}
+                  onStartHandleFocus={handleStartHandleFocus}
+                  onEndHandleFocus={handleEndHandleFocus}
+                  onPointerUp={commitPointerTrimChange}
+                  onStartChange={handleStartChange}
+                  onEndChange={handleEndChange}
+                  onStartTimeCommit={handleStartTimeCommit}
+                  onEndTimeCommit={handleEndTimeCommit}
+                />
+              </>
+            )}
+
+            {isBatchMode && (
+              <div className="batch-trim-settings">
+                <label>
+                  Trim from start (s)
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={batchTrimStartSeconds}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      const next = Number.isFinite(value) ? Math.max(0, value) : 0;
+                      setBatchTrimStartSeconds(next);
+                      saveSettings({ batch_trim_start_seconds: next });
+                    }}
+                  />
+                </label>
+                <label>
+                  Trim from end (s)
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={batchTrimEndSeconds}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      const next = Number.isFinite(value) ? Math.max(0, value) : 0;
+                      setBatchTrimEndSeconds(next);
+                      saveSettings({ batch_trim_end_seconds: next });
+                    }}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+
+          <div className="export-group">
+            <ExportSection
+              outputDestination={outputDestination}
+              customOutputDirectory={customOutputDirectory}
+              completionAction={completionAction}
+              closeAppAfterExport={closeAppAfterExport}
+              exportSummary={exportSummary}
+              readyActionLabel={readyActionLabel}
+              showProgress={showProgress}
+              compressing={compressing}
+              cancelling={cancelling}
+              finalizingOutput={finalizingOutput}
+              selectionScanning={selectionScanning}
+              selectionScanProgress={selectionScanProgress}
+              ffmpegMissing={ffmpegMissing}
+              batchMode={isBatchMode}
+              batchReady={
+                isBatchMode &&
+                !loadingVideo &&
+                batchPaths.length > 1 &&
+                batchQueue.length === batchPaths.length
               }
+              losslessTrim={losslessTrim}
+              losslessInfoLoading={losslessInfoLoading}
+              filePath={isBatchMode ? null : filePath}
+              probeReady={isBatchMode ? false : probeData !== null}
+              progress={progress}
+              eta={eta}
+              onOutputDestinationChange={changeOutputDestination}
+              onChooseCustomOutputDirectory={chooseCustomOutputDirectory}
+              onCompletionActionChange={changeCompletionAction}
+              onCloseAppAfterExportChange={changeCloseAppAfterExport}
+              onStartCompression={startCompress}
+              onCancelCompression={handleCancelCompression}
             />
-          ) : (
-            <>
-              {/* Preview and trim editor */}
-              <PreviewPane
-                cropAspectRatio={losslessTrim ? "off" : cropAspectRatio}
-                ref={previewRef}
-                filePath={filePath}
-                loadingVideo={loadingVideo}
-                startTime={startTime}
-                endTime={endTime}
-                previewTime={previewFocusTime}
-                isScrubbing={previewScrubbing}
-                loopPlayback={loopPlayback}
-                probeData={probeData}
-                removeAudio={gifMode || removeAudio || previewAudioTrackIndices.length === 0}
-                previewAudioTrackIndices={previewAudioTrackIndices}
-                onTimeUpdate={handlePreviewTimeUpdate}
-                onSnapshot={handleSnapshot}
-                onSnapshotError={handleSnapshotError}
-                onPlaybackError={handlePreviewPlaybackError}
-              />
-
-              <TrimTimeline
-                selectedDuration={selectedDuration}
-                selectedDurationPct={selectedDurationPct}
-                editableTimes={!gifMode && (advancedMode || losslessTrim)}
-                losslessTrim={losslessTrim}
-                losslessInfoLoading={losslessInfoLoading}
-                losslessInfoError={losslessInfoError}
-                trimReady={trimReady}
-                canSetInPoint={canSetInPoint}
-                canSetOutPoint={canSetOutPoint}
-                canUndoTrim={trimHistorySize.undo > 0}
-                canRedoTrim={trimHistorySize.redo > 0}
-                snapMode={snapMode}
-                timelineZoom={timelineZoom}
-                trimWrapRef={trimWrapRef}
-                startTime={startTime}
-                endTime={endTime}
-                viewStartVal={viewStartVal}
-                viewEndVal={viewEndVal}
-                startVal={startVal}
-                endVal={endVal}
-                startPct={startPct}
-                endPct={endPct}
-                trimPlayheadRef={trimPlayheadElementRef}
-                onSetInPoint={setInPoint}
-                onSetOutPoint={setOutPoint}
-                onSnapModeChange={setSnapModeFromTimeline}
-                onZoomOut={zoomTimelineOut}
-                onZoomReset={resetTimelineZoom}
-                onZoomIn={zoomTimelineIn}
-                onUndoTrim={undoTrim}
-                onRedoTrim={redoTrim}
-                loopPlayback={loopPlayback}
-                onLoopPlaybackChange={setLoopPlaybackFromTimeline}
-                onTrimWheel={handleTrimWheel}
-                onTimelineClick={handleTimelineClick}
-                onRangeDragStart={handleRangeDragStart}
-                onPlayheadDragStart={handlePlayheadDragStart}
-                onStartHandlePointerDown={handleStartHandlePointerDown}
-                onEndHandlePointerDown={handleEndHandlePointerDown}
-                onStartHandleFocus={handleStartHandleFocus}
-                onEndHandleFocus={handleEndHandleFocus}
-                onPointerUp={commitPointerTrimChange}
-                onStartChange={handleStartChange}
-                onEndChange={handleEndChange}
-                onStartTimeCommit={handleStartTimeCommit}
-                onEndTimeCommit={handleEndTimeCommit}
-              />
-            </>
-          )}
-
-          {isBatchMode && (
-            <div className="batch-trim-settings">
-              <label>
-                Trim from start (s)
-                <input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={batchTrimStartSeconds}
-                  onChange={(event) => {
-                    const value = Number(event.target.value);
-                    const next = Number.isFinite(value) ? Math.max(0, value) : 0;
-                    setBatchTrimStartSeconds(next);
-                    saveSettings({ batch_trim_start_seconds: next });
-                  }}
-                />
-              </label>
-              <label>
-                Trim from end (s)
-                <input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={batchTrimEndSeconds}
-                  onChange={(event) => {
-                    const value = Number(event.target.value);
-                    const next = Number.isFinite(value) ? Math.max(0, value) : 0;
-                    setBatchTrimEndSeconds(next);
-                    saveSettings({ batch_trim_end_seconds: next });
-                  }}
-                />
-              </label>
-            </div>
-          )}
-
-          <ExportSection
-            outputDestination={outputDestination}
-            customOutputDirectory={customOutputDirectory}
-            completionAction={completionAction}
-            closeAppAfterExport={closeAppAfterExport}
-            exportSummary={exportSummary}
-            readyActionLabel={readyActionLabel}
-            showProgress={showProgress}
-            compressing={compressing}
-            cancelling={cancelling}
-            finalizingOutput={finalizingOutput}
-            selectionScanning={selectionScanning}
-            selectionScanProgress={selectionScanProgress}
-            ffmpegMissing={ffmpegMissing}
-            batchMode={isBatchMode}
-            batchReady={
-              isBatchMode &&
-              !loadingVideo &&
-              batchPaths.length > 1 &&
-              batchQueue.length === batchPaths.length
-            }
-            losslessTrim={losslessTrim}
-            losslessInfoLoading={losslessInfoLoading}
-            filePath={isBatchMode ? null : filePath}
-            probeReady={isBatchMode ? false : probeData !== null}
-            progress={progress}
-            eta={eta}
-            onOutputDestinationChange={changeOutputDestination}
-            onChooseCustomOutputDirectory={chooseCustomOutputDirectory}
-            onCompletionActionChange={changeCompletionAction}
-            onCloseAppAfterExportChange={changeCloseAppAfterExport}
-            onStartCompression={startCompress}
-            onCancelCompression={handleCancelCompression}
-          />
+          </div>
         </div>
 
-        {/* Footer stays outside the scroll area so it remains anchored to the window. */}
+        {/* Footer follows the main content in the fitted window. */}
         <div className="footer">
           <FooterMeta onFeedbackClick={handleFeedbackOpen} updateChannel={updateChannel} />
           <Suspense

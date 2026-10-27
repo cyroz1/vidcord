@@ -206,3 +206,116 @@ it("forwards drag-and-drop reordering by stable item ids", async () => {
 
   expect(onReorderItem).toHaveBeenCalledWith(1, 3);
 });
+
+it("pages long queues and keeps a moved item focused across page boundaries", async () => {
+  const manyItems: BatchQueueItem[] = Array.from({ length: 7 }, (_, index) => ({
+    id: index + 1,
+    inputPath: `/clips/${index + 1}.mp4`,
+    status: "queued",
+    progress: 0,
+  }));
+
+  function QueueHarness() {
+    const [queue, setQueue] = useState(manyItems);
+    return (
+      <BatchQueue
+        items={queue}
+        onClearQueue={vi.fn()}
+        onMoveItem={(id, direction) =>
+          setQueue((current) => moveBatchQueueItem(current, id, direction))
+        }
+        onReorderItem={vi.fn()}
+        onRemoveItem={(id) => setQueue((current) => current.filter((item) => item.id !== id))}
+        onRetryItem={vi.fn()}
+        onRetryFailed={vi.fn()}
+        actionsDisabled={false}
+      />
+    );
+  }
+
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  await act(async () => root!.render(<QueueHarness />));
+  expect(names()).toEqual(["1.mp4", "2.mp4", "3.mp4"]);
+  await act(async () =>
+    container?.querySelector<HTMLButtonElement>('[aria-label="Move 3.mp4 down in queue"]')?.click()
+  );
+  expect(names()).toEqual(["3.mp4", "5.mp4", "6.mp4"]);
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Move 3.mp4 down in queue");
+  await act(async () =>
+    [...(container?.querySelectorAll<HTMLButtonElement>(".pagination button") ?? [])][1]?.click()
+  );
+  expect(names()).toEqual(["7.mp4"]);
+  await act(async () =>
+    container?.querySelector<HTMLButtonElement>('[aria-label="Remove 7.mp4 from queue"]')?.click()
+  );
+  expect(names()).toEqual(["3.mp4", "5.mp4", "6.mp4"]);
+});
+
+it("can jump directly to a page in a large queue", async () => {
+  const items: BatchQueueItem[] = Array.from({ length: 36 }, (_, index) => ({
+    id: index + 1,
+    inputPath: `/clips/${index + 1}.mp4`,
+    status: "queued",
+    progress: 0,
+  }));
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  await act(async () =>
+    root!.render(
+      <BatchQueue
+        items={items}
+        onClearQueue={vi.fn()}
+        onMoveItem={vi.fn()}
+        onReorderItem={vi.fn()}
+        onRemoveItem={vi.fn()}
+        onRetryItem={vi.fn()}
+        onRetryFailed={vi.fn()}
+        actionsDisabled={false}
+      />
+    )
+  );
+  const input = container.querySelector<HTMLInputElement>(".page-jump input")!;
+  input.value = "10";
+  await act(async () =>
+    container
+      ?.querySelector<HTMLFormElement>(".page-jump")
+      ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+  );
+  expect(names()).toEqual(["28.mp4", "29.mp4", "30.mp4"]);
+});
+
+it("reduces the queue to one row when the work area is very short", async () => {
+  const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(300);
+  try {
+    container = document.createElement("div");
+    container.className = "app";
+    container.setAttribute("data-compact-tight", "");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () =>
+      root!.render(
+        <BatchQueue
+          items={ITEMS}
+          onClearQueue={vi.fn()}
+          onMoveItem={vi.fn()}
+          onReorderItem={vi.fn()}
+          onRemoveItem={vi.fn()}
+          onRetryItem={vi.fn()}
+          onRetryFailed={vi.fn()}
+          actionsDisabled={false}
+        />
+      )
+    );
+    expect(names()).toEqual(["alpha.mp4"]);
+    await act(async () => {
+      container?.removeAttribute("data-compact-tight");
+      await Promise.resolve();
+    });
+    expect(names()).toEqual(["alpha.mp4", "beta.mp4"]);
+  } finally {
+    width.mockRestore();
+  }
+});

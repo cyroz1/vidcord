@@ -1,4 +1,4 @@
-import { useCallback, useRef, type CSSProperties } from "react";
+import { useCallback, useRef, useState, type CSSProperties } from "react";
 import {
   dialogBackdropStyle as backdropStyle,
   dialogTitleBarStyle as titleBarStyle,
@@ -6,6 +6,7 @@ import {
   dialogTitleStyle as titleStyle,
   useDialogFocusTrap,
 } from "./useDialogFocusTrap";
+import { useTightWindow } from "../hooks/useTightWindow";
 
 type Props = { text: string; onClose: () => void };
 
@@ -13,21 +14,19 @@ const dialogStyle: CSSProperties = {
   border: "1px solid var(--border-subtle)",
   borderRadius: "var(--radius)",
   width: "min(720px, 95vw)",
-  height: "min(520px, 85vh)",
   display: "flex",
   flexDirection: "column",
   boxShadow: "var(--shadow-overlay)",
 };
 
 const contentStyle: CSSProperties = {
-  flex: 1,
-  overflow: "auto",
   margin: 0,
   padding: "12px 16px",
   fontFamily: "'Cascadia Code', 'Consolas', monospace",
   fontSize: "12px",
   color: "var(--text)",
-  whiteSpace: "pre",
+  whiteSpace: "pre-wrap",
+  overflowWrap: "anywhere",
   lineHeight: "1.6",
 };
 
@@ -62,6 +61,13 @@ export default function EncodersDialog({ text, onClose }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const initialFocusRef = useRef<HTMLButtonElement>(null);
   const closingRef = useRef(false);
+  const tightWindow = useTightWindow(dialogRef);
+  const [page, setPage] = useState(0);
+  const lines = text.split("\n");
+  const pageSize = tightWindow ? 6 : 10;
+  const pageCount = Math.max(1, Math.ceil(lines.length / pageSize));
+  const currentPage = Math.min(page, pageCount - 1);
+  const visibleText = lines.slice(currentPage * pageSize, (currentPage + 1) * pageSize).join("\n");
 
   const requestClose = useCallback(() => {
     if (closingRef.current) return;
@@ -108,7 +114,7 @@ export default function EncodersDialog({ text, onClose }: Props) {
 
         {text.trim() ? (
           <pre style={contentStyle} tabIndex={0} aria-label="Available FFmpeg video encoders">
-            {text}
+            {visibleText}
           </pre>
         ) : (
           <p style={emptyStyle} role="status">
@@ -116,6 +122,27 @@ export default function EncodersDialog({ text, onClose }: Props) {
           </p>
         )}
 
+        {pageCount > 1 && (
+          <div className="pagination" style={{ padding: "0 16px 10px" }} aria-label="Encoder pages">
+            <button
+              type="button"
+              onClick={() => setPage(currentPage - 1)}
+              disabled={currentPage === 0}
+            >
+              Previous
+            </button>
+            <span aria-live="polite">
+              Page {currentPage + 1} of {pageCount}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage(currentPage + 1)}
+              disabled={currentPage === pageCount - 1}
+            >
+              Next
+            </button>
+          </div>
+        )}
         <div style={footerStyle}>
           <button
             type="button"

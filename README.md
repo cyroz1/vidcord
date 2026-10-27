@@ -234,9 +234,9 @@ and retry oversized results with safer bitrates and CPU fallback.
   dimensions, container information, file-size-based bitrate estimate, and
   duration available from browser media metadata; exact codec and track details
   depend on the browser.
-- **Desktop compact fixed-size window** — stays fixed at 460×690, with standard and
-  advanced controls fitted into the app surface; long Batch queues use an
-  internal scrollbar rather than expanding the window.
+- **Desktop window fitted to its controls** — adjusts to the rendered interface and native
+  window decorations, with a side-by-side layout on shorter screens. Long Batch queues use
+  pages so the main controls remain visible without scrolling.
 - **System-matched macOS chrome** — the native title bar follows macOS Light
   and Dark appearances together with the app surface.
 - **Remove audio in re-encoded modes** — strip the audio track to reclaim space.

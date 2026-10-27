@@ -10,7 +10,7 @@ the authority for behavior; historical changelog entries describe their release,
 **vidcord** is a cross-platform desktop video compressor with a quick browser edition for no-install use. The desktop app is the headline product for faster encoding, GPU support, and OS integrations. The desktop app is built with **Tauri 2** (Rust backend + React/TypeScript frontend), uses the HTML video player for preview and playback, and shells out to the system **FFmpeg** binary for native probing and encoding. It does **not** bundle system FFmpeg — the desktop app requires `ffmpeg`/`ffprobe` on `PATH`; the hosted browser edition uses its separate FFmpeg WebAssembly build instead.
 
 - **App version**: kept in sync across `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and any `vX.Y` references in source/docs (see "Bumping the version" below)
-- **Native window**: fixed 460×690, user non-resizable/non-maximizable, opaque window background with macOS Tahoe "liquid glass" styling inside the app surface
+- **Native window**: automatically fitted to the rendered desktop controls, user non-resizable/non-maximizable, opaque window background with macOS Tahoe "liquid glass" styling inside the app surface
 - **Supported runtimes**: native desktop builds target Windows (x86_64 + aarch64), macOS (universal), and Linux (x86_64 + aarch64); the browser edition targets modern WebAssembly-capable browsers
 - **Node**: `^20.19.0 || >=22.13.0` (see `package.json` engines)
 - **Rust**: stable toolchain, edition 2021
@@ -621,6 +621,15 @@ its URL is empty. Keep shared destinations here rather than duplicating URLs in 
 no-op outside macOS; on macOS it sets the native `NSWindow` background behind the transparent title
 bar. Its light/dark RGB values must stay aligned with the corresponding opaque `--bg` values in
 `src/index.css`, or the title bar and web content visibly split at the seam.
+
+### Native window sizing
+
+`useDesktopWindowSizing` measures the desktop layout in CSS pixels, selects a vertical or
+side-by-side arrangement for the current monitor's work area, and fits the native window to
+the WebView. It corrects against actual viewport resize events because some Linux window
+managers report client-side decorations in their native dimensions. Keep the main controls
+in normal flow and allow their height to follow the rendered text. Long Batch queues, audio
+track lists, and encoder lists use pages so they do not make the main interface scroll.
 
 ### Frontend performance conventions
 

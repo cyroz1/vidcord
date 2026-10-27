@@ -486,6 +486,20 @@ function TrimTimeline({
               aria-label="More trim options"
               hidden={!trimOptionsOpen}
             >
+              <div className="trim-options-header">
+                <span>Trim options</span>
+                <button
+                  type="button"
+                  className="trim-options-close"
+                  aria-label="Close trim options"
+                  onClick={() => {
+                    setTrimOptionsOpen(false);
+                    optionsButtonRef.current?.focus();
+                  }}
+                >
+                  ×
+                </button>
+              </div>
               {!losslessTrim && (
                 <label className="trim-option-row" title="Timeline snap interval">
                   <span>

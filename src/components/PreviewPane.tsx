@@ -20,7 +20,6 @@ import {
 import { capturePreviewFramePng } from "../previewFrame";
 import { applyPreviewAudioTrackSelection } from "../audioTracks";
 
-const FIXED_PREVIEW_CSS_WIDTH = 432;
 const PREVIEW_ASPECT_WIDTH = 16;
 const PREVIEW_ASPECT_HEIGHT = 9;
 const MEDIA_SEEK_EPSILON_SECONDS = 1 / 240;
@@ -38,13 +37,13 @@ const containerStyle: React.CSSProperties = {
   // The pane itself is the exact 16:9 frame. Keeping the media edge flush
   // removes the light border/gutter that otherwise shows beside 16:9 frames.
   width: "100%",
-  maxWidth: `${FIXED_PREVIEW_CSS_WIDTH}px`,
   height: "auto",
   aspectRatio: `${PREVIEW_ASPECT_WIDTH} / ${PREVIEW_ASPECT_HEIGHT}`,
   flexShrink: 0,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
+  alignSelf: "center",
   boxShadow: "var(--shadow-card), var(--card-top)",
 };
 
