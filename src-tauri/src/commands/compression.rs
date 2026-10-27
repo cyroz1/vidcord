@@ -1464,90 +1464,93 @@ fn acl_text_has_allow_entry(text: &str) -> bool {
         .any(|token| token == "allow")
 }
 
+#[cfg(target_os = "macos")]
+fn has_allow_extended_acl(path: &Path) -> bool {
+    use std::ffi::{CStr, CString};
+    use std::os::unix::ffi::OsStrExt;
+
+    #[link(name = "System")]
+    extern "C" {
+        fn acl_get_file(path: *const libc::c_char, acl_type: libc::c_int) -> *mut libc::c_void;
+        fn acl_to_text(acl: *mut libc::c_void, length: *mut libc::ssize_t) -> *mut libc::c_char;
+        fn acl_free(object: *mut libc::c_void) -> libc::c_int;
+    }
+
+    const ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
+
+    let Ok(path) = CString::new(path.as_os_str().as_bytes()) else {
+        return true;
+    };
+    // Apple reports ENOENT when a filesystem object has no extended ACL.
+    // Treat every other lookup failure as unsafe so ACL support failures
+    // cannot make an unverified output directory appear private.
+    let acl = unsafe { acl_get_file(path.as_ptr(), ACL_TYPE_EXTENDED) };
+    if acl.is_null() {
+        return std::io::Error::last_os_error().raw_os_error() != Some(libc::ENOENT);
+    }
+
+    let acl_text = unsafe { acl_to_text(acl, std::ptr::null_mut()) };
+    let has_allow = if acl_text.is_null() {
+        true
+    } else {
+        let text = unsafe { CStr::from_ptr(acl_text) }.to_string_lossy();
+        let has_allow = acl_text_has_allow_entry(&text);
+        unsafe {
+            acl_free(acl_text.cast());
+        }
+        has_allow
+    };
+    unsafe {
+        acl_free(acl);
+    }
+    // Reject allow ACEs, including inherited grants that could make a
+    // future staged file readable or replaceable. Deny-only ACLs remain
+    // compatible with the mode and ownership checks above.
+    has_allow
+}
+
+/// True when every ancestor (and the path itself) is owned by this user or
+/// root, is not group/world-writable unless sticky, and carries no macOS
+/// allow ACL that would make a future child readable by someone else.
+#[cfg(unix)]
+pub(crate) fn parent_protects_entries(path: &Path) -> bool {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        let Ok(current_dir) = std::env::current_dir() else {
+            return false;
+        };
+        current_dir.join(path)
+    };
+    let mut current = PathBuf::new();
+    let effective_uid = unsafe { libc::geteuid() };
+    for component in absolute.components() {
+        match component {
+            std::path::Component::CurDir => continue,
+            component => current.push(component.as_os_str()),
+        }
+        let Ok(metadata) = std::fs::metadata(&current) else {
+            return false;
+        };
+        if metadata.uid() != effective_uid && metadata.uid() != 0 {
+            return false;
+        }
+        let mode = metadata.permissions().mode();
+        if mode & 0o022 != 0 && mode & 0o1000 == 0 {
+            return false;
+        }
+        #[cfg(target_os = "macos")]
+        if has_allow_extended_acl(&current) {
+            return false;
+        }
+    }
+    true
+}
+
 #[cfg(unix)]
 fn private_output_parent(preferred: &Path) -> Result<PathBuf, String> {
-    #[cfg(target_os = "macos")]
-    fn has_allow_extended_acl(path: &Path) -> bool {
-        use std::ffi::{CStr, CString};
-        use std::os::unix::ffi::OsStrExt;
-
-        #[link(name = "System")]
-        extern "C" {
-            fn acl_get_file(path: *const libc::c_char, acl_type: libc::c_int) -> *mut libc::c_void;
-            fn acl_to_text(acl: *mut libc::c_void, length: *mut libc::ssize_t)
-                -> *mut libc::c_char;
-            fn acl_free(object: *mut libc::c_void) -> libc::c_int;
-        }
-
-        const ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
-
-        let Ok(path) = CString::new(path.as_os_str().as_bytes()) else {
-            return true;
-        };
-        // Apple reports ENOENT when a filesystem object has no extended ACL.
-        // Treat every other lookup failure as unsafe so ACL support failures
-        // cannot make an unverified output directory appear private.
-        let acl = unsafe { acl_get_file(path.as_ptr(), ACL_TYPE_EXTENDED) };
-        if acl.is_null() {
-            return std::io::Error::last_os_error().raw_os_error() != Some(libc::ENOENT);
-        }
-
-        let acl_text = unsafe { acl_to_text(acl, std::ptr::null_mut()) };
-        let has_allow = if acl_text.is_null() {
-            true
-        } else {
-            let text = unsafe { CStr::from_ptr(acl_text) }.to_string_lossy();
-            let has_allow = acl_text_has_allow_entry(&text);
-            unsafe {
-                acl_free(acl_text.cast());
-            }
-            has_allow
-        };
-        unsafe {
-            acl_free(acl);
-        }
-        // Reject allow ACEs, including inherited grants that could make a
-        // future staged file readable or replaceable. Deny-only ACLs remain
-        // compatible with the mode and ownership checks above.
-        has_allow
-    }
-
-    fn parent_protects_entries(path: &Path) -> bool {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-
-        let absolute = if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            let Ok(current_dir) = std::env::current_dir() else {
-                return false;
-            };
-            current_dir.join(path)
-        };
-        let mut current = PathBuf::new();
-        let effective_uid = unsafe { libc::geteuid() };
-        for component in absolute.components() {
-            match component {
-                std::path::Component::CurDir => continue,
-                component => current.push(component.as_os_str()),
-            }
-            let Ok(metadata) = std::fs::metadata(&current) else {
-                return false;
-            };
-            if metadata.uid() != effective_uid && metadata.uid() != 0 {
-                return false;
-            }
-            let mode = metadata.permissions().mode();
-            if mode & 0o022 != 0 && mode & 0o1000 == 0 {
-                return false;
-            }
-            #[cfg(target_os = "macos")]
-            if has_allow_extended_acl(&current) {
-                return false;
-            }
-        }
-        true
-    }
-
     let resolved = std::fs::canonicalize(preferred)
         .map_err(|error| format!("Could not resolve temporary path parent: {error}"))?;
     if parent_protects_entries(&resolved) {

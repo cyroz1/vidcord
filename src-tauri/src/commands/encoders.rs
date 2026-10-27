@@ -2,6 +2,7 @@ use crate::ffmpeg::{
     configure_ffmpeg_command, get_available_encoders, get_or_discover_encoder_listing,
     invalidate_encoder_cache,
 };
+#[cfg(target_os = "linux")]
 use crate::gpu::spawn_captured_command;
 use crate::log::vidcord_log;
 use serde::{Deserialize, Serialize};

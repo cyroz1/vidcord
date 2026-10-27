@@ -29,7 +29,9 @@ use commands::files::{
     resolve_output_path, resolve_staging_output_path, save_snapshot_image,
     send_system_notification, show_files_in_file_explorer, show_in_file_explorer, PendingFile,
 };
-use commands::updates::{check_for_updates, download_and_open_update_installer};
+use commands::updates::{
+    check_for_updates, download_and_open_update_installer, sweep_stale_update_downloads,
+};
 use log::vidcord_log;
 use settings::SettingsManager;
 
@@ -462,6 +464,19 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            // Remove partial update downloads left behind by a process that
+            // was killed before its cleanup guard could run. PID-liveness
+            // checks keep a download in progress in another instance safe;
+            // keep the directory scans off the startup path.
+            if let Err(error) = std::thread::Builder::new()
+                .name("vidcord-update-cleanup".to_string())
+                .spawn(sweep_stale_update_downloads)
+            {
+                vidcord_log(&format!(
+                    "Could not start the stale update download cleanup: {error}"
+                ));
+            }
+
             // AppImage folder Open With registration scans and writes desktop
             // files; keep that filesystem work off the startup path and run
             // it in the background after setup.

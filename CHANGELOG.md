@@ -18,10 +18,10 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Update installs no longer stall forever while fetching release details, and the installer now
   refuses a release that is not newer than the running version instead of silently rolling back.
 - Installers published through the copy fallback (FAT, exFAT, and network filesystems) are
-  re-verified after copying. Update downloads no longer remove files belonging to another process.
+  re-verified after copying. Update downloads no longer remove files belonging to another process,
+  while stale partial downloads from crashed attempts are still cleaned up.
 - Linux package-manager update routing recognizes more hand-edited repository setups: DNF
-  metalink and mirrorlist entries, pacman `Include` mirrorlists, and APT source files with
-  uppercase extensions.
+  metalink and mirrorlist entries and pacman `Include` mirrorlists.
 - The update prompt on Linux now says the downloaded installer will be shown in the file manager
   instead of promising to open it.
 

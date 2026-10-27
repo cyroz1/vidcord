@@ -370,7 +370,7 @@ fn apt_repository_file_has_vidcord_repository(path: &Path) -> bool {
     let is_sources_file = path
         .extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("sources"));
+        .is_some_and(|extension| extension == "sources");
     if is_sources_file {
         apt_sources_has_vidcord_repository(&text)
     } else {
@@ -460,16 +460,45 @@ fn pacman_vidcord_include_paths(text: &str) -> Vec<String> {
     includes
 }
 
-/// Server lines in an included mirrorlist carry no section header: the
-/// whole file belongs to whichever repository section included it.
+/// Server lines in an included mirrorlist usually carry no section header:
+/// the whole file belongs to whichever repository section included it. A
+/// file that does declare sections is parsed normally so an official-looking
+/// server in another repository's section does not count.
 fn pacman_included_servers_have_vidcord_repository(text: &str) -> bool {
-    text.lines().any(|line| {
+    let has_sections = text.lines().any(|line| {
         let active = line.split('#').next().unwrap_or_default().trim();
+        active.starts_with('[') && active.ends_with(']')
+    });
+    let mut in_vidcord_section = !has_sections;
+    let mut has_official_server = false;
+
+    for line in text.lines() {
+        let active = line.split('#').next().unwrap_or_default().trim();
+        if active.is_empty() {
+            continue;
+        }
+        if active.starts_with('[') && active.ends_with(']') {
+            if in_vidcord_section && has_official_server {
+                return true;
+            }
+            in_vidcord_section = active[1..active.len() - 1]
+                .trim()
+                .eq_ignore_ascii_case("vidcord");
+            has_official_server = false;
+            continue;
+        }
+        if !in_vidcord_section {
+            continue;
+        }
         let Some((key, value)) = active.split_once('=') else {
-            return false;
+            continue;
         };
-        key.trim().eq_ignore_ascii_case("server") && pacman_server_value_is_official(value)
-    })
+        if key.trim().eq_ignore_ascii_case("server") {
+            has_official_server |= pacman_server_value_is_official(value);
+        }
+    }
+
+    in_vidcord_section && has_official_server
 }
 
 /// The full pacman check: a literal official `Server =` in the `[vidcord]`
@@ -507,11 +536,7 @@ fn directory_files_with_extensions(dir: &Path, extensions: &[&str]) -> Vec<PathB
         .filter(|path| {
             path.extension()
                 .and_then(|extension| extension.to_str())
-                .is_some_and(|extension| {
-                    extensions
-                        .iter()
-                        .any(|expected| extension.eq_ignore_ascii_case(expected))
-                })
+                .is_some_and(|extension| extensions.contains(&extension))
         })
         .collect()
 }
@@ -859,6 +884,151 @@ fn temp_download_path(path: &Path) -> Result<PathBuf, String> {
     )))
 }
 
+/// Parse the owner PID from the updater's temporary-download pattern.
+/// Returning `None` for every other name keeps unrelated Downloads files
+/// out of cleanup.
+fn update_temp_owner_pid(file_name: &str) -> Option<u32> {
+    let core = file_name
+        .strip_prefix('.')
+        .and_then(|name| name.strip_suffix(".download"))?;
+    let (rest, counter) = core.rsplit_once('.')?;
+    if counter.is_empty() || !counter.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let (asset, pid) = rest.rsplit_once('.')?;
+    if pid.is_empty() || !pid.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let asset = asset.to_ascii_lowercase();
+    let installable_asset = asset == "vidcord-update"
+        || (asset.starts_with("vidcord_")
+            && [
+                "_x64-setup.exe",
+                "_arm64-setup.exe",
+                "_universal.dmg",
+                "_amd64.appimage",
+                "_aarch64.appimage",
+            ]
+            .iter()
+            .any(|suffix| asset.ends_with(suffix)));
+    if !installable_asset {
+        return None;
+    }
+    pid.parse().ok()
+}
+
+#[cfg(unix)]
+fn process_is_running(pid: u32) -> bool {
+    if pid == 0 || pid > i32::MAX as u32 {
+        return true;
+    }
+    if unsafe { libc::kill(pid as libc::pid_t, 0) } == 0 {
+        return true;
+    }
+    // ESRCH is the only answer that proves there is no process to write the
+    // file. Permission and unexpected errors stay conservative.
+    !matches!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::ESRCH)
+    )
+}
+
+#[cfg(windows)]
+fn process_is_running(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_INVALID_PARAMETER};
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    if pid == 0 {
+        return true;
+    }
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if !handle.is_null() {
+        unsafe {
+            CloseHandle(handle);
+        }
+        return true;
+    }
+    // Access denied still means the process exists. Only an invalid PID
+    // proves that no owner can still be writing.
+    (unsafe { GetLastError() }) != ERROR_INVALID_PARAMETER
+}
+
+#[cfg(not(any(unix, windows)))]
+fn process_is_running(_pid: u32) -> bool {
+    true
+}
+
+/// Remove partial update downloads left behind by a process that was killed
+/// before its cleanup guard could run. A file is only removed when its owner
+/// PID is no longer running, so a download in progress in another vidcord
+/// instance is never touched. Best effort: failures are logged, never
+/// propagated.
+fn sweep_stale_update_downloads_in(directories: &[PathBuf]) {
+    let current_pid = std::process::id();
+    let mut removed = 0usize;
+    for directory in directories {
+        let entries = match std::fs::read_dir(directory) {
+            Ok(entries) => entries,
+            Err(error) => {
+                vidcord_log(&format!(
+                    "Update cleanup: could not scan for stale partial downloads: {error}"
+                ));
+                continue;
+            }
+        };
+        for entry in entries.flatten() {
+            let file_name = entry.file_name();
+            let Some(file_name) = file_name.to_str() else {
+                continue;
+            };
+            let Some(owner_pid) = update_temp_owner_pid(file_name) else {
+                continue;
+            };
+            if owner_pid == current_pid || process_is_running(owner_pid) {
+                continue;
+            }
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            if !metadata.is_file() {
+                continue;
+            }
+            match std::fs::remove_file(entry.path()) {
+                Ok(()) => removed += 1,
+                Err(error) => {
+                    vidcord_log(&format!(
+                        "Update cleanup: could not remove a stale partial download: {error}"
+                    ));
+                }
+            }
+        }
+    }
+    if removed > 0 {
+        vidcord_log(&format!(
+            "Update cleanup: removed {removed} stale partial update download(s)"
+        ));
+    }
+}
+
+pub(crate) fn sweep_stale_update_downloads() {
+    // The same directories the updater can place a download target in,
+    // mirroring the fallback chain in download_target_path.
+    let mut directories: Vec<PathBuf> = Vec::new();
+    for directory in [
+        dirs::download_dir(),
+        dirs::data_local_dir(),
+        Some(std::env::temp_dir()),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !directories.contains(&directory) {
+            directories.push(directory);
+        }
+    }
+    sweep_stale_update_downloads_in(&directories);
+}
+
 async fn create_temp_download_file(path: &Path) -> Result<(PathBuf, tokio::fs::File), String> {
     for _ in 0..64 {
         let tmp = temp_download_path(path)?;
@@ -982,7 +1152,7 @@ async fn copy_download_without_clobber(
             let _ = tokio::fs::remove_file(destination).await;
             Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "Update installer changed while it was being copied to Downloads.",
+                "Update installer changed while it was being copied to its destination.",
             ))
         }
         Err(error) => {
@@ -1628,16 +1798,33 @@ mod tests {
         // Includes declared by other sections are never followed.
         let other_section = "[core]\nInclude = /etc/pacman.d/vidcord-mirrors";
         assert!(!pacman_repository_configured_with(other_section, official));
+
+        // An include that declares its own sections is parsed normally, so
+        // an official server in another section does not count.
+        let foreign_section = |_: &str| {
+            Some("[other]\nServer = https://cyroz1.github.io/vidcord/pacman/$arch\n".to_string())
+        };
+        assert!(!pacman_repository_configured_with(conf, foreign_section));
+
+        let mixed_sections = |_: &str| {
+            Some(
+                "[other]\nServer = https://cyroz1.github.io/vidcord/pacman/$arch\n\
+                 [vidcord]\nServer = https://mirror.example/vidcord/pacman/$arch\n"
+                    .to_string(),
+            )
+        };
+        assert!(!pacman_repository_configured_with(conf, mixed_sections));
     }
 
     #[test]
-    fn directory_scan_matches_extensions_case_insensitively() {
+    fn directory_scan_matches_extensions_exactly() {
         let directory = unique_test_directory();
         std::fs::create_dir_all(&directory).unwrap();
         for name in [
             "vidcord.list",
+            "vidcord.sources",
             "vidcord.LIST",
-            "vidcord.Sources",
+            "vidcord.SOURCES",
             "notes.txt",
         ] {
             std::fs::write(directory.join(name), b"").unwrap();
@@ -1650,16 +1837,16 @@ mod tests {
             .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
 
-        assert_eq!(names, ["vidcord.LIST", "vidcord.Sources", "vidcord.list"]);
+        assert_eq!(names, ["vidcord.list", "vidcord.sources"]);
         std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
-    fn apt_repository_files_are_read_by_case_insensitive_extension() {
+    fn apt_repository_files_are_read_by_exact_extension() {
         let directory = unique_test_directory();
         std::fs::create_dir_all(&directory).unwrap();
 
-        let sources = directory.join("vidcord.SOURCES");
+        let sources = directory.join("vidcord.sources");
         std::fs::write(
             &sources,
             "Types: deb\nURIs: https://cyroz1.github.io/vidcord/apt\nSuites: stable\n",
@@ -1667,13 +1854,68 @@ mod tests {
         .unwrap();
         assert!(apt_repository_file_has_vidcord_repository(&sources));
 
-        let list = directory.join("vidcord.List");
+        let list = directory.join("vidcord.list");
         std::fs::write(
             &list,
             "deb https://cyroz1.github.io/vidcord/apt stable main\n",
         )
         .unwrap();
         assert!(apt_repository_file_has_vidcord_repository(&list));
+
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn update_temp_owner_pid_parses_only_updater_files() {
+        assert_eq!(
+            update_temp_owner_pid(".vidcord_7.7_x64-setup.exe.4242.0.download"),
+            Some(4242)
+        );
+        assert_eq!(
+            update_temp_owner_pid(".vidcord_7.7_universal.dmg.7.12.download"),
+            Some(7)
+        );
+        assert_eq!(
+            update_temp_owner_pid(".vidcord-update.99.0.download"),
+            Some(99)
+        );
+        for name in [
+            "vidcord_7.7_x64-setup.exe.4242.0.download",
+            ".vidcord_7.7_x64-setup.exe.4242.download",
+            ".vidcord_7.7_x64-setup.exe.latest.0.download",
+            ".vidcord_7.7_notes.txt.4242.0.download",
+            ".other_1.0_x64-setup.exe.4242.0.download",
+            ".vidcord-update.4242.0.download.bak",
+        ] {
+            assert_eq!(update_temp_owner_pid(name), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn stale_update_sweep_removes_only_dead_owner_downloads() {
+        let directory = unique_test_directory();
+        std::fs::create_dir_all(&directory).unwrap();
+
+        let dead_pid = 2_000_000_000u32;
+        assert!(
+            !process_is_running(dead_pid),
+            "test PID unexpectedly exists"
+        );
+        let stale = directory.join(format!(".vidcord_7.7_x64-setup.exe.{dead_pid}.0.download"));
+        let active = directory.join(format!(
+            ".vidcord_7.7_x64-setup.exe.{}.0.download",
+            std::process::id()
+        ));
+        let unrelated = directory.join("keep-me.txt");
+        std::fs::write(&stale, b"partial").unwrap();
+        std::fs::write(&active, b"partial").unwrap();
+        std::fs::write(&unrelated, b"keep").unwrap();
+
+        sweep_stale_update_downloads_in(std::slice::from_ref(&directory));
+
+        assert!(!stale.exists());
+        assert!(active.exists());
+        assert!(unrelated.exists());
 
         std::fs::remove_dir_all(directory).unwrap();
     }

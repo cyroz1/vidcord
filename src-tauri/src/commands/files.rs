@@ -1684,22 +1684,8 @@ fn ensure_staging_directory_in(
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
     let resolved = std::fs::canonicalize(root).map_err(|e| e.to_string())?;
-
-    let effective_uid = unsafe { libc::geteuid() };
-    let mut current = std::path::PathBuf::new();
-    for component in resolved.components() {
-        if let std::path::Component::CurDir = component {
-            continue;
-        }
-        current.push(component.as_os_str());
-        let metadata = std::fs::metadata(&current).map_err(|e| e.to_string())?;
-        if metadata.uid() != effective_uid && metadata.uid() != 0 {
-            return Err("The temporary output folder is not private.".to_string());
-        }
-        let mode = metadata.permissions().mode();
-        if mode & 0o022 != 0 && mode & 0o1000 == 0 {
-            return Err("The temporary output folder is not private.".to_string());
-        }
+    if !super::compression::parent_protects_entries(&resolved) {
+        return Err("The temporary output folder is not private.".to_string());
     }
     // Open each new component relative to a held directory descriptor.
     // Never follow a pre-existing symlink or change permissions before
