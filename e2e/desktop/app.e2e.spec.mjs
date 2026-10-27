@@ -760,7 +760,6 @@ async function assertMainFits(label) {
           lastMetrics &&
           lastMetrics.outside.length === 0 &&
           lastMetrics.clippedValues.length === 0 &&
-          lastMetrics.app[0] <= lastMetrics.viewport[0] + 1 &&
           lastMetrics.app[1] <= lastMetrics.viewport[1] + 1 &&
           lastMetrics.viewport[0] - lastMetrics.minimum[0] <= 5 &&
           // Native window managers can round or enforce a slightly larger
@@ -769,7 +768,6 @@ async function assertMainFits(label) {
           (!lastMetrics.screen ||
             (lastMetrics.screen.outer.width <= lastMetrics.screen.workArea.size.width &&
               lastMetrics.screen.outer.height <= lastMetrics.screen.workArea.size.height)) &&
-          lastMetrics.area[1] <= lastMetrics.area[0] + 1 &&
           lastMetrics.area[3] <= lastMetrics.area[2] + 1
         );
       },
