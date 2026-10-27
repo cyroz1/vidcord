@@ -221,6 +221,8 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
       schedule();
     };
     window.addEventListener("resize", onResize);
+    app.addEventListener("input", schedule);
+    app.addEventListener("change", schedule);
     document.fonts?.addEventListener("loadingdone", schedule);
     void nativeWindow
       .onMoved(schedule)
@@ -238,6 +240,8 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
       mutationObserver.disconnect();
       unlistenMove?.();
       window.removeEventListener("resize", onResize);
+      app.removeEventListener("input", schedule);
+      app.removeEventListener("change", schedule);
       document.fonts?.removeEventListener("loadingdone", schedule);
     };
   }, [appRef]);
