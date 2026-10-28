@@ -512,6 +512,10 @@ describe("vidcord desktop end-to-end workflow", function () {
       }
     );
     await assertMainFits("paged batch queue");
+    // Wait for the responsive queue's page size to settle after the window
+    // changes layout, before capturing the first page and clicking Next.
+    await browser.pause(1000);
+    await assertMainFits("settled batch queue");
     const firstPage = await queueNames();
     await browser.$(".batch-queue .pagination button:last-child").click();
     await browser.waitUntil(async () => (await queueNames())[0] !== firstPage[0], {
