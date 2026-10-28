@@ -5,7 +5,7 @@ export function widthForWorkArea(
   chromeWidth: number,
   scale: number
 ): number {
-  return Math.max(1, Math.min(800, Math.floor((availableWidth - chromeWidth) / scale) - 2));
+  return Math.max(1, Math.min(850, Math.floor((availableWidth - chromeWidth) / scale) - 2));
 }
 
 export function nativeSizeForContent(
