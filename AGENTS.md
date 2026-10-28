@@ -736,7 +736,7 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 `.github/workflows/e2e.yml` runs the browser end-to-end suite and the native desktop suite on Linux,
 macOS, and Windows for app-source changes; the suites upload screenshots, logs, traces, and reports
 as workflow artifacts. The desktop matrix includes Ubuntu 22.04 x86_64, Ubuntu 24.04 ARM64, macOS, and Windows;
-each job and the browser job has a 60-minute deadline. Linux test runners need the GStreamer base, good, bad, and libav plugins for
+an additional scaled, short-screen Wayland layout job uses headless Weston; each job and the browser job has a 60-minute deadline. Linux test runners need the GStreamer base, good, bad, and libav plugins for
 HTML video decoding, matching the packaged app's media dependencies. See `scripts/e2e/README.md`
 for local prerequisites and commands.
 

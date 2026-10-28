@@ -51,9 +51,17 @@ a separate `tauri-driver`, ChromeDriver, or WDIO runner is not required. Normal
 installer builds and their setup dialogs are outside this suite. Package-manager
 update routing is disabled for E2E to avoid dependence on the test host's installs.
 
+CI also runs a layout-only desktop scenario in a headless Weston Wayland compositor
+with a 2× scale and an 853×480 logical work area. It checks the compact layouts,
+multi-track audio paging, and a 32-item queue. Linux X11 runs additionally exercise
+repeated mode changes alongside concurrent media probes. To run the short-screen
+scenario locally, start Weston with those dimensions and set `GDK_BACKEND=wayland`,
+`WAYLAND_DISPLAY` to its socket, and `VIDCORD_E2E_LAYOUT_ONLY=1` before running
+`npm run e2e:desktop`. This requires the same FFmpeg and GStreamer dependencies.
+
 The workflow's desktop matrix covers Ubuntu 22.04 x86_64, Ubuntu 24.04 ARM64,
-macOS, and Windows. This is four desktop jobs plus one browser job, each with
-a 60-minute deadline and seven-day evidence retention. These native host tests
+macOS, and Windows. Together with the scaled Wayland job, that makes five desktop
+jobs and one browser job, each with a 60-minute deadline and seven-day evidence retention. These native host tests
 do not cover every packaged architecture, desktop environment, GPU, or codec.
 Windows ARM64 and the macOS universal bundle still rely on packaging/build checks
 in the release matrix rather than dedicated E2E runners.

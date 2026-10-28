@@ -14,6 +14,72 @@ const outputDirectory = process.env.VIDCORD_E2E_OUTPUTS;
 const artifactsDirectory = process.env.VIDCORD_E2E_ARTIFACTS;
 
 describe("vidcord desktop end-to-end workflow", function () {
+  it("fits controls on a scaled short display", async function () {
+    this.timeout(12 * 60 * 1000);
+    const multiAudio = process.env.VIDCORD_E2E_MULTI_AUDIO;
+    assert.ok(multiAudio, "multi-track audio fixture was not configured");
+    const scale = await browser.execute(() => window.devicePixelRatio);
+    assert.ok(scale >= 1.9, `Expected a scaled desktop, got ${scale}`);
+    await browser.$('button[aria-label="Dismiss update"]').waitForDisplayed({ timeout: 60_000 });
+    await browser.$('button[aria-label="Dismiss update"]').click();
+    await browser.waitUntil(
+      async () =>
+        await browser.execute(
+          () =>
+            document.querySelector(".app")?.hasAttribute("data-compact-tight") &&
+            document.querySelector(".app")?.hasAttribute("data-compact-narrow")
+        ),
+      { timeout: 30_000, timeoutMsg: "The short-screen layout was not selected" }
+    );
+    for (const mode of ["Advanced", "Lossless Trim", "GIF", "Compress"]) {
+      await clickMode(mode);
+      await assertMainFits(`short-screen ${mode}`);
+    }
+    await dropFiles([multiAudio]);
+    await browser.$(".loaded-file-card").waitForDisplayed({ timeout: 60_000 });
+    await browser.waitUntil(async () => await browser.$(".compress-btn").isEnabled(), {
+      timeout: 60_000,
+    });
+    await clickMode("Advanced");
+    await browser.$('button[aria-label$="open audio settings"]').click();
+    const audio = '[role="dialog"][aria-label="Audio settings"]';
+    await browser.$(audio).waitForDisplayed();
+    await assertOverlayFits(audio);
+    assert.equal((await browser.$$(".audio-track-option")).length, 1);
+    const firstTrack = await browser.$(".audio-track-name").getText();
+    await browser.$('[aria-label="Audio track pages"] button:last-child').click();
+    await browser.waitUntil(
+      async () => (await browser.$(".audio-track-name").getText()) !== firstTrack,
+      { timeout: 10_000 }
+    );
+    await assertOverlayFits(audio);
+    await browser.$('button[aria-label="Close audio settings"]').click();
+
+    const queueDirectory = path.join(outputDirectory, "large-layout-queue");
+    mkdirSync(queueDirectory, { recursive: true });
+    const paths = Array.from({ length: 32 }, (_, index) => {
+      const target = path.join(queueDirectory, `clip-${String(index + 1).padStart(2, "0")}.mp4`);
+      copyFileSync(sampleA, target);
+      return target;
+    });
+    await dropFiles(paths);
+    await browser.$(".batch-queue").waitForDisplayed({ timeout: 60_000 });
+    await browser.waitUntil(
+      async () =>
+        await browser.$('button[aria-label="Clear all videos from the queue"]').isEnabled(),
+      { timeout: 120_000 }
+    );
+    await assertMainFits("one-row large batch");
+    assert.equal((await queueNames()).length, 1);
+    await browser.$('input[aria-label="Go to page"]').setValue("32");
+    await browser.$(".page-jump button").click();
+    await browser.waitUntil(async () => (await queueNames())[0] === "clip-32.mp4", {
+      timeout: 10_000,
+    });
+    await assertMainFits("large batch page jump");
+    await browser.saveScreenshot(path.join(artifactsDirectory, "desktop-short-wayland.png"));
+  });
+
   it("rejects corrupt and unsupported files with clear errors", async function () {
     this.timeout(12 * 60 * 1000);
     mkdirSync(outputDirectory, { recursive: true });
@@ -431,6 +497,18 @@ describe("vidcord desktop end-to-end workflow", function () {
     await browser.$(".batch-queue").waitForDisplayed({ reverse: true });
   });
 
+  it("keeps the Linux X11 session responsive during repeated window and backend activity", async function () {
+    if (process.platform !== "linux") return;
+    for (let iteration = 0; iteration < 20; iteration += 1) {
+      await Promise.all([
+        invokeTauri("probe", { path: sampleA }),
+        clickMode(iteration % 2 ? "Compress" : "Advanced"),
+      ]);
+    }
+    await assertMainFits("X11 activity stress");
+    assert.ok(await browser.execute(() => Boolean(document.querySelector(".app"))));
+  });
+
   it("imports a video through the drop handler", async function () {
     this.timeout(12 * 60 * 1000);
     assert.ok(sampleA, "sample video fixture was not configured");
@@ -739,6 +817,80 @@ async function assertMainFits(label) {
                 : [];
             })
           );
+          const clippedControls = [
+            ...app.querySelectorAll("button, input, select, textarea, a[href]"),
+          ]
+            .filter((element) => {
+              const style = getComputedStyle(element);
+              const rect = element.getBoundingClientRect();
+              return (
+                rect.width > 0 &&
+                rect.height > 0 &&
+                style.visibility === "visible" &&
+                Number(style.opacity) > 0 &&
+                !element.closest("[hidden], [inert]")
+              );
+            })
+            .flatMap((element) => {
+              const rect = element.getBoundingClientRect();
+              if (
+                rect.left < -1 ||
+                rect.top < -1 ||
+                rect.right > innerWidth + 1 ||
+                rect.bottom > innerHeight + 1
+              ) {
+                return [
+                  element.getAttribute("aria-label") ||
+                    element.textContent?.trim() ||
+                    element.tagName,
+                ];
+              }
+              for (
+                let parent = element.parentElement;
+                parent && parent !== app;
+                parent = parent.parentElement
+              ) {
+                const style = getComputedStyle(parent);
+                const box = parent.getBoundingClientRect();
+                const clipsX = ["hidden", "clip", "scroll", "auto"].includes(style.overflowX);
+                const clipsY = ["hidden", "clip", "scroll", "auto"].includes(style.overflowY);
+                if (
+                  (clipsX && (rect.left < box.left - 1 || rect.right > box.right + 1)) ||
+                  (clipsY && (rect.top < box.top - 1 || rect.bottom > box.bottom + 1))
+                ) {
+                  return [
+                    element.getAttribute("aria-label") ||
+                      element.textContent?.trim() ||
+                      element.tagName,
+                  ];
+                }
+              }
+              return [];
+            });
+          const overlaps = [
+            ...app.querySelectorAll(".workflow-mode-selector, .pagination, .batch-queue-controls"),
+          ].flatMap((group) => {
+            const controls = [...group.querySelectorAll("button, input")].filter((control) => {
+              const rect = control.getBoundingClientRect();
+              return (
+                rect.width > 0 &&
+                rect.height > 0 &&
+                getComputedStyle(control).visibility === "visible"
+              );
+            });
+            return controls.flatMap((control, index) => {
+              const a = control.getBoundingClientRect();
+              return controls.slice(index + 1).flatMap((other) => {
+                const b = other.getBoundingClientRect();
+                return Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
+                  Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1
+                  ? [
+                      `${control.textContent?.trim() || control.getAttribute("aria-label")} / ${other.textContent?.trim() || other.getAttribute("aria-label")}`,
+                    ]
+                  : [];
+              });
+            });
+          });
           const nativeWindow = window.__TAURI__.window.getCurrentWindow();
           const [outer, position, monitor] = await Promise.all([
             nativeWindow.outerSize().catch(() => null),
@@ -752,6 +904,8 @@ async function assertMainFits(label) {
             area: [area.clientWidth, area.scrollWidth, area.clientHeight, area.scrollHeight],
             outside,
             clippedValues,
+            clippedControls,
+            overlaps,
             screen:
               outer && position && monitor ? { outer, position, workArea: monitor.workArea } : null,
           };
@@ -760,14 +914,24 @@ async function assertMainFits(label) {
           lastMetrics &&
           lastMetrics.outside.length === 0 &&
           lastMetrics.clippedValues.length === 0 &&
+          lastMetrics.clippedControls.length === 0 &&
+          lastMetrics.overlaps.length === 0 &&
           lastMetrics.app[1] <= lastMetrics.viewport[1] + 1 &&
+          lastMetrics.minimum[0] <= lastMetrics.viewport[0] + 1 &&
           lastMetrics.viewport[0] - lastMetrics.minimum[0] <= 5 &&
           // Native window managers can round or enforce a slightly larger
           // client height even when every control fits without clipping.
           lastMetrics.viewport[1] - lastMetrics.minimum[1] <= 24 &&
           (!lastMetrics.screen ||
             (lastMetrics.screen.outer.width <= lastMetrics.screen.workArea.size.width &&
-              lastMetrics.screen.outer.height <= lastMetrics.screen.workArea.size.height)) &&
+              lastMetrics.screen.outer.height <= lastMetrics.screen.workArea.size.height &&
+              lastMetrics.screen.position.x >= lastMetrics.screen.workArea.position.x &&
+              lastMetrics.screen.position.y >= lastMetrics.screen.workArea.position.y &&
+              lastMetrics.screen.position.x + lastMetrics.screen.outer.width <=
+                lastMetrics.screen.workArea.position.x + lastMetrics.screen.workArea.size.width &&
+              lastMetrics.screen.position.y + lastMetrics.screen.outer.height <=
+                lastMetrics.screen.workArea.position.y +
+                  lastMetrics.screen.workArea.size.height)) &&
           lastMetrics.area[3] <= lastMetrics.area[2] + 1
         );
       },

@@ -90,11 +90,43 @@ try {
   mkdirSync(batchInputsDirectory, { recursive: true });
   copyFileSync(sampleA, path.join(batchInputsDirectory, "sample-a.mp4"));
   copyFileSync(sampleB, path.join(batchInputsDirectory, "sample-b.mp4"));
+  const multiAudio = path.join(runDirectory, "multi-audio.mp4");
+  if (process.env.VIDCORD_E2E_LAYOUT_ONLY === "1") {
+    const fixtureStatus = run(
+      process.env.FFMPEG_PATH || "ffmpeg",
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        sampleA,
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a:0",
+        "-map",
+        "0:a:0",
+        "-map",
+        "0:a:0",
+        "-map",
+        "0:a:0",
+        "-map",
+        "0:a:0",
+        "-c",
+        "copy",
+        multiAudio,
+      ],
+      process.env
+    );
+    if (fixtureStatus !== 0) throw new Error("Could not create the multi-track audio fixture");
+  }
   const environment = {
     ...process.env,
     VIDCORD_E2E_ROOT: runDirectory,
     VIDCORD_E2E_SAMPLE_A: sampleA,
     VIDCORD_E2E_SAMPLE_B: sampleB,
+    VIDCORD_E2E_MULTI_AUDIO: multiAudio,
     VIDCORD_E2E_INPUTS: batchInputsDirectory,
     VIDCORD_E2E_OUTPUTS: path.join(runDirectory, "outputs"),
     VIDCORD_E2E_ARTIFACTS: artifactsDirectory,
@@ -134,9 +166,9 @@ try {
     process.exitCode = buildStatus;
   } else {
     const binary = path.join(
-      repository,
-      "src-tauri",
-      "target",
+      environment.CARGO_TARGET_DIR
+        ? path.resolve(repository, environment.CARGO_TARGET_DIR)
+        : path.join(repository, "src-tauri", "target"),
       "debug",
       process.platform === "win32" ? "vidcord.exe" : "vidcord"
     );
@@ -233,6 +265,7 @@ try {
         "VIDCORD_E2E_ROOT",
         "VIDCORD_E2E_SAMPLE_A",
         "VIDCORD_E2E_SAMPLE_B",
+        "VIDCORD_E2E_MULTI_AUDIO",
         "VIDCORD_E2E_INPUTS",
         "VIDCORD_E2E_OUTPUTS",
         "VIDCORD_E2E_ARTIFACTS",
@@ -249,7 +282,12 @@ try {
         );
       }
 
-      for (const { name, callback } of testCases) {
+      const layoutOnly = environment.VIDCORD_E2E_LAYOUT_ONLY === "1";
+      for (const { name, callback } of testCases.filter(({ name }) =>
+        layoutOnly
+          ? name === "fits controls on a scaled short display"
+          : name !== "fits controls on a scaled short display"
+      )) {
         console.log(`Running desktop scenario: ${name}`);
         let scenarioTimeout;
         try {

@@ -95,7 +95,7 @@ jobs:
           retention-days: 7
 
   desktop-app:
-    name: Desktop UI (${{ matrix.os }})
+    name: Desktop UI (${{ matrix.os }}${{ matrix.display == 'wayland' && ', scaled Wayland' || '' }})
     runs-on: ${{ matrix.os }}
     # Desktop e2e builds a full Tauri app per OS; bound well below the
     # 6-hour runner default so a hang fails fast instead of burning minutes.
@@ -108,8 +108,12 @@ jobs:
         # ubuntu-24.04-arm covers the shipped Linux ARM64 AppImage, which
         # previously had no end-to-end coverage.
         os: [ubuntu-22.04, ubuntu-24.04-arm, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-22.04
+            display: wayland
     env:
       VIDCORD_E2E_ARTIFACTS: artifacts/e2e-desktop
+      VIDCORD_E2E_LAYOUT_ONLY: ${{ matrix.display == 'wayland' && '1' || '0' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -137,7 +141,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
             libwebkit2gtk-4.1-dev libgtk-3-dev libappindicator3-dev librsvg2-dev \
-            patchelf xdg-utils ffmpeg xvfb \
+            patchelf xdg-utils ffmpeg xvfb weston \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             gstreamer1.0-plugins-bad gstreamer1.0-libav
 
@@ -164,8 +168,27 @@ jobs:
         run: npm ci --prefer-offline --no-audit --fund=false
 
       - name: Build and run desktop end-to-end tests (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.display != 'wayland'
         run: xvfb-run --auto-servernum npm run e2e:desktop
+
+      - name: Run scaled short-screen Wayland layout tests
+        if: matrix.display == 'wayland'
+        run: |
+          export XDG_RUNTIME_DIR="$(mktemp -d)"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          export WAYLAND_DISPLAY=vidcord-e2e
+          export GDK_BACKEND=wayland
+          weston --backend=headless --use-pixman --width=853 --height=480 --scale=2 \
+            --socket="$WAYLAND_DISPLAY" --idle-time=0 --no-config --log="$XDG_RUNTIME_DIR/weston.log" &
+          compositor=$!
+          trap 'kill "$compositor" 2>/dev/null || true; cat "$XDG_RUNTIME_DIR/weston.log"; rm -rf "$XDG_RUNTIME_DIR"' EXIT
+          for attempt in $(seq 1 100); do
+            [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break
+            kill -0 "$compositor" || exit 1
+            sleep 0.1
+          done
+          test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
+          npm run e2e:desktop
 
       - name: Build and run desktop end-to-end tests (macOS and Windows)
         if: runner.os != 'Linux'
@@ -175,7 +198,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: desktop-e2e-${{ matrix.os }}-${{ github.run_attempt }}
+          name: desktop-e2e-${{ matrix.os }}-${{ matrix.display || 'default' }}-${{ github.run_attempt }}
           path: artifacts/e2e-desktop/
           if-no-files-found: ignore
           retention-days: 7
