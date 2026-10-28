@@ -1,26 +1,11 @@
 export type WindowContentSize = { width: number; height: number };
-export type WindowLayout = "normal" | "compact" | "narrow";
-
-export function chooseWindowLayout(
-  sizes: Record<WindowLayout, WindowContentSize>,
-  workArea: WindowContentSize,
-  chrome: WindowContentSize,
+/** A stable content width per work area, with room for native decorations. */
+export function widthForWorkArea(
+  availableWidth: number,
+  chromeWidth: number,
   scale: number
-): WindowLayout {
-  const layouts: WindowLayout[] = ["normal", "compact", "narrow"];
-  const ratio = (layout: WindowLayout) => {
-    const size = sizes[layout];
-    return Math.max(
-      ((size.width + 2) * scale + chrome.width) / workArea.width,
-      ((size.height + 2) * scale + chrome.height) / workArea.height
-    );
-  };
-  // Prefer the normal layout whenever it fits. If none can fit, use the
-  // arrangement that exceeds the available area by the smallest proportion.
-  return (
-    layouts.find((layout) => ratio(layout) <= 1) ??
-    layouts.reduce((best, layout) => (ratio(layout) < ratio(best) ? layout : best))
-  );
+): number {
+  return Math.max(1, Math.min(745, Math.floor((availableWidth - chromeWidth) / scale) - 2));
 }
 
 export function nativeSizeForContent(

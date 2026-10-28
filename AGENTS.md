@@ -624,9 +624,9 @@ bar. Its light/dark RGB values must stay aligned with the corresponding opaque `
 
 ### Native window sizing
 
-`useDesktopWindowSizing` measures the desktop layout in CSS pixels, selects a vertical or
-side-by-side arrangement for the current monitor's work area, and fits the native window to
-the WebView. It corrects against actual viewport resize events because some Linux window
+`useDesktopWindowSizing` measures a hidden copy of the desktop layout in CSS pixels, keeps the
+window width stable on each monitor, selects a vertical or narrow arrangement for the work area,
+and fits the window height to the WebView. It corrects against actual viewport resize events because some Linux window
 managers report client-side decorations in their native dimensions. Keep the main controls
 in normal flow and allow their height to follow the rendered text. Long Batch queues, audio
 track lists, and encoder lists use pages so they do not make the main interface scroll.

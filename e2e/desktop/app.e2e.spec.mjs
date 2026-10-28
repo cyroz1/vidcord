@@ -31,9 +31,12 @@ describe("vidcord desktop end-to-end workflow", function () {
         ),
       { timeout: 30_000, timeoutMsg: "The short-screen layout was not selected" }
     );
+    await assertMainFits("short-screen initial");
+    const shortScreenWidth = await browser.execute(() => window.innerWidth);
     for (const mode of ["Advanced", "Lossless Trim", "GIF", "Compress"]) {
       await clickMode(mode);
       await assertMainFits(`short-screen ${mode}`);
+      assert.equal(await browser.execute(() => window.innerWidth), shortScreenWidth);
     }
     await dropFiles([multiAudio]);
     await browser.$(".loaded-file-card").waitForDisplayed({ timeout: 60_000 });
@@ -154,6 +157,7 @@ describe("vidcord desktop end-to-end workflow", function () {
       timeoutMsg: "The deterministic update modal did not close",
     });
     await assertMainFits("initial screen");
+    const stableWindowWidth = await browser.execute(() => window.innerWidth);
     await browser.$(".drop-zone").click();
     await browser.$(".loaded-file-card").waitForDisplayed({ timeout: 60_000 });
     await browser.waitUntil(async () => await browser.$(".compress-btn").isEnabled(), {
@@ -168,6 +172,11 @@ describe("vidcord desktop end-to-end workflow", function () {
       await clickMode(mode);
       assert.equal(await selectedMode(), mode);
       await assertMainFits(`${mode} mode`);
+      assert.equal(
+        await browser.execute(() => window.innerWidth),
+        stableWindowWidth,
+        `The window width changed in ${mode} mode`
+      );
     }
     await browser.$(".target-label select").selectByAttribute("value", "4");
     await assertMainFits("long target label");
@@ -190,6 +199,23 @@ describe("vidcord desktop end-to-end workflow", function () {
     await browser.$(".gif-format-label select").selectByAttribute("value", "gif");
     await clickMode("Compress");
     await assertMainFits("restored Compress mode");
+    assert.equal(await browser.execute(() => window.innerWidth), stableWindowWidth);
+    await browser.execute(() => {
+      window.__vidcordResizeCount = 0;
+      window.addEventListener("resize", () => {
+        window.__vidcordResizeCount += 1;
+      });
+    });
+    for (let i = 0; i < 8; i += 1) {
+      await browser.$('button[aria-label="More trim options"]').click();
+      await browser.$('button[aria-label="Close trim options"]').click();
+    }
+    await browser.pause(1000);
+    assert.equal(await browser.execute(() => window.innerWidth), stableWindowWidth);
+    assert.ok(
+      (await browser.execute(() => window.__vidcordResizeCount)) <= 2,
+      "Repeated clicks caused the window to resize continuously"
+    );
     console.log("Desktop E2E: all desktop modes switch");
 
     // Exercise all output destination and completion controls. The one native
@@ -594,7 +620,7 @@ describe("vidcord desktop end-to-end workflow", function () {
     assert.equal(typeof outdated.installer_available, "boolean");
     console.log("Desktop E2E: update check found", outdated.latest_version);
 
-    const current = await checkForUpdates("7.7.0");
+    const current = await checkForUpdates("7.8.0");
     assert.equal(typeof current.update_available, "boolean");
     console.log("Desktop E2E: update check shape for the current version");
   });
@@ -918,7 +944,6 @@ async function assertMainFits(label) {
           lastMetrics.overlaps.length === 0 &&
           lastMetrics.app[1] <= lastMetrics.viewport[1] + 1 &&
           lastMetrics.minimum[0] <= lastMetrics.viewport[0] + 1 &&
-          lastMetrics.viewport[0] - lastMetrics.minimum[0] <= 5 &&
           // Native window managers can round or enforce a slightly larger
           // client height even when every control fits without clipping.
           lastMetrics.viewport[1] - lastMetrics.minimum[1] <= 24 &&

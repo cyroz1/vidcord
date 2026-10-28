@@ -2,7 +2,7 @@ import { useEffect, type RefObject } from "react";
 import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauriRuntime } from "../ipc";
-import { chooseWindowLayout, nativeSizeForContent } from "../windowSizing";
+import { nativeSizeForContent, widthForWorkArea } from "../windowSizing";
 
 /** Size the native client area from the rendered layout, not from window chrome. */
 export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void {
@@ -16,6 +16,8 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
     let dirty = false;
     let disposed = false;
     let lastAttempt = "";
+    let monitorKey = "";
+    let stableWidth = 0;
     let unlistenMove: (() => void) | undefined;
     let lastIssued: { width: number; height: number; scale: number } | null = null;
     let lastApplied: { width: number; height: number; scale: number } | null = null;
@@ -28,39 +30,47 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         const style = getComputedStyle(select);
         // Match the selected value's actual text metrics, including system
         // text scaling, when determining the control's intrinsic width.
-        measure.style.fontFamily = style.fontFamily;
-        measure.style.fontSize = style.fontSize;
-        measure.style.fontStyle = style.fontStyle;
-        measure.style.fontWeight = style.fontWeight;
-        measure.style.lineHeight = style.lineHeight;
-        measure.style.letterSpacing = style.letterSpacing;
-        measure.style.padding = style.padding;
+        for (const property of [
+          "fontFamily",
+          "fontSize",
+          "fontStyle",
+          "fontWeight",
+          "lineHeight",
+          "letterSpacing",
+          "padding",
+        ] as const) {
+          if (measure.style[property] !== style[property])
+            measure.style[property] = style[property];
+        }
       }
     };
 
-    const measure = (layout: "normal" | "compact" | "narrow") => {
-      if (layout !== "normal") app.dataset.compactHeight = "";
-      else delete app.dataset.compactHeight;
-      if (layout === "narrow") app.dataset.compactNarrow = "";
-      else delete app.dataset.compactNarrow;
-      const oldWidth = app.style.width;
+    // Measure a hidden copy so layout probes never repaint the live window.
+    const measure = (layout: "normal" | "narrow", width: number) => {
+      const copy = app.cloneNode(true) as HTMLDivElement;
+      copy.style.cssText = `position:fixed;left:-10000px;top:0;visibility:hidden;pointer-events:none;width:${width}px`;
+      copy.setAttribute("aria-hidden", "true");
+      if (layout === "narrow") {
+        copy.dataset.compactHeight = "";
+        copy.dataset.compactNarrow = "";
+      } else {
+        delete copy.dataset.compactHeight;
+        delete copy.dataset.compactNarrow;
+      }
+      // Do not create a second media player while measuring the clone.
+      for (const media of copy.querySelectorAll("video, audio")) media.removeAttribute("src");
+      document.body.appendChild(copy);
       try {
-        app.style.width = "min-content";
-        const width = Math.ceil(Math.max(app.getBoundingClientRect().width, app.scrollWidth));
-        app.style.width = `${width}px`;
-        let height = Math.ceil(Math.max(app.getBoundingClientRect().height, app.scrollHeight));
-        // Modal content and the compact layout's popovers are outside normal
-        // flow. Give them room too when their contents grow.
-        const overlaySelector =
-          layout !== "normal"
-            ? ".feedback-dialog[role=dialog], .encoders-dialog[role=dialog], .update-modal, .audio-track-popup, .trim-options-panel:not([hidden])"
-            : ".feedback-dialog[role=dialog], .encoders-dialog[role=dialog], .update-modal";
-        for (const overlay of app.querySelectorAll<HTMLElement>(overlaySelector)) {
+        let height = Math.ceil(Math.max(copy.getBoundingClientRect().height, copy.scrollHeight));
+        const overlays = copy.querySelectorAll<HTMLElement>(
+          ".feedback-dialog[role=dialog], .encoders-dialog[role=dialog], .update-modal, .audio-track-popup, .trim-options-panel:not([hidden])"
+        );
+        for (const overlay of overlays) {
           height = Math.max(height, Math.ceil(overlay.getBoundingClientRect().height) + 36);
         }
-        return { width, height };
+        return height;
       } finally {
-        app.style.width = oldWidth;
+        copy.remove();
       }
     };
 
@@ -78,23 +88,13 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
       dirty = false;
       try {
         syncSelectMeasures();
-        // Measure both arrangements synchronously, then restore the current
-        // one before the browser paints or any native calls are awaited.
-        const wasCompact = app.hasAttribute("data-compact-height");
-        const wasNarrow = app.hasAttribute("data-compact-narrow");
-        const normal = measure("normal");
-        const compact = measure("compact");
-        const narrow = measure("narrow");
-        if (!wasCompact) delete app.dataset.compactHeight;
-        if (!wasNarrow) delete app.dataset.compactNarrow;
-
         const [inner, outer, monitor, position] = await Promise.all([
           nativeWindow.innerSize(),
           nativeWindow.outerSize().catch(() => null),
           currentMonitor().catch(() => null),
           nativeWindow.outerPosition().catch(() => null),
         ]);
-        if (disposed || normal.width <= 0 || normal.height <= 0 || window.innerWidth <= 0) return;
+        if (disposed || window.innerWidth <= 0) return;
 
         // Native getters can include GTK client-side decorations even when
         // setSize targets the WebView. Calibrate from the last size request
@@ -118,18 +118,23 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
           dirty = true;
           return;
         }
-        const layout = chooseWindowLayout(
-          { normal, compact, narrow },
-          { width: availableWidth, height: availableHeight },
-          { width: chromeWidth, height: chromeHeight },
-          scale
-        );
-        if (layout !== "normal") app.dataset.compactHeight = "";
-        else delete app.dataset.compactHeight;
-        if (layout === "narrow") app.dataset.compactNarrow = "";
-        else delete app.dataset.compactNarrow;
-        const { width, height } =
-          layout === "normal" ? normal : layout === "compact" ? compact : narrow;
+        // Keep the horizontal size fixed while the user works. The shared
+        // width accommodates the advanced controls and the narrow layout; it
+        // is recalculated only when the monitor, work area, or scale changes.
+        const nextMonitorKey = JSON.stringify([monitor?.name, monitor?.workArea, scale]);
+        if (monitorKey !== nextMonitorKey || stableWidth === 0) {
+          monitorKey = nextMonitorKey;
+          stableWidth = widthForWorkArea(availableWidth, chromeWidth, scale);
+          lastAttempt = "";
+        }
+        const normalHeight = measure("normal", stableWidth);
+        const narrowHeight = measure("narrow", stableWidth);
+        const availableCssHeight = (availableHeight - chromeHeight) / scale;
+        const narrow = normalHeight + 2 > availableCssHeight && narrowHeight < normalHeight;
+        app.toggleAttribute("data-compact-height", narrow);
+        app.toggleAttribute("data-compact-narrow", narrow);
+        const width = stableWidth;
+        const height = narrow ? narrowHeight : normalHeight;
         const widthDelta = width + 2 - window.innerWidth;
         const heightDelta = height + 2 - window.innerHeight;
         if (Math.abs(widthDelta) < 1 && Math.abs(heightDelta) < 1) {

@@ -183,8 +183,8 @@ the site and encoder assets to load.
 
 [tauri.conf.json](../src-tauri/tauri.conf.json) defines the initial native window,
 CSP, scoped media, associations, package dependencies, and NSIS FFmpeg offer. The desktop
-[window sizing hook](../src/hooks/useDesktopWindowSizing.ts) measures the rendered controls,
-chooses a layout for the monitor work area, and adjusts the WebView size using observed native
+[window sizing hook](../src/hooks/useDesktopWindowSizing.ts) measures a hidden copy of the controls,
+keeps a stable width per monitor, and adjusts the layout and height using observed native
 resize events so scaling and window decorations are accounted for.
 [build.yml](../.github/workflows/build.yml) builds Windows x64/ARM64 NSIS, macOS
 universal DMG, and Linux x64/ARM64 AppImage, DEB, and RPM. Tag builds additionally

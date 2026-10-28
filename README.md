@@ -234,8 +234,8 @@ and retry oversized results with safer bitrates and CPU fallback.
   dimensions, container information, file-size-based bitrate estimate, and
   duration available from browser media metadata; exact codec and track details
   depend on the browser.
-- **Desktop window fitted to its controls** — adjusts to the rendered interface and native
-  window decorations, with a side-by-side layout on shorter screens. Long Batch queues use
+- **Desktop window fitted to its controls** — keeps a stable width and adjusts to the rendered
+  interface and native decorations, with a side-by-side layout on shorter screens. Long Batch queues use
   pages so the main controls remain visible without scrolling.
 - **System-matched macOS chrome** — the native title bar follows macOS Light
   and Dark appearances together with the app surface.
