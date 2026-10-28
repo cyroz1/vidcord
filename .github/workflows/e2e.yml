@@ -183,7 +183,7 @@ jobs:
           chmod 700 "$XDG_RUNTIME_DIR"
           export WAYLAND_DISPLAY=vidcord-e2e
           export GDK_BACKEND=wayland
-          weston --backend=headless --use-pixman --width=853 --height=480 --scale=2 \
+          weston --backend=headless-backend.so --use-pixman --width=853 --height=480 --scale=2 \
             --socket="$WAYLAND_DISPLAY" --idle-time=0 --no-config --log="$XDG_RUNTIME_DIR/weston.log" &
           compositor=$!
           trap 'kill "$compositor" 2>/dev/null || true; cat "$XDG_RUNTIME_DIR/weston.log"; rm -rf "$XDG_RUNTIME_DIR"' EXIT
