@@ -19,6 +19,7 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
     let monitorKey = "";
     let stableWidth = 0;
     let unlistenMove: (() => void) | undefined;
+    let unlistenScale: (() => void) | undefined;
     let lastIssued: { width: number; height: number; scale: number } | null = null;
     let lastApplied: { width: number; height: number; scale: number } | null = null;
 
@@ -236,6 +237,21 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         else unlistenMove = unlisten;
       })
       .catch(() => {});
+    void nativeWindow
+      .onScaleChanged(() => {
+        // Requests made for the previous monitor cannot calibrate the new
+        // scale, even if WebKit has not updated devicePixelRatio yet.
+        lastIssued = null;
+        lastApplied = null;
+        monitorKey = "";
+        lastAttempt = "";
+        schedule();
+      })
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else unlistenScale = unlisten;
+      })
+      .catch(() => {});
     syncOverlays();
 
     return () => {
@@ -244,6 +260,7 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
       resizeObserver.disconnect();
       mutationObserver.disconnect();
       unlistenMove?.();
+      unlistenScale?.();
       window.removeEventListener("resize", onResize);
       app.removeEventListener("input", schedule);
       app.removeEventListener("change", schedule);
