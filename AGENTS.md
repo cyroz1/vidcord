@@ -43,12 +43,13 @@ the authority for behavior; historical changelog entries describe their release,
 │   ├── timelineZoom.ts        # Pure trim-timeline zoom/view calculations
 │   ├── updateChannel.ts       # Package-manager update-channel resolution for the footer
 │   ├── videoMetadata.ts       # Pure source-metadata formatting helpers
+│   ├── windowSizing.ts        # Pure native-window sizing calculations
 │   ├── losslessTrim.ts         # Pure lossless-fit, keyframe-snap, and keyframe-normalization helpers
 │   ├── settingsPresets.ts      # Preset schema, normalization, equality, and parsing helpers
 │   ├── components/
-│   │   ├── BatchQueue.tsx     # Queue details, trims, reorder/remove/retry controls
+│   │   ├── BatchQueue.tsx     # Queue details, trims, reorder/remove/retry controls, pagination
 │   │   ├── ExportSection.tsx  # Shared export settings surface
-│   │   ├── AudioTrackPicker.tsx # Advanced source-track selection
+│   │   ├── AudioTrackPicker.tsx # Advanced source-track selection and paging
 │   │   ├── PreviewCrop.tsx    # Shared preview crop geometry
 │   │   ├── FeedbackDialog.tsx # Explicit desktop report submission and fallback
 │   │   ├── useDialogFocusTrap.tsx # Shared dialog focus/escape handling
@@ -59,6 +60,8 @@ the authority for behavior; historical changelog entries describe their release,
 │   │   ├── SettingsPresets.tsx # Autosave and named preset save/restore/delete controls
 │   │   └── EncodersDialog.tsx # Lazy-loaded FFmpeg encoder list dialog
 │   ├── hooks/
+│   │   ├── useDesktopWindowSizing.ts # Measures controls and fits native window to monitor/layout
+│   │   ├── useTightWindow.ts  # Reads the very-short-display layout state
 │   │   ├── useCompression.ts  # Event listeners + pure bitrate/dimension helpers (tested)
 │   │   ├── useEncoders.ts     # detect_encoders + FFmpeg-missing tracking
 │   │   ├── useSettings.ts     # persisted compression/output prefs, presets, and debounced saves
@@ -67,7 +70,7 @@ the authority for behavior; historical changelog entries describe their release,
 │   └── __mocks__/@tauri-apps/ # Invoke/listen stubs so pure helpers run in Node
 ├── src-tauri/                 # Rust backend
 │   ├── src/
-│   │   ├── main.rs            # Thin entry — calls lib::run()
+│   │   ├── main.rs            # Initializes X11 threading before GTK on Linux, then calls lib::run()
 │   │   ├── lib.rs             # Tauri builder, platform shims/theme, file-open routing
 │   │   ├── preview_source.rs  # Scoped original-file loopback delivery for Linux preview
 │   │   ├── desktop_integration.rs # Linux AppImage folder Open With registration
@@ -110,7 +113,8 @@ the authority for behavior; historical changelog entries describe their release,
 ├── .github/workflows/build.yml# Multi-platform CI + release workflow
 ├── .github/workflows/site.yml # Static site validation workflow
 ├── .github/workflows/site-build.yml # Browser bundle regeneration and parity workflow
-├── .github/workflows/e2e.yml # Browser + Linux x64/ARM64, macOS, Windows desktop UI checks
+├── .github/workflows/e2e.yml # Browser + Linux x64/ARM64, macOS, Windows, and scaled Wayland desktop UI checks
+├── .github/workflows/feedback-worker.yml # Syntax and request-handling checks for the feedback Worker
 ├── e2e/                       # Browser Playwright and desktop Selenium scenarios
 ├── workers/feedback/          # Separate Cloudflare feedback-to-Resend service and tests
 ├── packaging/arch/            # vidcord-bin PKGBUILD template and install hooks
@@ -433,7 +437,10 @@ Output handling has two paths:
   FFmpeg's `-y` to overwrite an unrelated file.
 - **Ask when done**: compression writes only beneath a per-user temporary staging directory
   (`vidcord-<uid>/staged-output` on Unix, `vidcord/staged-output` on Windows), then the frontend
-  opens a save dialog. `publish_staged_output` canonicalizes and accepts only a direct file child of that staging
+  opens a save dialog. Unix validates ancestor ownership, write permissions, and macOS ACLs, then
+  creates each staging component relative to held directory handles with `O_NOFOLLOW`; reject
+  symlinks without changing permissions on their targets. `%TEMP%` uses the per-user ACL on
+  Windows. `publish_staged_output` canonicalizes and accepts only a direct file child of that staging
   directory, first tries a same-filesystem hard link to a unique temporary path beside the
   destination, falls back to a create-new copy when linking is unavailable, syncs the temporary
   file, atomically publishes it via `settings::replace_file`, and removes the staged file.
@@ -486,8 +493,10 @@ Folder imports are registered as an alternate `public.folder` handler in the mac
 ### Update downloads
 
 The app checks the fixed `cyroz1/vidcord` GitHub Releases API endpoint and only downloads an
-installer after explicit user approval. Resolve and download the exact release tag approved in the
-update prompt; do not switch to a newer release if one appears while installation is underway.
+installer after explicit user approval. The update check uses only a valid GitHub `tag_name`, and
+the install command refuses a release that is not strictly newer than the compiled app version.
+Resolve and download the exact release tag approved in the update prompt; do not switch to a newer
+release if one appears while installation is underway.
 Preserve all of these controls when changing the updater:
 
 1. Select only the expected `vidcord_` asset suffix for the current OS/architecture and validate
@@ -500,12 +509,16 @@ Preserve all of these controls when changing the updater:
 4. Enforce the 512 MB limit and response completeness while streaming to a create-new temporary
    file; never buffer a full installer in memory.
 5. Publish under a collision-safe Downloads filename without replacing an existing file. Keep the
-   hard-link path and create-new copy fallback for FAT, exFAT, and network filesystems.
+   hard-link path and create-new copy fallback for FAT, exFAT, and network filesystems. In the
+   copy fallback, hash the published file again against GitHub's expected digest before handoff.
 6. Hand off only after verification and publication, using `spawn_blocking` for the platform
    action. Windows/macOS open the installer; Linux makes the AppImage executable and reveals it
    so the user can quit the old copy, replace it, and relaunch. Remove temporary or partial files
-   on every failure path. Installer transfer has 60-second response-header and per-chunk idle
-   deadlines, without a whole-download timeout that would reject a slow but progressing transfer.
+   on every failure path. At startup, sweep only updater temp files whose recorded owner PID is no
+   longer running; never remove an active transfer from another instance. Installer and signature
+   transfers have 60-second response-header and per-chunk idle deadlines, without a whole-download
+   timeout that would reject a slow but progressing transfer. Release metadata fetches use bounded
+   header and JSON-body waits too.
 
 AppImage downloads are revealed rather than launched because the single-instance handler would
 otherwise send the new copy back to the old running instance. Native Linux installs without a
@@ -519,8 +532,9 @@ and verifies those controls.
 On Linux, update routing depends on how the running copy was installed. When APT, DNF, or pacman
 has the vidcord package installed AND the vidcord repository is present in that manager's
 active configuration (the official HTTPS `/vidcord/apt` source for APT, an enabled `[vidcord]`
-section pointing to `/vidcord/rpm` for DNF, or an active `[vidcord]` section with an official
-`/vidcord/pacman` server in `pacman.conf`), `check_for_updates` reports
+section with an official `/vidcord/rpm` `baseurl`, `metalink`, or `mirrorlist` for DNF, or an
+active `[vidcord]` section with an official `/vidcord/pacman` server directly or through one of
+its `Include` mirrorlists), `check_for_updates` reports
 `updates_managed_by_package_manager` with the manager's name and the installer download command
 refuses to run, so upgrades arrive through the package manager. Detection uses the bounded
 `spawn_captured_command` probe pattern plus config-file reads, and runs inside `spawn_blocking`.
@@ -735,10 +749,15 @@ Confirm with the user before pushing the tag — tag pushes are hard to reverse 
 
 `.github/workflows/e2e.yml` runs the browser end-to-end suite and the native desktop suite on Linux,
 macOS, and Windows for app-source changes; the suites upload screenshots, logs, traces, and reports
-as workflow artifacts. The desktop matrix includes Ubuntu 22.04 x86_64, Ubuntu 24.04 ARM64, macOS, and Windows;
-an additional scaled, short-screen Wayland layout job uses headless Weston; each job and the browser job has a 60-minute deadline. Linux test runners need the GStreamer base, good, bad, and libav plugins for
-HTML video decoding, matching the packaged app's media dependencies. See `scripts/e2e/README.md`
-for local prerequisites and commands.
+as workflow artifacts. The desktop matrix includes Ubuntu 22.04 x86_64, Ubuntu 24.04 ARM64, macOS,
+and Windows; an additional scaled, short-screen Wayland layout job uses headless Weston. That is
+five desktop jobs plus one browser job; each has a 60-minute deadline. Linux test runners need the
+GStreamer base, good, bad, and libav plugins for HTML video decoding, matching the packaged app's
+media dependencies. See `scripts/e2e/README.md` for local prerequisites and commands.
+
+`.github/workflows/feedback-worker.yml` runs `node --check` and the Worker request-handling suite
+for feedback Worker source, test, or workflow changes on `main` and `X.Y` branches, plus manual
+dispatch.
 
 Concurrency groups branch pushes and pull-request synchronization events by head commit so the same
 revision is not built twice. Release tags and explicit manual packaging runs use isolated groups and

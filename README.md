@@ -236,7 +236,7 @@ and retry oversized results with safer bitrates and CPU fallback.
   depend on the browser.
 - **Desktop window fitted to its controls** — keeps a stable width and adjusts to the rendered
   interface and native decorations, with a side-by-side layout on shorter screens. Long Batch queues use
-  pages so the main controls remain visible without scrolling.
+  pages, as do long audio-track and encoder lists, so the main controls remain visible without scrolling.
 - **System-matched macOS chrome** — the native title bar follows macOS Light
   and Dark appearances together with the app surface.
 - **Remove audio in re-encoded modes** — strip the audio track to reclaim space.
@@ -886,8 +886,9 @@ not upgrade the installed native package. For Windows, macOS, and AppImage insta
 update is available the desktop app offers the matching installer and keeps the
 GitHub release page as a fallback. After you approve the download, it fetches
 that exact release tag even if a newer release appears before installation
-begins. It streams the installer to Downloads, enforces size and completeness
-limits, compares the bytes with the SHA-256 digest published in GitHub release
+begins, and refuses a release that is not newer than the installed version.
+It streams the installer to Downloads, enforces size and completeness limits,
+compares the bytes with the SHA-256 digest published in GitHub release
 metadata, verifies the pinned independent Ed25519 release signature, and only
 then gives the installer an unused filename and opens it on Windows/macOS. Linux reveals the executable AppImage for manual replacement. This independent
 release signature does not replace platform code signing.

@@ -12,6 +12,9 @@ vidcord update installers use two independent checks before platform handoff:
 
 After approval, the app fetches the exact release tag selected in the update
 prompt, even if a newer release appears before installation begins.
+The check and installer use the release's validated `tag_name`; the backend
+refuses to install a tag whose version is not strictly newer than the running
+app's compiled version.
 
 The public key is committed in
 [`src-tauri/update-signing-public-key.hex`](../src-tauri/update-signing-public-key.hex).
@@ -78,7 +81,14 @@ Windows opens the verified NSIS installer; macOS opens the universal DMG.
 Linux downloads the architecture-specific AppImage, makes it executable, and
 reveals it for the user to replace and relaunch manually. The transfer allows
 60 seconds for response headers and each subsequent chunk, with a 512 MiB
-installer limit; progress can continue beyond a single minute overall.
+installer limit; progress can continue beyond a single minute overall. Release
+metadata reads also have bounded header and body waits. The installer is first
+written to a create-new partial file and published under an unused filename;
+the updater does not overwrite an existing file. It uses a hard link when the
+destination filesystem supports one, otherwise it makes a create-new copy and
+hashes that copy against the expected SHA-256 digest before handoff. On startup,
+cleanup removes only partial downloads whose recorded owner process has exited,
+so a second running vidcord instance keeps its active download.
 
 Linux repository signing uses a separate GPG key:
 `VIDCORD_REPOSITORY_GPG_PRIVATE_KEY` and optional

@@ -1,6 +1,6 @@
 # Source map and verification guide
 
-This guide describes the current implementation on the `7.7` development branch.
+This guide describes the current implementation on the `7.8` development branch.
 Use [AGENTS.md](../AGENTS.md) for contribution rules, [README.md](../README.md)
 for product usage, and [package.json](../package.json) for runnable commands.
 Historical release notes are preserved in [CHANGELOG.md](../CHANGELOG.md).
@@ -15,11 +15,11 @@ routes, FFmpeg workers, and WASM before Tauri embeds `dist/`.
 
 | Area                        | Implementation and responsibility                                                                                                                                                                           |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Native UI                   | [App.tsx](../src/App.tsx): import ownership, modes, output preparation, batch orchestration, completion actions, updates, presets, and dialogs                                                              |
+| Native UI                   | [App.tsx](../src/App.tsx): import ownership, modes, output preparation, batch orchestration, completion actions, updates, presets, and dialogs; [useDesktopWindowSizing.ts](../src/hooks/useDesktopWindowSizing.ts): monitor-aware layout sizing |
 | Native compression hook     | [useCompression.ts](../src/hooks/useCompression.ts): command/event boundary, progress state, cancellation, bitrate/dimension helpers                                                                        |
 | Native settings             | [useSettings.ts](../src/hooks/useSettings.ts), [settingsPresets.ts](../src/settingsPresets.ts), [settings.rs](../src-tauri/src/settings.rs): normalization, migration, debounced saves, durable replacement |
 | Native capability discovery | [useEncoders.ts](../src/hooks/useEncoders.ts), [encoders.rs](../src-tauri/src/ffmpeg/encoders.rs), [gpu.rs](../src-tauri/src/gpu.rs): cached discovery and bounded hardware validation                      |
-| Desktop host                | [lib.rs](../src-tauri/src/lib.rs): platform setup, plugins, command registration, file-open delivery, theme, and page-load cleanup                                                                          |
+| Desktop host                | [main.rs](../src-tauri/src/main.rs) initializes X11 threading before GTK on Linux; [lib.rs](../src-tauri/src/lib.rs) handles platform setup, plugins, commands, file-open delivery, theme, and page-load cleanup |
 | Browser shell               | [WebApp.tsx](../src/web/WebApp.tsx): product page, deferred editor, drop forwarding, feedback, and support                                                                                                  |
 | Download story              | [DesktopUpgrade.tsx](../src/web/DesktopUpgrade.tsx), [desktopDownloads.ts](../src/web/desktopDownloads.ts): platform/architecture/distribution selection, GitHub assets, Linux install dialog, Shields download count |
 | Browser editor              | [WebEditor.tsx](../src/web/WebEditor.tsx), [WebTrimTimeline.tsx](../src/web/WebTrimTimeline.tsx): file/metadata ownership, mode controls, preview, trim history, queue, export delivery                     |
@@ -54,7 +54,11 @@ routes, FFmpeg workers, and WASM before Tauri embeds `dist/`.
    succeeds. Ask when done uses staged output and a later save dialog; Batch
    asks for one destination directory. Publication validates staged paths,
    flushes output, and cleans partial files. User-approved single-file save
-   publication and collision-safe batch publication have separate paths.
+   publication and collision-safe batch publication have separate paths. Unix
+   staging directories are per-user, mode `0700`, and created relative to held
+   directory handles with no-follow opens after ancestor ownership/permission
+   checks; symlinked path components are rejected without changing the target.
+   Windows staging uses the per-user temporary directory ACL.
 6. Completion can copy, reveal, or leave files saved. Copy failures fall back
    to reveal. Windows uses native shell/CF_HDROP APIs; macOS uses NSWorkspace
    and NSPasteboard; Linux uses FileManager1 with folder-opening fallback and
@@ -203,15 +207,24 @@ key contracts and [LINUX_INSTALL.md](LINUX_INSTALL.md) for repository activation
 
 [updates.rs](../src-tauri/src/commands/updates.rs) routes installed Linux packages
 with configured vidcord repositories to APT/DNF/pacman before a GitHub lookup.
+DNF recognizes official `baseurl`, `metalink`, or `mirrorlist` entries; pacman
+recognizes a direct official server or one in an `Include` mirrorlist declared
+inside `[vidcord]`.
 Flatpak environments (`FLATPAK_ID` or `/.flatpak-info`) bypass GitHub checks and
 installer downloads in favor of platform-managed updates. This repository does not
 build a Flatpak package. AppImages bypass package-repository detection; native packages without the repository retain
-GitHub checks. Installer approval binds an exact release tag. Downloads require
+GitHub checks. Installer approval binds an exact validated `tag_name`, and the
+backend refuses a tag that is not newer than the installed version. Release
+metadata requests have bounded header and body waits. Downloads require
 a GitHub SHA-256 digest and the pinned Ed25519 signature, enforce a 512 MiB cap
-and response/chunk deadlines, and publish without overwriting a file. Linux
-reveals the executable AppImage for manual replacement; Windows/macOS open the
-verified installer/DMG. These checks do not automatically replace native Linux
-packages or authenticate platform code signing.
+and 60-second response-header and per-chunk idle deadlines, and publish without
+overwriting a file. Filesystems without hard-link support use a create-new copy
+that is hashed again against the expected digest before handoff. Startup cleanup
+removes only partial downloads whose recorded owner process has exited, so it
+does not delete an active transfer from another vidcord instance. Linux reveals
+the executable AppImage for manual replacement; Windows/macOS open the verified
+installer/DMG. These checks do not automatically replace native Linux packages
+or authenticate platform code signing.
 
 ## Verification and workflow scope
 
@@ -224,7 +237,7 @@ packages or authenticate platform code signing.
 | Feedback service                | `node --check workers/feedback/src/index.js`, `node --test workers/feedback/test/index.test.js`                                                                                         |
 | Full media UI flows             | `npm run e2e:web`, `npm run e2e:desktop`; see [E2E prerequisites](../scripts/e2e/README.md)                                                                                             |
 
-The four workflow files have distinct responsibilities:
+The five workflow files have distinct responsibilities:
 
 - **Multi-Platform Build**: app/packaging/config/workflow paths on `main` and
   `X.Y` pushes/PRs, all `v*` tags, and manual dispatch. Frontend quality/audit
@@ -235,16 +248,21 @@ The four workflow files have distinct responsibilities:
   Signing, publication, Arch repacking, and repository publication are tag-only.
 - **End-to-End UI Tests**: matching app/test/runner/config/workflow paths on
   `main` and `X.Y` pushes/PRs, or manual dispatch. One Chromium browser job and
-  four desktop jobs (Linux x64, Linux ARM64, macOS, Windows), each limited to
-  60 minutes, upload evidence for seven days.
+  five desktop jobs (Linux x64, Linux ARM64, macOS, Windows, and scaled short-
+  screen Wayland on Linux x64) each run for up to 60 minutes and upload
+  evidence for seven days.
 - **Site Checks**: matching site/metadata/config/workflow paths on `main`
   pushes or PRs targeting `main`, plus manual dispatch. Formatting, structured
   data, sitemap, assets/extensions, size limits, and versions; no bundle rebuild.
 - **Site Browser Build**: matching browser/site/build/workflow paths on `main`
-  pushes or PRs targeting `main`, plus manual dispatch. Rebuilds and compares
-  all non-WASM output exactly, then compares decompressed WASM against HEAD
-  because gzip bytes can vary across Node/zlib versions. All `site/**` changes,
-  including marketing and crawler files, match this workflow.
+  and `X.Y` pushes/PRs, plus manual dispatch. It watches all `src/**` because
+  browser code shares helpers and components with the desktop app. Rebuilds and
+  compares all non-WASM output exactly, then compares decompressed WASM against
+  HEAD because gzip bytes can vary across Node/zlib versions. All `site/**`
+  changes, including marketing and crawler files, match this workflow.
+- **Feedback Worker Tests**: Worker source, tests, or workflow changes on `main`
+  and `X.Y` pushes/PRs, plus manual dispatch. Runs the Worker syntax check and
+  Node request-handling tests.
 
 Vitest defaults to Node with Tauri invoke/listen mocks; component suites opt
 into happy-dom. Worker tests use Node's test runner separately and are outside
