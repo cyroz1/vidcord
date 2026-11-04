@@ -1746,6 +1746,100 @@ fn supports_auto_hardware_decode(opts: &CompressOptions, encoder: &str) -> bool 
         && !cfg!(any(target_os = "windows", target_os = "macos"))
 }
 
+const HARDWARE_DECODE_SMOKE_TEST_TIMEOUT: Duration = Duration::from_secs(10);
+static HARDWARE_DECODE_SMOKE_TESTS: OnceLock<Mutex<HashMap<PathBuf, bool>>> = OnceLock::new();
+
+fn hardware_decode_smoke_tests() -> &'static Mutex<HashMap<PathBuf, bool>> {
+    HARDWARE_DECODE_SMOKE_TESTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn hardware_decode_smoke_test_args(input_path: &str) -> Vec<String> {
+    vec![
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-nostdin".into(),
+        "-hwaccel".into(),
+        "auto".into(),
+        "-i".into(),
+        ffmpeg_path_arg(input_path),
+        "-frames:v".into(),
+        "1".into(),
+        "-an".into(),
+        "-sn".into(),
+        "-f".into(),
+        "null".into(),
+        "-".into(),
+    ]
+}
+
+/// One-frame `-hwaccel auto` decode probe, modelled on the one-frame
+/// encoder validation in `ffmpeg::encoders`: bounded through
+/// `spawn_captured_command` with a finite deadline and output cap, and no
+/// job registration because it decodes a single frame. Some drivers only
+/// fail when the first frame is submitted, so decoding one frame to the
+/// null muxer exercises the same initialisation the real encode would hit.
+fn hardware_decode_initializes(input_path: &str) -> bool {
+    #[allow(unused_mut)]
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(hardware_decode_smoke_test_args(input_path))
+        .stdin(Stdio::null());
+    configure_ffmpeg_command(&mut cmd);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    match crate::gpu::spawn_captured_command(&mut cmd)
+        .and_then(|child| child.wait_for_output(HARDWARE_DECODE_SMOKE_TEST_TIMEOUT))
+    {
+        Ok(Some(output)) => output.status.success(),
+        Ok(None) => {
+            vidcord_log("Hardware decode smoke test timed out");
+            false
+        }
+        Err(error) => {
+            vidcord_log(&format!(
+                "Hardware decode smoke test failed to run: {error}"
+            ));
+            false
+        }
+    }
+}
+
+/// Session-cached verdict of the decode smoke test for one input. Whether
+/// `-hwaccel auto` initialises is a property of the machine, the driver,
+/// and the input's codec, so one probe per input path is enough; batch
+/// items sharing an input reuse the verdict instead of re-testing. A
+/// failed probe disables the hardware-decode attempt up front, replacing
+/// the burn-an-attempt retry that discarded a full encode's progress when
+/// the driver rejected the first frame mid-encode.
+async fn hardware_decode_available(input_path: &str) -> bool {
+    let key = PathBuf::from(input_path);
+    {
+        let cache = hardware_decode_smoke_tests()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(verdict) = cache.get(&key) {
+            return *verdict;
+        }
+    }
+    let probe_path = input_path.to_string();
+    let verdict = tokio::task::spawn_blocking(move || hardware_decode_initializes(&probe_path))
+        .await
+        .unwrap_or(false);
+    if !verdict {
+        vidcord_log(
+            "Hardware decode smoke test failed; encoding with software decode for this input",
+        );
+    }
+    hardware_decode_smoke_tests()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(key, verdict);
+    verdict
+}
+
 fn initial_attempt(opts: &CompressOptions) -> CompressionAttempt {
     let encoder = if opts.gif_mode {
         if gif_output_format(opts) == "webp" {
@@ -3217,6 +3311,12 @@ async fn run_batch_item(
     let total_attempts = max_adaptive_attempts(&opts, target_bytes.is_some());
     let mut smallest_oversize_bytes: Option<u64> = None;
     let mut attempt = initial_attempt(&opts);
+    if attempt.try_hardware_decode && !hardware_decode_available(&opts.input_path).await {
+        // The smoke test already proved this input's hardware decode path
+        // cannot initialise, so the first attempt goes straight to software
+        // decode instead of failing mid-encode and restarting from zero.
+        attempt.try_hardware_decode = false;
+    }
     let mut attempt_index = 0usize;
     let mut size_retries_for_encoder = 0usize;
     let mut cpu_fallback_used = opts.encoder == "libx264";
@@ -3953,6 +4053,12 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
     let total_attempts = max_adaptive_attempts(&opts, target_bytes.is_some());
     let mut smallest_oversize_bytes: Option<u64> = None;
     let mut attempt = initial_attempt(&opts);
+    if attempt.try_hardware_decode && !hardware_decode_available(&opts.input_path).await {
+        // The smoke test already proved this input's hardware decode path
+        // cannot initialise, so the first attempt goes straight to software
+        // decode instead of failing mid-encode and restarting from zero.
+        attempt.try_hardware_decode = false;
+    }
     let mut attempt_index = 0usize;
     let mut size_retries_for_encoder = 0usize;
     let mut cpu_fallback_used = opts.gif_mode || opts.encoder == "libx264";
@@ -5473,6 +5579,18 @@ mod tests {
         assert!(!encoder_uses_cpu_threads("h264_videotoolbox"));
         assert!(!encoder_uses_cpu_threads("gif"));
         assert!(!encoder_uses_cpu_threads("copy"));
+    }
+
+    #[test]
+    fn hardware_decode_smoke_test_decodes_one_frame_with_hwaccel_auto() {
+        let args = hardware_decode_smoke_test_args("input.mp4");
+        assert!(args.windows(2).any(|pair| pair == ["-hwaccel", "auto"]));
+        assert!(args.windows(2).any(|pair| pair == ["-frames:v", "1"]));
+        // Bounded and discarded: one frame into the null muxer, never a
+        // real output file.
+        let tail: Vec<&str> = args.iter().rev().take(3).map(String::as_str).collect();
+        assert_eq!(tail, vec!["-", "null", "-f"]);
+        assert!(args.iter().any(|arg| arg == "input.mp4"));
     }
 
     #[test]
