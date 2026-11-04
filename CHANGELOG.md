@@ -32,6 +32,15 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - The update prompt on Linux now says the downloaded installer will be shown in the file manager
   instead of promising to open it.
 
+### Performance
+
+- Batch compression no longer oversubscribes the CPU: software encodes running side by side now
+  share an explicit thread budget instead of each claiming more threads than the machine has.
+- Encodes skip wasted work: the MP4 faststart rewrite now happens only on the file that is
+  actually delivered, not on size-estimate samples and discarded refinement attempts.
+- A hardware-decode path that cannot start is now caught by a one-frame test before encoding
+  begins, instead of failing partway through an encode and restarting it from the beginning.
+
 ## v7.7
 
 ### Preview
