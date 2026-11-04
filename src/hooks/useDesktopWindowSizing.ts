@@ -119,9 +119,9 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
           dirty = true;
           return;
         }
-        // Keep the horizontal size fixed while the user works. The width is
-        // capped at the 16:9 preview's footprint and is recalculated only
-        // when the monitor, work area, or scale changes.
+        // Keep the horizontal size fixed while the user works. The shared
+        // width accommodates the advanced controls and the narrow layout; it
+        // is recalculated only when the monitor, work area, or scale changes.
         const nextMonitorKey = JSON.stringify([monitor?.name, monitor?.workArea, scale]);
         if (monitorKey !== nextMonitorKey || stableWidth === 0) {
           monitorKey = nextMonitorKey;
