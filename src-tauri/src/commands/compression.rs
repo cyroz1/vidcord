@@ -1026,6 +1026,10 @@ struct FfmpegRunContext {
     /// relocating their moov atom is wasted work (see
     /// `should_apply_faststart`).
     output_is_final: bool,
+    /// Per-encode FFmpeg thread budget while several batch items share the
+    /// machine (see `batch_encode_threads`). `None` leaves FFmpeg's own
+    /// default thread count in place.
+    encode_threads: Option<u32>,
 }
 
 fn valid_encoder_name(encoder: &str) -> bool {
@@ -2536,6 +2540,14 @@ async fn run_ffmpeg_pass(
         }
     }
 
+    // Batch items sharing the machine carry a thread budget for software
+    // encodes (see `batch_encode_threads`); without one, concurrent FFmpeg
+    // processes oversubscribe the CPU.
+    if let Some(threads) = context.encode_threads {
+        if encoder_uses_cpu_threads(&attempt.encoder) {
+            cmd_args.extend(["-threads".into(), threads.to_string()]);
+        }
+    }
     if should_apply_faststart(opts, context.output_is_final) {
         cmd_args.extend(["-movflags".into(), "+faststart".into()]);
     }
@@ -2960,6 +2972,7 @@ async fn try_lossless_trim(
                 // ignores this flag; each candidate writes a deliverable
                 // path directly.
                 output_is_final: true,
+                encode_threads: None,
             },
         )
         .await;
@@ -3133,6 +3146,44 @@ fn batch_can_launch(serial_mode: bool, active_count: usize) -> bool {
     }
 }
 
+/// Whether an encoder runs on the CPU and so competes with sibling batch
+/// encodes for cores. Hardware encoders (NVENC, QSV, AMF, VAAPI,
+/// VideoToolbox) do their work on fixed-function units, and the GIF, WebP,
+/// and stream-copy paths have no meaningful thread pool to budget.
+fn encoder_uses_cpu_threads(encoder: &str) -> bool {
+    matches!(encoder, "libx264" | "libx265")
+}
+
+/// Split the machine's cores across the batch concurrency limit. Returns
+/// `None` when there is nothing to split (too few cores, an unknown core
+/// count, or a concurrency of one), leaving FFmpeg's default in place.
+fn thread_budget_for_cores(cores: usize, concurrency: usize) -> Option<u32> {
+    if concurrency == 0 {
+        return None;
+    }
+    let budget = cores / concurrency;
+    if budget == 0 || budget >= cores {
+        return None;
+    }
+    u32::try_from(budget).ok()
+}
+
+/// Per-encode thread budget for a batch item launched alongside siblings.
+/// Without one, each software FFmpeg defaults to roughly 1.5x the core
+/// count, so two concurrent encodes oversubscribe the CPU: each file takes
+/// about twice as long and total throughput stays flat or worsens while
+/// peak memory doubles (two frame-thread pools and lookahead buffers).
+/// The budget split preserves the parallelism without the oversubscription.
+/// Serial mode (one active item, including the resource-contention
+/// fallback) leaves the default untouched.
+fn batch_encode_threads(serial_mode: bool) -> Option<u32> {
+    if serial_mode {
+        return None;
+    }
+    let cores = std::thread::available_parallelism().ok()?.get();
+    thread_budget_for_cores(cores, DEFAULT_BATCH_CONCURRENCY)
+}
+
 struct BatchEncodedOutput {
     output_path: String,
     input_size_bytes: Option<u64>,
@@ -3145,6 +3196,7 @@ async fn run_batch_item(
     opts: CompressOptions,
     context: BatchProgressContext,
     job_id: u64,
+    encode_threads: Option<u32>,
 ) -> Result<BatchEncodedOutput, String> {
     let target_bytes = target_size_bytes(opts.target_size_mb)?;
     let input_path = opts.input_path.clone();
@@ -3241,6 +3293,7 @@ async fn run_batch_item(
                 // Template for the size preflight; the estimator marks its
                 // own sample context non-final before running.
                 output_is_final: true,
+                encode_threads,
             },
         )
         .await
@@ -3353,6 +3406,7 @@ async fn run_batch_item(
                 audio_gain_db,
                 batch: Some(context.clone()),
                 output_is_final: candidate_output.is_none(),
+                encode_threads,
             },
         )
         .await
@@ -3627,10 +3681,25 @@ pub async fn compress_batch(
                     video_bitrate_k: Some(item.opts.video_bitrate_k),
                 },
             );
+            // An item launched while a sibling is running (or still queued
+            // behind it) shares the machine, so its software encodes get an
+            // explicit thread budget; an item that will run alone keeps
+            // FFmpeg's default. See `batch_encode_threads`.
+            let encode_threads = if active_count > 0 || next_index + 1 < items.len() {
+                batch_encode_threads(serial_mode)
+            } else {
+                None
+            };
             let app_for_worker = app.clone();
             workers.spawn(async move {
-                let result =
-                    run_batch_item(&app_for_worker, item.opts.clone(), context, job_id).await;
+                let result = run_batch_item(
+                    &app_for_worker,
+                    item.opts.clone(),
+                    context,
+                    job_id,
+                    encode_threads,
+                )
+                .await;
                 (item, result)
             });
             next_index += 1;
@@ -3972,6 +4041,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                             batch: None,
                             // Sizing sample in a temporary output; discarded.
                             output_is_final: false,
+                            encode_threads: None,
                         },
                     )
                     .await
@@ -4073,6 +4143,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 // Template for the size preflight; the estimator marks its
                 // own sample context non-final before running.
                 output_is_final: true,
+                encode_threads: None,
             },
         )
         .await
@@ -4190,6 +4261,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 audio_gain_db,
                 batch: None,
                 output_is_final: candidate_output.is_none(),
+                encode_threads: None,
             },
         )
         .await
@@ -5375,6 +5447,32 @@ mod tests {
         let mut lossless = retry_test_options("libx264", None);
         lossless.lossless_trim = true;
         assert!(!should_apply_faststart(&lossless, true));
+    }
+
+    #[test]
+    fn batch_thread_budget_splits_cores_across_concurrent_encodes() {
+        assert_eq!(thread_budget_for_cores(16, 2), Some(8));
+        assert_eq!(thread_budget_for_cores(8, 2), Some(4));
+        assert_eq!(thread_budget_for_cores(3, 2), Some(1));
+        // Nothing worth splitting: leave FFmpeg's default alone.
+        assert_eq!(thread_budget_for_cores(1, 2), None);
+        assert_eq!(thread_budget_for_cores(0, 2), None);
+        assert_eq!(thread_budget_for_cores(8, 1), None);
+        assert_eq!(thread_budget_for_cores(8, 0), None);
+        // Serial batch mode never budgets.
+        assert_eq!(batch_encode_threads(true), None);
+    }
+
+    #[test]
+    fn only_software_encoders_use_cpu_thread_budgets() {
+        assert!(encoder_uses_cpu_threads("libx264"));
+        assert!(encoder_uses_cpu_threads("libx265"));
+        assert!(!encoder_uses_cpu_threads("h264_nvenc"));
+        assert!(!encoder_uses_cpu_threads("hevc_qsv"));
+        assert!(!encoder_uses_cpu_threads("h264_vaapi"));
+        assert!(!encoder_uses_cpu_threads("h264_videotoolbox"));
+        assert!(!encoder_uses_cpu_threads("gif"));
+        assert!(!encoder_uses_cpu_threads("copy"));
     }
 
     #[test]
