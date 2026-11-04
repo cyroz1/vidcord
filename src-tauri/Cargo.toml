@@ -7,7 +7,7 @@ edition = "2021"
 
 [lib]
 name = "vidcord_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [features]
 default = []
