@@ -3,10 +3,10 @@ import { nativeSizeForContent, widthForWorkArea } from "../windowSizing";
 
 describe("desktop window sizing", () => {
   it("reserves a consistent content width while fitting scaled monitor work areas", () => {
-    expect(widthForWorkArea(1920, 16, 1)).toBe(850);
-    expect(widthForWorkArea(1706, 100, 2)).toBe(801);
-    expect(widthForWorkArea(1000, 12, 2)).toBe(492);
-    expect(widthForWorkArea(1000, 15, 1.25)).toBe(786);
+    expect(widthForWorkArea(1920, 16, 1)).toBe(460);
+    expect(widthForWorkArea(1706, 100, 2)).toBe(460);
+    expect(widthForWorkArea(1000, 15, 1.25)).toBe(460);
+    expect(widthForWorkArea(700, 12, 2)).toBe(342);
   });
 
   it("corrects the last native size request for the measured viewport and scaling", () => {
