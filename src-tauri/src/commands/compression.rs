@@ -1020,6 +1020,12 @@ struct FfmpegRunContext {
     emit_progress: bool,
     audio_gain_db: Option<f64>,
     batch: Option<BatchProgressContext>,
+    /// Whether this pass writes the job's reserved output path. Only a
+    /// final pass pays for `+faststart` moov relocation; preflight samples
+    /// and best-fit refinement candidates are measured or discarded, so
+    /// relocating their moov atom is wasted work (see
+    /// `should_apply_faststart`).
+    output_is_final: bool,
 }
 
 fn valid_encoder_name(encoder: &str) -> bool {
@@ -1449,6 +1455,17 @@ fn should_use_lossless_faststart(input_size: Option<u64>) -> bool {
     input_size
         .map(|size| size <= LOSSLESS_FASTSTART_MAX_INPUT_BYTES)
         .unwrap_or(true)
+}
+
+/// `+faststart` makes the MP4 muxer re-read and rewrite the finished file
+/// to move the moov atom up front: a full extra read+write of the output.
+/// Only the pass that becomes the delivered file should pay for it.
+/// Preflight samples are only measured for size, and refinement candidates
+/// are discarded unless they win (and are small target-size outputs when
+/// they do), so neither gets the relocation. The lossless path has its own
+/// size-based gate above and does not consult this predicate.
+fn should_apply_faststart(opts: &CompressOptions, output_is_final: bool) -> bool {
+    output_is_final && !opts.lossless_trim && !opts.gif_mode && is_mp4_output(&opts.output_path)
 }
 
 fn is_mp4_output(path: &str) -> bool {
@@ -2519,7 +2536,7 @@ async fn run_ffmpeg_pass(
         }
     }
 
-    if !opts.lossless_trim && !opts.gif_mode && is_mp4_output(&opts.output_path) {
+    if should_apply_faststart(opts, context.output_is_final) {
         cmd_args.extend(["-movflags".into(), "+faststart".into()]);
     }
     if !opts.lossless_trim {
@@ -2787,6 +2804,9 @@ async fn estimate_size_from_sample(
     run_context.attempt_index = 0;
     run_context.clip_duration = sample_duration;
     run_context.emit_progress = false;
+    // The sample output is only measured for size, then deleted: never pay
+    // for faststart relocation on it.
+    run_context.output_is_final = false;
     let run = run_ffmpeg_attempt(app, &sample_opts, attempt, run_context).await?;
 
     if run.cancelled {
@@ -2936,6 +2956,10 @@ async fn try_lossless_trim(
                 emit_progress: true,
                 audio_gain_db: None,
                 batch: None,
+                // The lossless branch applies its own faststart gate and
+                // ignores this flag; each candidate writes a deliverable
+                // path directly.
+                output_is_final: true,
             },
         )
         .await;
@@ -3214,6 +3238,9 @@ async fn run_batch_item(
                 emit_progress: false,
                 audio_gain_db,
                 batch: Some(context.clone()),
+                // Template for the size preflight; the estimator marks its
+                // own sample context non-final before running.
+                output_is_final: true,
             },
         )
         .await
@@ -3325,6 +3352,7 @@ async fn run_batch_item(
                 emit_progress: true,
                 audio_gain_db,
                 batch: Some(context.clone()),
+                output_is_final: candidate_output.is_none(),
             },
         )
         .await
@@ -3942,6 +3970,8 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                             emit_progress: false,
                             audio_gain_db: None,
                             batch: None,
+                            // Sizing sample in a temporary output; discarded.
+                            output_is_final: false,
                         },
                     )
                     .await
@@ -4040,6 +4070,9 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 emit_progress: false,
                 audio_gain_db,
                 batch: None,
+                // Template for the size preflight; the estimator marks its
+                // own sample context non-final before running.
+                output_is_final: true,
             },
         )
         .await
@@ -4156,6 +4189,7 @@ pub async fn compress_video(app: AppHandle, opts: CompressOptions) -> Result<Str
                 emit_progress: true,
                 audio_gain_db,
                 batch: None,
+                output_is_final: candidate_output.is_none(),
             },
         )
         .await
@@ -5320,6 +5354,27 @@ mod tests {
         assert!(should_use_lossless_faststart(Some(256 * 1024 * 1024)));
         assert!(!should_use_lossless_faststart(Some(256 * 1024 * 1024 + 1)));
         assert!(should_use_lossless_faststart(None));
+    }
+
+    #[test]
+    fn encode_faststart_only_applies_to_final_mp4_outputs() {
+        let opts = retry_test_options("libx264", Some(25.0));
+        // The delivered file pays for moov relocation; samples and
+        // refinement candidates do not.
+        assert!(should_apply_faststart(&opts, true));
+        assert!(!should_apply_faststart(&opts, false));
+
+        let mut webm = retry_test_options("libx264", None);
+        webm.output_path = "output.webm".into();
+        assert!(!should_apply_faststart(&webm, true));
+
+        let mut gif = retry_test_options("gif", None);
+        gif.gif_mode = true;
+        assert!(!should_apply_faststart(&gif, true));
+
+        let mut lossless = retry_test_options("libx264", None);
+        lossless.lossless_trim = true;
+        assert!(!should_apply_faststart(&lossless, true));
     }
 
     #[test]
