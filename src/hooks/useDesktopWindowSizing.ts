@@ -18,7 +18,7 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
     let lastAttempt = "";
     let monitorKey = "";
     let stableWidth = 0;
-    let stableNarrowWidth = 0;
+    let lastNarrowWidth = 0;
     let unlistenMove: (() => void) | undefined;
     let unlistenScale: (() => void) | undefined;
     let lastIssued: { width: number; height: number; scale: number } | null = null;
@@ -143,7 +143,7 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
           dirty = true;
           return;
         }
-        // Keep the horizontal size fixed while the user works. The normal
+        // Keep the horizontal size stable while the user works. The normal
         // width is capped at the 16:9 preview's footprint; the narrow
         // arrangement gets its own measured width because its two-column
         // page trades width for height on short displays. Both widths are
@@ -152,24 +152,33 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         if (monitorKey !== nextMonitorKey || stableWidth === 0) {
           monitorKey = nextMonitorKey;
           stableWidth = widthForWorkArea(availableWidth, chromeWidth, scale);
-          stableNarrowWidth = 0;
+          lastNarrowWidth = 0;
           lastAttempt = "";
         }
-        const availableCssWidth = (availableWidth - chromeWidth) / scale;
-        if (stableNarrowWidth === 0) {
-          stableNarrowWidth = Math.max(
-            stableWidth,
-            Math.min(measureNarrowWidth(), Math.floor(availableCssWidth) - 2)
-          );
-        }
+        const availableCssWidth = Math.floor((availableWidth - chromeWidth) / scale) - 2;
+        // The narrow width tracks the layout's measured min-content: it
+        // grows and shrinks back as control labels and text metrics change.
+        const narrowWidth = Math.max(
+          stableWidth,
+          Math.min(measureNarrowWidth(), availableCssWidth)
+        );
         const normalHeight = measure("normal", stableWidth);
-        const narrowHeight = measure("narrow", stableNarrowWidth);
+        const narrowHeight = measure("narrow", narrowWidth);
         const availableCssHeight = (availableHeight - chromeHeight) / scale;
         const narrow = normalHeight + 2 > availableCssHeight && narrowHeight < normalHeight;
         app.toggleAttribute("data-compact-height", narrow);
         app.toggleAttribute("data-compact-narrow", narrow);
-        const width = narrow ? stableNarrowWidth : stableWidth;
-        const height = narrow ? narrowHeight : normalHeight;
+        // Switching modes can flip the arrangement (a shorter mode fits the
+        // normal layout again). Once the narrow arrangement has engaged on
+        // this monitor, keep its width for the normal arrangement too, so
+        // the window does not change width mid-session on mode switches.
+        if (narrow) lastNarrowWidth = narrowWidth;
+        const width = narrow ? narrowWidth : lastNarrowWidth || stableWidth;
+        const height = narrow
+          ? narrowHeight
+          : width === stableWidth
+            ? normalHeight
+            : measure("normal", width);
         const widthDelta = width + 2 - window.innerWidth;
         const heightDelta = height + 2 - window.innerHeight;
         if (Math.abs(widthDelta) < 1 && Math.abs(heightDelta) < 1) {

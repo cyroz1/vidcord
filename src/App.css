@@ -2016,6 +2016,11 @@ select optgroup {
   height: 20px;
   display: flex;
   align-items: center;
+  /* The playhead layer is a full-width box translated by a percentage of
+     its own width; without clipping, that invisible box extends past the
+     track and inflates the scrollable overflow area (and the layout's
+     measured min-content width) by up to a full track width. */
+  overflow: hidden;
 }
 
 .trim-dual-wrap.disabled {
