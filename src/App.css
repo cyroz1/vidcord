@@ -1106,7 +1106,7 @@
 .settings-row {
   position: relative;
   flex: 0 0 auto;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   min-height: 49.5px;
 }
 
@@ -1244,7 +1244,7 @@ select optgroup {
 
 .settings-row.advanced {
   display: grid;
-  grid-template-columns: 70px 96px 76px 60px minmax(160px, 1fr);
+  grid-template-columns: 64px 88px 68px 54px minmax(0, 1fr);
   gap: 6px;
   align-items: end;
   z-index: 20;
@@ -2493,6 +2493,8 @@ select optgroup {
 .footer {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  row-gap: 4px;
   gap: 8px;
   flex: 0 0 auto;
   min-width: 0;
@@ -2503,7 +2505,7 @@ select optgroup {
 
 .gif-settings-row {
   align-items: end;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .gif-settings-row .target-label,

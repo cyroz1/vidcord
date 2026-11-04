@@ -11,7 +11,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   with a shorter layout on smaller screens and pages for long lists instead of scrolling.
 - The window keeps a stable width while using controls and avoids visible layout measurement flicker.
 - The window is never wider than the 16:9 preview it is built around, instead of stretching
-  the controls across a wide display.
+  the controls across a wide display. Only the short-display layout still widens, trading
+  width for height so everything stays on screen.
 - Initialized X11 threading before GTK starts to prevent concurrent Xlib access from aborting the app.
 
 ### Desktop exports

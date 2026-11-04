@@ -18,6 +18,7 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
     let lastAttempt = "";
     let monitorKey = "";
     let stableWidth = 0;
+    let stableNarrowWidth = 0;
     let unlistenMove: (() => void) | undefined;
     let unlistenScale: (() => void) | undefined;
     let lastIssued: { width: number; height: number; scale: number } | null = null;
@@ -75,6 +76,29 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
       }
     };
 
+    // The narrow arrangement trades width for height with a two-column page,
+    // so it needs its own width: the layout's measured min-content width.
+    // Dialogs and popups are not part of that layout and are removed first.
+    const measureNarrowWidth = () => {
+      const copy = app.cloneNode(true) as HTMLDivElement;
+      copy.style.cssText =
+        "position:fixed;left:-10000px;top:0;visibility:hidden;pointer-events:none;width:min-content";
+      copy.setAttribute("aria-hidden", "true");
+      copy.dataset.compactHeight = "";
+      copy.dataset.compactNarrow = "";
+      for (const media of copy.querySelectorAll("video, audio")) media.removeAttribute("src");
+      for (const overlay of copy.querySelectorAll(
+        ".feedback-dialog[role=dialog], .encoders-dialog[role=dialog], .update-modal, .audio-track-popup, .trim-options-panel, .encoder-options, .toast-container"
+      ))
+        overlay.remove();
+      document.body.appendChild(copy);
+      try {
+        return Math.ceil(Math.max(copy.getBoundingClientRect().width, copy.scrollWidth));
+      } finally {
+        copy.remove();
+      }
+    };
+
     const schedule = () => {
       dirty = true;
       if (running || frame !== null || disposed) return;
@@ -119,22 +143,32 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
           dirty = true;
           return;
         }
-        // Keep the horizontal size fixed while the user works. The width is
-        // capped at the 16:9 preview's footprint and is recalculated only
-        // when the monitor, work area, or scale changes.
+        // Keep the horizontal size fixed while the user works. The normal
+        // width is capped at the 16:9 preview's footprint; the narrow
+        // arrangement gets its own measured width because its two-column
+        // page trades width for height on short displays. Both widths are
+        // recalculated only when the monitor, work area, or scale changes.
         const nextMonitorKey = JSON.stringify([monitor?.name, monitor?.workArea, scale]);
         if (monitorKey !== nextMonitorKey || stableWidth === 0) {
           monitorKey = nextMonitorKey;
           stableWidth = widthForWorkArea(availableWidth, chromeWidth, scale);
+          stableNarrowWidth = 0;
           lastAttempt = "";
         }
+        const availableCssWidth = (availableWidth - chromeWidth) / scale;
+        if (stableNarrowWidth === 0) {
+          stableNarrowWidth = Math.max(
+            stableWidth,
+            Math.min(measureNarrowWidth(), Math.floor(availableCssWidth) - 2)
+          );
+        }
         const normalHeight = measure("normal", stableWidth);
-        const narrowHeight = measure("narrow", stableWidth);
+        const narrowHeight = measure("narrow", stableNarrowWidth);
         const availableCssHeight = (availableHeight - chromeHeight) / scale;
         const narrow = normalHeight + 2 > availableCssHeight && narrowHeight < normalHeight;
         app.toggleAttribute("data-compact-height", narrow);
         app.toggleAttribute("data-compact-narrow", narrow);
-        const width = stableWidth;
+        const width = narrow ? stableNarrowWidth : stableWidth;
         const height = narrow ? narrowHeight : normalHeight;
         const widthDelta = width + 2 - window.innerWidth;
         const heightDelta = height + 2 - window.innerHeight;
