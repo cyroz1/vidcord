@@ -1357,6 +1357,15 @@ select optgroup {
   min-width: max-content;
 }
 
+/* The encoder select may shrink below its longest label: with the Encoder
+   label sharing its row, the row's min-content would otherwise outgrow
+   every other mode's and widen the narrow arrangement just for Compress.
+   The native select clips its text if the window is ever squeezed to the
+   measured minimum; at applied widths the row has room to spare. */
+.encoder-row .sized-select {
+  min-width: 0;
+}
+
 .sized-select select {
   position: absolute;
   inset: 0;
