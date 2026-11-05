@@ -19,6 +19,8 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
     let monitorKey = "";
     let stableWidth = 0;
     let lastNarrowWidth = 0;
+    let lastSettledWidth = 0;
+    let lastSettledHeight = 0;
     let unlistenMove: (() => void) | undefined;
     let unlistenScale: (() => void) | undefined;
     let lastIssued: { width: number; height: number; scale: number } | null = null;
@@ -153,6 +155,8 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
           monitorKey = nextMonitorKey;
           stableWidth = widthForWorkArea(availableWidth, chromeWidth, scale);
           lastNarrowWidth = 0;
+          lastSettledWidth = 0;
+          lastSettledHeight = 0;
           lastAttempt = "";
         }
         const availableCssWidth = Math.floor((availableWidth - chromeWidth) / scale) - 2;
@@ -189,6 +193,23 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
           : width === stableWidth
             ? normalHeight
             : measure("normal", width);
+        // The widths are anchored, but the height is re-measured fresh on
+        // every pass. At fractional display scales the achieved viewport
+        // height rounds differently from run to run, so the measured
+        // content height can alternate by a pixel or two around the
+        // applied size and the window resizes back and forth forever,
+        // visible as flicker along its bottom edge. Once a height has been
+        // applied for this width, keep it while fresh measurements stay
+        // within a couple of pixels; real layout changes (mode switches,
+        // extra rows appearing) move the height by far more than that.
+        if (
+          lastSettledWidth === width &&
+          lastSettledHeight !== 0 &&
+          Math.abs(height - lastSettledHeight) <= 2
+        ) {
+          lastAttempt = "";
+          return;
+        }
         const widthDelta = width + 2 - window.innerWidth;
         const heightDelta = height + 2 - window.innerHeight;
         if (Math.abs(widthDelta) < 1 && Math.abs(heightDelta) < 1) {
@@ -208,6 +229,8 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         // screen). Do not spin requesting the same impossible size forever.
         if (attempt === lastAttempt) return;
         lastAttempt = attempt;
+        lastSettledWidth = width;
+        lastSettledHeight = height;
         lastIssued = { ...target, scale };
         await nativeWindow.setSize(new PhysicalSize(targetWidth, targetHeight));
         if (monitor && position && outer) {
