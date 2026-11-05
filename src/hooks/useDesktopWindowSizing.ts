@@ -157,17 +157,19 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         }
         const availableCssWidth = Math.floor((availableWidth - chromeWidth) / scale) - 2;
         // The narrow width tracks the layout's measured min-content: it
-        // grows and shrinks back as control labels and text metrics change.
-        // Sub-pixel rounding makes the measurement wobble by a pixel
-        // between modes, so keep the last applied width when a fresh
-        // measurement lands within a pixel of it; the layout tolerates
-        // being a pixel narrower than its measured minimum.
+        // grows as control labels and text metrics change. Once a width has
+        // been applied on this monitor it never shrinks mid-session, even
+        // across mode switches whose content measures narrower; a narrower
+        // mode simply gets the extra room. Sub-pixel rounding also makes
+        // the measurement wobble by a pixel, so growth within a pixel keeps
+        // the last applied width too; the layout tolerates being a pixel
+        // narrower than its measured minimum.
         const measuredNarrowWidth = Math.max(
           stableWidth,
           Math.min(measureNarrowWidth(), availableCssWidth)
         );
         const narrowWidth =
-          lastNarrowWidth !== 0 && Math.abs(measuredNarrowWidth - lastNarrowWidth) < 2
+          lastNarrowWidth !== 0 && measuredNarrowWidth - lastNarrowWidth < 2
             ? lastNarrowWidth
             : measuredNarrowWidth;
         const normalHeight = measure("normal", stableWidth);
