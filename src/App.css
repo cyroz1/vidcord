@@ -250,15 +250,6 @@
   grid-column: span 5;
 }
 
-/* The Compress encoder field spans the narrow settings grid like the
-   Advanced encoder does. As a single-track item its max-content (label,
-   select, and buttons in a row) would set that track's minimum and widen
-   the whole narrow window past every other mode; spanned across both
-   tracks its width distributes instead. */
-.app[data-compact-narrow] .settings-row .encoder-field {
-  grid-column: 1 / -1;
-}
-
 .app[data-compact-narrow] .settings-row.advanced {
   grid-template-columns: repeat(6, minmax(50px, 1fr));
 }
@@ -1369,11 +1360,21 @@ select optgroup {
 /* The encoder select may shrink below its longest label instead of
    forcing its flex row wider; the native select clips its text if the
    row is ever squeezed that far. At applied widths the row has room to
-   spare. (The narrow grid is handled separately: the encoder field spans
-   both tracks there, since track minimums use max-content, which a
-   min-width override cannot reduce.) */
+   spare. */
 .encoder-row .sized-select {
   min-width: 0;
+}
+
+/* The hidden sizing span of the encoder select is capped for the same
+   reason: in the narrow layout the settings grid sizes its tracks to
+   max-content, so an uncapped span ("macOS (h264_videotoolbox)") would
+   let this one control dictate the whole window's width, 42px past
+   every other mode. The cap only lowers the floor the measurement
+   sees; the select itself is flex-sized and shows its full label at
+   any applied width. */
+.encoder-row .sized-select > span {
+  max-width: 84px;
+  overflow: hidden;
 }
 
 .sized-select select {
