@@ -4300,7 +4300,7 @@ export default function App() {
                         </select>
                       </label>
                       <div className="settings-field encoder-field">
-                        <div className="encoder-heading">
+                        <div className="encoder-row">
                           <label htmlFor="encoder-select">Encoder</label>
                           {isH265Encoder(encoders[encoderIdx]?.name ?? "") && (
                             <span
@@ -4319,8 +4319,6 @@ export default function App() {
                               </span>
                             </span>
                           )}
-                        </div>
-                        <div className="encoder-row">
                           <div className="sized-select">
                             <select
                               id="encoder-select"

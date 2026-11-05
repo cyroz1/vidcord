@@ -1320,28 +1320,20 @@ select optgroup {
   white-space: nowrap;
 }
 
-.encoder-heading {
-  position: relative;
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.encoder-heading label {
-  display: inline;
-  flex: 0 0 auto;
-  min-width: 0;
-  color: inherit;
-  font-size: inherit;
-}
-
 .encoder-row {
   position: relative;
   z-index: 1;
   display: flex;
+  align-items: center;
   gap: 4px;
   min-width: 0;
+}
+
+.encoder-row > label {
+  flex: 0 0 auto;
+  min-width: 0;
+  color: inherit;
+  font-size: inherit;
 }
 .encoder-row input {
   flex: 1;
