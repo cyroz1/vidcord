@@ -1330,8 +1330,15 @@ select optgroup {
 }
 
 .encoder-row > label {
-  flex: 0 0 auto;
+  /* The label shares the row without widening it: with overflow hidden its
+     automatic minimum size is zero, so the narrow arrangement's measured
+     min-content width stays driven by the select and buttons, as it was
+     when the label sat on its own line above the row. */
+  flex: 0 1 auto;
   min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color: inherit;
   font-size: inherit;
 }
