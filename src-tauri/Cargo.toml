@@ -85,7 +85,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [profile.release]
-opt-level = 3
+opt-level = "s"
 lto = true
 codegen-units = 1
 strip = true
@@ -100,7 +100,9 @@ panic = "abort"
 inherits = "release"
 lto = false
 codegen-units = 4
-opt-level = 1
+# Trial: follows release to opt-level "s" for one CI run so the size effect
+# is measurable in branch artifacts (release itself only builds on tags).
+opt-level = "s"
 strip = false
 
 # Build third-party dependencies with a light optimization level even in dev
