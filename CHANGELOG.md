@@ -3,6 +3,20 @@
 Release dates are taken from the corresponding repository release tags. The duplicate
 numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
+## WIP
+
+### FFmpeg setup
+
+- On Windows, vidcord no longer searches `C:\ffmpeg` or other drive-root folders by itself when
+  FFmpeg is missing. Use the new **Choose folder…** button in the FFmpeg-missing banner to point
+  vidcord at a manually installed FFmpeg folder; it remembers the folder for later launches.
+  WinGet installs are still found automatically.
+
+### Updates
+
+- Installing an update now refuses a release that is not newer than the installed version, so an
+  old or stale download offer can no longer roll the app back to an earlier release.
+
 ## v7.7
 
 ### Preview

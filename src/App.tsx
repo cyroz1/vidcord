@@ -3427,6 +3427,25 @@ export default function App() {
     }
   }, [addToast, refreshEncoders, reprobeSelectedVideo]);
 
+  // Windows recovery no longer auto-probes shared drive-root folders such
+  // as C:\ffmpeg: executing binaries from a location another local account
+  // could populate is a trust decision, so the user picks the folder here
+  // and it is persisted as the only manual location recovery will probe.
+  const chooseFfmpegDirectory = useCallback(async () => {
+    try {
+      const selected = await openDialog({ directory: true, multiple: false });
+      if (selected && typeof selected === "string") {
+        saveSettings({ ffmpeg_manual_directory: selected });
+        // The backend reads the persisted setting during recovery, so the
+        // debounced save must land before the re-probe starts.
+        await flushSettings().catch(() => {});
+        await retryFfmpegDetection();
+      }
+    } catch (error) {
+      addToast("error", "Could Not Choose Folder", String(error));
+    }
+  }, [addToast, flushSettings, retryFfmpegDetection, saveSettings]);
+
   const installFfmpeg = useCallback(async () => {
     setInstallingFfmpeg(true);
     try {
@@ -4028,6 +4047,11 @@ export default function App() {
             <button className="ffmpeg-link-btn" type="button" onClick={retryFfmpegDetection}>
               Retry
             </button>
+            {pathPlatform === "windows" && (
+              <button className="ffmpeg-link-btn" type="button" onClick={chooseFfmpegDirectory}>
+                Choose folder…
+              </button>
+            )}
             <button
               className="ffmpeg-link-btn"
               type="button"
