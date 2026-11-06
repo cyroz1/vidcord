@@ -337,11 +337,22 @@ jobs:
           workspaces: src-tauri
           shared-key: rust-windows-${{ matrix.rust-target }}
 
+      # The universal macOS build carries both targets in one matrix value
+      # ("aarch64-apple-darwin,x86_64-apple-darwin"), and interpolating it
+      # into a cache key puts a comma in the key, which the cache service
+      # rejects. Give macOS a fixed key instead.
+      - name: Cache Rust dependencies (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          workspaces: src-tauri
+          shared-key: rust-macos-latest-universal-v1
+
       # The ARM Linux package runner is Ubuntu 22.04 while ARM E2E uses Ubuntu
       # 24.04. Include the runner and target so glibc-bound artifacts stay
       # isolated across distributions.
       - name: Cache Rust dependencies
-        if: matrix.rust-target != 'x86_64-unknown-linux-gnu' && !startsWith(matrix.platform, 'windows-latest')
+        if: matrix.rust-target != 'x86_64-unknown-linux-gnu' && !startsWith(matrix.platform, 'windows-latest') && !startsWith(matrix.platform, 'macos')
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
           workspaces: src-tauri
