@@ -53,6 +53,9 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   actually delivered, not on size-estimate samples and discarded refinement attempts.
 - A hardware-decode path that cannot start is now caught by a one-frame test before encoding
   begins, instead of failing partway through an encode and restarting it from the beginning.
+- The Linux AppImage download is smaller: the bundled media framework now keeps only the
+  playback plugins and libraries the preview player uses instead of the build machine's
+  entire GStreamer installation.
 
 ## v7.7
 

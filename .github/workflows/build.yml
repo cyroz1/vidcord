@@ -32,6 +32,7 @@ on:
       - "scripts/check-build-tools.mjs"
       - "scripts/check-video-extensions.mjs"
       - "scripts/prune-desktop-dist.mjs"
+      - "scripts/prune-appimage.mjs"
       - "scripts/publish-linux-repositories.sh"
       - "scripts/render-arch-package.mjs"
       - "packaging/**"
@@ -59,6 +60,7 @@ on:
       - "scripts/check-build-tools.mjs"
       - "scripts/check-video-extensions.mjs"
       - "scripts/prune-desktop-dist.mjs"
+      - "scripts/prune-appimage.mjs"
       - "scripts/publish-linux-repositories.sh"
       - "scripts/render-arch-package.mjs"
       - "packaging/**"
@@ -431,6 +433,12 @@ jobs:
 
           "$appimage_abs" --appimage-extract >/dev/null
           chmod -R a+rX squashfs-root
+
+          # bundleMediaFramework sweeps the build machine's entire GStreamer
+          # installation into the payload. Prune it to the playback plugin
+          # set and its library closure (the script verifies nothing it
+          # still references was removed) before repacking.
+          node "$GITHUB_WORKSPACE/scripts/prune-appimage.mjs" squashfs-root
 
           ./appimagetool.AppImage --appimage-extract-and-run squashfs-root \
             --updateinformation "gh-releases-zsync|cyroz1|vidcord|latest|vidcord_*_${arch_name}.AppImage.zsync" \
