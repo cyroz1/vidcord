@@ -1475,10 +1475,12 @@ pub async fn resolve_batch_output_paths(
         }
 
         let staging = staging.unwrap_or(false);
+        // Batch staging gets the same privacy proof as single-file staging:
+        // a bare create_dir_all would leave the directory at default
+        // permissions in the shared temp root, where another local user
+        // could watch or pre-create it and read or swap staged outputs.
         let staging_path = if staging {
-            let directory = staging_directory();
-            std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-            Some(directory)
+            Some(ensure_staging_directory()?)
         } else {
             None
         };
@@ -1684,7 +1686,11 @@ fn ensure_staging_directory() -> Result<std::path::PathBuf, String> {
 }
 
 fn validated_staged_output(path: &str) -> Result<std::path::PathBuf, String> {
-    let staging = std::fs::canonicalize(staging_directory())
+    // Re-run the full staging proof at the publish/discard sink instead of
+    // trusting that the directory still has the permissions and ownership
+    // it had when the output was staged: ensure_staging_directory
+    // re-tightens the directory to 0700 and revalidates every ancestor.
+    let staging = ensure_staging_directory()
         .map_err(|_| "The temporary output folder is unavailable.".to_string())?;
     let staged = std::fs::canonicalize(path)
         .map_err(|_| "The temporary output file is unavailable.".to_string())?;
