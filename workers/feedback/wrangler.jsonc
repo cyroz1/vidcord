@@ -12,6 +12,20 @@
       },
     },
   ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "FeedbackQuota",
+        "name": "FEEDBACK_QUOTA",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "new_sqlite_classes": ["FeedbackQuota"],
+      "tag": "v1",
+    },
+  ],
   "routes": [
     {
       "pattern": "vidcord.app/api/feedback*",

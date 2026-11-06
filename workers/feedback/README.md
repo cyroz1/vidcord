@@ -49,8 +49,8 @@ local desktop report file or video.
 | ----------------------------------------------------- | ---------------------- |
 | Forwarded successfully                                | 200 with `{"ok":true}` |
 | Missing or mismatched public token                    | 401                    |
-| Rate limit exceeded                                   | 429                    |
-| Missing/unavailable limiter, or missing Resend key    | 503                    |
+| Per-IP rate limit or aggregate send cap exceeded      | 429                    |
+| Missing/unavailable limiter or quota, or no Resend key | 503                   |
 | Unsupported content type                              | 415                    |
 | Body too large                                        | 413                    |
 | Invalid JSON, unreadable body, or missing text fields | 400                    |
@@ -62,6 +62,19 @@ fails closed if the binding is missing or unavailable. The public token cannot
 stop determined clients; a Cloudflare WAF rate-limit rule can add protection.
 Rotate an abused token in both the secret and `src/feedback.ts`, then rebuild
 the clients; older clients otherwise stop matching it.
+
+Because the per-IP budget is keyed by source address and location, it cannot
+bound the aggregate number of sends. A `FeedbackQuota` Durable Object adds
+that bound: after a report passes validation, the Worker reserves one slot
+against a single global counter (30 sends per hour, 100 per day, UTC) before
+calling Resend, and returns 429 once the ceiling is reached. Rotating source
+IPs or locations does not multiply the budget. The binding and its SQLite
+migration are declared in `wrangler.jsonc`; a normal `npx wrangler deploy`
+creates the object, with no dashboard step. If the binding is absent the
+Worker logs a warning and falls back to the per-IP limiter only; if a
+configured binding cannot be consulted, the request fails closed with 503.
+Tune the ceilings via `GLOBAL_SENDS_PER_HOUR` and `GLOBAL_SENDS_PER_DAY` in
+`src/index.js`.
 
 ## Diagnostics and retention
 
