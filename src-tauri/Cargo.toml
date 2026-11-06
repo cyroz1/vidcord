@@ -88,7 +88,7 @@ windows-sys = { version = "0.61", features = [
 # Size-optimized: the heavy compute is the external FFmpeg process, so the
 # Rust binary is UI/IPC plumbing. Measured on branch CI artifacts (with the
 # ci profile temporarily following along): installers shrank 18-23%.
-opt-level = "s"
+opt-level = "z"
 lto = true
 codegen-units = 1
 strip = true
@@ -103,7 +103,9 @@ panic = "abort"
 inherits = "release"
 lto = false
 codegen-units = 4
-opt-level = 1
+# Trial: follows release to opt-level "z" for one CI run so the size effect
+# is measurable in branch artifacts (release itself only builds on tags).
+opt-level = "z"
 strip = false
 
 # Build third-party dependencies with a light optimization level even in dev
