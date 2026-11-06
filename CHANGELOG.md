@@ -16,6 +16,7 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Initialized X11 threading before GTK starts to prevent concurrent Xlib access from aborting the app.
 - Compress settings no longer stretch the encoder dropdown across the whole window; the
   encoder controls stay grouped at their natural width.
+- The trim slider handles are no longer clipped at the top and bottom.
 
 ### Desktop exports
 
