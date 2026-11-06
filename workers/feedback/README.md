@@ -45,16 +45,16 @@ Content-Length header. Forwarded subjects are truncated to 120 characters and
 email text to 100,000 characters. It sends text only and does not attach the
 local desktop report file or video.
 
-| Result                                                | HTTP status            |
-| ----------------------------------------------------- | ---------------------- |
-| Forwarded successfully                                | 200 with `{"ok":true}` |
-| Missing or mismatched public token                    | 401                    |
-| Per-IP rate limit or aggregate send cap exceeded      | 429                    |
-| Missing/unavailable limiter or quota, or no Resend key | 503                   |
-| Unsupported content type                              | 415                    |
-| Body too large                                        | 413                    |
-| Invalid JSON, unreadable body, or missing text fields | 400                    |
-| Resend network error or rejection                     | 502                    |
+| Result                                                 | HTTP status            |
+| ------------------------------------------------------ | ---------------------- |
+| Forwarded successfully                                 | 200 with `{"ok":true}` |
+| Missing or mismatched public token                     | 401                    |
+| Per-IP rate limit or aggregate send cap exceeded       | 429                    |
+| Missing/unavailable limiter or quota, or no Resend key | 503                    |
+| Unsupported content type                               | 415                    |
+| Body too large                                         | 413                    |
+| Invalid JSON, unreadable body, or missing text fields  | 400                    |
+| Resend network error or rejection                      | 502                    |
 
 The Cloudflare binding allows five accepted token-bearing attempts per minute
 per source IP per Cloudflare location. It runs before body validation and
