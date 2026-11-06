@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import worker from "../src/index.js";
+import worker, { FeedbackQuota } from "../src/index.js";
 
 const MAX_BODY_BYTES = 256 * 1024;
 const headers = {
@@ -166,6 +166,108 @@ test("rate limits valid reports before forwarding them to Resend", async (t) => 
   assert.equal(response.status, 429);
   assert.equal(rateLimitKey, "203.0.113.20");
   assert.equal(emailRequests, 0);
+});
+
+function makeQuotaNamespace(outcome) {
+  return {
+    getByName: () => ({
+      fetch: async () => {
+        if (outcome instanceof Error) throw outcome;
+        return new Response(JSON.stringify(outcome), { status: 200 });
+      },
+    }),
+  };
+}
+
+test("enforces the aggregate send cap before forwarding to Resend", async (t) => {
+  const originalFetch = globalThis.fetch;
+  let emailRequests = 0;
+  globalThis.fetch = async () => {
+    emailRequests += 1;
+    return new Response(null, { status: 200 });
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const request = () =>
+    new Request("https://vidcord.app/api/feedback", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ subject: "feedback", body: "small report" }),
+    });
+
+  const exceeded = await worker.fetch(
+    request(),
+    makeEnv({
+      FEEDBACK_QUOTA: makeQuotaNamespace({ allowed: false }),
+      RESEND_API_KEY: "test-key",
+    })
+  );
+  assert.equal(exceeded.status, 429);
+  assert.equal(emailRequests, 0);
+
+  const allowed = await worker.fetch(
+    request(),
+    makeEnv({
+      FEEDBACK_QUOTA: makeQuotaNamespace({ allowed: true }),
+      RESEND_API_KEY: "test-key",
+    })
+  );
+  assert.equal(allowed.status, 200);
+  assert.equal(emailRequests, 1);
+});
+
+test("fails closed when a configured aggregate quota cannot be consulted", async (t) => {
+  const originalFetch = globalThis.fetch;
+  let emailRequests = 0;
+  globalThis.fetch = async () => {
+    emailRequests += 1;
+    return new Response(null, { status: 200 });
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const response = await worker.fetch(
+    new Request("https://vidcord.app/api/feedback", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ subject: "feedback", body: "small report" }),
+    }),
+    makeEnv({
+      FEEDBACK_QUOTA: makeQuotaNamespace(new Error("quota down")),
+      RESEND_API_KEY: "test-key",
+    })
+  );
+  assert.equal(response.status, 503);
+  assert.equal(emailRequests, 0);
+});
+
+test("FeedbackQuota admits sends up to the hourly ceiling, then refuses", async () => {
+  const store = new Map();
+  const state = {
+    storage: {
+      transactionSync(callback) {
+        callback({
+          get: (key) => store.get(key),
+          put: (key, value) => store.set(key, value),
+          delete: (key) => store.delete(key),
+        });
+      },
+    },
+  };
+  const quota = new FeedbackQuota(state);
+  const reserve = async () =>
+    (await quota.fetch(new Request("https://quota/reserve", { method: "POST" }))).json();
+
+  // The hourly ceiling is 30: the first 30 reservations pass, the next is
+  // refused, and a refused reservation does not consume a slot.
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    assert.equal((await reserve()).allowed, true);
+  }
+  assert.equal((await reserve()).allowed, false);
+  assert.equal((await reserve()).allowed, false);
 });
 
 test("fails closed when the rate limit binding is missing or unavailable", async () => {

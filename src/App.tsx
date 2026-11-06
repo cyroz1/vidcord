@@ -133,6 +133,27 @@ const DISPLAY_VERSION = (() => {
   return patch ? `v${major}.${minor}.${patch}` : `v${major}.${minor}`;
 })();
 
+// Mirror of the backend install floor: never hand the installer command a
+// tag that is not strictly newer than the running version, so a stale or
+// manipulated offer cannot roll the app back to an older signed release.
+// The Rust command enforces the same comparison authoritatively.
+function releaseTagIsNewerThan(tag: string, current: string): boolean {
+  const parse = (value: string): [number, number, number] => {
+    const parts = value
+      .trim()
+      .replace(/^v/i, "")
+      .split(".")
+      .map((part) => Number.parseInt(part, 10));
+    return [parts[0] || 0, parts[1] || 0, parts[2] || 0];
+  };
+  const target = parse(tag);
+  const installed = parse(current);
+  for (let index = 0; index < 3; index += 1) {
+    if (target[index] !== installed[index]) return target[index] > installed[index];
+  }
+  return false;
+}
+
 const FooterMeta = memo(function FooterMeta({
   onFeedbackClick,
   updateChannel,
@@ -3263,6 +3284,14 @@ export default function App() {
 
   const installUpdate = useCallback(
     async (releaseTag: string) => {
+      if (!releaseTagIsNewerThan(releaseTag, CURRENT_VERSION)) {
+        addToast(
+          "error",
+          "Update Failed",
+          `${releaseTag} is not newer than the installed version (${DISPLAY_VERSION}).`
+        );
+        return;
+      }
       setInstallingUpdate(true);
       try {
         const result = await downloadAndOpenUpdateInstaller(releaseTag);
@@ -3401,6 +3430,25 @@ export default function App() {
       addToast("warning", "Still Missing", "FFmpeg is still not detected on PATH.");
     }
   }, [addToast, refreshEncoders, reprobeSelectedVideo]);
+
+  // Windows recovery no longer auto-probes shared drive-root folders such
+  // as C:\ffmpeg: executing binaries from a location another local account
+  // could populate is a trust decision, so the user picks the folder here
+  // and it is persisted as the only manual location recovery will probe.
+  const chooseFfmpegDirectory = useCallback(async () => {
+    try {
+      const selected = await openDialog({ directory: true, multiple: false });
+      if (selected && typeof selected === "string") {
+        saveSettings({ ffmpeg_manual_directory: selected });
+        // The backend reads the persisted setting during recovery, so the
+        // debounced save must land before the re-probe starts.
+        await flushSettings().catch(() => {});
+        await retryFfmpegDetection();
+      }
+    } catch (error) {
+      addToast("error", "Could Not Choose Folder", String(error));
+    }
+  }, [addToast, flushSettings, retryFfmpegDetection, saveSettings]);
 
   const installFfmpeg = useCallback(async () => {
     setInstallingFfmpeg(true);
@@ -4774,6 +4822,11 @@ export default function App() {
                 <button className="ffmpeg-link-btn" type="button" onClick={retryFfmpegDetection}>
                   Retry
                 </button>
+                {pathPlatform === "windows" && (
+                  <button className="ffmpeg-link-btn" type="button" onClick={chooseFfmpegDirectory}>
+                    Choose folder…
+                  </button>
+                )}
                 <button
                   className="ffmpeg-link-btn"
                   type="button"

@@ -66,6 +66,12 @@ pub struct Settings {
     pub output_destination: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_output_directory: Option<String>,
+    // Windows only: the folder the user explicitly picked in the
+    // FFmpeg-missing banner as their manual FFmpeg install location. It is
+    // the only non-WinGet directory Windows PATH recovery will probe and
+    // execute binaries from; see `find_windows_ffmpeg_bin`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ffmpeg_manual_directory: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completion_action: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

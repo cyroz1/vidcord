@@ -23,6 +23,13 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 - Encoder download progress remains visible when an export starts during background preparation.
 
+### FFmpeg setup
+
+- On Windows, vidcord no longer searches `C:\ffmpeg` or other drive-root folders by itself when
+  FFmpeg is missing. Use the new **Choose folder…** button in the FFmpeg-missing banner to point
+  vidcord at a manually installed FFmpeg folder; it remembers the folder for later launches.
+  WinGet installs are still found automatically.
+
 ### Updates
 
 - Update installs no longer stall forever while fetching release details, and the installer now

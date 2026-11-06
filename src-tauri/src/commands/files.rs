@@ -208,6 +208,15 @@ pub async fn expand_import_paths(
     paths: Vec<String>,
     scan_id: String,
 ) -> Result<ExpandedImportPaths, String> {
+    // The scan walk stops at MAX_IMPORT_SCAN_ENTRIES, so more roots than
+    // that can never produce a complete result; reject the request
+    // instead of granting scope for roots that will never be reached.
+    if paths.len() > MAX_IMPORT_SCAN_ENTRIES {
+        return Err(format!(
+            "Too many items in one import ({} maximum).",
+            MAX_IMPORT_SCAN_ENTRIES
+        ));
+    }
     // Claim at command entry, before path grants can block. Otherwise an
     // older request with a slow grant could claim after a newer selection
     // and supersede the user's latest scan.
@@ -1496,6 +1505,11 @@ fn resolve_batch_output_paths_blocking(
     }
 
     let staging = staging.unwrap_or(false);
+    // Batch staging gets the same privacy proof as single-file staging:
+    // prepare_staging (ensure_staging_directory) creates the directory
+    // with private permissions instead of a bare create_dir_all at default
+    // permissions in the shared temp root, where another local user could
+    // watch or pre-create it and read or swap staged outputs.
     let staging_path = if staging {
         Some(prepare_staging()?)
     } else {
@@ -1741,6 +1755,12 @@ fn ensure_staging_directory() -> Result<std::path::PathBuf, String> {
 }
 
 fn validated_staged_output(path: &str) -> Result<std::path::PathBuf, String> {
+    // Re-run the full staging proof at the publish/discard sink instead of
+    // trusting that the directory still has the permissions and ownership
+    // it had when the output was staged: ensure_staging_directory
+    // re-tightens the directory to 0700 and revalidates every ancestor.
+    // Canonicalize so the comparison against the canonicalized staged
+    // path below is exact even when the temp root contains symlinks.
     let staging = std::fs::canonicalize(ensure_staging_directory()?)
         .map_err(|_| "The temporary output folder is unavailable.".to_string())?;
     let staged = std::fs::canonicalize(path)

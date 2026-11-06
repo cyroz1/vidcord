@@ -264,22 +264,31 @@ fn ffmpeg_tool_pair_available(directory: &Path) -> bool {
         && ffmpeg_tool_probe(directory.join("ffprobe.exe"))
 }
 
+/// The only manual FFmpeg location Windows recovery may probe: the folder
+/// the user explicitly picked in the FFmpeg-missing banner, persisted as
+/// the `ffmpeg_manual_directory` setting. Earlier versions auto-probed
+/// `<SystemDrive>\ffmpeg` and `C:\ffmpeg` on every availability check;
+/// those are shared drive-root locations any local account can populate,
+/// and `ffmpeg_tool_pair_available` EXECUTES the binaries it finds, so
+/// auto-discovery meant running unverified code during a routine probe.
+/// Picking the folder is the user's trust decision for that location.
+/// (WinGet's roots stay auto-probed in `find_windows_ffmpeg_bin`: they
+/// are package-manager-owned, not writable by arbitrary local users.)
+#[cfg(target_os = "windows")]
+fn configured_manual_ffmpeg_root() -> Option<PathBuf> {
+    let settings = crate::settings::SettingsManager::load();
+    settings
+        .get("ffmpeg_manual_directory")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
 #[cfg(target_os = "windows")]
 fn find_windows_ffmpeg_bin() -> Option<PathBuf> {
     let winget_roots = windows_winget_roots();
-    let mut manual_roots = Vec::new();
-    if let Some(system_drive) = std::env::var_os("SystemDrive") {
-        let mut drive_root = system_drive.to_string_lossy().into_owned();
-        if !drive_root.ends_with('\\') && !drive_root.ends_with('/') {
-            drive_root.push('\\');
-        }
-        manual_roots.push(PathBuf::from(format!("{drive_root}ffmpeg")));
-    }
-    // This is the documented location for the native Windows ARM64 build.
-    let documented_root = PathBuf::from(r"C:\ffmpeg");
-    if !manual_roots.iter().any(|root| root == &documented_root) {
-        manual_roots.push(documented_root);
-    }
+    let manual_roots: Vec<PathBuf> = configured_manual_ffmpeg_root().into_iter().collect();
 
     let find_manual = || {
         manual_roots

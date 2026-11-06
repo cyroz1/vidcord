@@ -115,6 +115,36 @@ mod tests {
         assert_eq!(existing_open_path("file:///definitely/not/real.mp4"), None);
         std::fs::remove_file(path).ok();
     }
+
+    #[test]
+    fn open_paths_reject_non_video_files_but_accept_folders() {
+        let dir = std::env::temp_dir().join(format!("vidcord-open-types-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // A file the app does not open is dropped even though it exists:
+        // OS open routes must not grant asset scope or frontend delivery
+        // to arbitrary file types.
+        let text_file = dir.join("notes.txt");
+        std::fs::write(&text_file, b"text").unwrap();
+        assert_eq!(
+            existing_open_path(&text_file.to_string_lossy()),
+            None,
+            "non-video files are not openable"
+        );
+
+        // Extension matching is case-insensitive, like the import scanner.
+        let upper = dir.join("CLIP.MP4");
+        std::fs::write(&upper, b"video").unwrap();
+        let upper_string = upper.to_string_lossy().into_owned();
+        assert_eq!(existing_open_path(&upper_string), Some(upper_string));
+
+        // Directories stay openable: they are folder imports, expanded by
+        // the import flow rather than read at open time.
+        let dir_string = dir.to_string_lossy().into_owned();
+        assert_eq!(existing_open_path(&dir_string), Some(dir_string));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
 
 fn append_pending_files(pending: &mut Option<Vec<String>>, paths: Vec<String>) {
@@ -123,6 +153,34 @@ fn append_pending_files(pending: &mut Option<Vec<String>>, paths: Vec<String>) {
     } else {
         *pending = Some(paths);
     }
+}
+
+/// Extensions the app actually opens, matching the file associations in
+/// `tauri.conf.json` and the import scanner's list in `commands::files`.
+/// Keep the three in sync; `npm run assets:check` verifies parity.
+const OPEN_VIDEO_EXTENSIONS: &[&str] = &["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"];
+
+/// Whether an OS-delivered open path is one the app can act on: a
+/// directory (a folder import, expanded later by the import flow) or a
+/// regular file with a supported video extension. Anything else (other
+/// file types, fifos, sockets, missing paths) is dropped here, before it
+/// can be stored, forwarded, or granted asset-protocol scope.
+fn is_openable_path(path: &std::path::Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if metadata.is_dir() {
+        return true;
+    }
+    metadata.is_file()
+        && path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                OPEN_VIDEO_EXTENSIONS
+                    .iter()
+                    .any(|supported| extension.eq_ignore_ascii_case(supported))
+            })
 }
 
 fn existing_open_path(argument: &str) -> Option<String> {
@@ -148,7 +206,7 @@ fn existing_open_path(argument: &str) -> Option<String> {
         std::path::PathBuf::from(argument)
     };
 
-    path.exists().then(|| path.to_string_lossy().into_owned())
+    is_openable_path(&path).then(|| path.to_string_lossy().into_owned())
 }
 
 fn existing_open_paths(arguments: impl IntoIterator<Item = String>) -> Vec<String> {
@@ -189,15 +247,20 @@ fn existing_open_paths_with_cwd(
 /// filesystem patterns, so every route that delivers a user-selected path
 /// to the frontend must grant it here first, before the path can reach
 /// preview (the Linux loopback server in `preview_source.rs` validates the
-/// same scope with `is_allowed`). Files are granted individually; folders
-/// are granted recursively so the files a folder import expands to are
-/// covered. Grants are process-lifetime and idempotent.
+/// same scope with `is_allowed`). Files are granted individually. Folders
+/// are granted NON-recursively here: this route fires for any path the OS
+/// hands the app, and a recursive grant would expose an arbitrary folder
+/// tree (for example a home directory) to the webview for the rest of the
+/// process lifetime. When the user actually imports the folder, the import
+/// flow grants it recursively at that point instead
+/// (`grant_import_paths_to_asset_scope` in `commands::files`). The Tauri
+/// asset scope in use offers no revocation, so grants stay minimal.
 fn grant_asset_protocol_scope(app: &AppHandle, paths: &[String]) {
     let scope = app.asset_protocol_scope();
     for path in paths {
         let path = std::path::Path::new(path);
         let result = if path.is_dir() {
-            scope.allow_directory(path, true)
+            scope.allow_directory(path, false)
         } else {
             scope.allow_file(path)
         };
@@ -568,6 +631,7 @@ pub fn run() {
             let paths = urls
                 .into_iter()
                 .filter_map(|u: url::Url| u.to_file_path().ok())
+                .filter(|path| is_openable_path(path))
                 .map(|path| path.to_string_lossy().to_string())
                 .collect::<Vec<_>>();
             if !paths.is_empty() {

@@ -8,12 +8,23 @@
  * The public-repo token is not authentication. The Worker enforces a
  * per-source-IP, per-Cloudflare-location request limit before forwarding reports
  * to Resend; a Cloudflare WAF rule can add another layer at the route.
+ * That per-IP budget is keyed by an attacker-controlled dimension, so the
+ * FeedbackQuota Durable Object below additionally enforces a global send
+ * ceiling across all sources before any Resend call: rotating source IPs or
+ * Cloudflare locations cannot multiply the aggregate number of emails.
  */
 
 const MAX_BODY_BYTES = 256 * 1024;
 const MAX_SUBJECT_CHARS = 120;
 const MAX_EMAIL_BODY_CHARS = 100_000;
 const RATE_LIMIT_REQUESTS_PER_MINUTE = 5;
+// Aggregate ceilings for the whole service, enforced by FeedbackQuota.
+// Legitimate report volume is a handful per day; these bounds exist to cap
+// Resend spend and inbox flooding under a distributed abuse attempt, not to
+// throttle real users. A refused report still leaves the desktop dialog's
+// user-selected email fallback available.
+const GLOBAL_SENDS_PER_HOUR = 30;
+const GLOBAL_SENDS_PER_DAY = 100;
 
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
@@ -26,6 +37,75 @@ function json(data, status = 200) {
     status,
     headers: { "content-type": "application/json", ...CORS_HEADERS },
   });
+}
+
+/**
+ * Global send quota, backed by a single Durable Object instance so the
+ * counters are strongly consistent across every source IP and Cloudflare
+ * location. Each POST atomically reserves one send slot against the current
+ * UTC hour and day buckets; the reservation is consumed even if the Resend
+ * call afterwards fails, which keeps the cap fail-closed. The previous
+ * hour/day buckets are deleted on each reservation so storage stays flat.
+ */
+export class FeedbackQuota {
+  constructor(state) {
+    this.state = state;
+  }
+
+  async fetch(request) {
+    if (request.method !== "POST") {
+      return new Response("method not allowed", { status: 405 });
+    }
+    const now = Date.now();
+    const hourKey = `hour:${new Date(now).toISOString().slice(0, 13)}`;
+    const dayKey = `day:${new Date(now).toISOString().slice(0, 10)}`;
+    const staleKeys = [
+      `hour:${new Date(now - 3_600_000).toISOString().slice(0, 13)}`,
+      `hour:${new Date(now - 7_200_000).toISOString().slice(0, 13)}`,
+      `day:${new Date(now - 86_400_000).toISOString().slice(0, 10)}`,
+    ];
+    let outcome;
+    this.state.storage.transactionSync((txn) => {
+      const hourCount = txn.get(hourKey) ?? 0;
+      const dayCount = txn.get(dayKey) ?? 0;
+      if (hourCount >= GLOBAL_SENDS_PER_HOUR || dayCount >= GLOBAL_SENDS_PER_DAY) {
+        outcome = { allowed: false, hourCount, dayCount };
+        return;
+      }
+      txn.put(hourKey, hourCount + 1);
+      txn.put(dayKey, dayCount + 1);
+      for (const key of staleKeys) {
+        if (key !== hourKey && key !== dayKey) txn.delete(key);
+      }
+      outcome = { allowed: true, hourCount: hourCount + 1, dayCount: dayCount + 1 };
+    });
+    return new Response(JSON.stringify(outcome), {
+      headers: { "content-type": "application/json" },
+    });
+  }
+}
+
+// Reserves one slot of the aggregate send quota. Returns "unconfigured"
+// when the binding is absent (deployments predating the quota wiring keep
+// the per-IP limiter only), "unavailable" when a configured binding cannot
+// be consulted, and "allowed"/"exceeded" for its verdict.
+async function reserveGlobalSend(env) {
+  if (typeof env.FEEDBACK_QUOTA?.getByName !== "function") {
+    return "unconfigured";
+  }
+  let response;
+  try {
+    const stub = env.FEEDBACK_QUOTA.getByName("global-feedback-quota");
+    response = await stub.fetch("https://feedback-quota.invalid/reserve", {
+      method: "POST",
+    });
+  } catch {
+    return "unavailable";
+  }
+  if (!response.ok) return "unavailable";
+  const outcome = await response.json().catch(() => null);
+  if (!outcome || typeof outcome.allowed !== "boolean") return "unavailable";
+  return outcome.allowed ? "allowed" : "exceeded";
 }
 
 async function readBodyWithinLimit(body, maxBytes) {
@@ -132,6 +212,20 @@ export default {
 
     if (!env.RESEND_API_KEY) {
       return json({ error: "email not configured" }, 503);
+    }
+
+    // Only well-formed reports reach this point, so a quota reservation is
+    // spent on requests that would actually send. A configured quota that
+    // cannot be consulted fails closed, like the per-IP limiter above.
+    const quota = await reserveGlobalSend(env);
+    if (quota === "unavailable") {
+      return json({ error: "feedback service unavailable" }, 503);
+    }
+    if (quota === "exceeded") {
+      return json({ error: "too many reports; try again later" }, 429);
+    }
+    if (quota === "unconfigured") {
+      console.warn("FEEDBACK_QUOTA binding missing; aggregate send cap disabled");
     }
 
     let emailRes;
