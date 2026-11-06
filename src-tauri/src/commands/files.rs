@@ -208,6 +208,15 @@ pub async fn expand_import_paths(
     paths: Vec<String>,
     scan_id: String,
 ) -> Result<ExpandedImportPaths, String> {
+    // The scan walk stops at MAX_IMPORT_SCAN_ENTRIES, so more roots than
+    // that can never produce a complete result; reject the request
+    // instead of granting scope for roots that will never be reached.
+    if paths.len() > MAX_IMPORT_SCAN_ENTRIES {
+        return Err(format!(
+            "Too many items in one import ({} maximum).",
+            MAX_IMPORT_SCAN_ENTRIES
+        ));
+    }
     // Claim at command entry, before path grants can block. Otherwise an
     // older request with a slow grant could claim after a newer selection
     // and supersede the user's latest scan.

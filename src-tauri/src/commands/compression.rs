@@ -666,6 +666,18 @@ pub async fn probe_batch(
     paths: Vec<String>,
 ) -> Result<Vec<BatchProbeResult>, String> {
     const PROBE_CONCURRENCY: usize = 2;
+    // The frontend probes in groups of 128; this ceiling (32 groups) is
+    // far above any real selection and only stops a caller from making
+    // one invocation grant asset scope and queue probe work for an
+    // unbounded path list.
+    const MAX_PROBE_PATHS: usize = 4096;
+
+    if paths.len() > MAX_PROBE_PATHS {
+        return Err(format!(
+            "Too many files in one probe request ({} maximum).",
+            MAX_PROBE_PATHS
+        ));
+    }
 
     for path in &paths {
         grant_preview_asset_scope(&app, path);
