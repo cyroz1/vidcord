@@ -14,8 +14,9 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   the controls across a wide display. Only the short-display layout still widens, trading
   width for height so everything stays on screen.
 - Initialized X11 threading before GTK starts to prevent concurrent Xlib access from aborting the app.
-- Compress settings no longer stretch the encoder dropdown across the whole window; the
-  encoder controls stay grouped at their natural width.
+- Compress settings now fit on one line: Discord target, crop, FPS, and the encoder
+  controls (with the mute and normalize buttons) sit side by side at the standard
+  window width instead of the encoder wrapping onto its own line.
 - The trim slider handles are no longer clipped at the top and bottom.
 
 ### Desktop exports

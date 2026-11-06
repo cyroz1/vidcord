@@ -4292,7 +4292,7 @@ export default function App() {
 
                   {/* Basic settings */}
                   {!gifMode && !advancedMode && !losslessTrim && (
-                    <div className="row settings-row">
+                    <div className="row settings-row compress-settings-row">
                       <label className="target-label">
                         Discord target
                         <span className="sized-select">
