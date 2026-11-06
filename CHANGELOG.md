@@ -14,6 +14,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   the controls across a wide display. Only the short-display layout still widens, trading
   width for height so everything stays on screen.
 - Initialized X11 threading before GTK starts to prevent concurrent Xlib access from aborting the app.
+- Compress settings no longer stretch the encoder dropdown across the whole window; the
+  encoder controls stay grouped at their natural width.
 
 ### Desktop exports
 

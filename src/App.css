@@ -1249,7 +1249,13 @@ select optgroup {
 }
 
 .settings-row .encoder-field {
-  flex: 1 1 0;
+  /* At the capped window width the field wraps below the target, crop,
+     and FPS fields. It must not grow into that line: a grown field hands
+     the extra width to the encoder select, which balloons across the
+     window and strands the mute and normalize buttons at the far edge.
+     Natural width keeps the label, select, and buttons grouped together,
+     as in the other modes. */
+  flex: 0 1 auto;
   min-width: max-content;
 }
 
