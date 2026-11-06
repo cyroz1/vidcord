@@ -65,6 +65,36 @@ fn normalize_semver(input: &str) -> String {
     parts.into_iter().take(3).collect::<Vec<_>>().join(".")
 }
 
+fn installed_version() -> semver::Version {
+    // CARGO_PKG_VERSION is a valid semver string by construction (the
+    // release pipeline keeps it aligned), so the fallback is unreachable
+    // in practice; 0.0.0 fails the floor open for real releases rather
+    // than trapping installs behind a parse surprise.
+    semver::Version::parse(env!("CARGO_PKG_VERSION")).unwrap_or(semver::Version::new(0, 0, 0))
+}
+
+/// Monotonic install floor: an update may only install a release strictly
+/// newer than the running app. The Ed25519 release signature proves a tag
+/// is an authentic vidcord release, but every past release is signed with
+/// the same key, so without this floor a caller-supplied older tag would
+/// pass both signature checks and silently roll the app back to a release
+/// whose already-fixed bugs return. `check_for_updates` compares versions
+/// when offering an update; this is the same comparison enforced at the
+/// install command itself, which is the boundary a stale or manipulated
+/// caller actually crosses.
+fn ensure_install_target_is_newer(tag: &str, installed: &semver::Version) -> Result<(), String> {
+    let target = semver::Version::parse(&normalize_semver(tag))
+        .map_err(|_| format!("The update release tag {tag} is not a recognizable version."))?;
+    if target <= *installed {
+        let message = format!(
+            "Update {tag} is not newer than the installed version {installed}; refusing to install an older or identical release."
+        );
+        vidcord_log(&format!("update install: {message}"));
+        return Err(message);
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, serde::Deserialize)]
 struct ReleaseAsset {
     name: String,
@@ -1161,6 +1191,10 @@ pub async fn download_and_open_update_installer(
             "Updates for this Linux installation are managed by its package manager.".to_string(),
         );
     }
+    // Enforce the version floor before any network or download work, on
+    // the caller-supplied tag and again on the tag GitHub returned.
+    let installed = installed_version();
+    ensure_install_target_is_newer(&approved_release_tag, &installed)?;
 
     let release = fetch_release_by_tag(&approved_release_tag).await?;
     let actual_release_tag = release_tag(&release)?;
@@ -1170,6 +1204,7 @@ pub async fn download_and_open_update_installer(
                 .to_string(),
         );
     }
+    ensure_install_target_is_newer(actual_release_tag, &installed)?;
     let asset = select_platform_asset(&release)?;
     let signature = download_release_signature(&asset.signature_url).await?;
     // The signature verdict depends only on the tag, the filename, and
@@ -1248,6 +1283,30 @@ mod tests {
     fn normalize_semver_strips_v_prefix() {
         assert_eq!(normalize_semver("v1.2.3"), "1.2.3");
         assert_eq!(normalize_semver("1.2.3"), "1.2.3");
+    }
+
+    #[test]
+    fn install_floor_rejects_older_and_equal_releases() {
+        let installed = semver::Version::new(7, 7, 0);
+        assert!(ensure_install_target_is_newer("v7.6", &installed).is_err());
+        assert!(ensure_install_target_is_newer("7.6.5", &installed).is_err());
+        assert!(ensure_install_target_is_newer("v7.7", &installed).is_err());
+        assert!(ensure_install_target_is_newer("v7.7.0", &installed).is_err());
+    }
+
+    #[test]
+    fn install_floor_accepts_newer_releases() {
+        let installed = semver::Version::new(7, 7, 0);
+        assert!(ensure_install_target_is_newer("v7.7.1", &installed).is_ok());
+        assert!(ensure_install_target_is_newer("v7.8", &installed).is_ok());
+        assert!(ensure_install_target_is_newer("v8.0", &installed).is_ok());
+    }
+
+    #[test]
+    fn install_floor_rejects_unparseable_tags() {
+        let installed = semver::Version::new(7, 7, 0);
+        assert!(ensure_install_target_is_newer("latest", &installed).is_err());
+        assert!(ensure_install_target_is_newer("", &installed).is_err());
     }
 
     #[test]

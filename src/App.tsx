@@ -132,6 +132,27 @@ const DISPLAY_VERSION = (() => {
   return patch ? `v${major}.${minor}.${patch}` : `v${major}.${minor}`;
 })();
 
+// Mirror of the backend install floor: never hand the installer command a
+// tag that is not strictly newer than the running version, so a stale or
+// manipulated offer cannot roll the app back to an older signed release.
+// The Rust command enforces the same comparison authoritatively.
+function releaseTagIsNewerThan(tag: string, current: string): boolean {
+  const parse = (value: string): [number, number, number] => {
+    const parts = value
+      .trim()
+      .replace(/^v/i, "")
+      .split(".")
+      .map((part) => Number.parseInt(part, 10));
+    return [parts[0] || 0, parts[1] || 0, parts[2] || 0];
+  };
+  const target = parse(tag);
+  const installed = parse(current);
+  for (let index = 0; index < 3; index += 1) {
+    if (target[index] !== installed[index]) return target[index] > installed[index];
+  }
+  return false;
+}
+
 const FooterMeta = memo(function FooterMeta({
   onFeedbackClick,
   updateChannel,
@@ -3259,6 +3280,14 @@ export default function App() {
 
   const installUpdate = useCallback(
     async (releaseTag: string) => {
+      if (!releaseTagIsNewerThan(releaseTag, CURRENT_VERSION)) {
+        addToast(
+          "error",
+          "Update Failed",
+          `${releaseTag} is not newer than the installed version (${DISPLAY_VERSION}).`
+        );
+        return;
+      }
       setInstallingUpdate(true);
       try {
         const result = await downloadAndOpenUpdateInstaller(releaseTag);
