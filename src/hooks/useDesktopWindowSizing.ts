@@ -1,12 +1,10 @@
 import { useEffect, type RefObject } from "react";
-import { LogicalSize, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
+import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauriRuntime } from "../ipc";
 import {
-  compressSizeForWorkArea,
   isSettledSize,
   nativeSizeForContent,
-  positionWithinWorkArea,
   shouldUseNarrowLayout,
   widthForWorkArea,
 } from "../windowSizing";
@@ -32,7 +30,6 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
     let unlistenScale: (() => void) | undefined;
     let lastIssued: { width: number; height: number; scale: number } | null = null;
     let lastApplied: { width: number; height: number; scale: number } | null = null;
-    let fixedCompress: string | null = null;
 
     const syncSelectMeasures = () => {
       for (const wrapper of app.querySelectorAll<HTMLElement>(".sized-select")) {
@@ -122,54 +119,6 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
       running = true;
       dirty = false;
       try {
-        if (app.dataset.workflowMode === "compress") {
-          app.removeAttribute("data-compact-height");
-          app.removeAttribute("data-compact-narrow");
-          app.removeAttribute("data-compact-tight");
-          const [inner, outer, monitor, position, scale] = await Promise.all([
-            nativeWindow.innerSize(),
-            nativeWindow.outerSize().catch(() => null),
-            currentMonitor().catch(() => null),
-            nativeWindow.outerPosition().catch(() => null),
-            nativeWindow.scaleFactor(),
-          ]);
-          if (disposed || app.dataset.workflowMode !== "compress") return;
-          const chromeWidth = Math.max(0, (outer?.width ?? inner.width) - inner.width);
-          const chromeHeight = Math.max(0, (outer?.height ?? inner.height) - inner.height);
-          const availableWidth = monitor?.workArea.size.width ?? window.screen.availWidth * scale;
-          const availableHeight =
-            monitor?.workArea.size.height ?? window.screen.availHeight * scale;
-          const { width, height } = compressSizeForWorkArea(
-            { width: availableWidth, height: availableHeight },
-            { width: chromeWidth, height: chromeHeight },
-            scale
-          );
-          const key = JSON.stringify([monitor?.workArea, scale, width, height]);
-          if (fixedCompress !== key) {
-            lastIssued = null;
-            lastApplied = null;
-            await nativeWindow.setSize(new LogicalSize(width, height));
-            if (disposed || app.dataset.workflowMode !== "compress") return;
-            fixedCompress = key;
-            if (monitor && position) {
-              const actualOuter = await nativeWindow.outerSize().catch(() => null);
-              if (actualOuter) {
-                const { x, y } = positionWithinWorkArea(position, actualOuter, monitor.workArea);
-                if (x !== position.x || y !== position.y) {
-                  await nativeWindow.setPosition(new PhysicalPosition(x, y)).catch(() => {});
-                }
-              }
-            }
-          }
-          return;
-        }
-        if (fixedCompress) {
-          fixedCompress = null;
-          lastIssued = null;
-          lastApplied = null;
-          monitorKey = "";
-          lastAttempt = "";
-        }
         syncSelectMeasures();
         const [inner, outer, monitor, position] = await Promise.all([
           nativeWindow.innerSize(),
@@ -390,7 +339,6 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         lastApplied = null;
         monitorKey = "";
         lastAttempt = "";
-        fixedCompress = null;
         schedule();
       })
       .then((unlisten) => {
