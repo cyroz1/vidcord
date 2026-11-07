@@ -7,56 +7,51 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ### Desktop interface
 
-- The desktop window now fits its controls to the current display and window decorations,
-  with a shorter layout on smaller screens and pages for long lists instead of scrolling.
-- The window keeps a stable width while using controls and avoids visible layout measurement flicker.
-- The window is never wider than the 16:9 preview it is built around, instead of stretching
-  the controls across a wide display. Only the short-display layout still widens, trading
-  width for height so everything stays on screen.
-- Initialized X11 threading before GTK starts to prevent concurrent Xlib access from aborting the app.
-- Compress settings now fit on one line: Discord target, crop, FPS, and the encoder
-  controls (with the mute and normalize buttons) sit side by side at the standard
-  window width instead of the encoder wrapping onto its own line.
-- The trim slider handles are no longer clipped at the top and bottom.
+- Compress uses the fixed 460 × 690 window and scrollable layout from v7.7, with its
+  settings labels and controls arranged in the original row.
+- Other desktop modes fit the window to their contents and the available display area,
+  using a shorter layout on suitable small screens. Window width stays stable while
+  working, and fractional display scaling no longer causes the bottom edge to flicker.
+- When content cannot fit in the available work area, it remains reachable by scrolling;
+  settings labels remain visible on short displays.
+- Long encoder and audio-track lists use pages, and large batch queues render more efficiently.
+- Trim slider handles are no longer clipped at the top and bottom.
+- Fixed a Linux startup crash caused by concurrent X11 access.
 
-### Desktop exports
+### Export reliability and security
 
-- Protected temporary exports from symlink redirection by other local users.
-
-### Browser exports
-
-- Encoder download progress remains visible when an export starts during background preparation.
+- Temporary single-file and batch exports use protected staging directories, including
+  safeguards against redirection by another local user.
+- File-open handling limits access to the selected files and folders, and oversized
+  batch-probe and import requests are rejected before processing.
+- Browser encoder download progress remains visible when an export starts during
+  background preparation.
 
 ### FFmpeg setup
 
-- On Windows, vidcord no longer searches `C:\ffmpeg` or other drive-root folders by itself when
-  FFmpeg is missing. Use the new **Choose folder…** button in the FFmpeg-missing banner to point
-  vidcord at a manually installed FFmpeg folder; it remembers the folder for later launches.
-  WinGet installs are still found automatically.
+- On Windows, vidcord no longer searches drive-root folders such as `C:\ffmpeg` by itself.
+  The FFmpeg-missing banner offers **Choose folder…** for a manual installation and
+  remembers the chosen folder. WinGet installations are still found automatically.
 
 ### Updates
 
-- Update installs no longer stall forever while fetching release details, and the installer now
-  refuses a release that is not newer than the running version instead of silently rolling back.
-- Installers published through the copy fallback (FAT, exFAT, and network filesystems) are
-  re-verified after copying. Update downloads no longer remove files belonging to another process,
-  while stale partial downloads from crashed attempts are still cleaned up.
-- Linux package-manager update routing recognizes more hand-edited repository setups: DNF
-  metalink and mirrorlist entries and pacman `Include` mirrorlists.
-- The update prompt on Linux now says the downloaded installer will be shown in the file manager
-  instead of promising to open it.
+- Update checks during installation have a timeout, and the installer rejects releases
+  that are not newer than the running version.
+- Installers published through the copy fallback are verified again after copying.
+  Cleanup no longer removes another process's downloads, while stale partial downloads
+  from crashed attempts are still cleaned up.
+- Linux package-manager update detection recognizes DNF metalink and mirrorlist entries
+  and pacman `Include` mirrorlists. The update prompt says when an installer will be
+  shown in the file manager.
 
 ### Performance
 
-- Batch compression no longer oversubscribes the CPU: software encodes running side by side now
-  share an explicit thread budget instead of each claiming more threads than the machine has.
-- Encodes skip wasted work: the MP4 faststart rewrite now happens only on the file that is
-  actually delivered, not on size-estimate samples and discarded refinement attempts.
-- A hardware-decode path that cannot start is now caught by a one-frame test before encoding
-  begins, instead of failing partway through an encode and restarting it from the beginning.
-- The Linux AppImage download is smaller: the bundled media framework now keeps only the
-  playback plugins and libraries the preview player uses instead of the build machine's
-  entire GStreamer installation.
+- Parallel software batch encodes share a CPU thread budget instead of each claiming
+  more threads than the machine has.
+- The MP4 faststart rewrite runs only on the delivered file, and hardware decoding is
+  tested before encoding begins so an unusable path can fall back earlier.
+- The Linux AppImage is smaller because it includes only the media playback plugins and
+  libraries needed by the preview player.
 
 ## v7.7
 
