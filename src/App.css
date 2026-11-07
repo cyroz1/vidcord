@@ -1363,7 +1363,9 @@ select optgroup {
    sizing and adds three structural savings: the encoder caption and the
    mute/normalize buttons sit on the field's caption line instead of
    inside the row (~90px back), the selects run at 11px with narrower
-   chevron padding, and the crop/FPS fields are sized to their widest
+   padding (single-file modes restore full chevron clearance in the
+   block after the button sizing below), and the crop/FPS fields are
+   sized to their widest
    options ("16:9", "Source") instead of the shared fixed widths. The
    encoder field drops its caption gap: its caption line is 20px tall
    (the caption buttons) against the other fields' ~17px caption text,
@@ -1427,6 +1429,62 @@ select optgroup {
   width: 20px;
   min-width: 20px;
   height: 20px;
+}
+
+/* Chevron clearance for the Compress row in single-file modes (Batch
+   keeps its frozen geometry below): the shared sizing above reserves
+   9px of right padding, but the chevron glyph is 12px wide and sits
+   3px from the right edge, so a select's label ran underneath it and
+   its last glyph was hidden ("AMD (h264_amf)" read as "AMD (h264_amf",
+   "Source" lost its "e" to the chevron). The selects now reserve 18px
+   on the right, ending their text 4px clear of the chevron, and the
+   invisible sized-select spans carry 2px more so the box a span sizes
+   always covers the select's own padding. The H.265 warning badge
+   moved from the encoder row to the caption line, which pays back the
+   width this costs the control line, and the crop/FPS boxes grow to
+   hold their widest labels ("16:9", "Source") at the same clearance.
+   At these sizes the longest combinations (a hardware H.265 label
+   plus the 500MB target) still fit the 432px line in the font metrics
+   of the platforms those encoders ship on; a wider system font wraps
+   the encoder field whole, as before, rather than clipping it. */
+.app:not([data-compact-narrow]):not([data-workflow-mode="batch"])
+  .compress-settings-row
+  .sized-select
+  > span {
+  padding: 5px 20px 5px 6px;
+}
+
+.app:not([data-compact-narrow]):not([data-workflow-mode="batch"])
+  .compress-settings-row
+  .sized-select
+  select {
+  padding: 5px 18px 5px 6px;
+}
+
+.app:not([data-compact-narrow]):not([data-workflow-mode="batch"])
+  .compress-settings-row
+  .crop-label {
+  flex: 0 0 46px;
+  min-width: 46px;
+}
+
+.app:not([data-compact-narrow]):not([data-workflow-mode="batch"])
+  .compress-settings-row
+  .fps-label {
+  flex: 0 0 60px;
+  min-width: 60px;
+}
+
+.app:not([data-compact-narrow]):not([data-workflow-mode="batch"])
+  .compress-settings-row
+  .crop-label
+  select,
+.app:not([data-compact-narrow]):not([data-workflow-mode="batch"])
+  .compress-settings-row
+  .fps-label
+  select {
+  padding-right: 15px;
+  background-position: right 2px center;
 }
 
 /* Batch renders this same settings row, and its page is fitted to short

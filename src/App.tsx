@@ -4350,6 +4350,23 @@ export default function App() {
                       <div className="settings-field encoder-field">
                         <div className="encoder-caption-row">
                           <label htmlFor="encoder-select">Encoder</label>
+                          {isH265Encoder(encoders[encoderIdx]?.name ?? "") && (
+                            <span
+                              className="encoder-warning"
+                              tabIndex={0}
+                              aria-label={H265_WARNING_MESSAGE}
+                              aria-describedby="h265-warning-tooltip"
+                            >
+                              <span aria-hidden="true">!</span>
+                              <span
+                                id="h265-warning-tooltip"
+                                className="encoder-warning-tooltip"
+                                role="tooltip"
+                              >
+                                {H265_WARNING_MESSAGE}
+                              </span>
+                            </span>
+                          )}
                           <div className="encoder-actions">
                             <button
                               type="button"
@@ -4446,23 +4463,6 @@ export default function App() {
                           </div>
                         </div>
                         <div className="encoder-row">
-                          {isH265Encoder(encoders[encoderIdx]?.name ?? "") && (
-                            <span
-                              className="encoder-warning"
-                              tabIndex={0}
-                              aria-label={H265_WARNING_MESSAGE}
-                              aria-describedby="h265-warning-tooltip"
-                            >
-                              <span aria-hidden="true">!</span>
-                              <span
-                                id="h265-warning-tooltip"
-                                className="encoder-warning-tooltip"
-                                role="tooltip"
-                              >
-                                {H265_WARNING_MESSAGE}
-                              </span>
-                            </span>
-                          )}
                           <div className="sized-select">
                             <select
                               id="encoder-select"
