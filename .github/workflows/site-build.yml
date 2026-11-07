@@ -57,6 +57,26 @@ jobs:
         run: npm run web:build
 
       - name: Check browser bundle is current
+        env:
+          # Parity is a hard gate on main and on PRs targeting main. On
+          # version branches (X.Y) src iterates faster than site/ is
+          # regenerated, so there the check still runs and reports, but a
+          # stale bundle does not fail the run.
+          PARITY_BLOCKING: ${{ github.ref == 'refs/heads/main' || github.base_ref == 'main' }}
         run: |
-          git diff --exit-code -- site ':(exclude)site/assets/ffmpeg-core-*.wasm.gz'
-          node scripts/check-site-generated.mjs
+          status=0
+          git diff --exit-code -- site ':(exclude)site/assets/ffmpeg-core-*.wasm.gz' || status=1
+          node scripts/check-site-generated.mjs || status=1
+          if [ "$status" -ne 0 ]; then
+            if [ "$PARITY_BLOCKING" = "true" ]; then
+              echo "::error::Committed site/ output is stale; regenerate it with npm run web:build."
+              exit 1
+            fi
+            {
+              echo "### Site parity check: stale bundle (non-blocking on this branch)"
+              echo ""
+              echo "The committed \`site/\` output does not match a fresh \`npm run web:build\`."
+              echo "Expected while iterating on a version branch; parity is enforced on main and on PRs targeting main."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Committed site/ output is stale (non-blocking on version branches)."
+          fi
