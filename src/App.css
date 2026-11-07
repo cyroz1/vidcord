@@ -2299,9 +2299,8 @@ select optgroup {
 .trim-dual-wrap {
   position: relative;
   flex: 1;
-  /* Exactly as tall as the 24px handle thumbs: any shorter and the wrap
-     clips the tops and bottoms of the handles. */
-  height: 24px;
+  /* Leave room for the 24px thumbs, their glow, and the taller playhead. */
+  height: 36px;
   display: flex;
   align-items: center;
   /* The playhead layer is a full-width box translated by a percentage of
@@ -2525,10 +2524,7 @@ select optgroup {
   background: transparent;
 }
 
-/* The generic .slider-row range rule fixes input height at 20px, which
-   would leave the handles 4px short of the wrap and off-center; with
-   inset: 0 and height auto they stretch to the wrap's full height
-   instead, keeping the 24px thumbs centered on the track. */
+/* Stretch the inputs to the wrap so the thumbs stay centered on the track. */
 .trim-dual-wrap .trim-handle[type="range"] {
   height: auto;
 }
