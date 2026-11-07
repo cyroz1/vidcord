@@ -1283,6 +1283,21 @@ select optgroup {
   gap: 2px;
 }
 
+/* In the compact-narrow grid the encoder field has no vertical room for
+   a caption line: on short displays the window is fitted to the work
+   area and the extra line pushes the page past it. There the field runs
+   as a single row again, caption and buttons beside the select, the
+   arrangement the field had before the caption line existed. */
+.app[data-compact-narrow] .compress-settings-row .encoder-field {
+  flex-direction: row;
+  align-items: center;
+}
+
+.app[data-compact-narrow] .compress-settings-row .encoder-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .settings-row .encoder-label {
   flex: 2;
   min-width: 150px;
