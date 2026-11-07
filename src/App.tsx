@@ -4348,7 +4348,103 @@ export default function App() {
                         </select>
                       </label>
                       <div className="settings-field encoder-field">
-                        <label htmlFor="encoder-select">Encoder</label>
+                        <div className="encoder-caption-row">
+                          <label htmlFor="encoder-select">Encoder</label>
+                          <div className="encoder-actions">
+                            <button
+                              type="button"
+                              className={`mute-btn${removeAudio ? " active" : ""}`}
+                              title={removeAudio ? "Unmute audio" : "Mute audio"}
+                              aria-label={removeAudio ? "Unmute audio" : "Mute audio"}
+                              onClick={() => {
+                                const next = !removeAudio;
+                                setRemoveAudio(next);
+                                saveSettings({ remove_audio: next });
+                              }}
+                            >
+                              {removeAudio ? (
+                                <svg
+                                  width="13"
+                                  height="13"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2.2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <line x1="1" y1="1" x2="23" y2="23" />
+                                  <path d="M9 9L6 12H2v4h4l5 4v-5.58" />
+                                </svg>
+                              ) : (
+                                <svg
+                                  width="13"
+                                  height="13"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2.2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                                </svg>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              className={`norm-btn${audioNormalize && !removeAudio ? " active" : ""}`}
+                              disabled={removeAudio}
+                              title={
+                                removeAudio
+                                  ? "Audio is muted"
+                                  : "Peak-normalize audio so its highest sample peak reaches 0 dB"
+                              }
+                              aria-label="Peak-normalize audio to 0 dB"
+                              onClick={() => {
+                                const next = !audioNormalize;
+                                setAudioNormalize(next);
+                                saveSettings({ audio_normalize: next });
+                              }}
+                            >
+                              {audioNormalize && !removeAudio ? (
+                                <svg
+                                  width="13"
+                                  height="13"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2.5"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <line x1="3" y1="6" x2="3" y2="18" />
+                                  <line x1="7.5" y1="3" x2="7.5" y2="21" />
+                                  <line x1="12" y1="2" x2="12" y2="22" />
+                                  <line x1="16.5" y1="3" x2="16.5" y2="21" />
+                                  <line x1="21" y1="6" x2="21" y2="18" />
+                                </svg>
+                              ) : (
+                                <svg
+                                  width="13"
+                                  height="13"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <line x1="4" y1="10" x2="4" y2="14" />
+                                  <line x1="9" y1="7" x2="9" y2="17" />
+                                  <line x1="14" y1="5" x2="14" y2="19" />
+                                  <line x1="19" y1="9" x2="19" y2="15" />
+                                </svg>
+                              )}
+                            </button>
+                          </div>
+                        </div>
                         <div className="encoder-row">
                           {isH265Encoder(encoders[encoderIdx]?.name ?? "") && (
                             <span
@@ -4402,98 +4498,6 @@ export default function App() {
                             </select>
                             <span aria-hidden="true">{encoders[encoderIdx]?.label}</span>
                           </div>
-                          <button
-                            type="button"
-                            className={`mute-btn${removeAudio ? " active" : ""}`}
-                            title={removeAudio ? "Unmute audio" : "Mute audio"}
-                            aria-label={removeAudio ? "Unmute audio" : "Mute audio"}
-                            onClick={() => {
-                              const next = !removeAudio;
-                              setRemoveAudio(next);
-                              saveSettings({ remove_audio: next });
-                            }}
-                          >
-                            {removeAudio ? (
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <line x1="1" y1="1" x2="23" y2="23" />
-                                <path d="M9 9L6 12H2v4h4l5 4v-5.58" />
-                              </svg>
-                            ) : (
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                              </svg>
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            className={`norm-btn${audioNormalize && !removeAudio ? " active" : ""}`}
-                            disabled={removeAudio}
-                            title={
-                              removeAudio
-                                ? "Audio is muted"
-                                : "Peak-normalize audio so its highest sample peak reaches 0 dB"
-                            }
-                            aria-label="Peak-normalize audio to 0 dB"
-                            onClick={() => {
-                              const next = !audioNormalize;
-                              setAudioNormalize(next);
-                              saveSettings({ audio_normalize: next });
-                            }}
-                          >
-                            {audioNormalize && !removeAudio ? (
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.5"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <line x1="3" y1="6" x2="3" y2="18" />
-                                <line x1="7.5" y1="3" x2="7.5" y2="21" />
-                                <line x1="12" y1="2" x2="12" y2="22" />
-                                <line x1="16.5" y1="3" x2="16.5" y2="21" />
-                                <line x1="21" y1="6" x2="21" y2="18" />
-                              </svg>
-                            ) : (
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <line x1="4" y1="10" x2="4" y2="14" />
-                                <line x1="9" y1="7" x2="9" y2="17" />
-                                <line x1="14" y1="5" x2="14" y2="19" />
-                                <line x1="19" y1="9" x2="19" y2="15" />
-                              </svg>
-                            )}
-                          </button>
                         </div>
                       </div>
                     </div>
