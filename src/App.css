@@ -1413,6 +1413,20 @@ select optgroup {
   gap: 4px;
 }
 
+/* Like v7.7, the encoder field takes the line's spare width, and the
+   sized-select inside it (flex: 1 1 auto by default) stretches to
+   match, so the row reaches the right edge instead of ending at the
+   select's content width. The field's minimum stays its content
+   width, so stretching can never squeeze the select below its label;
+   a selection wider than the whole line still wraps the field whole,
+   as above. Scoped to single-file modes: Batch's flattened row keeps
+   its frozen geometry. */
+.app:not([data-compact-narrow]):not([data-workflow-mode="batch"])
+  .compress-settings-row
+  .encoder-field {
+  flex-grow: 1;
+}
+
 .app:not([data-compact-narrow]) .compress-settings-row .mute-btn,
 .app:not([data-compact-narrow]) .compress-settings-row .norm-btn {
   width: 20px;
