@@ -1249,15 +1249,24 @@ select optgroup {
 }
 
 .settings-row .encoder-field {
-  /* In Compress the field shares the row's line (see the
-     .compress-settings-row sizing below); in the modes and selections
-     where it does wrap onto its own line it must not grow into that
-     line: a grown field hands the extra width to the encoder select,
-     which balloons across the window and strands the mute and normalize
-     buttons at the far edge. Natural width keeps the label, select, and
-     buttons grouped together, as in the other modes. */
+  /* The field never grows into spare line width: a grown field hands the
+     extra width to the encoder select, which balloons across the window
+     and strands the mute and normalize buttons at the far edge. In the
+     standard Compress layout the .compress-settings-row sizing below
+     also drops this min-width so the field shrinks instead of wrapping. */
   flex: 0 1 auto;
   min-width: max-content;
+}
+
+/* The Compress encoder caption sits above the encoder row, like the
+   neighbouring fields' captions and the Advanced encoder's: inside the
+   row it cost ~48px of line width the settings row does not have. As a
+   direct child of the field it is a plain caption, not one of the flex
+   column wrapping labels the shared .settings-row label rule describes. */
+.compress-settings-row .encoder-field > label {
+  display: block;
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
 .settings-row .encoder-label {
@@ -1316,53 +1325,64 @@ select optgroup {
   padding: 0;
 }
 
-/* Compress settings row: the four fields fit on one line at the standard
-   window width. At their shared sizes the row overflows the content width
-   by ~130px and the encoder field wraps under the others, so this row
-   borrows the Advanced row's tighter sizing: 12px selects with narrower
-   chevron padding, 24px icon buttons, tighter gaps, and crop/FPS fields
-   sized to their widest options ("16:9", "Source") instead of the shared
-   fixed widths. The longest target labels and the H.265 encoder labels
-   (with their warning badge) still overflow and wrap the encoder field
-   under the row, as before. Scoped to the standard layout only: the
-   compact-narrow arrangement turns this row into a grid and is unchanged. */
+/* Compress settings row: the four fields stay on one line at the standard
+   window width for every selection, including the longest Discord target
+   ("500MB · native res") and the longest encoder labels ("Linux Hardware
+   H.265 (hevc_vaapi)", with its warning badge). At their shared sizes the
+   row overflows the content width by ~130px and the encoder field wraps
+   under the others, so this row borrows the Advanced row's tighter
+   sizing and adds three structural savings: the encoder caption sits
+   above its row like the other captions (~48px back), the selects run at
+   11px with narrower chevron padding, and the crop/FPS fields are sized
+   to their widest options ("16:9", "Source") instead of the shared fixed
+   widths. Any overflow left in the longest combinations is absorbed by
+   the encoder field shrinking (its min-width is dropped below) instead
+   of wrapping: the native encoder select clips the tail of its label
+   only in those combinations, the pressure valve the .sized-select
+   comment already describes. Scoped to the standard layout only: the
+   compact-narrow arrangement turns this row into a grid and is
+   unchanged. */
 .app:not([data-compact-narrow]) .compress-settings-row {
+  flex-wrap: nowrap;
   gap: 2px;
 }
 
 .app:not([data-compact-narrow]) .compress-settings-row select,
 .app:not([data-compact-narrow]) .compress-settings-row .sized-select > span {
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .app:not([data-compact-narrow]) .compress-settings-row .sized-select > span {
-  padding: 5px 16px 5px 6px;
+  padding: 5px 10px 5px 5px;
 }
 
 .app:not([data-compact-narrow]) .compress-settings-row .sized-select select {
-  padding: 5px 16px 5px 6px;
-  background-position: right 4px center;
+  padding: 5px 10px 5px 5px;
+  background-position: right 3px center;
 }
 
 .app:not([data-compact-narrow]) .compress-settings-row .crop-label {
-  flex: 0 0 48px;
-  min-width: 48px;
+  flex: 0 0 44px;
+  min-width: 44px;
 }
 
 .app:not([data-compact-narrow]) .compress-settings-row .fps-label {
-  flex: 0 0 62px;
-  min-width: 62px;
+  flex: 0 0 56px;
+  min-width: 56px;
 }
 
 .app:not([data-compact-narrow]) .compress-settings-row .crop-label select,
 .app:not([data-compact-narrow]) .compress-settings-row .fps-label select {
   padding-left: 6px;
-  padding-right: 16px;
+  padding-right: 12px;
 }
 
 .app:not([data-compact-narrow]) .compress-settings-row .fps-label select {
-  padding-right: 14px;
   background-position: right 2px center;
+}
+
+.app:not([data-compact-narrow]) .compress-settings-row .encoder-field {
+  min-width: 0;
 }
 
 .app:not([data-compact-narrow]) .compress-settings-row .encoder-row {
@@ -1371,9 +1391,9 @@ select optgroup {
 
 .app:not([data-compact-narrow]) .compress-settings-row .mute-btn,
 .app:not([data-compact-narrow]) .compress-settings-row .norm-btn {
-  width: 24px;
-  min-width: 24px;
-  height: 24px;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
 }
 
 .lossless-settings-row {
@@ -1412,19 +1432,6 @@ select optgroup {
   min-width: 0;
 }
 
-.encoder-row > label {
-  /* The label shares the row without widening it: with overflow hidden its
-     automatic minimum size is zero, so the narrow arrangement's measured
-     min-content width stays driven by the select and buttons, as it was
-     when the label sat on its own line above the row. */
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: inherit;
-  font-size: inherit;
-}
 .encoder-row input {
   flex: 1;
 }
