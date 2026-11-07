@@ -10,6 +10,8 @@ import { LATEST_RELEASE_URL } from "../web/desktopDownloads";
 afterEach(() => vi.unstubAllGlobals());
 
 it("falls back to the release page when the response has no matching desktop asset", async () => {
+  // The architecture-choice path must not depend on the machine running Vitest.
+  vi.stubGlobal("navigator", { userAgent: "test browser", platform: "", maxTouchPoints: 0 });
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => new Response(JSON.stringify({ tag_name: "v7.3", assets: [] })))

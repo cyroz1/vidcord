@@ -83,7 +83,7 @@ PNG snapshots are available from the preview. Desktop snapshots capture the curr
 ## Desktop integrations and reliability
 
 - Desktop preview: the Tauri controls seek, play, and pause the HTML video player on Windows, macOS, and Linux. PNG snapshots capture the current video frame at full resolution. Linux packages install GStreamer plugins through the system package manager; AppImages bundle GStreamer for WebKitGTK playback. Unsupported sources show a preview error.
-- Desktop layout: the native window measures its rendered controls and fits to the available display area, keeps a stable width while in use, switches to a compact layout on short screens, and pages long Batch, audio-track, and encoder lists.
+- Desktop layout: Compress uses a scrollable window fitted to the display; other modes measure their controls and can switch to a compact layout on short screens. Long Batch, audio-track, and encoder lists use pages.
 - Desktop encoder behavior: vidcord detects CPU and GPU encoders exposed by FFmpeg, prefers a validated H.264 hardware encoder on first run, preserves saved choices including CPU, and falls back to CPU when hardware encoding fails. Supported families include NVENC, AMF, QSV, VAAPI, and VideoToolbox.
 - Desktop output: Downloads by default, the imported clip's folder, a remembered custom folder, or an Ask when done save prompt. Auto-named outputs are collision-safe and never replace an unrelated existing file.
 - Desktop progress: native compression progress and ETA include attempt, encoder, and bitrate details; the taskbar or Dock can mirror progress while the app is unfocused. The browser displays in-page progress and ETA.

@@ -562,7 +562,11 @@ mod tests {
         // A report backdated past the retention window is swept.
         let stale_report = directory.join("vidcord-bug-report-4-5-6.txt");
         std::fs::write(&stale_report, "stale").unwrap();
-        let file = std::fs::File::open(&stale_report).unwrap();
+        // Windows requires write access to change a file's timestamps.
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&stale_report)
+            .unwrap();
         file.set_modified(
             std::time::SystemTime::now() - REPORT_RETENTION - std::time::Duration::from_secs(60),
         )

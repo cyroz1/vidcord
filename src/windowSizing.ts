@@ -1,5 +1,34 @@
 export type WindowContentSize = { width: number; height: number };
 
+/** Keep Compress at its traditional size unless the monitor is smaller. */
+export function compressSizeForWorkArea(
+  workArea: WindowContentSize,
+  chrome: WindowContentSize,
+  scale: number
+): WindowContentSize {
+  return {
+    width: Math.max(1, Math.min(460, Math.floor((workArea.width - chrome.width) / scale))),
+    height: Math.max(1, Math.min(690, Math.floor((workArea.height - chrome.height) / scale))),
+  };
+}
+
+export function positionWithinWorkArea(
+  position: { x: number; y: number },
+  outer: WindowContentSize,
+  area: { position: { x: number; y: number }; size: WindowContentSize }
+): { x: number; y: number } {
+  return {
+    x: Math.max(
+      area.position.x,
+      Math.min(position.x, area.position.x + area.size.width - outer.width)
+    ),
+    y: Math.max(
+      area.position.y,
+      Math.min(position.y, area.position.y + area.size.height - outer.height)
+    ),
+  };
+}
+
 export function shouldUseNarrowLayout(
   normalHeight: number,
   narrowHeight: number,

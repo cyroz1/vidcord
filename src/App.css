@@ -3229,7 +3229,7 @@ button.gh-link {
   display: flex;
   flex: 1;
   min-height: 0;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;

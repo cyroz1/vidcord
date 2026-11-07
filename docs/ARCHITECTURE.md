@@ -187,9 +187,9 @@ the site and encoder assets to load.
 
 [tauri.conf.json](../src-tauri/tauri.conf.json) defines the initial native window,
 CSP, scoped media, associations, package dependencies, and NSIS FFmpeg offer. The desktop
-[window sizing hook](../src/hooks/useDesktopWindowSizing.ts) measures a hidden copy of the controls,
-keeps a stable width per monitor, and adjusts the layout and height using observed native
-resize events so scaling and window decorations are accounted for.
+[window sizing hook](../src/hooks/useDesktopWindowSizing.ts) keeps Compress at its traditional
+size when the display permits and fits it to smaller work areas. Other modes measure a hidden
+copy of the controls and adjust their layout and height for scaling and native decorations.
 [build.yml](../.github/workflows/build.yml) builds Windows x64/ARM64 NSIS, macOS
 universal DMG, and Linux x64/ARM64 AppImage, DEB, and RPM. Tag builds additionally
 repack the two DEBs as native Arch/Arch Linux ARM `vidcord-bin` packages with

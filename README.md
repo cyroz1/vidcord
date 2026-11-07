@@ -234,9 +234,9 @@ and retry oversized results with safer bitrates and CPU fallback.
   dimensions, container information, file-size-based bitrate estimate, and
   duration available from browser media metadata; exact codec and track details
   depend on the browser.
-- **Desktop window fitted to its controls** — keeps a stable width and adjusts to the rendered
-  interface and native decorations, with a side-by-side layout on shorter screens. Long Batch queues use
-  pages, as do long audio-track and encoder lists, so the main controls remain visible without scrolling.
+- **Desktop window fitted to your display** — Compress uses its familiar scrollable layout,
+  while other modes size themselves to their controls and can switch to a side-by-side layout
+  on shorter screens. Long Batch queues, audio-track lists, and encoder lists use pages.
 - **System-matched macOS chrome** — the native title bar follows macOS Light
   and Dark appearances together with the app surface.
 - **Remove audio in re-encoded modes** — strip the audio track to reclaim space.

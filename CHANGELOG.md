@@ -48,8 +48,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 - Parallel software batch encodes share a CPU thread budget instead of each claiming
   more threads than the machine has.
-- The MP4 faststart rewrite runs only on the delivered file, and hardware decoding is
-  tested before encoding begins so an unusable path can fall back earlier.
+- Size-estimate samples skip the MP4 faststart rewrite, and hardware decoding is tested
+  before encoding begins so an unusable path can fall back earlier.
 - The Linux AppImage is smaller because it includes only the media playback plugins and
   libraries needed by the preview player.
 
