@@ -1365,18 +1365,23 @@ select optgroup {
    inside the row (~90px back), the selects run at 11px with narrower
    chevron padding, and the crop/FPS fields are sized to their widest
    options ("16:9", "Source") instead of the shared fixed widths. The
-   caption lines share a 20px line height (the caption buttons' height)
-   so the four controls still start on the same line. If larger text
-   (system text scaling) ever outgrows the line, the encoder field wraps
-   whole, as it did before, rather than squeezing its select. Scoped to
-   the standard layout only: the compact-narrow arrangement turns this
-   row into a grid and is unchanged. */
+   encoder field drops its caption gap: its caption line is 20px tall
+   (the caption buttons) against the other fields' ~17px caption text,
+   so 20px with no gap lands its control on the same line as theirs
+   (17px plus the 3px gap) and keeps the row exactly as tall as it was
+   before the caption line existed. The row's total height is load
+   bearing on short displays, whose window fitting budgets it against
+   the work area. If larger text (system text scaling) ever outgrows
+   the line, the encoder field wraps whole, as it did before, rather
+   than squeezing its select. Scoped to the standard layout only: the
+   compact-narrow arrangement turns this row into a grid and is
+   unchanged. */
 .app:not([data-compact-narrow]) .compress-settings-row {
   gap: 2px;
 }
 
-.app:not([data-compact-narrow]) .compress-settings-row > label {
-  line-height: 20px;
+.app:not([data-compact-narrow]) .compress-settings-row .encoder-field {
+  gap: 0;
 }
 
 .app:not([data-compact-narrow]) .compress-settings-row select,
