@@ -1259,35 +1259,31 @@ select optgroup {
   min-width: max-content;
 }
 
-/* The Compress encoder caption line sits above the encoder row, like the
-   neighbouring fields' captions and the Advanced encoder's: carrying the
-   caption and the mute/normalize buttons there returns the width they
-   used to take inside the row (~48px plus the buttons) to the select.
-   The caption is a plain label, not one of the flex column wrapping
-   labels the shared .settings-row label rule describes. */
-.compress-settings-row .encoder-caption-row {
+/* The Compress encoder heading sits above the encoder row, like the
+   neighbouring fields' captions and the Advanced encoder's: the
+   "Encoder" label and, for H.265 encoders, the warning badge. The
+   mute/normalize buttons sit in the encoder row beside the select,
+   the arrangement this row had in v7.7. The heading is a plain label,
+   not one of the flex column wrapping labels the shared .settings-row
+   label rule describes. */
+.compress-settings-row .encoder-heading {
+  position: relative;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.compress-settings-row .encoder-caption-row > label {
+.compress-settings-row .encoder-heading > label {
   display: block;
   flex: 0 0 auto;
   min-width: 0;
 }
 
-.compress-settings-row .encoder-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
 /* In the compact-narrow grid the encoder field has no vertical room for
-   a caption line: on short displays the window is fitted to the work
+   a heading line: on short displays the window is fitted to the work
    area and the extra line pushes the page past it. There the field runs
-   as a single row again, caption and buttons beside the select, the
-   arrangement the field had before the caption line existed. */
+   as a single row, the heading beside the encoder row. */
 .app[data-compact-narrow] .compress-settings-row .encoder-field {
   flex-direction: row;
   align-items: center;
@@ -1354,36 +1350,29 @@ select optgroup {
   padding: 0;
 }
 
-/* Compress settings row: the four fields stay on one line at the standard
-   window width for every selection, including the longest Discord target
-   ("500MB · native res") and the longest encoder labels ("Linux Hardware
-   H.265 (hevc_vaapi)", with its warning badge). At their shared sizes the
-   row overflows the content width by ~180px and the encoder field wraps
-   under the others, so this row borrows the Advanced row's tighter
-   sizing and adds three structural savings: the encoder caption and the
-   mute/normalize buttons sit on the field's caption line instead of
-   inside the row (~90px back), the selects run at 11px with narrower
-   padding (single-file modes restore full chevron clearance in the
-   block after the button sizing below), and the crop/FPS fields are
-   sized to their widest
-   options ("16:9", "Source") instead of the shared fixed widths. The
-   encoder field drops its caption gap: its caption line is 20px tall
-   (the caption buttons) against the other fields' ~17px caption text,
-   so 20px with no gap lands its control on the same line as theirs
-   (17px plus the 3px gap) and keeps the row exactly as tall as it was
-   before the caption line existed. The row's total height is load
+/* Compress settings row: the fields keep the arrangement they had in
+   v7.7 — a caption above each field, the encoder's warning badge beside
+   its caption, and the mute/normalize buttons in the encoder row beside
+   the select — sized so the row stays on one line at the standard
+   window width without any select's label sliding under its chevron.
+   At their shared sizes the row overflows the content width by ~180px
+   for the longest selections, so the selects run at 11px, the target
+   and encoder selects size to their labels through the sized-select
+   spans, the crop/FPS fields are sized to their widest options
+   ("16:9", "Source") instead of the shared fixed widths, and the
+   mute/normalize buttons run at 20px instead of the shared 32px.
+   Full chevron clearance for the sized selects is set in the block
+   after the button sizing below. The two longest encoder labels
+   (Linux Hardware and macOS H.265) still outgrow the line at any
+   target; their encoder field wraps onto its own line whole rather
+   than squeezing its select, and every other combination fits. The
+   row's total height is load
    bearing on short displays, whose window fitting budgets it against
-   the work area. If larger text (system text scaling) ever outgrows
-   the line, the encoder field wraps whole, as it did before, rather
-   than squeezing its select. Scoped to the standard layout only: the
+   the work area. Scoped to the standard layout only: the
    compact-narrow arrangement turns this row into a grid and is
    unchanged. */
 .app:not([data-compact-narrow]) .compress-settings-row {
   gap: 2px;
-}
-
-.app:not([data-compact-narrow]) .compress-settings-row .encoder-field {
-  gap: 0;
 }
 
 .app:not([data-compact-narrow]) .compress-settings-row select,
@@ -1421,7 +1410,7 @@ select optgroup {
 }
 
 .app:not([data-compact-narrow]) .compress-settings-row .encoder-row {
-  gap: 2px;
+  gap: 4px;
 }
 
 .app:not([data-compact-narrow]) .compress-settings-row .mute-btn,
@@ -1439,14 +1428,9 @@ select optgroup {
    "Source" lost its "e" to the chevron). The selects now reserve 18px
    on the right, ending their text 4px clear of the chevron, and the
    invisible sized-select spans carry 2px more so the box a span sizes
-   always covers the select's own padding. The H.265 warning badge
-   moved from the encoder row to the caption line, which pays back the
-   width this costs the control line, and the crop/FPS boxes grow to
-   hold their widest labels ("16:9", "Source") at the same clearance.
-   At these sizes the longest combinations (a hardware H.265 label
-   plus the 500MB target) still fit the 432px line in the font metrics
-   of the platforms those encoders ship on; a wider system font wraps
-   the encoder field whole, as before, rather than clipping it. */
+   always covers the select's own padding. The crop/FPS boxes are
+   sized to hold their widest labels ("16:9", "Source") at the same
+   clearance. */
 .app:not([data-compact-narrow]):not([data-workflow-mode="batch"])
   .compress-settings-row
   .sized-select
@@ -1490,12 +1474,12 @@ select optgroup {
 /* Batch renders this same settings row, and its page is fitted to short
    displays with no slack for a taller or wider row: the desktop layout
    tests show the batch queue page failing to fit when the row's
-   geometry changes at all. So in Batch the caption-line layout is
-   undone: the caption row and the encoder row are flattened into the
-   field with display: contents, which restores the original single
-   row of label, badge, select, and buttons, and the row keeps the
-   sizing it had before the caption line existed. The Compress page
-   keeps the one-line layout above. */
+   geometry changes at all. So in Batch the two-line layout is undone:
+   the heading and the encoder row are flattened into the field with
+   display: contents, which restores the original single row of label,
+   badge, select, and buttons, and the row keeps the sizing it had
+   before the heading line existed. The Compress page keeps the
+   two-line layout above. */
 .app[data-workflow-mode="batch"] .compress-settings-row .encoder-field {
   flex-direction: row;
   align-items: center;
@@ -1506,12 +1490,12 @@ select optgroup {
   gap: 2px;
 }
 
-.app[data-workflow-mode="batch"] .compress-settings-row .encoder-caption-row,
+.app[data-workflow-mode="batch"] .compress-settings-row .encoder-heading,
 .app[data-workflow-mode="batch"] .compress-settings-row .encoder-row {
   display: contents;
 }
 
-.app[data-workflow-mode="batch"] .compress-settings-row .encoder-caption-row > label {
+.app[data-workflow-mode="batch"] .compress-settings-row .encoder-heading > label {
   flex: 0 1 auto;
   overflow: hidden;
   white-space: nowrap;
@@ -1527,8 +1511,12 @@ select optgroup {
   order: 3;
 }
 
-.app[data-workflow-mode="batch"] .compress-settings-row .encoder-actions {
+.app[data-workflow-mode="batch"] .compress-settings-row .mute-btn {
   order: 4;
+}
+
+.app[data-workflow-mode="batch"] .compress-settings-row .norm-btn {
+  order: 5;
 }
 
 .app[data-workflow-mode="batch"]:not([data-compact-narrow]) .compress-settings-row select,
