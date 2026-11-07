@@ -1429,6 +1429,109 @@ select optgroup {
   height: 20px;
 }
 
+/* Batch renders this same settings row, and its page is fitted to short
+   displays with no slack for a taller or wider row: the desktop layout
+   tests show the batch queue page failing to fit when the row's
+   geometry changes at all. So in Batch the caption-line layout is
+   undone: the caption row and the encoder row are flattened into the
+   field with display: contents, which restores the original single
+   row of label, badge, select, and buttons, and the row keeps the
+   sizing it had before the caption line existed. The Compress page
+   keeps the one-line layout above. */
+.app[data-workflow-mode="batch"] .compress-settings-row .encoder-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+
+.app[data-workflow-mode="batch"]:not([data-compact-narrow]) .compress-settings-row .encoder-field {
+  gap: 2px;
+}
+
+.app[data-workflow-mode="batch"] .compress-settings-row .encoder-caption-row,
+.app[data-workflow-mode="batch"] .compress-settings-row .encoder-row {
+  display: contents;
+}
+
+.app[data-workflow-mode="batch"] .compress-settings-row .encoder-caption-row > label {
+  flex: 0 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  order: 1;
+}
+
+.app[data-workflow-mode="batch"] .compress-settings-row .encoder-warning {
+  order: 2;
+}
+
+.app[data-workflow-mode="batch"] .compress-settings-row .sized-select {
+  order: 3;
+}
+
+.app[data-workflow-mode="batch"] .compress-settings-row .encoder-actions {
+  order: 4;
+}
+
+.app[data-workflow-mode="batch"]:not([data-compact-narrow]) .compress-settings-row select,
+.app[data-workflow-mode="batch"]:not([data-compact-narrow])
+  .compress-settings-row
+  .sized-select
+  > span {
+  font-size: 12px;
+}
+
+.app[data-workflow-mode="batch"]:not([data-compact-narrow])
+  .compress-settings-row
+  .sized-select
+  > span {
+  padding: 5px 16px 5px 6px;
+}
+
+.app[data-workflow-mode="batch"]:not([data-compact-narrow])
+  .compress-settings-row
+  .sized-select
+  select {
+  padding: 5px 16px 5px 6px;
+  background-position: right 4px center;
+}
+
+.app[data-workflow-mode="batch"]:not([data-compact-narrow]) .compress-settings-row .crop-label {
+  flex: 0 0 48px;
+  min-width: 48px;
+}
+
+.app[data-workflow-mode="batch"]:not([data-compact-narrow]) .compress-settings-row .fps-label {
+  flex: 0 0 62px;
+  min-width: 62px;
+}
+
+.app[data-workflow-mode="batch"]:not([data-compact-narrow])
+  .compress-settings-row
+  .crop-label
+  select,
+.app[data-workflow-mode="batch"]:not([data-compact-narrow])
+  .compress-settings-row
+  .fps-label
+  select {
+  padding-right: 16px;
+}
+
+.app[data-workflow-mode="batch"]:not([data-compact-narrow])
+  .compress-settings-row
+  .fps-label
+  select {
+  padding-right: 14px;
+  background-position: right 2px center;
+}
+
+.app[data-workflow-mode="batch"]:not([data-compact-narrow]) .compress-settings-row .mute-btn,
+.app[data-workflow-mode="batch"]:not([data-compact-narrow]) .compress-settings-row .norm-btn {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+}
+
 .lossless-settings-row {
   align-items: center;
   justify-content: space-between;

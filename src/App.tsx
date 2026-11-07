@@ -3959,7 +3959,7 @@ export default function App() {
   );
 
   return (
-    <div className="app" ref={appRef}>
+    <div className="app" ref={appRef} data-workflow-mode={workflowMode}>
       {showUpdateModal && updateInfo && (
         <div
           className="update-modal-backdrop"
