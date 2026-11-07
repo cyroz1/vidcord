@@ -108,6 +108,11 @@ body,
   flex-direction: column;
   background: var(--bg);
   overflow: auto;
+  scrollbar-width: none;
+}
+
+#root::-webkit-scrollbar {
+  display: none;
 }
 
 .app-boot-screen {
