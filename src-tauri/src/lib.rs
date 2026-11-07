@@ -376,8 +376,25 @@ fn sync_native_window_theme(app: AppHandle, dark: bool) -> Result<(), String> {
 // App entry
 // ---------------------------------------------------------------------------
 
+/// Install ring as the process-wide default rustls `CryptoProvider`.
+///
+/// reqwest is built with `rustls-no-provider` and the direct rustls
+/// dependency compiles in ring only, but rustls does not adopt the sole
+/// compiled-in provider on its own: the first `Client::builder().build()`
+/// panics when no default provider has been installed. The release profile
+/// is `panic = "abort"`, so that panic aborted the whole app when the
+/// startup update check built its client (macOS 7.8.0 crash, 2026-11-06).
+/// Installing once here, before the Tauri builder exists and can dispatch
+/// any command, covers every reqwest client built later. If a provider is
+/// already installed the call errors and is deliberately ignored: the
+/// existing default stays in effect.
+fn install_default_crypto_provider() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    install_default_crypto_provider();
     let startup_started_at = Instant::now();
     log::setup_crash_log();
 

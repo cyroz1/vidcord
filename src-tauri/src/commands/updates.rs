@@ -1618,6 +1618,23 @@ mod tests {
     }
 
     #[test]
+    fn update_clients_build_with_installed_crypto_provider() {
+        // Regression test for the 7.8.0 macOS startup crash: reqwest runs
+        // on `rustls-no-provider`, so `Client::builder().build()` panics
+        // until a default rustls CryptoProvider is installed, and with
+        // `panic = "abort"` that panic took the whole app down when the
+        // startup update check built its client. Exercise the same
+        // production init fn run() calls, then require both update
+        // clients to build. A unit test cannot call run() itself, so it
+        // cannot prove run() still performs the install before any
+        // command runs; it proves the installed provider makes both
+        // client builders succeed.
+        crate::install_default_crypto_provider();
+        assert!(http_client().is_ok());
+        assert!(download_client().is_ok());
+    }
+
+    #[test]
     fn normalize_semver_strips_v_prefix() {
         assert_eq!(normalize_semver("v1.2.3"), "1.2.3");
         assert_eq!(normalize_semver("1.2.3"), "1.2.3");
