@@ -1,4 +1,33 @@
 export type WindowContentSize = { width: number; height: number };
+
+export function shouldUseNarrowLayout(
+  normalHeight: number,
+  narrowHeight: number,
+  narrowMinWidth: number,
+  availableWidth: number,
+  availableHeight: number
+): boolean {
+  return (
+    narrowMinWidth <= availableWidth &&
+    normalHeight + 2 > availableHeight &&
+    narrowHeight < normalHeight
+  );
+}
+
+export function isSettledSize(
+  width: number,
+  height: number,
+  settled: WindowContentSize,
+  viewport: WindowContentSize
+): boolean {
+  return (
+    settled.width === width &&
+    settled.height !== 0 &&
+    Math.abs(height - settled.height) <= 2 &&
+    Math.abs(viewport.width - (width + 2)) <= 2 &&
+    Math.abs(viewport.height - (settled.height + 2)) <= 2
+  );
+}
 /**
  * A stable content width per work area, with room for native decorations.
  * The width never exceeds the 16:9 preview's footprint: the preview pane is

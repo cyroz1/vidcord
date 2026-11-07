@@ -1,7 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { nativeSizeForContent, widthForWorkArea } from "../windowSizing";
+import {
+  isSettledSize,
+  nativeSizeForContent,
+  shouldUseNarrowLayout,
+  widthForWorkArea,
+} from "../windowSizing";
 
 describe("desktop window sizing", () => {
+  it("uses the compact layout only when it fits horizontally and saves height", () => {
+    expect(shouldUseNarrowLayout(700, 400, 700, 800, 500)).toBe(true);
+    expect(shouldUseNarrowLayout(700, 400, 700, 640, 500)).toBe(false);
+    expect(shouldUseNarrowLayout(700, 720, 700, 800, 500)).toBe(false);
+  });
+
+  it("rechecks the viewport before treating a measured size as settled", () => {
+    const settled = { width: 460, height: 600 };
+    expect(isSettledSize(460, 601, settled, { width: 462, height: 602 })).toBe(true);
+    expect(isSettledSize(460, 601, settled, { width: 400, height: 500 })).toBe(false);
+    expect(isSettledSize(460, 610, settled, { width: 462, height: 602 })).toBe(false);
+  });
   it("reserves a consistent content width while fitting scaled monitor work areas", () => {
     expect(widthForWorkArea(1920, 16, 1)).toBe(460);
     expect(widthForWorkArea(1706, 100, 2)).toBe(460);

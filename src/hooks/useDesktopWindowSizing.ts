@@ -1,8 +1,13 @@
 import { useEffect, type RefObject } from "react";
-import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
+import { LogicalSize, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauriRuntime } from "../ipc";
-import { nativeSizeForContent, widthForWorkArea } from "../windowSizing";
+import {
+  isSettledSize,
+  nativeSizeForContent,
+  shouldUseNarrowLayout,
+  widthForWorkArea,
+} from "../windowSizing";
 
 /** Size the native client area from the rendered layout, not from window chrome. */
 export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void {
@@ -25,6 +30,7 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
     let unlistenScale: (() => void) | undefined;
     let lastIssued: { width: number; height: number; scale: number } | null = null;
     let lastApplied: { width: number; height: number; scale: number } | null = null;
+    let fixedCompress = false;
 
     const syncSelectMeasures = () => {
       for (const wrapper of app.querySelectorAll<HTMLElement>(".sized-select")) {
@@ -114,6 +120,23 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
       running = true;
       dirty = false;
       try {
+        if (app.dataset.workflowMode === "compress") {
+          app.removeAttribute("data-compact-height");
+          app.removeAttribute("data-compact-narrow");
+          app.removeAttribute("data-compact-tight");
+          if (!fixedCompress) {
+            await nativeWindow.setSize(new LogicalSize(460, 690));
+            fixedCompress = true;
+          }
+          return;
+        }
+        if (fixedCompress) {
+          fixedCompress = false;
+          lastIssued = null;
+          lastApplied = null;
+          monitorKey = "";
+          lastAttempt = "";
+        }
         syncSelectMeasures();
         const [inner, outer, monitor, position] = await Promise.all([
           nativeWindow.innerSize(),
@@ -166,9 +189,10 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         // between modes, so keep the last applied width when a fresh
         // measurement lands within a pixel of it; the layout tolerates
         // being a pixel narrower than its measured minimum.
+        const narrowMinWidth = measureNarrowWidth();
         const measuredNarrowWidth = Math.max(
           stableWidth,
-          Math.min(measureNarrowWidth(), availableCssWidth)
+          Math.min(narrowMinWidth, availableCssWidth)
         );
         const narrowWidth =
           lastNarrowWidth !== 0 && Math.abs(measuredNarrowWidth - lastNarrowWidth) < 2
@@ -177,7 +201,13 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         const normalHeight = measure("normal", stableWidth);
         const narrowHeight = measure("narrow", narrowWidth);
         const availableCssHeight = (availableHeight - chromeHeight) / scale;
-        const narrow = normalHeight + 2 > availableCssHeight && narrowHeight < normalHeight;
+        const narrow = shouldUseNarrowLayout(
+          normalHeight,
+          narrowHeight,
+          narrowMinWidth,
+          availableCssWidth,
+          availableCssHeight
+        );
         app.toggleAttribute("data-compact-height", narrow);
         app.toggleAttribute("data-compact-narrow", narrow);
         // Switching modes can flip the arrangement (a shorter mode fits the
@@ -186,11 +216,14 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         // the window does not change width mid-session on mode switches.
         if (narrow) lastNarrowWidth = narrowWidth;
         const width = narrow ? narrowWidth : lastNarrowWidth || stableWidth;
-        const height = narrow
+        const contentHeight = narrow
           ? narrowHeight
           : width === stableWidth
             ? normalHeight
             : measure("normal", width);
+        // When neither arrangement fits, keep the window in the work area;
+        // the root scroll container makes the remaining content reachable.
+        const height = Math.min(contentHeight, Math.max(1, Math.floor(availableCssHeight) - 2));
         // The widths are anchored, but the height is re-measured fresh on
         // every pass. At fractional display scales the achieved viewport
         // height rounds differently from run to run, so the measured
@@ -201,9 +234,12 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         // within a couple of pixels; real layout changes (mode switches,
         // extra rows appearing) move the height by far more than that.
         if (
-          lastSettledWidth === width &&
-          lastSettledHeight !== 0 &&
-          Math.abs(height - lastSettledHeight) <= 2
+          isSettledSize(
+            width,
+            height,
+            { width: lastSettledWidth, height: lastSettledHeight },
+            { width: window.innerWidth, height: window.innerHeight }
+          )
         ) {
           lastAttempt = "";
           return;
@@ -227,10 +263,10 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         // screen). Do not spin requesting the same impossible size forever.
         if (attempt === lastAttempt) return;
         lastAttempt = attempt;
-        lastSettledWidth = width;
-        lastSettledHeight = height;
         lastIssued = { ...target, scale };
         await nativeWindow.setSize(new PhysicalSize(targetWidth, targetHeight));
+        lastSettledWidth = width;
+        lastSettledHeight = height;
         if (monitor && position && outer) {
           const area = monitor.workArea;
           const outerWidth = outer.width + widthDelta * scale;
@@ -249,6 +285,8 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
           }
         }
       } catch (error) {
+        lastAttempt = "";
+        lastIssued = null;
         console.warn("Unable to size the desktop window", error);
       } finally {
         running = false;
@@ -294,7 +332,7 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
       childList: true,
       characterData: true,
       attributes: true,
-      attributeFilter: ["class", "hidden", "open"],
+      attributeFilter: ["class", "hidden", "open", "data-workflow-mode"],
     });
     const onResize = () => {
       if (lastIssued?.scale === (window.devicePixelRatio || 1)) lastApplied = lastIssued;
@@ -319,6 +357,7 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         lastApplied = null;
         monitorKey = "";
         lastAttempt = "";
+        fixedCompress = false;
         schedule();
       })
       .then((unlisten) => {

@@ -107,6 +107,7 @@ body,
   display: flex;
   flex-direction: column;
   background: var(--bg);
+  overflow: auto;
 }
 
 .app-boot-screen {
