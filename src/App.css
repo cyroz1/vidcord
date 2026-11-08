@@ -280,9 +280,8 @@
   max-width: 280px;
 }
 
-.app[data-compact-narrow][data-compact-tight] .preview-pane {
-  min-width: 232px;
-  max-width: 232px;
+.app[data-compact-narrow][data-compact-tight] .compress-settings-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .app[data-compact-narrow][data-compact-tight] .file-section {
