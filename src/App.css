@@ -280,6 +280,11 @@
   max-width: 280px;
 }
 
+.app[data-compact-narrow][data-compact-tight] .preview-pane {
+  min-width: 232px;
+  max-width: 232px;
+}
+
 .app[data-compact-narrow][data-compact-tight] .file-section {
   min-height: 58px;
 }
