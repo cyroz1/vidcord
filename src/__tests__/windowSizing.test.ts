@@ -31,6 +31,11 @@ describe("desktop window sizing", () => {
     expect(shouldUseNarrowLayout(700, 720, 700, 800, 500)).toBe(false);
   });
 
+  it("keeps a compact batch layout while its reduced queue would make normal appear to fit", () => {
+    expect(shouldUseNarrowLayout(660, 438, 743, 1000, 681, true)).toBe(true);
+    expect(shouldUseNarrowLayout(660, 438, 743, 700, 681, true)).toBe(false);
+  });
+
   it("rechecks the viewport before treating a measured size as settled", () => {
     const settled = { width: 460, height: 600 };
     expect(isSettledSize(460, 601, settled, { width: 462, height: 602 })).toBe(true);

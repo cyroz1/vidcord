@@ -34,12 +34,12 @@ export function shouldUseNarrowLayout(
   narrowHeight: number,
   narrowMinWidth: number,
   availableWidth: number,
-  availableHeight: number
+  availableHeight: number,
+  keepNarrow = false
 ): boolean {
   return (
     narrowMinWidth <= availableWidth &&
-    normalHeight + 2 > availableHeight &&
-    narrowHeight < normalHeight
+    (keepNarrow || (normalHeight + 2 > availableHeight && narrowHeight < normalHeight))
   );
 }
 

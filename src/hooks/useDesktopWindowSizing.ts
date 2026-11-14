@@ -212,7 +212,11 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
           narrowHeight,
           narrowMinWidth,
           availableCssWidth,
-          availableCssHeight
+          availableCssHeight,
+          // Compact queues use fewer rows. A normal-layout clone still has
+          // that reduced row count until React sees the wider queue, so
+          // switching back would immediately restore rows and overflow again.
+          app.dataset.workflowMode === "batch" && app.hasAttribute("data-compact-narrow")
         );
         app.toggleAttribute("data-compact-height", narrow);
         app.toggleAttribute("data-compact-narrow", narrow);
