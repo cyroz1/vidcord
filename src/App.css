@@ -278,6 +278,15 @@
   max-width: 280px;
 }
 
+.app[data-compact-narrow][data-compact-tight] .scroll-area {
+  grid-template-columns: minmax(264px, auto) minmax(min-content, auto);
+}
+
+.app[data-compact-narrow][data-compact-tight] .preview-pane {
+  min-width: 264px;
+  max-width: 264px;
+}
+
 .app[data-compact-narrow][data-compact-tight] .compress-settings-row {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
