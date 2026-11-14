@@ -24,6 +24,7 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
     let monitorKey = "";
     let stableWidth = 0;
     let narrowBaseWidth = 0;
+    let lastWorkflowMode = app.dataset.workflowMode;
     let lastSettledWidth = 0;
     let lastSettledHeight = 0;
     let unlistenMove: (() => void) | undefined;
@@ -172,6 +173,19 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
           lastAttempt = "";
         }
         const availableCssWidth = Math.floor((availableWidth - chromeWidth) / scale) - 2;
+        const workflowMode = app.dataset.workflowMode;
+        if (workflowMode !== lastWorkflowMode) {
+          // Some native window managers deliver a viewport wider than the
+          // last request. Preserve the width the user actually saw when
+          // switching modes, rather than shrinking to the earlier request.
+          if (narrowBaseWidth > 0 && app.hasAttribute("data-compact-narrow")) {
+            narrowBaseWidth = Math.max(
+              narrowBaseWidth,
+              Math.min(window.innerWidth - 2, availableCssWidth)
+            );
+          }
+          lastWorkflowMode = workflowMode;
+        }
         // Retain the first compact width as a floor on this monitor. Later
         // label changes may grow the window, then shrink it back to that
         // floor when the extra space is no longer needed.
