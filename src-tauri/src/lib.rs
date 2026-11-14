@@ -22,7 +22,7 @@ use commands::encoders::{
     check_ffmpeg_available, detect_encoders, get_vaapi_device, install_ffmpeg_dependency,
     list_ffmpeg_video_encoders,
 };
-use commands::feedback::{collect_bug_report, delete_bug_report};
+use commands::feedback::{collect_bug_report, delete_bug_report, send_bug_report};
 use commands::files::{
     copy_file_to_clipboard, copy_files_to_clipboard, discard_staged_output, expand_import_paths,
     get_os, publish_batch_staged_outputs, publish_staged_output, resolve_batch_output_paths,
@@ -627,6 +627,7 @@ pub fn run() {
             send_system_notification,
             collect_bug_report,
             delete_bug_report,
+            send_bug_report,
         ]);
 
     // A build failure must reach the log file: with panic = "abort" an expect()

@@ -713,7 +713,10 @@ pub(crate) fn validated_clipboard_file(path: String) -> Result<std::path::PathBu
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) fn copy_files_to_clipboard_platform(files: &[std::path::PathBuf]) -> Result<(), String> {
+pub(crate) fn copy_files_to_clipboard_platform(
+    _app: &AppHandle,
+    files: &[std::path::PathBuf],
+) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Foundation::{GlobalFree, POINT};
     use windows_sys::Win32::System::DataExchange::{
@@ -806,8 +809,11 @@ pub(crate) fn copy_files_to_clipboard_platform(files: &[std::path::PathBuf]) -> 
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String> {
-    copy_files_to_clipboard_platform(&[file.to_path_buf()])
+pub(crate) fn copy_file_to_clipboard_platform(
+    app: &AppHandle,
+    file: &std::path::Path,
+) -> Result<(), String> {
+    copy_files_to_clipboard_platform(app, &[file.to_path_buf()])
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -818,7 +824,10 @@ fn macos_clipboard_filename(file: &std::path::Path) -> String {
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn copy_files_to_clipboard_platform(files: &[std::path::PathBuf]) -> Result<(), String> {
+pub(crate) fn copy_files_to_clipboard_platform(
+    _app: &AppHandle,
+    files: &[std::path::PathBuf],
+) -> Result<(), String> {
     if files.is_empty() {
         return Err("No output files are available to copy.".to_string());
     }
@@ -876,45 +885,18 @@ pub(crate) fn copy_files_to_clipboard_platform(files: &[std::path::PathBuf]) -> 
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String> {
-    copy_files_to_clipboard_platform(&[file.to_path_buf()])
+pub(crate) fn copy_file_to_clipboard_platform(
+    app: &AppHandle,
+    file: &std::path::Path,
+) -> Result<(), String> {
+    copy_files_to_clipboard_platform(app, &[file.to_path_buf()])
 }
 
 #[cfg(target_os = "linux")]
-enum ClipboardHelperOutcome {
-    Success,
-    /// The helper is installed but the copy did not complete.
-    Failed,
-    /// The helper binary is not installed, so trying it cost nothing.
-    Unavailable,
-}
-
-#[cfg(target_os = "linux")]
-fn run_clipboard_helper(command: &mut Command, payload: &[u8]) -> ClipboardHelperOutcome {
-    use std::io::Write;
-
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return ClipboardHelperOutcome::Unavailable;
-        }
-        Err(_) => return ClipboardHelperOutcome::Failed,
-    };
-    let written = match child.stdin.take() {
-        Some(mut stdin) => stdin.write_all(payload).is_ok(),
-        None => false,
-    };
-    let exited_ok = wait_for_desktop_child(child)
-        .is_ok_and(|status| status.is_some_and(|status| status.success()));
-    if written && exited_ok {
-        ClipboardHelperOutcome::Success
-    } else {
-        ClipboardHelperOutcome::Failed
-    }
-}
-
-#[cfg(target_os = "linux")]
-pub(crate) fn copy_files_to_clipboard_platform(files: &[std::path::PathBuf]) -> Result<(), String> {
+pub(crate) fn copy_files_to_clipboard_platform(
+    app: &AppHandle,
+    files: &[std::path::PathBuf],
+) -> Result<(), String> {
     if files.is_empty() {
         return Err("No output files are available to copy.".to_string());
     }
@@ -927,74 +909,129 @@ pub(crate) fn copy_files_to_clipboard_platform(files: &[std::path::PathBuf]) -> 
                 .map_err(|_| "Could not create a clipboard file URL.".to_string())
         })
         .collect::<Result<Vec<_>, _>>()?;
+
+    const URI_LIST_TARGET: u32 = 0;
+    const GNOME_COPIED_FILES_TARGET: u32 = 1;
+    const KDE_URI_LIST_TARGET: u32 = 2;
+    const KDE_CUT_SELECTION_TARGET: u32 = 3;
+    const PORTAL_FILETRANSFER_TARGET: u32 = 4;
+    const PORTAL_FILES_TARGET: u32 = 5;
     let uri_list = format!("{}\r\n", uris.join("\r\n"));
-
-    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-        let mut command = Command::new("wl-copy");
-        command
-            .args(["--type", "text/uri-list", "--"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        configure_desktop_command(&mut command);
-        match run_clipboard_helper(&mut command, uri_list.as_bytes()) {
-            ClipboardHelperOutcome::Success => return Ok(()),
-            // wl-copy is present on this Wayland session but failed; xclip
-            // cannot serve a native Wayland clipboard, so don't burn a
-            // second helper timeout on it.
-            ClipboardHelperOutcome::Failed => {
-                return Err(
-                    "Copying the file to the Wayland clipboard failed. The output file was still saved."
-                        .to_string(),
-                );
+    let gnome_copied_files = format!("copy\n{}", uris.join("\n"));
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let mut targets = vec![
+            gtk::TargetEntry::new(
+                "text/uri-list",
+                gtk::TargetFlags::empty(),
+                URI_LIST_TARGET,
+            ),
+            gtk::TargetEntry::new(
+                "x-special/gnome-copied-files",
+                gtk::TargetFlags::empty(),
+                GNOME_COPIED_FILES_TARGET,
+            ),
+            gtk::TargetEntry::new(
+                "application/x-kde4-urilist",
+                gtk::TargetFlags::empty(),
+                KDE_URI_LIST_TARGET,
+            ),
+            gtk::TargetEntry::new(
+                "application/x-kde-cutselection",
+                gtk::TargetFlags::empty(),
+                KDE_CUT_SELECTION_TARGET,
+            ),
+        ];
+        let uri_targets = gtk::TargetList::new(&[]);
+        uri_targets.add_uri_targets(URI_LIST_TARGET);
+        for (mime, info) in [
+            (
+                "application/vnd.portal.filetransfer",
+                PORTAL_FILETRANSFER_TARGET,
+            ),
+            ("application/vnd.portal.files", PORTAL_FILES_TARGET),
+        ] {
+            if uri_targets
+                .find(&gtk::gdk::Atom::intern(mime))
+                .is_some()
+            {
+                targets.push(gtk::TargetEntry::new(
+                    mime,
+                    gtk::TargetFlags::empty(),
+                    info,
+                ));
             }
-            ClipboardHelperOutcome::Unavailable => {}
         }
-    }
 
-    let mut command = Command::new("xclip");
-    command
-        .args(["-selection", "clipboard", "-t", "text/uri-list", "-i"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    configure_desktop_command(&mut command);
-    if matches!(
-        run_clipboard_helper(&mut command, uri_list.as_bytes()),
-        ClipboardHelperOutcome::Success
-    ) {
-        return Ok(());
-    }
+        let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
+        let has_clipboard_owner = clipboard.set_with_data(&targets, move |_, selection, target| {
+            match target {
+                URI_LIST_TARGET | PORTAL_FILETRANSFER_TARGET | PORTAL_FILES_TARGET => {
+                    let uri_refs = uris.iter().map(String::as_str).collect::<Vec<_>>();
+                    let _ = selection.set_uris(&uri_refs);
+                }
+                GNOME_COPIED_FILES_TARGET => {
+                    let atom = gtk::gdk::Atom::intern("x-special/gnome-copied-files");
+                    selection.set(&atom, 8, gnome_copied_files.as_bytes());
+                }
+                KDE_URI_LIST_TARGET => {
+                    let atom = gtk::gdk::Atom::intern("application/x-kde4-urilist");
+                    selection.set(&atom, 8, uri_list.as_bytes());
+                }
+                KDE_CUT_SELECTION_TARGET => {
+                    let atom = gtk::gdk::Atom::intern("application/x-kde-cutselection");
+                    selection.set(&atom, 8, b"0");
+                }
+                _ => {}
+            }
+        });
+        let result = if has_clipboard_owner {
+            Ok(())
+        } else {
+            Err("Could not set the file on the Linux system clipboard.".to_string())
+        };
+        let _ = sender.send(result);
+    })
+    .map_err(|error| format!("Could not access the Linux system clipboard: {error}"))?;
 
-    Err(
-        "Copying files requires wl-clipboard on Wayland or xclip on X11. The output file was still saved."
-            .to_string(),
-    )
+    receiver
+        .recv_timeout(DESKTOP_COMMAND_TIMEOUT)
+        .map_err(|error| match error {
+            std::sync::mpsc::RecvTimeoutError::Timeout => {
+                "The Linux system clipboard did not respond.".to_string()
+            }
+            std::sync::mpsc::RecvTimeoutError::Disconnected => {
+                "Could not access the Linux system clipboard.".to_string()
+            }
+        })?
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn copy_file_to_clipboard_platform(file: &std::path::Path) -> Result<(), String> {
-    copy_files_to_clipboard_platform(&[file.to_path_buf()])
+pub(crate) fn copy_file_to_clipboard_platform(
+    app: &AppHandle,
+    file: &std::path::Path,
+) -> Result<(), String> {
+    copy_files_to_clipboard_platform(app, &[file.to_path_buf()])
 }
 
 #[tauri::command]
-pub async fn copy_file_to_clipboard(path: String) -> Result<(), String> {
+pub async fn copy_file_to_clipboard(app: AppHandle, path: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let file = validated_clipboard_file(path)?;
-        copy_file_to_clipboard_platform(&file)
+        copy_file_to_clipboard_platform(&app, &file)
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub async fn copy_files_to_clipboard(paths: Vec<String>) -> Result<(), String> {
+pub async fn copy_files_to_clipboard(app: AppHandle, paths: Vec<String>) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let files = paths
             .into_iter()
             .map(validated_clipboard_file)
             .collect::<Result<Vec<_>, _>>()?;
-        copy_files_to_clipboard_platform(&files)
+        copy_files_to_clipboard_platform(&app, &files)
     })
     .await
     .map_err(|e| e.to_string())?

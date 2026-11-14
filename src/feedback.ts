@@ -8,6 +8,20 @@ export const FEEDBACK_EMAIL = "owner@vidcord.app";
 const FEEDBACK_TOKEN = "f22f96ae239e38e444762f18c399cec9e74ee5302a9f4300998639b0364a277a";
 
 export async function sendBugReport(report: Pick<BugReport, "subject" | "body">): Promise<void> {
+  // The desktop webview's network stack is inconsistent across platforms
+  // (WebKitGTK can reject a valid cross-origin response as "Load failed").
+  // Send native reports through Tauri's HTTP client instead, which also
+  // avoids requiring browser CORS for a desktop-only request.
+  if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke<void>("send_bug_report", {
+      subject: report.subject,
+      body: report.body,
+      token: FEEDBACK_TOKEN,
+    });
+    return;
+  }
+
   const res = await fetch(FEEDBACK_ENDPOINT, {
     method: "POST",
     headers: {

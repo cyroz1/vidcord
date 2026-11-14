@@ -5076,6 +5076,7 @@ name = "vidcord"
 version = "7.8.0"
 dependencies = [
  "dirs",
+ "gtk",
  "libc",
  "notify-rust",
  "objc2",

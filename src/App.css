@@ -250,11 +250,9 @@
   grid-column: span 5;
 }
 
-/* The Compress encoder field spans the narrow settings grid like the
-   Advanced encoder does. As a single-track item its max-content (label,
-   select, and buttons in a row) would set that track's minimum and widen
-   the whole narrow window past every other mode; spanned across both
-   tracks its width distributes instead. */
+/* In the generic narrow settings grid, spanning both tracks keeps the
+   Compress encoder from widening a single grid track to its max-content
+   size. The one-row Compress layout below replaces this grid placement. */
 .app[data-compact-narrow] .settings-row .encoder-field {
   grid-column: 1 / -1;
 }
@@ -1246,23 +1244,15 @@ select optgroup {
 }
 
 .settings-row .encoder-field {
-  /* The field never grows into spare line width, and never shrinks below
-     its content: a grown field hands the extra width to the encoder
-     select, which balloons across the window, while a squeezed field
-     clips the select's label. If a selection ever outgrows the settings
-     row's line, the field wraps onto its own line whole instead. The
-     Compress sizing below fits it on the line at standard text sizes. */
+  /* The field never shrinks below its content. If the complete encoder
+     setting outgrows the available line, it wraps as a whole so its inline
+     caption and controls stay together. */
   flex: 0 1 auto;
   min-width: max-content;
 }
 
-/* The Compress encoder heading sits above the encoder row, like the
-   neighbouring fields' captions and the Advanced encoder's: the
-   "Encoder" label and, for H.265 encoders, the warning badge. The
-   mute/normalize buttons sit in the encoder row beside the select,
-   the arrangement this row had in v7.7. The heading is a plain label,
-   not one of the flex column wrapping labels the shared .settings-row
-   label rule describes. */
+/* Keep the encoder heading above its select, aligned with the other
+   Compress captions. The warning badge stays beside the heading. */
 .compress-settings-row .encoder-heading {
   position: relative;
   z-index: 3;
@@ -1274,20 +1264,6 @@ select optgroup {
 .compress-settings-row .encoder-heading > label {
   display: block;
   flex: 0 0 auto;
-  min-width: 0;
-}
-
-/* In the compact-narrow grid the encoder field has no vertical room for
-   a heading line: on short displays the window is fitted to the work
-   area and the extra line pushes the page past it. There the field runs
-   as a single row, the heading beside the encoder row. */
-.app[data-compact-narrow] .compress-settings-row .encoder-field {
-  flex-direction: row;
-  align-items: center;
-}
-
-.app[data-compact-narrow] .compress-settings-row .encoder-row {
-  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -1347,29 +1323,31 @@ select optgroup {
   padding: 0;
 }
 
-/* Compress settings row: the fields keep the arrangement they had in
-   v7.7 — a caption above each field, the encoder's warning badge beside
-   its caption, and the mute/normalize buttons in the encoder row beside
-   the select — sized so the row stays on one line at the standard
-   window width without any select's label sliding under its chevron.
-   At their shared sizes the row overflows the content width by ~180px
-   for the longest selections, so the selects run at 11px, the target
-   and encoder selects size to their labels through the sized-select
-   spans, the crop/FPS fields are sized to their widest options
-   ("16:9", "Source") instead of the shared fixed widths, and the
-   mute/normalize buttons run at 20px instead of the shared 32px.
-   Full chevron clearance for the sized selects is set in the block
-   after the button sizing below. The two longest encoder labels
-   (Linux Hardware and macOS H.265) still outgrow the line at any
-   target; their encoder field wraps onto its own line whole rather
-   than squeezing its select, and every other combination fits. The
-   row's total height is load
-   bearing on short displays, whose window fitting budgets it against
-   the work area. Scoped to the standard layout only: the
-   compact-narrow arrangement turns this row into a grid and is
-   unchanged. */
+/* Keep the target, crop, FPS, and encoder fields on the same horizontal
+   row at the standard window width. The compact selectors stay sized to
+   their values; the encoder select takes the remaining width and can
+   shorten a long displayed name without moving the field to another row.
+   Its caption remains above the controls, like the other fields. */
 .app:not([data-compact-narrow]) .compress-settings-row {
   gap: 2px;
+  flex-wrap: nowrap;
+}
+
+/* The narrow-window default is a grid that moves Encoder onto a separate
+   row. Use the same horizontal field layout as the standard window: the
+   Encoder caption stays above its controls and its select absorbs the
+   remaining width. */
+.app[data-compact-narrow]:not([data-workflow-mode="batch"]) .compress-settings-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+
+.app[data-compact-narrow]:not([data-workflow-mode="batch"]) .compress-settings-row .encoder-field {
+  grid-column: auto;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .app:not([data-compact-narrow]) .compress-settings-row select,
@@ -1408,20 +1386,13 @@ select optgroup {
 
 .app:not([data-compact-narrow]) .compress-settings-row .encoder-row {
   gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-/* Like v7.7, the encoder field takes the line's spare width, and the
-   sized-select inside it (flex: 1 1 auto by default) stretches to
-   match, so the row reaches the right edge instead of ending at the
-   select's content width. The field's minimum stays its content
-   width, so stretching can never squeeze the select below its label;
-   a selection wider than the whole line still wraps the field whole,
-   as above. Scoped to single-file modes: Batch's flattened row keeps
-   its frozen geometry. */
-.app:not([data-compact-narrow]):not([data-workflow-mode="batch"])
-  .compress-settings-row
-  .encoder-field {
-  flex-grow: 1;
+.app:not([data-compact-narrow]) .compress-settings-row .encoder-field {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .app:not([data-compact-narrow]) .compress-settings-row .mute-btn,
@@ -1482,15 +1453,9 @@ select optgroup {
   background-position: right 2px center;
 }
 
-/* Batch renders this same settings row, and its page is fitted to short
-   displays with no slack for a taller or wider row: the desktop layout
-   tests show the batch queue page failing to fit when the row's
-   geometry changes at all. So in Batch the two-line layout is undone:
-   the heading and the encoder row are flattened into the field with
-   display: contents, which restores the original single row of label,
-   badge, select, and buttons, and the row keeps the sizing it had
-   before the heading line existed. The Compress page keeps the
-   two-line layout above. */
+/* Batch keeps its existing compact geometry by flattening the heading
+   and encoder-row wrappers with display: contents. This leaves the
+   label, badge, select, and buttons in their original single-row order. */
 .app[data-workflow-mode="batch"] .compress-settings-row .encoder-field {
   flex-direction: row;
   align-items: center;

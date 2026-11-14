@@ -5,6 +5,24 @@
 //! link as a fallback. This command also saves a full local report copy.
 
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::sync::OnceLock;
+
+const FEEDBACK_ENDPOINT: &str = "https://vidcord.app/api/feedback";
+const FEEDBACK_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+static FEEDBACK_HTTP_CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+
+fn feedback_http_client() -> Result<&'static reqwest::Client, String> {
+    FEEDBACK_HTTP_CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .timeout(FEEDBACK_REQUEST_TIMEOUT)
+                .user_agent(concat!("vidcord-feedback/", env!("CARGO_PKG_VERSION")))
+                .build()
+                .map_err(|error| format!("could not initialize the report connection: {error}"))
+        })
+        .as_ref()
+        .map_err(|error| error.clone())
+}
 
 /// Log lines embedded in the email body (kept small so mailto: URLs stay usable).
 const EMAIL_LOG_LINES: usize = 100;
@@ -125,6 +143,54 @@ pub struct BugReport {
     pub subject: String,
     pub body: String,
     pub report_path: String,
+}
+
+#[derive(serde::Serialize)]
+struct FeedbackSubmission<'a> {
+    subject: &'a str,
+    body: &'a str,
+}
+
+/// Sends a user-submitted report through the native HTTP client. The token is
+/// public and also used by the browser form; it is an abuse filter, not a
+/// credential. Keeping this request native avoids WebKitGTK's CORS/network
+/// handling for the desktop app.
+#[tauri::command]
+pub async fn send_bug_report(subject: String, body: String, token: String) -> Result<(), String> {
+    if subject.trim().is_empty() || body.trim().is_empty() {
+        return Err("subject and body are required".to_string());
+    }
+
+    let response = feedback_http_client()?
+        .post(FEEDBACK_ENDPOINT)
+        .header("x-vidcord-feedback", token)
+        .json(&FeedbackSubmission {
+            subject: &subject,
+            body: &body,
+        })
+        .send()
+        .await
+        .map_err(|error| format!("could not reach the report server: {error}"))?;
+
+    if response.status().is_success() {
+        return Ok(());
+    }
+
+    let status = response.status();
+    let detail = response
+        .json::<serde_json::Value>()
+        .await
+        .ok()
+        .and_then(|value| {
+            value
+                .get("error")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        });
+    match detail {
+        Some(detail) => Err(format!("report server returned {status}: {detail}")),
+        None => Err(format!("report server returned {status}")),
+    }
 }
 
 /// Last `max_lines` of the file at `path`, oldest first. A missing or
