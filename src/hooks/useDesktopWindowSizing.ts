@@ -106,10 +106,14 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
       document.body.appendChild(copy);
       try {
         syncSelectMeasures(copy);
-        // The live encoder is allowed to shrink, but its full selected
-        // label must contribute to the width needed to avoid clipping.
-        for (const wrapper of copy.querySelectorAll<HTMLElement>(".encoder-row .sized-select")) {
-          wrapper.style.minWidth = "max-content";
+        // In the normal row, the encoder takes leftover width, so its full
+        // label must contribute to the minimum. In the compact grid the row
+        // already has its own width; forcing max-content there can make a
+        // usable short-screen arrangement appear wider than the monitor.
+        if (layout === "normal") {
+          for (const wrapper of copy.querySelectorAll<HTMLElement>(".encoder-row .sized-select")) {
+            wrapper.style.minWidth = "max-content";
+          }
         }
         return Math.ceil(Math.max(copy.getBoundingClientRect().width, copy.scrollWidth));
       } finally {

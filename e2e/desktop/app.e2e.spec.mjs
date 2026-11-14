@@ -1021,6 +1021,23 @@ async function assertMainFits(label) {
             else element.remove();
           }
           document.body.appendChild(copy);
+          for (const wrapper of copy.querySelectorAll(".sized-select")) {
+            const select = wrapper.querySelector("select");
+            const span = wrapper.querySelector("span");
+            if (!select || !span) continue;
+            const style = getComputedStyle(select);
+            for (const property of [
+              "fontFamily",
+              "fontSize",
+              "fontStyle",
+              "fontWeight",
+              "lineHeight",
+              "letterSpacing",
+              "padding",
+            ]) {
+              span.style[property] = style[property];
+            }
+          }
           const rect = copy.getBoundingClientRect();
           const result = {
             width: Math.ceil(Math.max(rect.width, copy.scrollWidth)),
