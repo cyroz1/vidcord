@@ -31,8 +31,8 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
     let lastIssued: { width: number; height: number; scale: number } | null = null;
     let lastApplied: { width: number; height: number; scale: number } | null = null;
 
-    const syncSelectMeasures = () => {
-      for (const wrapper of app.querySelectorAll<HTMLElement>(".sized-select")) {
+    const syncSelectMeasures = (root: HTMLElement = app) => {
+      for (const wrapper of root.querySelectorAll<HTMLElement>(".sized-select")) {
         const select = wrapper.querySelector<HTMLSelectElement>("select");
         const measure = wrapper.querySelector<HTMLElement>("span");
         if (!select || !measure) continue;
@@ -83,16 +83,20 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
       }
     };
 
-    // The narrow arrangement trades width for height with a two-column page,
-    // so it needs its own width: the layout's measured min-content width.
-    // Dialogs and popups are not part of that layout and are removed first.
-    const measureNarrowWidth = () => {
+    // Measure each arrangement's minimum width without overlays, which are
+    // positioned independently of the main content.
+    const measureMinimumWidth = (layout: "normal" | "narrow") => {
       const copy = app.cloneNode(true) as HTMLDivElement;
       copy.style.cssText =
         "position:fixed;left:-10000px;top:0;visibility:hidden;pointer-events:none;width:min-content";
       copy.setAttribute("aria-hidden", "true");
-      copy.dataset.compactHeight = "";
-      copy.dataset.compactNarrow = "";
+      if (layout === "narrow") {
+        copy.dataset.compactHeight = "";
+        copy.dataset.compactNarrow = "";
+      } else {
+        delete copy.dataset.compactHeight;
+        delete copy.dataset.compactNarrow;
+      }
       for (const media of copy.querySelectorAll("video, audio")) media.removeAttribute("src");
       for (const overlay of copy.querySelectorAll(
         ".feedback-dialog[role=dialog], .encoders-dialog[role=dialog], .update-modal, .audio-track-popup, .trim-options-panel, .encoder-options, .toast-container"
@@ -100,6 +104,12 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         overlay.remove();
       document.body.appendChild(copy);
       try {
+        syncSelectMeasures(copy);
+        // The live encoder is allowed to shrink, but its full selected
+        // label must contribute to the width needed to avoid clipping.
+        for (const wrapper of copy.querySelectorAll<HTMLElement>(".encoder-row .sized-select")) {
+          wrapper.style.minWidth = "max-content";
+        }
         return Math.ceil(Math.max(copy.getBoundingClientRect().width, copy.scrollWidth));
       } finally {
         copy.remove();
@@ -150,11 +160,8 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
           dirty = true;
           return;
         }
-        // Keep the horizontal size stable while the user works. The normal
-        // width is capped at the 16:9 preview's footprint; the narrow
-        // arrangement gets its own measured width because its two-column
-        // page trades width for height on short displays. Both widths are
-        // recalculated only when the monitor, work area, or scale changes.
+        // Start with the preview's usual footprint and expand when content
+        // needs more room. The compact arrangement trades width for height.
         const nextMonitorKey = JSON.stringify([monitor?.name, monitor?.workArea, scale]);
         if (monitorKey !== nextMonitorKey || stableWidth === 0) {
           monitorKey = nextMonitorKey;
@@ -169,13 +176,15 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         // the current monitor. Otherwise changing modes or dismissing a
         // dialog can make the window jump horizontally as its min-content
         // width changes. It can still grow when labels need more room.
-        const narrowMinWidth = measureNarrowWidth();
+        const normalMinWidth = measureMinimumWidth("normal");
+        const normalWidth = Math.max(stableWidth, Math.min(normalMinWidth, availableCssWidth));
+        const narrowMinWidth = measureMinimumWidth("narrow");
         const measuredNarrowWidth = Math.max(
-          stableWidth,
+          normalWidth,
           Math.min(narrowMinWidth, availableCssWidth)
         );
         const narrowWidth = Math.max(lastNarrowWidth, measuredNarrowWidth);
-        const normalHeight = measure("normal", stableWidth);
+        const normalHeight = measure("normal", normalWidth);
         const narrowHeight = measure("narrow", narrowWidth);
         const availableCssHeight = (availableHeight - chromeHeight) / scale;
         const narrow = shouldUseNarrowLayout(
@@ -192,10 +201,10 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         // this monitor, keep its width for the normal arrangement too, so
         // the window does not change width mid-session on mode switches.
         if (narrow) lastNarrowWidth = narrowWidth;
-        const width = narrow ? narrowWidth : lastNarrowWidth || stableWidth;
+        const width = narrow ? narrowWidth : Math.max(lastNarrowWidth, normalWidth);
         const contentHeight = narrow
           ? narrowHeight
-          : width === stableWidth
+          : width === normalWidth
             ? normalHeight
             : measure("normal", width);
         // When neither arrangement fits, keep the window in the work area;
