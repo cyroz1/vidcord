@@ -894,13 +894,13 @@ pub(crate) fn copy_file_to_clipboard_platform(
 
 #[cfg(target_os = "linux")]
 pub(crate) fn copy_files_to_clipboard_platform(
-    app: &AppHandle,
+    _app: &AppHandle,
     files: &[std::path::PathBuf],
 ) -> Result<(), String> {
+    use std::io::{BufRead, BufReader};
     if files.is_empty() {
         return Err("No output files are available to copy.".to_string());
     }
-
     let uris = files
         .iter()
         .map(|file| {
@@ -909,7 +909,70 @@ pub(crate) fn copy_files_to_clipboard_platform(
                 .map_err(|_| "Could not create a clipboard file URL.".to_string())
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    let mut child = Command::new(executable)
+        .arg("--vidcord-clipboard-owner")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Could not start the clipboard owner: {e}"))?;
+    let write_result = child
+        .stdin
+        .take()
+        .ok_or("Could not open clipboard owner input.")
+        .and_then(|mut input| {
+            serde_json::to_writer(&mut input, &uris).map_err(|_| "Could not send clipboard data.")
+        });
+    if let Err(error) = write_result {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error.to_string());
+    }
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or("Could not read clipboard owner status.")?;
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let ok = BufReader::new(stdout).read_line(&mut line).is_ok() && line.trim() == "ready";
+        let _ = sender.send(ok);
+    });
+    if receiver.recv_timeout(DESKTOP_COMMAND_TIMEOUT) == Ok(true) {
+        // Reap the owner when it loses clipboard ownership, without tying its
+        // lifetime to the app or leaving a zombie while the app is running.
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+        Ok(())
+    } else {
+        let _ = child.kill();
+        let _ = child.wait();
+        Err("Could not set the Linux system clipboard.".to_string())
+    }
+}
 
+/// Run in a dedicated process so GTK can serve clipboard requests even after
+/// the main window exits, including on desktops without a clipboard manager.
+#[cfg(target_os = "linux")]
+pub fn run_clipboard_owner() -> Result<(), String> {
+    use std::io::Write;
+    let uris: Vec<String> = serde_json::from_reader(std::io::stdin()).map_err(|e| e.to_string())?;
+    if uris.is_empty() {
+        return Err("No clipboard files.".into());
+    }
+    gtk::init().map_err(|e| e.to_string())?;
+    struct QuitOnDrop(std::rc::Rc<std::cell::Cell<bool>>);
+    impl Drop for QuitOnDrop {
+        fn drop(&mut self) {
+            if self.0.get() {
+                gtk::main_quit();
+            }
+        }
+    }
+    let active = std::rc::Rc::new(std::cell::Cell::new(false));
+    let guard = QuitOnDrop(active.clone());
     const URI_LIST_TARGET: u32 = 0;
     const GNOME_COPIED_FILES_TARGET: u32 = 1;
     const KDE_URI_LIST_TARGET: u32 = 2;
@@ -918,80 +981,70 @@ pub(crate) fn copy_files_to_clipboard_platform(
     const PORTAL_FILES_TARGET: u32 = 5;
     let uri_list = format!("{}\r\n", uris.join("\r\n"));
     let gnome_copied_files = format!("copy\n{}", uris.join("\n"));
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    app.run_on_main_thread(move || {
-        let mut targets = vec![
-            gtk::TargetEntry::new("text/uri-list", gtk::TargetFlags::empty(), URI_LIST_TARGET),
-            gtk::TargetEntry::new(
-                "x-special/gnome-copied-files",
-                gtk::TargetFlags::empty(),
-                GNOME_COPIED_FILES_TARGET,
-            ),
-            gtk::TargetEntry::new(
-                "application/x-kde4-urilist",
-                gtk::TargetFlags::empty(),
-                KDE_URI_LIST_TARGET,
-            ),
-            gtk::TargetEntry::new(
-                "application/x-kde-cutselection",
-                gtk::TargetFlags::empty(),
-                KDE_CUT_SELECTION_TARGET,
-            ),
-        ];
-        let uri_targets = gtk::TargetList::new(&[]);
-        uri_targets.add_uri_targets(URI_LIST_TARGET);
-        for (mime, info) in [
-            (
-                "application/vnd.portal.filetransfer",
-                PORTAL_FILETRANSFER_TARGET,
-            ),
-            ("application/vnd.portal.files", PORTAL_FILES_TARGET),
-        ] {
-            if uri_targets.find(&gtk::gdk::Atom::intern(mime)).is_some() {
-                targets.push(gtk::TargetEntry::new(mime, gtk::TargetFlags::empty(), info));
-            }
+    let mut targets = vec![
+        gtk::TargetEntry::new("text/uri-list", gtk::TargetFlags::empty(), URI_LIST_TARGET),
+        gtk::TargetEntry::new(
+            "x-special/gnome-copied-files",
+            gtk::TargetFlags::empty(),
+            GNOME_COPIED_FILES_TARGET,
+        ),
+        gtk::TargetEntry::new(
+            "application/x-kde4-urilist",
+            gtk::TargetFlags::empty(),
+            KDE_URI_LIST_TARGET,
+        ),
+        gtk::TargetEntry::new(
+            "application/x-kde-cutselection",
+            gtk::TargetFlags::empty(),
+            KDE_CUT_SELECTION_TARGET,
+        ),
+    ];
+    let uri_targets = gtk::TargetList::new(&[]);
+    uri_targets.add_uri_targets(URI_LIST_TARGET);
+    for (mime, info) in [
+        (
+            "application/vnd.portal.filetransfer",
+            PORTAL_FILETRANSFER_TARGET,
+        ),
+        ("application/vnd.portal.files", PORTAL_FILES_TARGET),
+    ] {
+        if uri_targets.find(&gtk::gdk::Atom::intern(mime)).is_some() {
+            targets.push(gtk::TargetEntry::new(mime, gtk::TargetFlags::empty(), info));
         }
+    }
 
-        let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
-        let has_clipboard_owner =
-            clipboard.set_with_data(&targets, move |_, selection, target| match target {
-                URI_LIST_TARGET | PORTAL_FILETRANSFER_TARGET | PORTAL_FILES_TARGET => {
-                    let uri_refs = uris.iter().map(String::as_str).collect::<Vec<_>>();
-                    let _ = selection.set_uris(&uri_refs);
-                }
-                GNOME_COPIED_FILES_TARGET => {
-                    let atom = gtk::gdk::Atom::intern("x-special/gnome-copied-files");
-                    selection.set(&atom, 8, gnome_copied_files.as_bytes());
-                }
-                KDE_URI_LIST_TARGET => {
-                    let atom = gtk::gdk::Atom::intern("application/x-kde4-urilist");
-                    selection.set(&atom, 8, uri_list.as_bytes());
-                }
-                KDE_CUT_SELECTION_TARGET => {
-                    let atom = gtk::gdk::Atom::intern("application/x-kde-cutselection");
-                    selection.set(&atom, 8, b"0");
-                }
-                _ => {}
-            });
-        let result = if has_clipboard_owner {
-            Ok(())
-        } else {
-            Err("Could not set the file on the Linux system clipboard.".to_string())
-        };
-        let _ = sender.send(result);
-    })
-    .map_err(|error| format!("Could not access the Linux system clipboard: {error}"))?;
-
-    receiver
-        .recv_timeout(DESKTOP_COMMAND_TIMEOUT)
-        .map_err(|error| match error {
-            std::sync::mpsc::RecvTimeoutError::Timeout => {
-                "The Linux system clipboard did not respond.".to_string()
+    let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
+    let has_clipboard_owner = clipboard.set_with_data(&targets, move |_, selection, target| {
+        let _keep_alive = &guard;
+        match target {
+            URI_LIST_TARGET | PORTAL_FILETRANSFER_TARGET | PORTAL_FILES_TARGET => {
+                let uri_refs = uris.iter().map(String::as_str).collect::<Vec<_>>();
+                let _ = selection.set_uris(&uri_refs);
             }
-            std::sync::mpsc::RecvTimeoutError::Disconnected => {
-                "Could not access the Linux system clipboard.".to_string()
+            GNOME_COPIED_FILES_TARGET => {
+                let atom = gtk::gdk::Atom::intern("x-special/gnome-copied-files");
+                selection.set(&atom, 8, gnome_copied_files.as_bytes());
             }
-        })?
+            KDE_URI_LIST_TARGET => {
+                let atom = gtk::gdk::Atom::intern("application/x-kde4-urilist");
+                selection.set(&atom, 8, uri_list.as_bytes());
+            }
+            KDE_CUT_SELECTION_TARGET => {
+                let atom = gtk::gdk::Atom::intern("application/x-kde-cutselection");
+                selection.set(&atom, 8, b"0");
+            }
+            _ => {}
+        }
+    });
+    if !has_clipboard_owner {
+        return Err("Could not own clipboard.".into());
+    }
+    active.set(true);
+    println!("ready");
+    std::io::stdout().flush().map_err(|e| e.to_string())?;
+    gtk::main();
+    active.set(false);
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]

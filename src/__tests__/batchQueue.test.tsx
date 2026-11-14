@@ -287,6 +287,48 @@ it("can jump directly to a page in a large queue", async () => {
   expect(names()).toEqual(["28.mp4", "29.mp4", "30.mp4"]);
 });
 
+it("clamps the saved page after a removal and resets for a new selection", async () => {
+  const items: BatchQueueItem[] = Array.from({ length: 7 }, (_, index) => ({
+    id: index,
+    inputPath: `/clips/${index + 1}.mp4`,
+    status: "queued",
+    progress: 0,
+  }));
+  const renderQueue = (queue: BatchQueueItem[], selectionKey: number) => (
+    <BatchQueue
+      items={queue}
+      selectionKey={selectionKey}
+      onClearQueue={vi.fn()}
+      onMoveItem={vi.fn()}
+      onReorderItem={vi.fn()}
+      onRemoveItem={vi.fn()}
+      onRetryItem={vi.fn()}
+      onRetryFailed={vi.fn()}
+      actionsDisabled={false}
+    />
+  );
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  await act(async () => root!.render(renderQueue(items, 1)));
+  const next = () => {
+    const buttons = container!.querySelectorAll<HTMLButtonElement>(".pagination button");
+    buttons[buttons.length - 1].click();
+  };
+  await act(async () => {
+    next();
+    next();
+  });
+  // React batches clicks, so advance the final page separately.
+  await act(async () => next());
+  expect(names()).toEqual(["7.mp4"]);
+  await act(async () => root!.render(renderQueue(items.slice(0, 6), 1)));
+  await act(async () => root!.render(renderQueue(items, 1)));
+  expect(names()).toEqual(["4.mp4", "5.mp4", "6.mp4"]);
+  await act(async () => root!.render(renderQueue(items, 2)));
+  expect(names()).toEqual(["1.mp4", "2.mp4", "3.mp4"]);
+});
+
 it("reduces the queue to one row when the work area is very short", async () => {
   const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(300);
   try {

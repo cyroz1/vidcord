@@ -577,6 +577,7 @@ export default function App() {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [batchPaths, setBatchPaths] = useState<string[]>([]);
   const [batchQueue, setBatchQueue] = useState<BatchQueueItem[]>([]);
+  const [batchSelectionKey, setBatchSelectionKey] = useState(0);
   const [activeBatchProgress, setActiveBatchProgress] = useState<BatchProgressPayload | null>(null);
   const [batchLiveSummary, setBatchLiveSummary] =
     useState<BatchLiveSummary>(EMPTY_BATCH_LIVE_SUMMARY);
@@ -1618,7 +1619,7 @@ export default function App() {
   );
 
   const loadSelection = useCallback(
-    async (paths: readonly string[]) => {
+    async (paths: readonly string[], preserveBatchPage = false) => {
       if (!settingsLoadedRef.current) {
         pendingSelectionRef.current = [...paths];
         return;
@@ -1737,6 +1738,7 @@ export default function App() {
       setSelectionScanProgress(null);
       if (expanded.superseded) return;
       if (normalizedPaths.length > 1) {
+        if (!preserveBatchPage) setBatchSelectionKey((key) => key + 1);
         await loadBatch(normalizedPaths);
       } else if (normalizedPaths.length === 1) {
         await loadVideo(normalizedPaths[0]);
@@ -1798,7 +1800,8 @@ export default function App() {
       if (loadingVideo || compressing || cancelling || finalizingOutput) return;
       if (!batchQueue.some((item) => item.id === itemId)) return;
       await loadSelection(
-        batchQueue.filter((item) => item.id !== itemId).map((item) => item.inputPath)
+        batchQueue.filter((item) => item.id !== itemId).map((item) => item.inputPath),
+        true
       );
     },
     [batchQueue, cancelling, compressing, finalizingOutput, loadSelection, loadingVideo]
@@ -4845,6 +4848,7 @@ export default function App() {
             {isBatchMode ? (
               <BatchQueue
                 items={batchQueue}
+                selectionKey={batchSelectionKey}
                 progressById={batchProgressByIdRef.current}
                 liveSummary={batchLiveSummary}
                 onClearQueue={clearBatchQueue}

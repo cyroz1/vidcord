@@ -10,6 +10,7 @@ import { isQueueItemDrag, QUEUE_ITEM_DRAG_TYPE, queueItemDragId } from "../queue
 
 type Props = {
   items: readonly BatchQueueItem[];
+  selectionKey?: number;
   liveSummary?: {
     completed: number;
     failed: number;
@@ -53,6 +54,7 @@ function fileName(path: string): string {
 
 function BatchQueue({
   items,
+  selectionKey,
   liveSummary = EMPTY_LIVE_SUMMARY,
   progressById = EMPTY_PROGRESS_BY_ID,
   onClearQueue,
@@ -111,6 +113,10 @@ function BatchQueue({
 
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
   const currentPage = Math.min(page, pageCount - 1);
+  useLayoutEffect(() => {
+    setPage((current) => Math.min(current, pageCount - 1));
+  }, [pageCount]);
+  useLayoutEffect(() => setPage(0), [selectionKey]);
   const startIndex = currentPage * pageSize;
   const visibleItems = items.slice(startIndex, startIndex + pageSize);
 
