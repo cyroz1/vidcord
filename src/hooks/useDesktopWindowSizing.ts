@@ -165,21 +165,16 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
           lastAttempt = "";
         }
         const availableCssWidth = Math.floor((availableWidth - chromeWidth) / scale) - 2;
-        // The narrow width tracks the layout's measured min-content: it
-        // grows and shrinks back as control labels and text metrics change.
-        // Sub-pixel rounding makes the measurement wobble by a pixel
-        // between modes, so keep the last applied width when a fresh
-        // measurement lands within a pixel of it; the layout tolerates
-        // being a pixel narrower than its measured minimum.
+        // Once compact mode has widened the window, retain that width for
+        // the current monitor. Otherwise changing modes or dismissing a
+        // dialog can make the window jump horizontally as its min-content
+        // width changes. It can still grow when labels need more room.
         const narrowMinWidth = measureNarrowWidth();
         const measuredNarrowWidth = Math.max(
           stableWidth,
           Math.min(narrowMinWidth, availableCssWidth)
         );
-        const narrowWidth =
-          lastNarrowWidth !== 0 && Math.abs(measuredNarrowWidth - lastNarrowWidth) < 2
-            ? lastNarrowWidth
-            : measuredNarrowWidth;
+        const narrowWidth = Math.max(lastNarrowWidth, measuredNarrowWidth);
         const normalHeight = measure("normal", stableWidth);
         const narrowHeight = measure("narrow", narrowWidth);
         const availableCssHeight = (availableHeight - chromeHeight) / scale;
