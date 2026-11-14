@@ -53,6 +53,22 @@ function currentFfmpeg() {
 }
 
 describe("browser encoder lifecycle", () => {
+  it("loads a transparently decoded response whose transfer length is smaller than its body", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]), {
+        headers: { "content-length": "4", "content-encoding": "gzip" },
+      })
+    );
+    const progress = vi.fn();
+    await engine.load(progress);
+    expect(progress).toHaveBeenCalledWith({
+      stage: "downloading",
+      loadedBytes: 8,
+      totalBytes: null,
+    });
+    expect(engine.isLoaded).toBe(true);
+  });
+
   it("reports the current download to an export that joins encoder warmup", async () => {
     let streamController!: ReadableStreamDefaultController<Uint8Array>;
     vi.mocked(fetch).mockResolvedValueOnce(

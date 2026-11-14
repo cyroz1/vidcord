@@ -115,6 +115,10 @@ async function readResponseBytes(
 }
 
 function responseContentLength(response: Response): number | null {
+  // Fetch exposes decoded body bytes, while Content-Length describes the
+  // encoded transfer. Those sizes cannot be compared or used for progress.
+  const encoding = response.headers.get("content-encoding");
+  if (encoding && encoding.toLowerCase() !== "identity") return null;
   const contentLength = Number(response.headers.get("content-length"));
   return Number.isFinite(contentLength) && contentLength > 0 ? contentLength : null;
 }
