@@ -176,7 +176,10 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         // label changes may grow the window, then shrink it back to that
         // floor when the extra space is no longer needed.
         const normalMinWidth = measureMinimumWidth("normal");
-        const normalWidth = Math.max(stableWidth, Math.min(normalMinWidth, availableCssWidth));
+        // nativeSizeForContent adds two pixels of viewport clearance. Count
+        // that clearance toward the measured minimum rather than widening
+        // the window by two pixels when the current viewport already fits.
+        const normalWidth = Math.max(stableWidth, Math.min(normalMinWidth - 2, availableCssWidth));
         const narrowMinWidth = measureMinimumWidth("narrow");
         const measuredNarrowWidth = Math.max(
           normalWidth,
