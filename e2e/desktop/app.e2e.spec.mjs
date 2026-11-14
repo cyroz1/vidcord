@@ -22,15 +22,22 @@ describe("vidcord desktop end-to-end workflow", function () {
     assert.ok(scale >= 1.9, `Expected a scaled desktop, got ${scale}`);
     await browser.$('button[aria-label="Dismiss update"]').waitForDisplayed({ timeout: 60_000 });
     await browser.$('button[aria-label="Dismiss update"]').click();
-    await browser.waitUntil(
-      async () =>
-        await browser.execute(
-          () =>
-            document.querySelector(".app")?.hasAttribute("data-compact-tight") &&
-            document.querySelector(".app")?.hasAttribute("data-compact-narrow")
-        ),
-      { timeout: 30_000, timeoutMsg: "The short-screen layout was not selected" }
-    );
+    try {
+      await browser.waitUntil(
+        async () =>
+          await browser.execute(
+            () =>
+              document.querySelector(".app")?.hasAttribute("data-compact-tight") &&
+              document.querySelector(".app")?.hasAttribute("data-compact-narrow")
+          ),
+        { timeout: 30_000, timeoutMsg: "The short-screen layout was not selected" }
+      );
+    } catch (error) {
+      // Collect the same measurements as other layout failures even when the
+      // compact arrangement never becomes active.
+      await assertMainFits("short-screen layout selection");
+      throw error;
+    }
     await assertMainFits("short-screen initial");
     const shortScreenWidth = await browser.execute(() => window.innerWidth);
     for (const mode of ["Advanced", "Lossless Trim", "GIF", "Compress"]) {
@@ -175,6 +182,12 @@ describe("vidcord desktop end-to-end workflow", function () {
     );
     await assertMainFits("settled initial screen");
     const stableWindowWidth = await browser.execute(() => window.innerWidth);
+    const initialLayout = await browser.execute(() => ({
+      compact: document.querySelector(".app")?.hasAttribute("data-compact-narrow"),
+      tight: document.querySelector(".app")?.hasAttribute("data-compact-tight"),
+      viewport: [innerWidth, innerHeight],
+      scale: devicePixelRatio,
+    }));
     await browser.$(".drop-zone").click();
     await browser.$(".loaded-file-card").waitForDisplayed({ timeout: 60_000 });
     await browser.waitUntil(async () => await browser.$(".compress-btn").isEnabled(), {
@@ -189,10 +202,16 @@ describe("vidcord desktop end-to-end workflow", function () {
       await clickMode(mode);
       assert.equal(await selectedMode(), mode);
       await assertMainFits(`${mode} mode`);
+      const modeLayout = await browser.execute(() => ({
+        compact: document.querySelector(".app")?.hasAttribute("data-compact-narrow"),
+        tight: document.querySelector(".app")?.hasAttribute("data-compact-tight"),
+        viewport: [innerWidth, innerHeight],
+        scale: devicePixelRatio,
+      }));
       assert.equal(
-        await browser.execute(() => window.innerWidth),
+        modeLayout.viewport[0],
         stableWindowWidth,
-        `The window width changed in ${mode} mode`
+        `The window width changed in ${mode} mode: initial ${JSON.stringify(initialLayout)}, current ${JSON.stringify(modeLayout)}`
       );
     }
     await browser.$(".target-label select").selectByAttribute("value", "4");
