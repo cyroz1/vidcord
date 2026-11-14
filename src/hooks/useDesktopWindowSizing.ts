@@ -300,12 +300,14 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
       schedule();
     };
     const mutationObserver = new MutationObserver((records) => {
-      // Playback time and toast updates do not affect the main layout. Avoid
-      // remeasuring the whole window on every video timeupdate.
+      // Playback, toast, and progress text updates do not affect the main
+      // layout. Avoid remeasuring the whole window for high-frequency changes.
       const affectsLayout = records.some((record) => {
         const element =
           record.target instanceof Element ? record.target : record.target.parentElement;
-        return !element?.closest(".preview-pane, .toast-container");
+        return !element?.closest(
+          ".preview-pane, .toast-container, .progress-status, .batch-queue-progress"
+        );
       });
       if (affectsLayout) syncOverlays();
     });
