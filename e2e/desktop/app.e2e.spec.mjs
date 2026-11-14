@@ -966,8 +966,45 @@ async function assertMainFits(label) {
       },
       { timeout: 20_000, timeoutMsg: `${label} did not fit the desktop WebView` }
     )
-    .catch((error) => {
-      throw new Error(`${error.message}; layout: ${JSON.stringify(lastMetrics)}`);
+    .catch(async (error) => {
+      // Capture the two layout probes only on failure. This distinguishes an
+      // undersized work area from a bad compact-layout measurement on native
+      // WebViews, without adding clone work to every successful test poll.
+      const probes = await browser.execute(() => {
+        const app = document.querySelector(".app");
+        if (!app) return null;
+        const measure = (compact, width) => {
+          const copy = app.cloneNode(true);
+          copy.style.cssText = `position:fixed;left:-10000px;top:0;visibility:hidden;pointer-events:none;width:${width}`;
+          copy.toggleAttribute("data-compact-height", compact);
+          copy.toggleAttribute("data-compact-narrow", compact);
+          for (const element of copy.querySelectorAll(
+            "video, audio, .feedback-dialog[role=dialog], .encoders-dialog[role=dialog], .update-modal, .audio-track-popup, .trim-options-panel, .encoder-options, .toast-container"
+          )) {
+            if (element.matches("video, audio")) element.removeAttribute("src");
+            else element.remove();
+          }
+          document.body.appendChild(copy);
+          const rect = copy.getBoundingClientRect();
+          const result = {
+            width: Math.ceil(Math.max(rect.width, copy.scrollWidth)),
+            height: Math.ceil(Math.max(rect.height, copy.scrollHeight)),
+          };
+          copy.remove();
+          return result;
+        };
+        return {
+          scale: window.devicePixelRatio,
+          compact: app.hasAttribute("data-compact-narrow"),
+          tight: app.hasAttribute("data-compact-tight"),
+          normal: measure(false, "460px"),
+          compactMinimum: measure(true, "min-content"),
+          compactAtViewport: measure(true, `${window.innerWidth}px`),
+        };
+      });
+      throw new Error(
+        `${error.message}; layout: ${JSON.stringify(lastMetrics)}; probes: ${JSON.stringify(probes)}`
+      );
     });
 }
 
