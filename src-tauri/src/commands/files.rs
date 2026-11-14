@@ -921,11 +921,7 @@ pub(crate) fn copy_files_to_clipboard_platform(
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     app.run_on_main_thread(move || {
         let mut targets = vec![
-            gtk::TargetEntry::new(
-                "text/uri-list",
-                gtk::TargetFlags::empty(),
-                URI_LIST_TARGET,
-            ),
+            gtk::TargetEntry::new("text/uri-list", gtk::TargetFlags::empty(), URI_LIST_TARGET),
             gtk::TargetEntry::new(
                 "x-special/gnome-copied-files",
                 gtk::TargetFlags::empty(),
@@ -951,21 +947,14 @@ pub(crate) fn copy_files_to_clipboard_platform(
             ),
             ("application/vnd.portal.files", PORTAL_FILES_TARGET),
         ] {
-            if uri_targets
-                .find(&gtk::gdk::Atom::intern(mime))
-                .is_some()
-            {
-                targets.push(gtk::TargetEntry::new(
-                    mime,
-                    gtk::TargetFlags::empty(),
-                    info,
-                ));
+            if uri_targets.find(&gtk::gdk::Atom::intern(mime)).is_some() {
+                targets.push(gtk::TargetEntry::new(mime, gtk::TargetFlags::empty(), info));
             }
         }
 
         let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
-        let has_clipboard_owner = clipboard.set_with_data(&targets, move |_, selection, target| {
-            match target {
+        let has_clipboard_owner =
+            clipboard.set_with_data(&targets, move |_, selection, target| match target {
                 URI_LIST_TARGET | PORTAL_FILETRANSFER_TARGET | PORTAL_FILES_TARGET => {
                     let uri_refs = uris.iter().map(String::as_str).collect::<Vec<_>>();
                     let _ = selection.set_uris(&uri_refs);
@@ -983,8 +972,7 @@ pub(crate) fn copy_files_to_clipboard_platform(
                     selection.set(&atom, 8, b"0");
                 }
                 _ => {}
-            }
-        });
+            });
         let result = if has_clipboard_owner {
             Ok(())
         } else {
