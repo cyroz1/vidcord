@@ -157,6 +157,23 @@ describe("vidcord desktop end-to-end workflow", function () {
       timeoutMsg: "The deterministic update modal did not close",
     });
     await assertMainFits("initial screen");
+    // Closing the update dialog can trigger an asynchronous native resize.
+    // A layout can fit during that transition, so wait for the viewport to
+    // settle before using its width as the mode-switch baseline.
+    let lastSize = "";
+    let stableSince = 0;
+    await browser.waitUntil(
+      async () => {
+        const size = await browser.execute(() => `${window.innerWidth}x${window.innerHeight}`);
+        if (size !== lastSize) {
+          lastSize = size;
+          stableSince = Date.now();
+        }
+        return Date.now() - stableSince >= 1000;
+      },
+      { timeout: 20_000, interval: 100, timeoutMsg: "The initial window size did not settle" }
+    );
+    await assertMainFits("settled initial screen");
     const stableWindowWidth = await browser.execute(() => window.innerWidth);
     await browser.$(".drop-zone").click();
     await browser.$(".loaded-file-card").waitForDisplayed({ timeout: 60_000 });
