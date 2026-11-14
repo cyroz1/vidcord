@@ -69,10 +69,10 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # A branch push and its pull-request synchronization carry the same head SHA.
-  # Group them together so only one verification run survives. Release tags and
-  # explicit packaging runs stay isolated and must finish.
-  group: ${{ github.workflow }}-${{ startsWith(github.ref, 'refs/tags/') && github.ref || github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.head.sha || github.sha }}
+  # Supersede older pushes to the same branch or updates to the same PR.
+  # PR refs stay separate from branch refs so required PR checks are not
+  # cancelled by a push run. Tags and manual packaging runs stay isolated.
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_dispatch' }}
 
 jobs:
