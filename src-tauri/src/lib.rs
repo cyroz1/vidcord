@@ -564,7 +564,7 @@ pub fn run() {
             if std::env::var_os("APPIMAGE").is_some() {
                 if let Err(error) = std::thread::Builder::new()
                     .name("vidcord-appimage-registration".to_string())
-                    .spawn(desktop_integration::register_appimage_folder_open_with)
+                    .spawn(desktop_integration::register_appimage_open_with)
                 {
                     vidcord_log(&format!(
                         "Could not start AppImage folder Open With registration: {error}"

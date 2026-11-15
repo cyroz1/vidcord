@@ -44,6 +44,10 @@ All formats use the host's GTK/WebKitGTK desktop runtime where applicable.
 AppImages bundle the media plugins used for HTML video playback, but do not
 bundle FFmpeg. See the [FFmpeg setup guide](FFMPEG_SETUP.md) for manual setup.
 
+Installed packages offer vidcord in file managers' Open With menu for supported
+video formats and folders. AppImages register the same options for the current
+user when first launched. Registration does not change the default application.
+
 ## One-off package installation
 
 Download the matching file from the

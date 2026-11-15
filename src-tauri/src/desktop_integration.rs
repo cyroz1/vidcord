@@ -7,8 +7,9 @@ use std::time::{Duration, Instant};
 
 const DESKTOP_FILE_NAME: &str = "com.cyroz1.vidcord.desktop";
 const INTEGRATION_MARKER: &str = "X-Vidcord-AppImage-Integration=true";
+const MIME_TYPES: &str = "inode/directory;video/mp4;video/x-msvideo;video/quicktime;video/x-matroska;video/x-flv;video/x-ms-wmv;video/webm;";
 
-pub(crate) fn register_appimage_folder_open_with() {
+pub(crate) fn register_appimage_open_with() {
     let Some(appimage) = std::env::var_os("APPIMAGE").map(PathBuf::from) else {
         return;
     };
@@ -16,28 +17,28 @@ pub(crate) fn register_appimage_folder_open_with() {
         Ok(appimage) => appimage,
         Err(error) => {
             crate::log::vidcord_log(&format!(
-                "AppImage folder Open With registration skipped: could not resolve the AppImage path: {error}"
+                "AppImage Open With registration skipped: could not resolve the AppImage path: {error}"
             ));
             return;
         }
     };
     if !appimage.is_file() {
         crate::log::vidcord_log(
-            "AppImage folder Open With registration skipped: the AppImage path is not a file",
+            "AppImage Open With registration skipped: the AppImage path is not a file",
         );
         return;
     }
 
     let Some(data_directory) = dirs::data_local_dir() else {
         crate::log::vidcord_log(
-            "AppImage folder Open With registration skipped: no local data directory is available",
+            "AppImage Open With registration skipped: no local data directory is available",
         );
         return;
     };
     let applications_directory = data_directory.join("applications");
     if let Err(error) = fs::create_dir_all(&applications_directory) {
         crate::log::vidcord_log(&format!(
-            "AppImage folder Open With registration skipped: could not create the applications directory: {error}"
+            "AppImage Open With registration skipped: could not create the applications directory: {error}"
         ));
         return;
     }
@@ -51,7 +52,7 @@ pub(crate) fn register_appimage_folder_open_with() {
 
     let Some(exec_path) = desktop_exec_path(&appimage) else {
         crate::log::vidcord_log(
-            "AppImage folder Open With registration skipped: the AppImage path is not usable in a desktop entry",
+            "AppImage Open With registration skipped: the AppImage path is not usable in a desktop entry",
         );
         return;
     };
@@ -60,19 +61,19 @@ pub(crate) fn register_appimage_folder_open_with() {
          Type=Application\n\
          Name=vidcord\n\
          GenericName=Video Compressor\n\
-         Comment=Import and compress videos from a folder\n\
+         Comment=Import and compress videos and folders\n\
          Exec={exec_path} %U\n\
          Icon=video-x-generic\n\
          Terminal=false\n\
          Categories=AudioVideo;Video;\n\
-         MimeType=inode/directory;\n\
+         MimeType={MIME_TYPES}\n\
          {INTEGRATION_MARKER}\n"
     );
 
     match write_desktop_entry(&desktop_file, &contents, existing_contents) {
         Ok(true) => refresh_desktop_database(&applications_directory),
         Ok(false) => {}
-        Err(_) => crate::log::vidcord_log("Could not register the Linux folder Open With entry"),
+        Err(_) => crate::log::vidcord_log("Could not register the Linux Open With entry"),
     }
 }
 
@@ -121,12 +122,65 @@ fn registered_appimage_entry_exists(
         desktop_entry_exec_program(&contents).is_some_and(|program| {
             Path::new(&program) == appimage
                 && contents.lines().any(|line| {
-                    line.strip_prefix("MimeType=")
-                        .is_some_and(|types| types.split(';').any(|mime| mime == "inode/directory"))
+                    line.strip_prefix("MimeType=").is_some_and(|types| {
+                        MIME_TYPES
+                            .split(';')
+                            .filter(|mime| !mime.is_empty())
+                            .all(|mime| types.split(';').any(|entry| entry == mime))
+                    })
                 })
         })
     });
     (found, None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn package_and_appimage_advertise_the_same_types() {
+        let template = include_str!("../linux/vidcord.desktop");
+        assert!(template
+            .lines()
+            .any(|line| line == format!("MimeType={MIME_TYPES}")));
+        assert!(template.lines().any(|line| line == "Exec={{exec}} %U"));
+    }
+
+    #[test]
+    fn incomplete_external_entry_does_not_suppress_appimage_registration() {
+        let root = std::env::temp_dir().join(format!(
+            "vidcord-integration-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let appimage = root.join("vidcord.AppImage");
+        let entry = root.join("external.desktop");
+        let own_entry = root.join(DESKTOP_FILE_NAME);
+        fs::write(
+            &entry,
+            format!(
+                "Exec=\"{}\" %U\nMimeType=inode/directory;\n",
+                appimage.display()
+            ),
+        )
+        .unwrap();
+        assert!(!registered_appimage_entry_exists(&root, &own_entry, &appimage).0);
+        fs::write(
+            &entry,
+            format!(
+                "Exec=\"{}\" %U\nMimeType={MIME_TYPES}\n",
+                appimage.display()
+            ),
+        )
+        .unwrap();
+        assert!(registered_appimage_entry_exists(&root, &own_entry, &appimage).0);
+        fs::remove_dir_all(root).unwrap();
+    }
 }
 
 /// The program an `Exec=` line launches: the first token, unquoted and

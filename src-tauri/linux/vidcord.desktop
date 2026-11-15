@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name={{name}}
+GenericName=Video Compressor
+Comment=Import and compress videos and folders
+Exec={{exec}} %U
+Icon={{icon}}
+Terminal=false
+Categories={{categories}}
+MimeType=inode/directory;video/mp4;video/x-msvideo;video/quicktime;video/x-matroska;video/x-flv;video/x-ms-wmv;video/webm;

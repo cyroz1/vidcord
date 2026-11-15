@@ -17,6 +17,7 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - Long encoder and audio-track lists use pages, and large batch queues render more efficiently.
 - Trim slider handles are no longer clipped at the top and bottom.
 - Fixed a Linux startup crash caused by concurrent X11 access.
+- Linux packages and AppImages register vidcord for opening supported videos and folders.
 
 ### Export reliability and security
 
