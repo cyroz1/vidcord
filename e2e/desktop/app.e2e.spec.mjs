@@ -235,6 +235,14 @@ describe("vidcord desktop end-to-end workflow", function () {
     await browser.$(".gif-format-label select").selectByAttribute("value", "gif");
     await clickMode("Compress");
     await assertMainFits("restored Compress mode");
+    await browser.waitUntil(
+      async () => (await browser.execute(() => window.innerWidth)) === stableWindowWidth,
+      {
+        timeout: 10_000,
+        interval: 100,
+        timeoutMsg: "The window width did not return to its baseline after temporary label growth",
+      }
+    );
     assert.equal(await browser.execute(() => window.innerWidth), stableWindowWidth);
     await browser.execute(() => {
       window.__vidcordResizeCount = 0;

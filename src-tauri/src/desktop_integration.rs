@@ -134,55 +134,6 @@ fn registered_appimage_entry_exists(
     (found, None)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn package_and_appimage_advertise_the_same_types() {
-        let template = include_str!("../linux/vidcord.desktop");
-        assert!(template
-            .lines()
-            .any(|line| line == format!("MimeType={MIME_TYPES}")));
-        assert!(template.lines().any(|line| line == "Exec={{exec}} %U"));
-    }
-
-    #[test]
-    fn incomplete_external_entry_does_not_suppress_appimage_registration() {
-        let root = std::env::temp_dir().join(format!(
-            "vidcord-integration-test-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir(&root).unwrap();
-        let appimage = root.join("vidcord.AppImage");
-        let entry = root.join("external.desktop");
-        let own_entry = root.join(DESKTOP_FILE_NAME);
-        fs::write(
-            &entry,
-            format!(
-                "Exec=\"{}\" %U\nMimeType=inode/directory;\n",
-                appimage.display()
-            ),
-        )
-        .unwrap();
-        assert!(!registered_appimage_entry_exists(&root, &own_entry, &appimage).0);
-        fs::write(
-            &entry,
-            format!(
-                "Exec=\"{}\" %U\nMimeType={MIME_TYPES}\n",
-                appimage.display()
-            ),
-        )
-        .unwrap();
-        assert!(registered_appimage_entry_exists(&root, &own_entry, &appimage).0);
-        fs::remove_dir_all(root).unwrap();
-    }
-}
-
 /// The program an `Exec=` line launches: the first token, unquoted and
 /// with desktop-entry backslash escapes resolved, or None when the entry
 /// has no Exec line.
@@ -323,4 +274,53 @@ fn refresh_desktop_database(applications_directory: &Path) {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn package_and_appimage_advertise_the_same_types() {
+        let template = include_str!("../linux/vidcord.desktop");
+        assert!(template
+            .lines()
+            .any(|line| line == format!("MimeType={MIME_TYPES}")));
+        assert!(template.lines().any(|line| line == "Exec={{exec}} %U"));
+    }
+
+    #[test]
+    fn incomplete_external_entry_does_not_suppress_appimage_registration() {
+        let root = std::env::temp_dir().join(format!(
+            "vidcord-integration-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let appimage = root.join("vidcord.AppImage");
+        let entry = root.join("external.desktop");
+        let own_entry = root.join(DESKTOP_FILE_NAME);
+        fs::write(
+            &entry,
+            format!(
+                "Exec=\"{}\" %U\nMimeType=inode/directory;\n",
+                appimage.display()
+            ),
+        )
+        .unwrap();
+        assert!(!registered_appimage_entry_exists(&root, &own_entry, &appimage).0);
+        fs::write(
+            &entry,
+            format!(
+                "Exec=\"{}\" %U\nMimeType={MIME_TYPES}\n",
+                appimage.display()
+            ),
+        )
+        .unwrap();
+        assert!(registered_appimage_entry_exists(&root, &own_entry, &appimage).0);
+        fs::remove_dir_all(root).unwrap();
+    }
 }
