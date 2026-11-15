@@ -62,7 +62,8 @@ routes, FFmpeg workers, and WASM before Tauri embeds `dist/`.
 6. Completion can copy, reveal, or leave files saved. Copy failures fall back
    to reveal. Windows uses native shell/CF_HDROP APIs; macOS uses NSWorkspace
    and NSPasteboard; Linux uses FileManager1 with folder-opening fallback and
-   `wl-copy`/`xclip`. Close after export is independent and requires success.
+   a dedicated GTK clipboard-owner process that can continue serving copied files after
+   the app exits. Close after export is independent and requires success.
 
 ### Encoding modes and boundaries
 
@@ -149,7 +150,8 @@ another report is collected. Logs can contain local filenames and diagnostics.
 
 The website [feedback form](../src/web/FeedbackSection.tsx) accepts up to 5,000
 characters and adds the page URL, user agent, and language. Both frontends use
-[feedback.ts](../src/feedback.ts) to POST to `/api/feedback`. The separate
+[feedback.ts](../src/feedback.ts); the website posts through browser fetch, while
+desktop submissions use the native HTTP client. The separate
 [Worker](../workers/feedback/README.md) forwards text through Resend; its public
 shared token is not a private credential. Website failures display an error;
 the desktop dialog also provides a manual mail-app fallback.

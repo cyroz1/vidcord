@@ -7,17 +7,19 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 
 ### Desktop interface
 
-- Compress uses the fixed 460 × 690 window and scrollable layout from v7.7, with its
-  settings labels and controls arranged in the original row.
-- Other desktop modes fit the window to their contents and the available display area,
-  using a shorter layout on suitable small screens. Window width stays stable while
-  working, and fractional display scaling no longer causes the bottom edge to flicker.
+- Compress keeps its familiar scrollable layout and settings row, while fitting the
+  window to the available display area. Other desktop modes fit their controls and
+  can use a shorter layout on small screens. Window width stays stable while working,
+  and fractional display scaling no longer causes the bottom edge to flicker.
 - When content cannot fit in the available work area, it remains reachable by scrolling;
   settings labels remain visible on short displays.
 - Long encoder and audio-track lists use pages, and large batch queues render more efficiently.
 - Trim slider handles are no longer clipped at the top and bottom.
 - Fixed a Linux startup crash caused by concurrent X11 access.
 - Linux packages and AppImages register vidcord for opening supported videos and folders.
+- Linux clipboard copies remain available after vidcord exits, including without a clipboard
+  manager. Batch queue pagination resets when the queue changes.
+- Desktop feedback submission uses the native network client, fixing failures on Linux.
 
 ### Export reliability and security
 
@@ -26,7 +28,8 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - File-open handling limits access to the selected files and folders, and oversized
   batch-probe and import requests are rejected before processing.
 - Browser encoder download progress remains visible when an export starts during
-  background preparation.
+  background preparation, and content-encoded downloads no longer fail size checks.
+- The feedback service limits aggregate report sends as well as per-address requests.
 
 ### FFmpeg setup
 

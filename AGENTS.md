@@ -449,7 +449,7 @@ Output handling has two paths:
 
 The persisted completion action is `copy` (default), `reveal`, or `none`. Clipboard copy
 validates that the output is still a file, then uses CF_HDROP on Windows, native NSPasteboard file URLs on macOS, and
-`wl-copy`/`xclip` on Linux. A copy failure falls back to revealing the saved file. `none` leaves
+a dedicated GTK clipboard-owner process on Linux, which can serve files after the app exits. A copy failure falls back to revealing the saved file. `none` leaves
 the output saved without copying, revealing, or sending a system notification; in-app completion
 feedback may remain visible. The separate `close_app_after_export` setting defaults to false; when
 enabled, it exits the app after a successful export, including a completed batch or saved snapshot,
@@ -618,7 +618,8 @@ controls or preset records.
 ### Feedback and support
 
 `feedback.ts` is shared by the desktop `FeedbackDialog` and website `FeedbackSection`. Explicit
-submissions POST to `https://vidcord.app/api/feedback`; the separate `workers/feedback` Worker
+submissions POST to `https://vidcord.app/api/feedback` using browser fetch on the website and
+the native HTTP client on desktop; the separate `workers/feedback` Worker
 forwards text through Resend to the developer. The public shared token is not a private credential.
 Worker deployment is separate from the static site; see [its README](workers/feedback/README.md).
 
