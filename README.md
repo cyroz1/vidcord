@@ -148,8 +148,8 @@ and retry oversized results with safer bitrates and CPU fallback.
 - **Desktop folder imports** — drop a folder, choose one or more folders with **Add Folder**, or
   choose **Import folder in vidcord** from a Windows folder menu, **Open With → vidcord** in Finder,
   or **Open With → vidcord** in a Linux file manager. Linux packages register
-  their desktop entry and associations at install; AppImages register the folder
-  action for the current user on first launch. vidcord scans subfolders up to a safety limit, shows scan progress,
+  video and folder associations at install; AppImages register the same per-user
+  Open With entry on first launch. vidcord scans subfolders up to a safety limit, shows scan progress,
   queues supported videos, reports skipped or unreadable items, and warns if results may be
   incomplete.
 - **Five Discord target profiles** covering current Discord tiers:
@@ -225,8 +225,8 @@ and retry oversized results with safer bitrates and CPU fallback.
 - **Desktop ways to open videos:** drag-and-drop videos or folders onto the
   window, use **Browse File** or **Add Folder**, choose vidcord from the folder
   context menu, pass command-line file arguments, or launch a second instance.
-  macOS uses Finder's **Open With** menu; Linux packages register file-manager
-  associations at install and AppImages register the folder action on first
+  macOS uses Finder's **Open With** menu; Linux packages register video and
+  folder associations at install, and AppImages add a per-user entry on first
   launch. Selecting one video preserves the normal workflow;
   multiple videos activate Batch mode.
 - **Source details at import** — the desktop app shows resolution, frame rate,
@@ -399,6 +399,12 @@ desktop-only controls listed in the capability matrix removed.
 | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | ![Compressed video saved to the Downloads folder as name-vidcord.mp4](site/marketing-assets/file.png) | ![Windows File Explorer right-click menu with Open with vidcord entry on a video file](site/marketing-assets/context.png) | ![macOS Finder right-click menu with Open with vidcord entry on a video file](site/marketing-assets/finder.png) |
 
+On Linux, right-click a supported video and choose **Open With → vidcord**.
+Native packages register video and folder associations at install; AppImages
+add a per-user entry on first launch.
+
+![Dolphin file manager Open With submenu with vidcord selected for a video file](site/marketing-assets/linux-open-with.png)
+
 ## Download vidcord
 
 The [native desktop app](https://vidcord.app/#download) is the primary website
@@ -526,8 +532,8 @@ preserve the full selection.
 1. **Open videos** — drop videos or a folder onto the window, choose **Import
    folder in vidcord** from a Windows folder menu, **Open With → vidcord** in
    Finder or a Linux file manager, or click **Browse File** or **Add Folder**.
-   Linux packages register their desktop entry and file associations at install;
-   AppImages register the folder action on first launch. Folder imports scan
+   Linux packages register video and folder associations at install; AppImages
+   add a per-user Open With entry on first launch. Folder imports scan
    subfolders up to a safety limit, show progress, and report skipped files,
    linked folders, or unreadable items. If a large scan reaches the limit,
    vidcord warns that its results may be incomplete.

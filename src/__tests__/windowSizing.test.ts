@@ -1,23 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
-  compressSizeForWorkArea,
   isSettledSize,
   nativeSizeForContent,
   positionWithinWorkArea,
   shouldUseNarrowLayout,
+  windowSizingMonitorKey,
   widthForWorkArea,
 } from "../windowSizing";
 
 describe("desktop window sizing", () => {
-  it("fits the Compress window inside a small scaled work area", () => {
-    expect(
-      compressSizeForWorkArea({ width: 1920, height: 1080 }, { width: 16, height: 39 }, 1)
-    ).toEqual({ width: 460, height: 690 });
-    expect(
-      compressSizeForWorkArea({ width: 800, height: 600 }, { width: 20, height: 40 }, 2)
-    ).toEqual({ width: 390, height: 280 });
-  });
-
   it("moves a resized window back into the current work area", () => {
     const area = { position: { x: -800, y: 0 }, size: { width: 800, height: 600 } };
     expect(positionWithinWorkArea({ x: -500, y: 400 }, { width: 460, height: 590 }, area)).toEqual({
@@ -47,6 +38,12 @@ describe("desktop window sizing", () => {
     expect(widthForWorkArea(1706, 100, 2)).toBe(460);
     expect(widthForWorkArea(1000, 15, 1.25)).toBe(460);
     expect(widthForWorkArea(700, 12, 2)).toBe(342);
+  });
+
+  it("changes the monitor key when fallback work-area dimensions change", () => {
+    expect(windowSizingMonitorKey(null, { width: 1920, height: 1080 }, 1)).not.toBe(
+      windowSizingMonitorKey(null, { width: 1280, height: 720 }, 1)
+    );
   });
 
   it("corrects the last native size request for the measured viewport and scaling", () => {

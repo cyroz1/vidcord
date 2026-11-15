@@ -11,12 +11,15 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
   window to the available display area. Other desktop modes fit their controls and
   can use a shorter layout on small screens. Window width stays stable while working,
   and fractional display scaling no longer causes the bottom edge to flicker.
+- Window sizing follows fallback screen dimensions when native monitor lookup is unavailable;
+  when work-area data is available, placement stays within that area after moves and resizes.
 - When content cannot fit in the available work area, it remains reachable by scrolling;
   settings labels remain visible on short displays.
 - Long encoder and audio-track lists use pages, and large batch queues render more efficiently.
 - Trim slider handles are no longer clipped at the top and bottom.
 - Fixed a Linux startup crash caused by concurrent X11 access.
-- Linux packages and AppImages register vidcord for opening supported videos and folders.
+- Linux packages register supported-video and folder associations at install; AppImages add the
+  same per-user Open With entry on first launch.
 - Linux clipboard copies remain available after vidcord exits, including without a clipboard
   manager. Batch queue pagination resets when the queue changes.
 - Desktop feedback submission uses the native network client, fixing failures on Linux.
@@ -36,6 +39,12 @@ numeric and `v5.1` tags are consolidated into one `v5.1` entry.
 - On Windows, vidcord no longer searches drive-root folders such as `C:\ffmpeg` by itself.
   The FFmpeg-missing banner offers **Choose folder…** for a manual installation and
   remembers the chosen folder. WinGet installations are still found automatically.
+
+### Linux downloads
+
+- The website's Linux install options show repository commands for the detected distribution and
+  architecture, allow manual selection when detection is uncertain, and offer direct package and
+  matching AppImage downloads.
 
 ### Updates
 

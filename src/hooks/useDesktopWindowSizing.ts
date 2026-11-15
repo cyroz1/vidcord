@@ -5,7 +5,9 @@ import { isTauriRuntime } from "../ipc";
 import {
   isSettledSize,
   nativeSizeForContent,
+  positionWithinWorkArea,
   shouldUseNarrowLayout,
+  windowSizingMonitorKey,
   widthForWorkArea,
 } from "../windowSizing";
 
@@ -167,7 +169,11 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         }
         // Start with the preview's usual footprint and expand when content
         // needs more room. The compact arrangement trades width for height.
-        const nextMonitorKey = JSON.stringify([monitor?.name, monitor?.workArea, scale]);
+        const nextMonitorKey = windowSizingMonitorKey(
+          monitor,
+          { width: availableWidth, height: availableHeight },
+          scale
+        );
         if (monitorKey !== nextMonitorKey || stableWidth === 0) {
           monitorKey = nextMonitorKey;
           stableWidth = widthForWorkArea(availableWidth, chromeWidth, scale);
@@ -245,52 +251,49 @@ export function useDesktopWindowSizing(appRef: RefObject<HTMLDivElement>): void 
         // applied for this width, keep it while fresh measurements stay
         // within a couple of pixels; real layout changes (mode switches,
         // extra rows appearing) move the height by far more than that.
-        if (
-          isSettledSize(
-            width,
-            height,
-            { width: lastSettledWidth, height: lastSettledHeight },
-            { width: window.innerWidth, height: window.innerHeight }
-          )
-        ) {
-          lastAttempt = "";
-          return;
-        }
+        const settled = isSettledSize(
+          width,
+          height,
+          { width: lastSettledWidth, height: lastSettledHeight },
+          { width: window.innerWidth, height: window.innerHeight }
+        );
         const widthDelta = width + 2 - window.innerWidth;
         const heightDelta = height + 2 - window.innerHeight;
-        if (Math.abs(widthDelta) < 1 && Math.abs(heightDelta) < 1) {
+        const needsResize = !settled && (Math.abs(widthDelta) >= 1 || Math.abs(heightDelta) >= 1);
+        let nextOuterSize: { width: number; height: number } | null = outer;
+        if (needsResize) {
+          const target = nativeSizeForContent(
+            { width, height },
+            { width: window.innerWidth, height: window.innerHeight },
+            lastApplied ?? { width: window.innerWidth * scale, height: window.innerHeight * scale },
+            scale
+          );
+          const targetWidth = target.width;
+          const targetHeight = target.height;
+          const attempt = `${window.innerWidth}:${window.innerHeight}:${targetWidth}:${targetHeight}`;
+          // A compositor may refuse a size (for example, when it exceeds the
+          // screen). Do not spin requesting the same impossible size forever.
+          if (attempt !== lastAttempt) {
+            lastAttempt = attempt;
+            lastIssued = { ...target, scale };
+            await nativeWindow.setSize(new PhysicalSize(targetWidth, targetHeight));
+            lastSettledWidth = width;
+            lastSettledHeight = height;
+            if (outer) {
+              nextOuterSize = {
+                width: Math.max(1, Math.round(outer.width + widthDelta * scale)),
+                height: Math.max(1, Math.round(outer.height + heightDelta * scale)),
+              };
+            }
+          }
+        } else {
           lastAttempt = "";
-          return;
         }
-        const target = nativeSizeForContent(
-          { width, height },
-          { width: window.innerWidth, height: window.innerHeight },
-          lastApplied ?? { width: window.innerWidth * scale, height: window.innerHeight * scale },
-          scale
-        );
-        const targetWidth = target.width;
-        const targetHeight = target.height;
-        const attempt = `${window.innerWidth}:${window.innerHeight}:${targetWidth}:${targetHeight}`;
-        // A compositor may refuse a size (for example, when it exceeds the
-        // screen). Do not spin requesting the same impossible size forever.
-        if (attempt === lastAttempt) return;
-        lastAttempt = attempt;
-        lastIssued = { ...target, scale };
-        await nativeWindow.setSize(new PhysicalSize(targetWidth, targetHeight));
-        lastSettledWidth = width;
-        lastSettledHeight = height;
-        if (monitor && position && outer) {
-          const area = monitor.workArea;
-          const outerWidth = outer.width + widthDelta * scale;
-          const outerHeight = outer.height + heightDelta * scale;
-          const x = Math.max(
-            area.position.x,
-            Math.round(Math.min(position.x, area.position.x + area.size.width - outerWidth))
-          );
-          const y = Math.max(
-            area.position.y,
-            Math.round(Math.min(position.y, area.position.y + area.size.height - outerHeight))
-          );
+
+        if (monitor && position && nextOuterSize) {
+          const nextPosition = positionWithinWorkArea(position, nextOuterSize, monitor.workArea);
+          const x = Math.round(nextPosition.x);
+          const y = Math.round(nextPosition.y);
           if (x !== position.x || y !== position.y) {
             // Wayland compositors may control placement themselves.
             await nativeWindow.setPosition(new PhysicalPosition(x, y)).catch(() => {});

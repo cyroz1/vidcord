@@ -138,7 +138,7 @@ type ImageVariant = { file: string; width: number };
 
 type ScreenshotProps = {
   fallback: string;
-  variants: readonly ImageVariant[];
+  variants?: readonly ImageVariant[];
   width: number;
   height: number;
   alt: string;
@@ -357,13 +357,15 @@ function DownloadIcon() {
 function Screenshot({ fallback, variants, width, height, alt, sizes, loading }: ScreenshotProps) {
   return (
     <picture>
-      <source
-        type="image/webp"
-        srcSet={variants
-          .map(({ file, width: variantWidth }) => `${asset(file)} ${variantWidth}w`)
-          .join(", ")}
-        sizes={sizes ?? "(max-width: 760px) calc(100vw - 36px), (max-width: 1040px) 560px, 500px"}
-      />
+      {variants && variants.length > 0 ? (
+        <source
+          type="image/webp"
+          srcSet={variants
+            .map(({ file, width: variantWidth }) => `${asset(file)} ${variantWidth}w`)
+            .join(", ")}
+          sizes={sizes ?? "(max-width: 760px) calc(100vw - 36px), (max-width: 1040px) 560px, 500px"}
+        />
+      ) : null}
       <img
         src={asset(fallback)}
         width={width}
@@ -1131,10 +1133,10 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
           <div>
             <h2 id="integrations-title">Open videos and folders from desktop file managers</h2>
             <p>
-              Open video files from Explorer or Finder, or use the folder picker and drag-and-drop.
-              macOS and Linux support folder Open With. Linux packages register associations at
-              install; AppImages register a per-user entry on first launch. Folder imports scan
-              subfolders and report skipped items.
+              Open video files from Explorer, Finder, or a Linux file manager, or use the folder
+              picker and drag-and-drop. Linux packages register Open With for supported videos and
+              folders when installed; AppImages add the same options for the current user on first
+              launch. Folder imports scan subfolders and report skipped items.
             </p>
           </div>
         </div>
@@ -1158,7 +1160,7 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
               sizes="(max-width: 760px) calc(100vw - 80px), 430px"
             />
           </article>
-          <article className="integration-panel integration-panel-wide">
+          <article className="integration-panel">
             <div>
               <h3>macOS Finder</h3>
               <p>Use Open With in Finder to send a local video straight into vidcord.</p>
@@ -1174,6 +1176,23 @@ function DesktopUpgrade({ children }: { children?: ReactNode }) {
               height={1208}
               alt="macOS Finder Open With menu showing vidcord for a video file"
               sizes="(max-width: 760px) calc(100vw - 80px), 670px"
+            />
+          </article>
+          <article className="integration-panel">
+            <div>
+              <h3>Linux Dolphin</h3>
+              <p>
+                Right-click a supported video, open Open With, and choose vidcord. Native packages
+                register video and folder entries at install; AppImages add them for your user on
+                first launch.
+              </p>
+            </div>
+            <Screenshot
+              fallback="linux-open-with.png"
+              width={826}
+              height={650}
+              alt="Dolphin file manager Open With submenu with vidcord selected for a video file"
+              sizes="(max-width: 760px) calc(100vw - 80px), 430px"
             />
           </article>
           <article className="integration-panel">

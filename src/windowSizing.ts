@@ -1,15 +1,25 @@
 export type WindowContentSize = { width: number; height: number };
 
-/** Keep Compress at its traditional size unless the monitor is smaller. */
-export function compressSizeForWorkArea(
-  workArea: WindowContentSize,
-  chrome: WindowContentSize,
-  scale: number
-): WindowContentSize {
-  return {
-    width: Math.max(1, Math.min(460, Math.floor((workArea.width - chrome.width) / scale))),
-    height: Math.max(1, Math.min(690, Math.floor((workArea.height - chrome.height) / scale))),
+export type WindowMonitorArea = {
+  name?: string | null;
+  workArea?: {
+    position: { x: number; y: number };
+    size: WindowContentSize;
   };
+};
+
+/** Identify the sizing area, including dimensions used when native lookup fails. */
+export function windowSizingMonitorKey(
+  monitor: WindowMonitorArea | null,
+  fallbackArea: WindowContentSize,
+  scale: number
+): string {
+  return JSON.stringify([
+    monitor?.name ?? null,
+    monitor?.workArea ?? null,
+    monitor ? null : fallbackArea,
+    scale,
+  ]);
 }
 
 export function positionWithinWorkArea(

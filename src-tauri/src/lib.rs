@@ -557,9 +557,9 @@ pub fn run() {
                 ));
             }
 
-            // AppImage folder Open With registration scans and writes desktop
-            // files; keep that filesystem work off the startup path and run
-            // it in the background after setup.
+            // AppImage video and folder Open With registration scans and
+            // writes desktop files; keep that filesystem work off the startup
+            // path and run it in the background after setup.
             #[cfg(target_os = "linux")]
             if std::env::var_os("APPIMAGE").is_some() {
                 if let Err(error) = std::thread::Builder::new()
@@ -567,7 +567,7 @@ pub fn run() {
                     .spawn(desktop_integration::register_appimage_open_with)
                 {
                     vidcord_log(&format!(
-                        "Could not start AppImage folder Open With registration: {error}"
+                        "Could not start AppImage Open With registration: {error}"
                     ));
                 }
             }

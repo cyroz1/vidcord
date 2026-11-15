@@ -44,9 +44,18 @@ All formats use the host's GTK/WebKitGTK desktop runtime where applicable.
 AppImages bundle the media plugins used for HTML video playback, but do not
 bundle FFmpeg. See the [FFmpeg setup guide](FFMPEG_SETUP.md) for manual setup.
 
+## Open videos and folders from a Linux file manager
+
 Installed packages offer vidcord in file managers' Open With menu for supported
 video formats and folders. AppImages register the same options for the current
-user when first launched. Registration does not change the default application.
+user when first launched. To use it, right-click a supported video or folder and
+choose **Open With → vidcord**. Supported video extensions are MP4, AVI, MOV,
+MKV, FLV, WMV, and WebM. Registration does not change the default application.
+
+![Dolphin file manager Open With submenu with vidcord selected for a video file](../site/marketing-assets/linux-open-with.png)
+
+Opening several videos at once starts Batch mode. Opening a folder scans its
+subfolders for supported videos and reports skipped or unreadable items.
 
 ## One-off package installation
 

@@ -19,6 +19,7 @@ for (const file of [
   "context.png",
   "file.png",
   "finder.png",
+  "linux-open-with.png",
   "gifmode.png",
   "losslesstrim.png",
   "window.png",

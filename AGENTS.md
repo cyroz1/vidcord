@@ -73,7 +73,7 @@ the authority for behavior; historical changelog entries describe their release,
 │   │   ├── main.rs            # Initializes X11 threading before GTK on Linux, then calls lib::run()
 │   │   ├── lib.rs             # Tauri builder, platform shims/theme, file-open routing
 │   │   ├── preview_source.rs  # Scoped original-file loopback delivery for Linux preview
-│   │   ├── desktop_integration.rs # Linux AppImage folder Open With registration
+│   │   ├── desktop_integration.rs # Linux AppImage per-user video/folder Open With registration
 │   │   ├── ffmpeg.rs          # probe / VAAPI discovery + caches
 │   │   ├── ffmpeg/
 │   │   │   └── encoders.rs    # FFmpeg encoder detection + encoder cache invalidation
@@ -488,7 +488,7 @@ Open-with / right-click → Open must work across three delivery mechanisms:
 
 The frontend registers its `open-file` listener and then invokes `frontend_ready`; that command marks the listener ready and drains `PendingFile` under the same mutex used by event delivery. `on_page_load` resets readiness at `PageLoadEvent::Started` so a WebView reload cannot emit into a stale React listener. Do **not** collapse these paths into one — each handles a real race that exists on at least one platform.
 
-Folder imports are registered as an alternate `public.folder` handler in the macOS app bundle and as `inode/directory` in Linux desktop metadata. A directly launched Linux AppImage also writes a per-user desktop entry on first launch so file managers can offer vidcord in **Open With** without requiring an AppImage integration utility. Linux file-manager arguments may arrive as `file://` URLs; normalize them before checking paths and forwarding them to the frontend. Recursive imports are capped at 100,000 selected roots and discovered entries; return `truncated` and make the frontend identify incomplete results instead of treating them as complete. Keep scan generations backend-owned and monotonic across WebView reloads, and ignore progress/results from a stale selection. Do not make vidcord the default handler for all folders.
+Supported video extensions are registered in desktop metadata for Linux file managers' **Open With** menus. Folder imports are also registered as an alternate `public.folder` handler in the macOS app bundle and as `inode/directory` in Linux metadata. Linux packages install both associations; a directly launched AppImage writes the same video and folder MIME types into a per-user desktop entry on first launch without requiring an AppImage integration utility. Linux file-manager arguments may arrive as `file://` URLs; normalize them before checking paths and forwarding them to the frontend. Recursive imports are capped at 100,000 selected roots and discovered entries; return `truncated` and make the frontend identify incomplete results instead of treating them as complete. Keep scan generations backend-owned and monotonic across WebView reloads, and ignore progress/results from a stale selection. Do not make vidcord the default handler for all folders.
 
 ### Update downloads
 
@@ -648,9 +648,13 @@ arrangement for the work area, and fits the window height to the WebView. The no
 arrangement's width is capped at the 16:9 preview's footprint (460 CSS px: the 432 px
 preview plus the app's horizontal padding); the narrow two-column arrangement instead uses
 its measured min-content width, since it trades width for height on short displays. It corrects against actual viewport resize events because some Linux window
-managers report client-side decorations in their native dimensions. Keep the main controls
-in normal flow and allow their height to follow the rendered text. Long Batch queues, audio
-track lists, and encoder lists use pages so they do not make the main interface scroll.
+managers report client-side decorations in their native dimensions. When native monitor lookup
+fails, key the retained width to the fallback screen's available dimensions so moving between
+same-scale displays still recalculates the fit. Clamp the outer window position to the current
+work area on every sizing pass, including passes where the requested size is already settled.
+Keep the main controls in normal flow and allow their height to follow the rendered text. Long
+Batch queues, audio-track lists, and encoder lists use pages so they do not make the main
+interface scroll.
 
 ### Frontend performance conventions
 

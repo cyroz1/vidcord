@@ -27,10 +27,13 @@ routes, FFmpeg workers, and WASM before Tauri embeds `dist/`.
 
 ## Desktop media lifecycle
 
-1. File picker, folder picker, drops, CLI arguments, macOS Open With, and
-   second-instance launches converge on import expansion. The backend scans
-   the MP4/MOV/MKV/AVI/WebM/FLV/WMV extension allowlist recursively, deduplicates videos, skips discovered
-   directory links, and reports unreadable/skipped items. A scan stops at
+1. File picker, folder picker, drops, CLI arguments, macOS and Linux file-manager
+   Open With, and second-instance launches converge on import expansion. Linux
+   packages install video/folder associations; AppImages register them per user
+   on first launch through [desktop_integration.rs](../src-tauri/src/desktop_integration.rs). The
+   backend scans the MP4/MOV/MKV/AVI/WebM/FLV/WMV extension allowlist
+   recursively, deduplicates videos, skips discovered directory links, and
+   reports unreadable/skipped items. A scan stops at
    100,000 entries; `truncated` and `superseded` results must remain visible as
    incomplete. See [files.rs](../src-tauri/src/commands/files.rs) and
    [importSummary.ts](../src/importSummary.ts).
@@ -192,6 +195,10 @@ CSP, scoped media, associations, package dependencies, and NSIS FFmpeg offer. Th
 [window sizing hook](../src/hooks/useDesktopWindowSizing.ts) keeps Compress at its traditional
 size when the display permits and fits it to smaller work areas. Other modes measure a hidden
 copy of the controls and adjust their layout and height for scaling and native decorations.
+Stable sizing resets when the native work area changes; if native monitor lookup is unavailable,
+the fallback screen dimensions also identify the sizing area. Each sizing pass clamps the outer
+window position to the known work area even when the current size is already settled. If neither
+layout fits vertically, the root scroll area keeps the remaining controls reachable.
 [build.yml](../.github/workflows/build.yml) builds Windows x64/ARM64 NSIS, macOS
 universal DMG, and Linux x64/ARM64 AppImage, DEB, and RPM. Tag builds additionally
 repack the two DEBs as native Arch/Arch Linux ARM `vidcord-bin` packages with
