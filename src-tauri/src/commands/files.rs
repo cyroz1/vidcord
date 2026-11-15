@@ -2451,6 +2451,7 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
         let target = root.join("target");
         std::fs::create_dir(&target).unwrap();
         std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -2465,6 +2466,7 @@ mod tests {
         std::fs::remove_file(&parent).unwrap();
 
         std::fs::create_dir(&parent).unwrap();
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).unwrap();
         symlink(&target, parent.join("staged-output")).unwrap();
         assert!(ensure_staging_directory_in(&root, std::ffi::OsStr::new("private")).is_err());
         assert_eq!(
@@ -2491,12 +2493,13 @@ mod tests {
     #[test]
     fn batch_staging_rejects_redirected_temporary_directory() {
         use super::{ensure_staging_directory_in, resolve_batch_output_paths_blocking};
-        use std::os::unix::fs::symlink;
+        use std::os::unix::fs::{symlink, PermissionsExt};
 
         let root =
             std::env::temp_dir().join(format!("vidcord_batch_staging_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
         let target = root.join("target");
         std::fs::create_dir(&target).unwrap();
         symlink(&target, root.join("private")).unwrap();

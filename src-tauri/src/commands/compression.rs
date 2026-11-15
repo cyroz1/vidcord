@@ -4979,6 +4979,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn private_output_parent_resolves_symlinks_before_validation() {
+        use std::os::unix::fs::PermissionsExt;
+
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -4993,6 +4995,7 @@ mod tests {
             std::process::id()
         ));
         std::fs::create_dir(&target).unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o700)).unwrap();
         std::os::unix::fs::symlink(&target, &alias).unwrap();
 
         let resolved = private_output_parent(&alias).unwrap();
@@ -5016,6 +5019,7 @@ mod tests {
             std::process::id()
         ));
         std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
         let target = directory.join("target.txt");
         let destination = directory.join("output.mp4");
         let candidate = directory.join("candidate.mp4");
